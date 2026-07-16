@@ -60,8 +60,13 @@ function fillVisibleNotices(visible: NoticeItem[], pending: NoticeItem[]): Notic
 export function noticeReducer(state: NoticeState, action: NoticeAction): NoticeState {
   switch (action.type) {
     case "add": {
-      const visible = state.visible.filter((notice) => notice.id !== action.notice.id)
-      const pending = state.pending.filter((notice) => notice.id !== action.notice.id)
+      if (
+        state.visible.some((notice) => notice.id === action.notice.id) ||
+        state.pending.some((notice) => notice.id === action.notice.id)
+      ) {
+        return state
+      }
+      const { visible, pending } = state
       if (visible.length < MAX_VISIBLE_NOTICES && !visible.some((notice) => notice.exiting)) {
         return { visible: [...visible, action.notice], pending }
       }

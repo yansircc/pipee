@@ -208,12 +208,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const lastUserMsgRef = useRef<HTMLDivElement | null>(null)
   const handledCompletionRunIdRef = useRef<string | null>(null)
 
-  const addNotice = useCallback((input: { type: NoticeType; message: string; source?: NoticeSource }) => {
-    noticeSequenceRef.current += 1
+  const addNotice = useCallback((input: { id?: string; type: NoticeType; message: string; source?: NoticeSource }) => {
+    if (input.id === undefined) noticeSequenceRef.current += 1
     dispatchNotice({
       type: "add",
       notice: createNotice({
-        id: `notice-${noticeSequenceRef.current}`,
+        id: input.id ?? `notice-${noticeSequenceRef.current}`,
         type: input.type,
         message: input.message,
         source: input.source ?? "app",
@@ -260,6 +260,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             }
             if (event._tag === "ExtensionNotice") {
               addNotice({
+                id: event.noticeId,
                 type: event.notifyType,
                 message: event.message,
                 source: "extension",

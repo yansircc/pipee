@@ -80,3 +80,12 @@ test("dismissing a durable notice reveals the next queued durable notice", async
   )
   assert.equal(revealed.pending.length, 0)
 })
+
+test("replayed extension notices are idempotent by server notice id", async () => {
+  const { createNotice, noticeReducer } = await loadSubject()
+  const notice = createNotice({ id: "server-notice-1", message: "paired", type: "info", source: "extension" })
+  const initial = { visible: [], pending: [] }
+  const added = noticeReducer(initial, { type: "add", notice })
+
+  assert.equal(noticeReducer(added, { type: "add", notice }), added)
+})
