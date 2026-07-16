@@ -13,6 +13,7 @@
     "test:upgrade": "node tooling/release/test-upgrades.mjs",
     "build:candidates": "node tooling/release/build-candidates.mjs",
     "verify:candidates": "node tooling/release/verify-candidates.mjs",
+    "verify:consumers": "node tooling/release/verify-consumers.mjs",
     "verify:packages": "pnpm -r --if-present run verify",
     "verify": "pnpm run check:workspace && pnpm run test:upgrade"
   },

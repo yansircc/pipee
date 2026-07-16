@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } 
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { extract } from "tar"
-import { root, sha512Integrity, suiteConfig } from "./lib.mjs"
+import { root, run, sha512Integrity, suiteConfig } from "./lib.mjs"
 
 const manifestPath = resolve(root, "release/candidate.json")
 assert.equal(existsSync(manifestPath), true, "release/candidate.json is missing")
@@ -11,6 +11,14 @@ const candidate = JSON.parse(readFileSync(manifestPath, "utf8"))
 assert.equal(candidate.schemaVersion, 1)
 assert.equal(candidate.releasable, candidate.sourceSha !== null && candidate.dirty === false)
 if (candidate.sourceSha !== null) assert.match(candidate.sourceSha, /^[0-9a-f]{40}$/)
+if (candidate.releasable) {
+  assert.equal(candidate.sourceSha, run("git", ["rev-parse", "HEAD"], { capture: true }).trim())
+  assert.equal(
+    run("git", ["status", "--porcelain"], { capture: true }).trim(),
+    "",
+    "releasable candidate source must remain clean",
+  )
+}
 for (const entry of suiteConfig().packages) {
   const artifact = candidate.artifacts[entry.id]
   assert.equal(artifact.name, entry.name)
