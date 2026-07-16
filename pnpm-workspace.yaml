@@ -1,6 +1,7 @@
 packages:
   - "apps/*"
   - "extensions/*"
+  - "packages/*"
   - "protocols/*"
 
 catalog:

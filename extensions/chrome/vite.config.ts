@@ -2,7 +2,7 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   fmt: {
-    ignorePatterns: ["dist/**", "scripts/release/**"],
+    ignorePatterns: ["dist/**"],
   },
   lint: {
     ignorePatterns: ["dist/**"],

@@ -187,6 +187,7 @@ const handleCommandEffect = (args: string, ctx: ExtensionCommandContext) =>
 
 export default function weixinExtension(pi: ExtensionAPI): void {
   const runtime = getPiWeixinRuntime();
+  let activeSessionId: string | undefined;
   const statusFiber = Ref.makeUnsafe(Option.none<Fiber.Fiber<void, unknown>>());
   const statusLifecycle = Semaphore.makeUnsafe(1);
 
@@ -233,6 +234,7 @@ export default function weixinExtension(pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) =>
     runtime.runPromise(
       Effect.gen(function* () {
+        activeSessionId = ctx.sessionManager.getSessionId();
         const bridge = yield* Bridge;
         yield* startStatusSync(ctx);
         yield* bridge.start;
@@ -245,7 +247,8 @@ export default function weixinExtension(pi: ExtensionAPI): void {
       Effect.gen(function* () {
         const bridge = yield* Bridge;
         yield* stopStatusSync;
-        yield* bridge.cancelLogin;
+        if (activeSessionId !== undefined) yield* bridge.releaseSession(activeSessionId);
+        activeSessionId = undefined;
       }),
     ),
   );

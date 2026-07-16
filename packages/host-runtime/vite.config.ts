@@ -1,14 +1,9 @@
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
-  fmt: {
-    ignorePatterns: ["dist/**"],
-  },
   lint: {
-    ignorePatterns: ["dist/**"],
     options: {
       typeAware: true,
-      // The @effect/tsgo-patched compiler owns Effect diagnostics.
       typeCheck: false,
     },
   },

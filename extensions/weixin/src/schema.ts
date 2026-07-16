@@ -38,16 +38,6 @@ const PendingImageBatchSchema = Schema.Union([
 ]);
 export type PendingImageBatch = Schema.Schema.Type<typeof PendingImageBatchSchema>;
 
-export const BridgeStateV1Schema = Schema.Struct({
-  version: Schema.Literal(1),
-  enabled: Schema.Boolean,
-  cursor: Schema.String,
-  processedMessageIds: Schema.Array(Schema.String),
-  auth: Schema.optional(WeixinAuthSchema),
-  binding: Schema.optional(SessionBindingSchema),
-});
-export type BridgeStateV1 = Schema.Schema.Type<typeof BridgeStateV1Schema>;
-
 export const BridgeStateSchema = Schema.Struct({
   version: Schema.Literal(2),
   enabled: Schema.Boolean,
@@ -59,12 +49,6 @@ export const BridgeStateSchema = Schema.Struct({
 });
 export type BridgeState = Schema.Schema.Type<typeof BridgeStateSchema>;
 export const BridgeStateJsonSchema = Schema.fromJsonString(BridgeStateSchema);
-export const PersistedBridgeStateJsonSchema = Schema.fromJsonString(
-  Schema.Union([BridgeStateSchema, BridgeStateV1Schema]),
-);
-
-export const migrateBridgeState = (state: BridgeState | BridgeStateV1): BridgeState =>
-  state.version === 2 ? state : { ...state, version: 2 };
 
 export const PiPromptProgressEventSchema = Schema.Union([
   Schema.TaggedStruct("ToolStarted", {

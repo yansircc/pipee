@@ -1,6 +1,6 @@
 {
   "name": "@yansircc/pi-chrome",
-  "version": "0.1.6",
+  "version": "0.5.7",
   "description": "Let Pi use your existing signed-in Chrome profile after explicit authorization.",
   "keywords": [
     "agent",
@@ -60,12 +60,12 @@
     "pi:assets-build": "node scripts/build.ts",
     "pi:domain-check": "node scripts/domain/verify-extension.mjs",
     "release:check": "node scripts/release-check.ts",
-    "pi:build": "pnpm run pi:assets-build && node scripts/pi-extension/build.mjs",
-    "pi:bundle-check": "node scripts/pi-extension/verify-distribution.mjs bundle",
-    "pi:distribution-check": "node scripts/pi-extension/verify-distribution.mjs package",
+    "pi:build": "pnpm run pi:assets-build && node ../../tooling/pi-extension/build.mjs .",
+    "pi:bundle-check": "node ../../tooling/pi-extension/verify-distribution.mjs . bundle",
+    "pi:distribution-check": "node ../../tooling/pi-extension/verify-distribution.mjs . package",
     "pi:verify": "pnpm run pi:build && pnpm run pi:bundle-check",
-    "release:archive-check": "node scripts/pi-extension/verify-distribution.mjs archive",
-    "release:platform-check": "node scripts/pi-extension/verify-distribution.mjs platform"
+    "release:archive-check": "node ../../tooling/pi-extension/verify-distribution.mjs . archive",
+    "release:platform-check": "node ../../tooling/pi-extension/verify-distribution.mjs . platform"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "catalog:",
@@ -77,11 +77,9 @@
     "@types/cross-spawn": "6.0.6",
     "@types/node": "22.20.1",
     "@yansircc/effect-scan": "catalog:",
-    "acorn": "8.15.0",
     "cross-spawn": "7.0.6",
     "effect": "catalog:",
     "knip": "6.26.0",
-    "tar": "7.5.20",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:",

@@ -1,19 +1,24 @@
-# Pi Suite development notes
+# Pi Suite development contract
 
-## Invariant
+## Ownership
 
-The supported product is one exact Suite Release, not an arbitrary combination of package versions.
-Every release manifest is derived from one source commit and the exact archives verified from that commit.
+- This repository is the only source writer for Pi Web, Loop, Weixin, Chrome, and their shared contracts.
+- Pi SDK session files own agent truth. Companion contracts own cross-package wire schemas. Domain state machines remain in their extension.
+- Shared runtime code may own mechanisms such as scoped cross-process leases; it must not own Loop, Weixin, or Chrome policy.
+- Do not add compatibility routes, state migrations, aliases, or synchronization back to the former leaf repositories.
 
-- Pi SDK and Pi JSONL files own session truth.
-- Each extension owns its runtime and persisted state migration.
-- `protocols/companion-contracts` owns cross-boundary status and control DTOs.
-- `apps/web` renders those DTOs; it does not reinterpret extension internals.
-- `extensions/chrome` owns both its Pi extension and browser extension. They are one release artifact.
-- Package versions remain independent. The Suite Release owns only the verified compatibility relation.
+## Effect and lifecycle
 
-Do not add compatibility guesses, duplicated schemas, generic extension command endpoints, or fallback routing.
-Persisted schema changes require a fixture from the previous released version and a lossless migration test.
+- Effect v4 owns I/O, concurrency, cancellation, time, scopes, and Layers.
+- Every long-lived handle, fiber, lease, queue, PubSub, and runtime must be released by Scope close.
+- Public runtime streams are read-only projections. Only the owning adapter may publish or mutate their source state.
+- Run `effect-scan` through each workspace's verify command; scanner success does not replace runtime or architecture tests.
+
+## Delivery
+
+- The root lockfile, catalog, candidate builder, and release workflow are the only toolchain and release owners.
+- Pi extensions bundle ordinary dependencies, externalize only Node built-ins and declared Pi host APIs, and must load from the raw npm archive without installing dependencies inside it.
+- One release source SHA maps to one Suite version and four exact npm archives. Never rebuild or repack a witnessed candidate.
 
 ## Commands
 
@@ -21,8 +26,10 @@ Persisted schema changes require a fixture from the previous released version an
 pnpm install --frozen-lockfile
 pnpm verify
 pnpm verify:packages
-pnpm build:candidates -- --development
+pnpm build:candidates
 pnpm verify:candidates
+pnpm verify:consumers
+git diff --check
 ```
 
-Run package-specific commands from its directory when iterating. Never rebuild an archive after candidate verification.
+Keep changes invariant-first: identify the stable axis, change axis, and owner before editing. Completion means the failure class is structurally closed or its accepted boundary and removal condition are explicit.

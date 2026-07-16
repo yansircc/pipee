@@ -5,7 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { layer as nodeServicesLayer, type NodeServices } from "@effect/platform-node/NodeServices";
 import { Type } from "@sinclair/typebox";
-import { Clock, Data, Effect, Fiber, ManagedRuntime, Schema } from "effect";
+import { Clock, Data, Effect, Exit, ManagedRuntime, Schema, Scope } from "effect";
 import { loadLoopConfig } from "../application/config.js";
 import { makeLoopOperations, type LoopOperations } from "../application/operations.js";
 import { makeLoopRepository, type LoopRepository } from "../application/repository.js";
@@ -24,7 +24,7 @@ type Session = {
   readonly repository: LoopRepository;
   readonly operations: LoopOperations;
   readonly scheduler: Scheduler;
-  readonly fiber: Fiber.Fiber<never, unknown>;
+  readonly scope: Scope.Closeable;
 };
 
 export class SessionUnavailable extends Data.TaggedError("SessionUnavailable")<{
@@ -124,8 +124,7 @@ const decodeControl = (input: string) =>
   })(input);
 
 const stopSession = (pi: ExtensionAPI, active: Session) =>
-  Fiber.interrupt(active.fiber).pipe(
-    Effect.andThen(active.repository.release),
+  Scope.close(active.scope, Exit.succeed(undefined)).pipe(
     Effect.ensuring(Effect.sync(() => sessions.delete(pi as object))),
   );
 
@@ -133,44 +132,49 @@ const startSession = (pi: ExtensionAPI, context: ExtensionContext) =>
   Effect.gen(function* () {
     const previous = sessions.get(pi as object);
     if (previous) yield* stopSession(pi, previous);
-    const config = yield* loadLoopConfig(context.cwd);
-    const sessionPersistence = yield* makeSessionLoopPersistence(pi, context);
-    const repository = yield* makeLoopRepository(context.cwd, config, sessionPersistence);
-    const operations = makeLoopOperations(repository, config);
-    const deliver = (item: Occurrence) =>
-      Effect.try({
-        try: () => {
-          if (context.hasUI) context.ui.notify(`Loop firing: ${item.loopId}`, "info");
-          pi.sendUserMessage(item.prompt);
-        },
-        catch: (cause) => new PromptDeliveryFailure({ occurrenceId: item.id, cause }),
-      }).pipe(
-        Effect.ensuring(
-          Effect.suspend(() => {
-            const current = sessions.get(pi as object);
-            return current ? refreshStatus(current) : Effect.void;
-          }),
-        ),
-      );
-    const scheduler = yield* makeScheduler(repository, deliver, config);
-    const fiber = yield* Effect.forkDetach(
-      scheduler.run.pipe(
+    const scope = yield* Scope.make("sequential");
+    yield* Effect.gen(function* () {
+      const config = yield* loadLoopConfig(context.cwd);
+      const sessionPersistence = yield* makeSessionLoopPersistence(pi, context);
+      const repository = yield* makeLoopRepository(context.cwd, config, sessionPersistence);
+      const operations = makeLoopOperations(repository, config);
+      const deliver = (item: Occurrence) =>
+        Effect.try({
+          try: () => {
+            if (context.hasUI) context.ui.notify(`Loop firing: ${item.loopId}`, "info");
+            pi.sendUserMessage(item.prompt);
+          },
+          catch: (cause) => new PromptDeliveryFailure({ occurrenceId: item.id, cause }),
+        }).pipe(
+          Effect.ensuring(
+            Effect.suspend(() => {
+              const current = sessions.get(pi as object);
+              return current ? refreshStatus(current) : Effect.void;
+            }),
+          ),
+        );
+      const scheduler = yield* makeScheduler(repository, deliver, config);
+      yield* scheduler.run.pipe(
         Effect.catch((error) =>
           Effect.logError("pi-loop scheduler stopped", { cause: error }).pipe(
             Effect.andThen(Effect.never),
           ),
         ),
-      ),
-    );
-    const active: Session = { context, config, repository, operations, scheduler, fiber };
-    yield* Effect.sync(() => sessions.set(pi as object, active));
-    yield* refreshStatus(active);
-    if (context.hasUI && !repository.leaseOwned) {
-      context.ui.notify(
-        "Another Pi session owns project-retained loops; session loops remain available.",
-        "warning",
+        Effect.forkIn(scope),
       );
-    }
+      const active: Session = { context, config, repository, operations, scheduler, scope };
+      yield* Effect.sync(() => sessions.set(pi as object, active));
+      yield* refreshStatus(active);
+      if (context.hasUI && repository.projectAccess === "follower") {
+        context.ui.notify(
+          "Another Pi session owns project-retained loops; session loops remain available.",
+          "warning",
+        );
+      }
+    }).pipe(
+      Effect.provideService(Scope.Scope, scope),
+      Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause))),
+    );
   });
 
 const registrations = new WeakSet<object>();
@@ -421,9 +425,7 @@ export default function piLoop(pi: ExtensionAPI): void {
   );
   pi.on("session_shutdown", () => {
     const active = sessions.get(pi as object);
-    return active
-      ? run(stopSession(pi, active).pipe(Effect.catch((error) => Effect.logError(error))))
-      : run(Effect.void);
+    return active ? run(stopSession(pi, active)) : run(Effect.void);
   });
   pi.on("agent_start", () => {
     const active = sessions.get(pi as object);

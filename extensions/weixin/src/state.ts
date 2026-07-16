@@ -4,8 +4,6 @@ import type { IlinkImage } from "./ilink-protocol.ts";
 import { messageBatchIdentity } from "./message.ts";
 import {
   BridgeStateJsonSchema,
-  PersistedBridgeStateJsonSchema,
-  migrateBridgeState,
   type BridgeState,
   type PendingImageBatch,
   type SessionBinding,
@@ -102,12 +100,9 @@ export const makeStateStore = (
       const encoded = yield* fs
         .readFileString(statePath)
         .pipe(Effect.mapError(stateError("read", statePath)));
-      const persisted = yield* Schema.decodeUnknownEffect(PersistedBridgeStateJsonSchema)(
-        encoded,
-      ).pipe(Effect.mapError(stateError("decode", statePath)));
-      const current = migrateBridgeState(persisted);
-      if (persisted.version === 1) yield* writeUnlocked(current);
-      return current;
+      return yield* Schema.decodeUnknownEffect(BridgeStateJsonSchema)(encoded).pipe(
+        Effect.mapError(stateError("decode", statePath)),
+      );
     });
 
     const read: StateStore["read"] = lock

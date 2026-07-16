@@ -102,46 +102,6 @@ export type ManualLoop = Schema.Schema.Type<typeof ManualLoop>;
 export const Loop = Schema.Union([OnceLoop, CronLoop, IntervalLoop, ManualLoop]);
 export type Loop = Schema.Schema.Type<typeof Loop>;
 
-const LegacyBaseFields = {
-  id: LoopId,
-  prompt: Prompt,
-  createdAt: NonNegativeInt,
-  label: optional(NonBlankString),
-};
-
-const LegacyLoop = Schema.Union([
-  Schema.TaggedStruct("Once", {
-    ...LegacyBaseFields,
-    retention: Retention,
-    phase: Schema.Union([Waiting, Stopped]),
-  }),
-  Schema.TaggedStruct("Cron", {
-    ...LegacyBaseFields,
-    retention: Retention,
-    spec: CronSpec,
-    until: optional(NonNegativeInt),
-    phase: Schema.Union([Waiting, Stopped]),
-  }),
-  Schema.TaggedStruct("Interval", {
-    ...LegacyBaseFields,
-    retention: Retention,
-    spec: IntervalSpec,
-    until: optional(NonNegativeInt),
-    phase: Schema.Union([Waiting, Stopped]),
-  }),
-  Schema.TaggedStruct("Manual", {
-    ...LegacyBaseFields,
-    retention: Schema.Literal("session"),
-    phase: Schema.Union([Waiting, AwaitingArm, Stopped]),
-  }),
-]);
-export type LegacyLoop = Schema.Schema.Type<typeof LegacyLoop>;
-
-export const DurableFileV1 = Schema.Struct({
-  version: Schema.Literal(1),
-  loops: Schema.Array(LegacyLoop),
-});
-
 export const DurableFile = Schema.Struct({
   version: Schema.Literal(2),
   loops: Schema.Array(Loop),
@@ -271,10 +231,3 @@ const dynamicInstruction = (id: string) =>
 
 export const occurrencePrompt = (loop: Loop): Prompt =>
   loop._tag === "Manual" ? `${loop.prompt}${dynamicInstruction(loop.id)}` : loop.prompt;
-
-export const migrateLegacyLoop = (loop: LegacyLoop): Loop => {
-  const suffix = loop._tag === "Manual" ? dynamicInstruction(loop.id) : "";
-  const prompt =
-    suffix && loop.prompt.endsWith(suffix) ? loop.prompt.slice(0, -suffix.length) : loop.prompt;
-  return { ...loop, prompt, enabled: true, manualCursor: 0 } as Loop;
-};

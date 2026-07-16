@@ -8,6 +8,7 @@ Pi Suite is the source and compatibility release repository for Pi Agent Web and
 - `extensions/loop` — durable scheduled and dynamic session automation.
 - `extensions/weixin` — Weixin iLink bridge bound to existing Pi sessions.
 - `extensions/chrome` — Pi Chrome bridge plus its matching browser extension.
+- `packages/host-runtime` — scoped host mechanisms shared by extensions, currently cross-process leases.
 - `protocols/companion-contracts` — schemas shared across the host/extension boundary.
 
 The npm packages keep independent versions. A supported installation is the exact archive set recorded by a Suite Release manifest under `release/`.

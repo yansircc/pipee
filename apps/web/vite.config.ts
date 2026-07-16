@@ -18,7 +18,7 @@ const piPackage = JSON.parse(
 
 export default defineConfig(({ mode }) => ({
   fmt: {
-    ignorePatterns: [".output/**", "coverage/**", "scripts/release/**", "src/routeTree.gen.ts", "test-results/**"],
+    ignorePatterns: [".output/**", "coverage/**", "src/routeTree.gen.ts", "test-results/**"],
     printWidth: 120,
     semi: false,
     singleQuote: false,

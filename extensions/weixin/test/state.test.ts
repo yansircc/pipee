@@ -1,6 +1,5 @@
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
-import { fileURLToPath } from "node:url";
 import { withTestStore } from "./runtime.ts";
 
 const hasPosixFileModes = process.platform !== "win32";
@@ -127,30 +126,6 @@ it.effect("clearing auth removes its owned pending image batch", () =>
       });
 
       expect((yield* store.clearAuth).pendingImageBatch).toBeUndefined();
-    }),
-  ),
-);
-
-it.effect("atomically migrates the published v1 state without losing credentials or binding", () =>
-  withTestStore((store) =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const fixture = yield* fs.readFileString(
-        fileURLToPath(
-          new URL("../../../tests/upgrade-fixtures/pi-weixin-state-v1.json", import.meta.url),
-        ),
-      );
-      yield* fs.writeFileString(store.path, fixture);
-
-      const migrated = yield* store.read;
-      expect(migrated).toMatchObject({
-        version: 2,
-        enabled: true,
-        cursor: "legacy-cursor",
-        auth: { accountId: "legacy-bot" },
-        binding: { sessionId: "legacy-session" },
-      });
-      expect(JSON.parse(yield* fs.readFileString(store.path))).toEqual(migrated);
     }),
   ),
 );

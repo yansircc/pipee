@@ -1,6 +1,6 @@
 {
   "name": "@yansircc/pi-web",
-  "version": "0.1.7",
+  "version": "0.5.7",
   "description": "Web UI for the pi coding agent",
   "type": "module",
   "homepage": "https://github.com/yansircc/pi-web#readme",

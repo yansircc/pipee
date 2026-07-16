@@ -1,11 +1,10 @@
-import { Clock, Data, Effect, Ref, Schema, Semaphore } from "effect";
+import { acquireCrossProcessLease } from "@pi-suite/host-runtime/cross-process-lease";
+import { Data, Effect, Ref, Schema, Scope, Semaphore } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
 import { arm as armTransition, cancel, tick, type Gate } from "../domain/transition.js";
 import {
   DurableFile,
-  DurableFileV1,
-  migrateLegacyLoop,
   occurrencePrompt,
   type Loop,
   type LoopConfig,
@@ -44,7 +43,7 @@ export type MutationError =
   | LoopStateConflict;
 
 export type LoopRepository = {
-  readonly leaseOwned: boolean;
+  readonly projectAccess: "owner" | "follower";
   readonly add: (loop: Loop) => Effect.Effect<void, MutationError>;
   readonly list: Effect.Effect<ReadonlyArray<Loop>>;
   readonly get: (id: LoopId) => Effect.Effect<Loop, LoopNotFound>;
@@ -70,7 +69,6 @@ export type LoopRepository = {
     gate: Gate,
     retention: Loop["retention"],
   ) => Effect.Effect<ReadonlyArray<Occurrence>, RepositoryFailure>;
-  readonly release: Effect.Effect<void, RepositoryFailure>;
 };
 
 export type SessionLoopPersistence = {
@@ -82,37 +80,11 @@ const repositoryFailure =
   (operation: RepositoryFailure["operation"], message: string) => (cause: unknown) =>
     new RepositoryFailure({ operation, message, cause });
 
-const LockFile = Schema.Struct({ pid: Schema.Int, acquiredAt: Schema.Int });
-
-class PidProbeFailure extends Data.TaggedError("PidProbeFailure")<{
-  readonly permissionDenied: boolean;
-}> {}
-
-const isPidAlive = (pid: number) =>
-  Effect.try({
-    try: () => {
-      process.kill(pid, 0);
-      return true;
-    },
-    catch: (cause) =>
-      new PidProbeFailure({
-        permissionDenied:
-          typeof cause === "object" && cause !== null && "code" in cause && cause.code === "EPERM",
-      }),
-  }).pipe(
-    Effect.match({
-      onFailure: (failure) => failure.permissionDenied,
-      onSuccess: () => true,
-    }),
-  );
-
-const PersistedFile = Schema.Union([DurableFile, DurableFileV1]);
-
 const decodeDurableFile = (encoded: string, filePath: string) =>
-  Schema.decodeUnknownEffect(Schema.fromJsonString(PersistedFile), {
+  Schema.decodeUnknownEffect(Schema.fromJsonString(DurableFile), {
     onExcessProperty: "error",
   })(encoded).pipe(
-    Effect.map((file) => (file.version === 1 ? file.loops.map(migrateLegacyLoop) : file.loops)),
+    Effect.map((file) => file.loops),
     Effect.mapError(repositoryFailure("load", `Invalid durable file ${filePath}`)),
   );
 
@@ -120,46 +92,23 @@ export const makeLoopRepository = (
   cwd: string,
   config: LoopConfig,
   sessionPersistence?: SessionLoopPersistence,
-): Effect.Effect<LoopRepository, RepositoryFailure, FileSystem | Path> =>
+): Effect.Effect<LoopRepository, RepositoryFailure, FileSystem | Path | Scope.Scope> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem;
     const path = yield* Path;
     const filePath = path.join(cwd, config.durableFilePath);
-    const lockPath = `${filePath}.lock`;
+    const leasePath = `${filePath}.lease.sqlite`;
     const mutationLock = yield* Semaphore.make(1);
-    const acquiredAt = yield* Clock.currentTimeMillis;
-
-    const tryAcquire = fs
-      .writeFileString(lockPath, JSON.stringify({ pid: process.pid, acquiredAt }), {
-        flag: "wx",
-        mode: 0o600,
-      })
-      .pipe(
-        Effect.as(true),
-        Effect.catch((error) =>
-          error.reason._tag === "AlreadyExists"
-            ? Effect.succeed(false)
-            : Effect.fail(repositoryFailure("lease", `Could not create ${lockPath}`)(error)),
-        ),
-      );
-
-    let leaseOwned = yield* tryAcquire;
-    if (!leaseOwned) {
-      const stale = yield* fs.readFileString(lockPath).pipe(
-        Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(LockFile))),
-        Effect.flatMap(({ pid }) => isPidAlive(pid).pipe(Effect.map((alive) => !alive))),
-        Effect.orElseSucceed(() => false),
-      );
-      if (stale) {
-        yield* fs
-          .remove(lockPath, { force: true })
-          .pipe(Effect.mapError(repositoryFailure("lease", `Could not remove stale ${lockPath}`)));
-        leaseOwned = yield* tryAcquire;
-      }
-    }
+    const projectAccess = yield* acquireCrossProcessLease(leasePath).pipe(
+      Effect.as("owner" as const),
+      Effect.catchTag("LeaseUnavailable", () => Effect.succeed("follower" as const)),
+      Effect.mapError((cause) =>
+        repositoryFailure("lease", `Could not acquire ${leasePath}`)(cause),
+      ),
+    );
 
     const loaded = new Map<LoopId, Loop>();
-    if (leaseOwned) {
+    if (projectAccess === "owner") {
       const durableExists = yield* fs
         .exists(filePath)
         .pipe(Effect.mapError(repositoryFailure("load", `Could not inspect ${filePath}`)));
@@ -169,7 +118,7 @@ export const makeLoopRepository = (
             .readFileString(filePath)
             .pipe(Effect.mapError(repositoryFailure("load", `Could not read ${filePath}`)));
           return yield* decodeDurableFile(encoded, filePath);
-        }).pipe(Effect.onError(() => fs.remove(lockPath, { force: true }).pipe(Effect.ignore)));
+        });
         for (const loop of durable) loaded.set(loop.id, loop);
       }
     }
@@ -210,7 +159,7 @@ export const makeLoopRepository = (
     ) =>
       Effect.gen(function* () {
         if (retention === "project") {
-          if (!leaseOwned) {
+          if (projectAccess === "follower") {
             return yield* new LeaseUnavailable({
               message: "Another Pi session owns project-retained loops",
             });
@@ -401,14 +350,8 @@ export const makeLoopRepository = (
           ),
         );
 
-    const release = leaseOwned
-      ? fs
-          .remove(lockPath, { force: true })
-          .pipe(Effect.mapError(repositoryFailure("lease", `Could not release ${lockPath}`)))
-      : Effect.void;
-
     return {
-      leaseOwned,
+      projectAccess,
       add,
       list: Ref.get(state).pipe(Effect.map((current) => [...current.values()])),
       get,
@@ -419,6 +362,5 @@ export const makeLoopRepository = (
       setEnabled,
       claimNow,
       claimDue,
-      release,
     };
   });

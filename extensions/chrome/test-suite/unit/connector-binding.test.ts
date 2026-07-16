@@ -1,6 +1,5 @@
 import { expect, it } from "@effect/vitest";
 import { layer as nodeServicesLayer } from "@effect/platform-node/NodeServices";
-import { fileURLToPath } from "node:url";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -12,7 +11,6 @@ import {
   ConnectorBindingStoreFailure,
   makeConnectorBindingStore,
 } from "../../src/pi/connector-binding.js";
-import { makeSessionConnectorBindingStore } from "../../src/pi/session-connector-binding.js";
 import { assertPosixFileMode } from "../support/posix-file-mode.js";
 
 const binding = {
@@ -67,30 +65,6 @@ it.effect("atomically persists one user-level connector binding", () =>
       assertPosixFileMode((yield* fs.stat(filePath)).mode, 0o600);
     }),
   ),
-);
-
-it.effect("loads the published v1 session binding document", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const agentDir = yield* fs.makeTempDirectoryScoped({ prefix: "pi-chrome-session-binding-" });
-      const directory = path.join(agentDir, "pi-chrome");
-      yield* fs.makeDirectory(directory, { recursive: true });
-      const fixture = yield* fs.readFileString(
-        fileURLToPath(
-          new URL(
-            "../../../../tests/upgrade-fixtures/pi-chrome-session-bindings-v1.json",
-            import.meta.url,
-          ),
-        ),
-      );
-      yield* fs.writeFileString(path.join(directory, "session-connector-bindings.json"), fixture);
-
-      const store = yield* makeSessionConnectorBindingStore(agentDir);
-      expect(yield* store.load).toEqual([]);
-    }),
-  ).pipe(Effect.provide(nodeServicesLayer)),
 );
 
 it.effect("ignores the incompatible legacy binding file without migration", () =>

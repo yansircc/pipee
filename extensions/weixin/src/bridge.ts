@@ -1,3 +1,4 @@
+import { acquireCrossProcessLease } from "@pi-suite/host-runtime/cross-process-lease";
 import {
   Config,
   Context,
@@ -6,6 +7,7 @@ import {
   Effect,
   Exit,
   Fiber,
+  FileSystem,
   Layer,
   Option,
   Path,
@@ -13,12 +15,15 @@ import {
   Random,
   Ref,
   Schema,
+  Scope,
   Semaphore,
   Stream,
 } from "effect";
 import { HttpClient } from "effect/unstable/http";
 import {
   BridgeConfigurationError,
+  BridgeBusy,
+  BridgeOwnershipConflict,
   GatewayError,
   GatewayIdempotencyConflictError,
   HttpRequestError,
@@ -358,6 +363,8 @@ export const processUpdateBatch = (
 type LoginError =
   | QrCodeError
   | BridgeConfigurationError
+  | BridgeBusy
+  | BridgeOwnershipConflict
   | StateStoreError
   | HttpRequestError
   | IlinkProtocolError
@@ -367,15 +374,19 @@ type BridgeLoopError = BatchError;
 export interface BridgeService {
   readonly status: Effect.Effect<BridgeStatus, StateStoreError>;
   readonly statusChanges: Stream.Stream<Exit.Exit<BridgeStatus, StateStoreError>>;
-  readonly start: Effect.Effect<boolean, StateStoreError>;
+  readonly start: Effect.Effect<boolean, StateStoreError | BridgeOwnershipConflict>;
   readonly stop: Effect.Effect<void>;
-  readonly cancelLogin: Effect.Effect<void>;
+  readonly releaseSession: (sessionId: string) => Effect.Effect<void>;
   readonly loginAndBind: (
     callbacks: LoginCallbacks<QrCodeError | BridgeConfigurationError>,
     binding: SessionBinding,
   ) => Effect.Effect<WeixinAuth, LoginError>;
-  readonly bind: (binding: SessionBinding) => Effect.Effect<void, StateStoreError>;
-  readonly setEnabled: (enabled: boolean) => Effect.Effect<void, StateStoreError>;
+  readonly bind: (
+    binding: SessionBinding,
+  ) => Effect.Effect<void, StateStoreError | BridgeOwnershipConflict>;
+  readonly setEnabled: (
+    enabled: boolean,
+  ) => Effect.Effect<void, StateStoreError | BridgeOwnershipConflict>;
   readonly logout: Effect.Effect<void, StateStoreError>;
 }
 
@@ -387,12 +398,20 @@ export const BridgeLive = Layer.effect(
   Bridge,
   Effect.gen(function* () {
     const path = yield* Path.Path;
+    const fs = yield* FileSystem.FileSystem;
     const httpClient = yield* HttpClient.HttpClient;
     const home = yield* Config.string("HOME").pipe(
       Effect.mapError(() => new BridgeConfigurationError({ reason: "HOME is not configured" })),
     );
     const statePath = yield* Config.string("PI_WEIXIN_STATE_PATH").pipe(
       Config.withDefault(path.join(home, ".pi", "agent", "pi-weixin", "state.json")),
+    );
+    yield* acquireCrossProcessLease(`${statePath}.lease.sqlite`).pipe(
+      Effect.mapError((error) =>
+        error._tag === "LeaseUnavailable"
+          ? new BridgeOwnershipConflict({ resource: "state" })
+          : new BridgeConfigurationError({ reason: `无法获取微信状态 ownership：${error.path}` }),
+      ),
     );
     const piWebBaseUrl = yield* Config.string("PI_WEB_BASE_URL").pipe(
       Config.withDefault(DEFAULT_PI_WEB_BASE_URL),
@@ -401,13 +420,55 @@ export const BridgeLive = Layer.effect(
     const transport = makeIlinkClient(makeJsonHttpClient(httpClient));
     const gateway = yield* makePiGateway(makeJsonHttpClient(httpClient), piWebBaseUrl);
     const bridgeFiber = yield* Ref.make(Option.none<Fiber.Fiber<void, never>>());
-    const loginFiber = yield* Ref.make(Option.none<Fiber.Fiber<WeixinAuth, LoginError>>());
+    const loginFiber = yield* Ref.make(
+      Option.none<{
+        readonly ownerSessionId: string;
+        readonly fiber: Fiber.Fiber<WeixinAuth, LoginError>;
+      }>(),
+    );
+    const accountOwner = yield* Ref.make(
+      Option.none<{ readonly accountId: string; readonly scope: Scope.Closeable }>(),
+    );
     const lastError = yield* Ref.make(Option.none<string>());
     const connection = yield* Ref.make<BridgeConnectionState>({ _tag: "Stopped" });
     const retryAttempt = yield* Ref.make(0);
     const pollTimeoutMs = yield* Ref.make(38_000);
     const lifecycle = yield* Semaphore.make(1);
     const statusInvalidations = yield* PubSub.unbounded<void>({ replay: 1 });
+
+    const closeAccountOwner = Ref.getAndSet(accountOwner, Option.none()).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.void,
+          onSome: ({ scope }) => Scope.close(scope, Exit.succeed(undefined)),
+        }),
+      ),
+    );
+
+    const acquireAccountOwner = (accountId: string) =>
+      Effect.gen(function* () {
+        const current = yield* Ref.get(accountOwner);
+        if (Option.isSome(current) && current.value.accountId === accountId) return;
+        if (Option.isSome(current)) yield* closeAccountOwner;
+        const scope = yield* Scope.make("sequential");
+        yield* acquireCrossProcessLease(
+          path.join(
+            home,
+            ".pi",
+            "agent",
+            "pi-weixin",
+            "accounts",
+            `${encodeURIComponent(accountId)}.lease.sqlite`,
+          ),
+        ).pipe(
+          Effect.provideService(Scope.Scope, scope),
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, path),
+          Effect.mapError(() => new BridgeOwnershipConflict({ resource: "account" })),
+          Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause))),
+        );
+        yield* Ref.set(accountOwner, Option.some({ accountId, scope }));
+      });
 
     const status: BridgeService["status"] = Effect.gen(function* () {
       const state = yield* store.read;
@@ -473,6 +534,7 @@ export const BridgeLive = Layer.effect(
     const requireReauthentication = (error: IlinkSessionExpiredError) =>
       Effect.gen(function* () {
         yield* store.clearAuth;
+        yield* closeAccountOwner;
         yield* Ref.set(connection, { _tag: "Stopped" });
         yield* Ref.set(lastError, Option.some("微信登录已失效，请执行 /weixin login"));
         yield* Effect.logWarning("微信登录凭证已失效", {
@@ -534,6 +596,7 @@ export const BridgeLive = Layer.effect(
         if (Option.isSome(yield* Ref.get(bridgeFiber))) return false;
         const state = yield* store.read;
         if (!state.enabled || !state.auth || !state.binding) return false;
+        yield* acquireAccountOwner(state.auth.accountId);
         yield* Ref.set(connection, { _tag: "Connecting" });
         yield* Ref.set(lastError, Option.none());
         yield* invalidateStatus;
@@ -564,9 +627,23 @@ export const BridgeLive = Layer.effect(
       yield* Ref.set(connection, { _tag: "Stopped" });
       yield* Ref.set(retryAttempt, 0);
       if (Option.isSome(state) && state.value.auth) yield* notifyStop(state.value.auth);
+      yield* closeAccountOwner;
     });
-    const cancelLoginRaw = stopFiber(loginFiber);
-    const cancelLogin = lifecycle.withPermits(1)(cancelLoginRaw);
+    const cancelLoginRaw = Ref.getAndSet(loginFiber, Option.none()).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.void,
+          onSome: ({ fiber }) => Fiber.interrupt(fiber).pipe(Effect.asVoid),
+        }),
+      ),
+    );
+    const cancelOwnedLoginRaw = (sessionId: string) =>
+      Effect.gen(function* () {
+        const current = yield* Ref.get(loginFiber);
+        if (Option.isNone(current) || current.value.ownerSessionId !== sessionId) return;
+        yield* Ref.set(loginFiber, Option.none());
+        yield* Fiber.interrupt(current.value.fiber);
+      });
     const stopRaw = lifecycle.withPermits(1)(
       Effect.gen(function* () {
         yield* cancelLoginRaw;
@@ -581,25 +658,35 @@ export const BridgeLive = Layer.effect(
       statusChanges,
       start: observeStatus(startRaw),
       stop: observeStatus(stopRaw),
-      cancelLogin,
+      releaseSession: (sessionId) => lifecycle.withPermits(1)(cancelOwnedLoginRaw(sessionId)),
       loginAndBind: (callbacks, binding) =>
         observeStatus(
           Effect.gen(function* () {
             const login = Effect.gen(function* () {
               const existing = yield* store.read;
               const auth = yield* transport.login(callbacks, existing.auth);
+              yield* acquireAccountOwner(auth.accountId);
               yield* store.saveAuth(auth);
               yield* store.bind(binding);
               yield* startRaw;
               return auth;
-            });
+            }).pipe(Effect.onError(() => closeAccountOwner));
             const fiber = yield* lifecycle.withPermits(1)(
               Effect.uninterruptible(
                 Effect.gen(function* () {
-                  yield* cancelLoginRaw;
+                  const active = yield* Ref.get(loginFiber);
+                  if (Option.isSome(active)) {
+                    return yield* new BridgeBusy({
+                      operation: "login",
+                      ownerSessionId: active.value.ownerSessionId,
+                    });
+                  }
                   yield* stopBridgeRaw;
                   const fiber = yield* Effect.forkDetach(login);
-                  yield* Ref.set(loginFiber, Option.some(fiber));
+                  yield* Ref.set(
+                    loginFiber,
+                    Option.some({ ownerSessionId: binding.sessionId, fiber }),
+                  );
                   return fiber;
                 }),
               ),
@@ -608,7 +695,7 @@ export const BridgeLive = Layer.effect(
               Effect.onInterrupt(() => Fiber.interrupt(fiber).pipe(Effect.asVoid)),
               Effect.ensuring(
                 Ref.update(loginFiber, (current) =>
-                  Option.isSome(current) && current.value === fiber ? Option.none() : current,
+                  Option.isSome(current) && current.value.fiber === fiber ? Option.none() : current,
                 ),
               ),
             );
@@ -624,6 +711,7 @@ export const BridgeLive = Layer.effect(
         ),
       logout: observeStatus(stopRaw.pipe(Effect.andThen(store.logout), Effect.asVoid)),
     };
+    yield* Effect.addFinalizer(() => stopRaw);
     return service;
   }),
 );

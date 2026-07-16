@@ -30,9 +30,11 @@ it("requires verification and a real connector smoke before publishing", () => {
   expect(packageJson.scripts.verify).toBe("pnpm run repo:verify && pnpm run pi:verify");
   expect(packageJson.scripts["pi:assets-build"]).toBe("node scripts/build.ts");
   expect(packageJson.scripts["release:check"]).toBe("node scripts/release-check.ts");
-  expect(packageJson.scripts["release:archive-check"]).toContain("verify-distribution.mjs archive");
+  expect(packageJson.scripts["release:archive-check"]).toBe(
+    "node ../../tooling/pi-extension/verify-distribution.mjs . archive",
+  );
   expect(packageJson.scripts["release:platform-check"]).toContain(
-    "verify-distribution.mjs platform",
+    "../../tooling/pi-extension/verify-distribution.mjs . platform",
   );
   expect(packageJson.scripts).not.toHaveProperty("release:public-check");
   expect(tasks.build?.command).toBe("pnpm run pi:build");
