@@ -1,0 +1,14 @@
+{
+  "name": "@pi-suite/companion-contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./chrome": "./src/chrome.ts",
+    "./loop": "./src/loop.ts",
+    "./weixin": "./src/weixin.ts"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  }
+}

@@ -1,0 +1,44 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>13 focus order</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: focus the input by <em>clicking</em> it (not <code>.focus()</code>), then type
+      <code>x</code>. Pointerdown must precede focus, and <code>:focus-visible</code> must be false
+      for pointer focus.
+    </p>
+    <input
+      id="t"
+      placeholder="click then type x"
+      style="font-size: 18px; padding: 8px 12px; width: 240px"
+    />
+  </main>
+  <script>
+    Challenge.init({ id: "focus-order", instructions: "click input then type 'x'" });
+    const t = document.getElementById("t");
+    let lastPointer = -Infinity,
+      lastFocus = -Infinity,
+      sawPointer = false;
+    t.addEventListener("pointerdown", (e) => {
+      lastPointer = e.timeStamp;
+      sawPointer = true;
+    });
+    t.addEventListener("focus", (e) => {
+      lastFocus = e.timeStamp;
+      if (!sawPointer) Challenge.fail("focus arrived with no preceding pointerdown");
+      else if (lastFocus < lastPointer) Challenge.fail("focus before pointerdown");
+    });
+    t.addEventListener("input", () => {
+      if (t.value !== "x") return;
+      // For pointer-driven focus, :focus-visible should be false.
+      const fv = t.matches(":focus-visible");
+      Challenge.log("focus-visible", { fv });
+      if (fv) Challenge.fail(":focus-visible true after pointer click (looks like keyboard focus)");
+      else if (window.__verdict !== "FAIL")
+        Challenge.pass("pointerdown→focus→input order ok, :focus-visible=false");
+    });
+  </script>
+</body>

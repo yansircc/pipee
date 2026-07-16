@@ -1,0 +1,190 @@
+{
+  "host": "127.0.0.1",
+  "port": 17318,
+  "hmacAuthentication": {
+    "algorithmVersion": 2,
+    "digest": "sha256",
+    "keyEncoding": "hex",
+    "proofEncoding": "hex",
+    "domains": {
+      "ownerServerProof": "pi-chrome/bridge-owner/server-proof/v1",
+      "ownerRequestProof": "pi-chrome/bridge-owner/request-proof/v1",
+      "connectorServerProof": "pi-chrome/connector/server-proof/v1",
+      "connectorRequestProof": "pi-chrome/connector/request-proof/v1",
+      "pairingServerProof": "pi-chrome/pairing/server-proof/v1",
+      "pairingRequestProof": "pi-chrome/pairing/request-proof/v1"
+    }
+  },
+  "headers": {
+    "ownerProtocolFingerprint": "x-pi-chrome-protocol-fingerprint",
+    "ownerClientNonce": "x-pi-chrome-owner-client-nonce",
+    "ownerBridgeEpoch": "x-pi-chrome-owner-bridge-epoch",
+    "ownerRequestNonce": "x-pi-chrome-owner-request-nonce",
+    "ownerBodySha256": "x-pi-chrome-owner-body-sha256",
+    "ownerProof": "x-pi-chrome-owner-proof"
+  },
+  "routes": {
+    "owner": {
+      "ownerHandshake": {
+        "method": "GET",
+        "path": "/owner/handshake",
+        "bodyLimit": "none",
+        "responseLimit": "controlBody"
+      },
+      "status": {
+        "method": "GET",
+        "path": "/status",
+        "bodyLimit": "none",
+        "responseLimit": "controlBody"
+      },
+      "pairingStart": {
+        "method": "POST",
+        "path": "/pairing/start",
+        "bodyLimit": "none",
+        "responseLimit": "controlBody"
+      },
+      "webLeaseAcquire": {
+        "method": "POST",
+        "path": "/web-lease/acquire",
+        "bodyLimit": "controlBody",
+        "responseLimit": "controlBody"
+      },
+      "webLeaseRelease": {
+        "method": "POST",
+        "path": "/web-lease/release",
+        "bodyLimit": "controlBody",
+        "responseLimit": "controlBody"
+      },
+      "webLeaseAssert": {
+        "method": "POST",
+        "path": "/web-lease/assert",
+        "bodyLimit": "controlBody",
+        "responseLimit": "controlBody"
+      },
+      "webRouteDetach": {
+        "method": "POST",
+        "path": "/web-route/detach",
+        "bodyLimit": "controlBody",
+        "responseLimit": "controlBody"
+      },
+      "unpair": {
+        "method": "POST",
+        "path": "/unpair",
+        "bodyLimit": "controlBody",
+        "responseLimit": "controlBody"
+      },
+      "forget": {
+        "method": "POST",
+        "path": "/forget",
+        "bodyLimit": "controlBody",
+        "responseLimit": "controlBody"
+      },
+      "command": {
+        "method": "POST",
+        "path": "/command",
+        "bodyLimit": "requestBody",
+        "responseLimit": "requestBody"
+      }
+    },
+    "extension": {
+      "preflight": {
+        "method": "OPTIONS",
+        "path": "*",
+        "bodyLimit": "none",
+        "responseLimit": "controlBody"
+      },
+      "pairingHandshake": {
+        "method": "GET",
+        "path": "/pairing/handshake",
+        "bodyLimit": "none",
+        "responseLimit": "controlBody"
+      },
+      "pairingConfirm": {
+        "method": "POST",
+        "path": "/pairing/confirm",
+        "bodyLimit": "controlBody",
+        "responseLimit": "controlBody"
+      }
+    },
+    "connector": {
+      "connectorHandshake": {
+        "method": "GET",
+        "path": "/connector/handshake",
+        "bodyLimit": "none",
+        "responseLimit": "controlBody"
+      },
+      "poll": {
+        "method": "GET",
+        "path": "/next",
+        "bodyLimit": "none",
+        "responseLimit": "requestBody"
+      },
+      "result": {
+        "method": "POST",
+        "path": "/result",
+        "bodyLimit": "requestBody",
+        "responseLimit": "controlBody"
+      }
+    }
+  },
+  "transportDeadlinesMs": {
+    "ownerRequest": 3000,
+    "ownerCommandHttpResponseGrace": 2000,
+    "connectorRequest": 30000,
+    "pollWait": 25000,
+    "connectorLease": 35000,
+    "incomingRequest": 30000,
+    "incomingHeaders": 10000,
+    "authenticationChallenge": 5000,
+    "authenticationHandshake": 3000
+  },
+  "webRun": {
+    "offerLifetimeMs": 120000,
+    "leaseLifetimeMs": 43200000,
+    "maxPendingOffers": 128
+  },
+  "transportLimitsBytes": {
+    "none": 0,
+    "screenshotPayload": 16777216,
+    "requestBody": 20971520,
+    "controlBody": 65536
+  },
+  "transportLimitsCount": {
+    "incomingConnections": 128,
+    "pendingChallengesPerScope": 128
+  },
+  "mailboxLimits": {
+    "maxAdmittedCommandsPerConnector": 64
+  },
+  "automationTargetLimits": {
+    "perSession": 5,
+    "perProfile": 256
+  },
+  "screenshotLimits": {
+    "maxTiles": 200,
+    "maxDpr": 4,
+    "maxCapturePixels": 16777216,
+    "maxTotalPixels": 67108864
+  },
+  "httpStatuses": {
+    "requestBodyTooLarge": 413
+  },
+  "commandDeadlinesMs": {
+    "defaultExecution": 30000,
+    "navigateDefault": 15000,
+    "navigateOverhead": 2000,
+    "waitDefault": 10000,
+    "waitIntervalDefault": 250,
+    "waitOverhead": 2000,
+    "fullPageScreenshot": 120000,
+    "textInputBase": 30000,
+    "textInputPerCharacter": 180,
+    "textInputMaximum": 120000,
+    "resultDeliveryGrace": 5000
+  },
+  "resultDelivery": {
+    "acknowledgedStatus": 200,
+    "unknownCommandStatus": 404,
+    "retryableRange": { "minimum": 500, "maximum": 599 }
+  }
+}

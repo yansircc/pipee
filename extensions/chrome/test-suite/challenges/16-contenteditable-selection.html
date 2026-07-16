@@ -1,0 +1,74 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>16 contenteditable selection</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: focus the editable region and type <code>hello</code>. Page asserts that
+      <code>window.getSelection()</code> reflects per-keystroke caret movement
+      (<code>rangeCount===1</code>, <code>collapsed</code> caret, anchor inside the editor, offset
+      advances 1 per char) and that <code>selectionchange</code> fires.
+    </p>
+    <div
+      id="ed"
+      contenteditable="true"
+      style="
+        min-height: 60px;
+        padding: 10px;
+        border: 1px solid #555;
+        background: #fff;
+        color: #111;
+        font: 16px monospace;
+      "
+    ></div>
+  </main>
+  <script>
+    Challenge.init({
+      id: "contenteditable-selection",
+      instructions: "focus editor and type 'hello'",
+    });
+    const ed = document.getElementById("ed");
+    const offsets = [];
+    let selChanges = 0;
+
+    document.addEventListener("selectionchange", () => {
+      selChanges++;
+      const s = window.getSelection();
+      if (!s || s.rangeCount === 0) return;
+      if (!ed.contains(s.anchorNode)) return;
+      offsets.push({
+        off: s.anchorOffset,
+        collapsed: s.isCollapsed,
+        t: performance.now(),
+        len: ed.textContent.length,
+      });
+    });
+
+    ed.addEventListener("input", async () => {
+      if (ed.textContent !== "hello") return;
+      // selectionchange is async — wait a tick so the final caret update is observed.
+      await new Promise((r) => setTimeout(r, 30));
+      const bad = [];
+      const sel = window.getSelection();
+      if (!sel) bad.push("getSelection()==null");
+      else {
+        if (sel.rangeCount !== 1) bad.push(`rangeCount=${sel.rangeCount} (need 1)`);
+        if (!sel.isCollapsed) bad.push("selection not collapsed after typing");
+        if (!ed.contains(sel.anchorNode)) bad.push("selection anchor outside editor");
+        if (sel.anchorOffset !== 5) bad.push(`anchorOffset=${sel.anchorOffset} (need 5)`);
+      }
+      if (selChanges < 5) bad.push(`selectionchange count=${selChanges} (need ≥5)`);
+      // offsets should advance monotonically 1,2,3,4,5 (allowing extras from focus)
+      const monotonic = offsets.map((o) => o.off);
+      const peak = Math.max(0, ...monotonic);
+      if (peak !== 5) bad.push(`peak caret offset=${peak} during typing (need 5)`);
+      // every caret reading must be collapsed (no spurious ranges)
+      if (offsets.some((o) => !o.collapsed)) bad.push("non-collapsed range observed during typing");
+      Challenge.log("sel", { offsets, selChanges });
+      if (bad.length) Challenge.fail(...bad);
+      else Challenge.pass(`selectionchanges=${selChanges}, caret advanced 0→5`);
+    });
+  </script>
+</body>

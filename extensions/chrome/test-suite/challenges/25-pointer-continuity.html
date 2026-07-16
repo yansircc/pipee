@@ -1,0 +1,83 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>25 pointer continuity</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: click <b>A</b>, then click <b>B</b>. Page requires pointer continuity: between the two
+      clicks there must be intermediate <code>pointermove</code> events whose path roughly connects
+      the two click points (no teleport). Two clicks &gt;100px apart with zero moves between is a
+      synthetic-bridge tell.
+    </p>
+    <div style="display: flex; justify-content: space-between; margin-top: 20px">
+      <button
+        id="a"
+        style="padding: 14px 22px; background: #36c; color: #fff; border: 0; border-radius: 6px"
+      >
+        A
+      </button>
+      <div style="flex: 1"></div>
+      <button
+        id="b"
+        style="padding: 14px 22px; background: #c36; color: #fff; border: 0; border-radius: 6px"
+      >
+        B
+      </button>
+    </div>
+  </main>
+  <script>
+    Challenge.init({ id: "pointer-continuity", instructions: "click A, move mouse to B, click B" });
+
+    const a = document.getElementById("a");
+    const b = document.getElementById("b");
+
+    const moves = [];
+    window.addEventListener("pointermove", (e) => {
+      moves.push({ x: e.clientX, y: e.clientY, t: e.timeStamp });
+      if (moves.length > 500) moves.shift();
+    });
+
+    let aClickTs = 0,
+      aPoint = null;
+    a.addEventListener("click", (e) => {
+      if (!e.isTrusted) return Challenge.fail("A click isTrusted=false");
+      aClickTs = e.timeStamp;
+      aPoint = { x: e.clientX, y: e.clientY };
+      Challenge.log("A click", aPoint);
+    });
+
+    b.addEventListener("click", (e) => {
+      if (!aClickTs) return Challenge.fail("B clicked before A");
+      if (!e.isTrusted) return Challenge.fail("B click isTrusted=false");
+      const bPoint = { x: e.clientX, y: e.clientY };
+      const between = moves.filter((m) => m.t > aClickTs && m.t < e.timeStamp);
+      Challenge.log("B click", { bPoint, betweenCount: between.length });
+      const dist = Math.hypot(bPoint.x - aPoint.x, bPoint.y - aPoint.y);
+      if (dist < 100)
+        return Challenge.fail(
+          `A-B distance only ${dist.toFixed(0)}px — buttons should be further apart in viewport`,
+        );
+      if (between.length < 5)
+        return Challenge.fail(`only ${between.length} pointermove(s) between A and B (need ≥5)`);
+
+      // Path coverage: at least some intermediate move must be ≥30% of the way across.
+      const inSpan = between.filter((m) => {
+        const px = (m.x - aPoint.x) / (bPoint.x - aPoint.x || 1);
+        return px > 0.25 && px < 0.75;
+      });
+      if (inSpan.length === 0)
+        return Challenge.fail("no pointermove samples in mid-span between A and B (teleport)");
+
+      // Move timestamps should be spread, not bunched in <20ms.
+      const span = between[between.length - 1].t - between[0].t;
+      if (span < 30)
+        return Challenge.fail(`pointermoves bunched in ${span.toFixed(0)}ms (need spread ≥30ms)`);
+
+      Challenge.pass(
+        `${between.length} moves bridging A→B over ${span.toFixed(0)}ms, dist=${dist.toFixed(0)}px`,
+      );
+    });
+  </script>
+</body>

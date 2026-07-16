@@ -1,0 +1,93 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>19 hover dwell</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: hover the trigger and wait until the <b>Confirm</b> button reveals (≥600ms dwell with
+      continuous <code>pointermove</code> activity inside the trigger), then click Confirm. Instant
+      hover-then-click without dwell, or hover with no intermediate pointermove, looks robotic and
+      fails.
+    </p>
+    <div
+      id="trig"
+      style="
+        display: inline-block;
+        padding: 16px 24px;
+        background: #2a4;
+        color: #fff;
+        border-radius: 6px;
+        cursor: pointer;
+      "
+    >
+      hover me
+    </div>
+    <button
+      id="go"
+      style="
+        display: none;
+        margin-left: 12px;
+        padding: 10px 18px;
+        background: #1f7a1f;
+        color: #fff;
+        border: 0;
+        border-radius: 6px;
+      "
+    >
+      Confirm
+    </button>
+  </main>
+  <script>
+    Challenge.init({
+      id: "hover-dwell",
+      instructions: "hover ≥600ms with movement, then click Confirm",
+    });
+    const trig = document.getElementById("trig");
+    const btn = document.getElementById("go");
+
+    let enterTs = 0,
+      lastMoveTs = 0,
+      moveCount = 0;
+    trig.addEventListener("pointerenter", (e) => {
+      enterTs = e.timeStamp;
+      lastMoveTs = e.timeStamp;
+      moveCount = 0;
+    });
+    trig.addEventListener("pointermove", (e) => {
+      lastMoveTs = e.timeStamp;
+      moveCount++;
+    });
+    trig.addEventListener("pointerleave", () => {
+      if (!btn.dataset.revealed) {
+        enterTs = 0;
+        lastMoveTs = 0;
+        moveCount = 0;
+      }
+    });
+
+    // Reveal after sustained dwell + activity.
+    setInterval(() => {
+      if (btn.dataset.revealed) return;
+      if (!enterTs) return;
+      const dwell = performance.now() - enterTs;
+      if (dwell >= 600 && moveCount >= 3) {
+        btn.style.display = "inline-block";
+        btn.dataset.revealed = "1";
+        btn.dataset.revealTs = performance.now();
+        Challenge.log("revealed", { dwell, moveCount });
+      }
+    }, 50);
+
+    btn.addEventListener("click", (e) => {
+      if (!btn.dataset.revealed)
+        return Challenge.fail("Confirm clicked before reveal (display:none)");
+      const sinceReveal = e.timeStamp - Number(btn.dataset.revealTs);
+      if (sinceReveal < 80)
+        return Challenge.fail(`clicked ${sinceReveal.toFixed(0)}ms after reveal (too instant)`);
+      if (!e.isTrusted) return Challenge.fail("Confirm click isTrusted=false");
+      Challenge.pass(`dwell+activity+human-latency reveal (Δ=${sinceReveal.toFixed(0)}ms)`);
+    });
+  </script>
+</body>

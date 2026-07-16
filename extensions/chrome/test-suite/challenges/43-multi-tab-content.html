@@ -1,0 +1,71 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Research controller 43</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <nav id="extension-noise" aria-label="Injected research toolbar">
+    <button>Metrics</button>
+    <button>Keywords</button>
+    <button>Backlinks</button>
+    <button>Traffic</button>
+    <button>Authority</button>
+    <button>Export</button>
+  </nav>
+  <main id="content"></main>
+  <script>
+    Challenge.init({
+      id: "multi-tab-content",
+      instructions:
+        "Open Alpha and Beta as separate owned tabs, read both text snapshots, then submit both codes in the controller.",
+    });
+
+    const params = new URLSearchParams(location.search);
+    const source = params.get("source");
+    const stateKey = "pi-chrome-suite:multi-tab-content";
+    const readState = () => JSON.parse(localStorage.getItem(stateKey) || "{}");
+    const writeState = (patch) =>
+      localStorage.setItem(stateKey, JSON.stringify({ ...readState(), ...patch }));
+    const content = document.getElementById("content");
+
+    if (source === "alpha" || source === "beta") {
+      const isAlpha = source === "alpha";
+      const name = isAlpha ? "Alpha" : "Beta";
+      const code = isAlpha ? "ALPHA-17" : "BETA-29";
+      const href = isAlpha ? "https://alpha.example.test/report" : "https://beta.example.test/news";
+      document.title = `[${name.toUpperCase()}] 43 multi tab content`;
+      content.innerHTML = `
+        <article aria-labelledby="result-title">
+          <h1 id="result-title"><a href="${href}">${name} research result</a></h1>
+          <p>${name} verification code: <strong>${code}</strong>.</p>
+          <p>This snippet belongs to the linked result and must survive text-mode projection.</p>
+        </article>
+      `;
+      writeState({ [`${source}Opened`]: true });
+      Challenge.log("source-opened", { source, code });
+    } else {
+      document.getElementById("extension-noise").remove();
+      content.innerHTML = `
+        <h1>Multi-tab research controller</h1>
+        <p>Keep this controller open while reading Alpha and Beta in separate owned tabs.</p>
+        <label>Alpha code <input id="alphaCode" autocomplete="off" /></label>
+        <label>Beta code <input id="betaCode" autocomplete="off" /></label>
+        <button id="verify">Verify both sources</button>
+      `;
+      localStorage.setItem(stateKey, "{}");
+      document.getElementById("verify").addEventListener("click", (event) => {
+        const state = readState();
+        const alpha = document.getElementById("alphaCode").value.trim();
+        const beta = document.getElementById("betaCode").value.trim();
+        const failures = [];
+        if (!event.isTrusted) failures.push("verify click isTrusted=false");
+        if (!state.alphaOpened) failures.push("Alpha source was not opened");
+        if (!state.betaOpened) failures.push("Beta source was not opened");
+        if (alpha !== "ALPHA-17") failures.push(`wrong Alpha code: ${alpha}`);
+        if (beta !== "BETA-29") failures.push(`wrong Beta code: ${beta}`);
+        if (failures.length) Challenge.fail(...failures);
+        else Challenge.pass("two owned source tabs preserved and both content codes recovered");
+      });
+    }
+  </script>
+</body>

@@ -1,0 +1,63 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>41 tab lifecycle</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: create a new tab, inspect it, close it, return to parent, then verify lifecycle state.
+    </p>
+    <p id="msg"></p>
+    <button id="verify">Verify tab lifecycle</button>
+  </main>
+  <script>
+    Challenge.init({
+      id: "tab-lifecycle",
+      instructions: "new tab → inspect child → close child → return parent → Verify",
+    });
+    const qs = new URLSearchParams(location.search);
+    const key = "pi-chrome-suite:tab-lifecycle:state";
+    function readState() {
+      try {
+        return JSON.parse(localStorage.getItem(key) || "{}");
+      } catch {
+        return {};
+      }
+    }
+    function replaceState(next) {
+      localStorage.setItem(key, JSON.stringify({ ...next, ts: Date.now() }));
+    }
+    function writeState(patch) {
+      localStorage.setItem(key, JSON.stringify({ ...readState(), ...patch, ts: Date.now() }));
+    }
+
+    if (qs.get("child") === "1") {
+      document.title = "[CHILD] 41 tab lifecycle";
+      document.getElementById("msg").textContent =
+        "Child tab opened. Close this tab, then return to parent.";
+      writeState({ opened: true, childUrl: location.href, childTitle: document.title });
+      window.addEventListener("pagehide", () => writeState({ closed: true, closedAt: Date.now() }));
+      window.addEventListener("beforeunload", () =>
+        writeState({ closed: true, closedAt: Date.now() }),
+      );
+      // Do not call Challenge.pass here: parent verification must be the only suite PASS.
+      Challenge.log("child-loaded", { url: location.href });
+    } else {
+      document.getElementById("msg").textContent =
+        "Parent tab. Runner should open this same file with ?child=1 in a new tab, inspect it, close it, then return here.";
+      replaceState({ parentLoaded: true, closed: false });
+      document.getElementById("verify").addEventListener("click", (e) => {
+        const s = readState();
+        const bad = [];
+        if (!e.isTrusted) bad.push("verify click isTrusted=false");
+        if (!s.opened) bad.push("child tab did not record opened=true");
+        if (!s.childUrl || !s.childUrl.includes("child=1")) bad.push("child URL not recorded");
+        if (!s.closed) bad.push("child tab close/pagehide was not recorded");
+        Challenge.log("tab-state", s);
+        if (bad.length) Challenge.fail(...bad);
+        else Challenge.pass("new/inspect/close/return tab lifecycle completed");
+      });
+    }
+  </script>
+</body>

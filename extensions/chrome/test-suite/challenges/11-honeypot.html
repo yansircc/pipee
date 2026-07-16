@@ -1,0 +1,57 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>11 honeypot fields</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: fill <em>only</em> the visible "Name" field with <code>alex</code> and submit. Three
+      honeypots (a, b, c) are present that a human cannot see/tab to. Filling any honeypot fails.
+    </p>
+    <form id="f">
+      <label>Name <input name="name" id="name" /></label>
+      <!-- off-screen -->
+      <input
+        name="a"
+        aria-hidden="true"
+        tabindex="-1"
+        autocomplete="off"
+        style="position: absolute; left: -9999px; top: -9999px"
+      />
+      <!-- display:none -->
+      <input name="b" aria-hidden="true" tabindex="-1" autocomplete="off" style="display: none" />
+      <!-- zero-size + visually hidden -->
+      <input
+        name="c"
+        aria-hidden="true"
+        tabindex="-1"
+        autocomplete="off"
+        style="opacity: 0; width: 0; height: 0; border: 0; padding: 0"
+      />
+      <button type="submit">Submit</button>
+    </form>
+  </main>
+  <script>
+    Challenge.init({
+      id: "honeypot",
+      instructions: "fill only the Name field with 'alex', then submit",
+    });
+    const form = document.getElementById("f");
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const filled = ["a", "b", "c"].filter((k) => (fd.get(k) ?? "").toString().length > 0);
+      Challenge.log("submit", {
+        name: fd.get("name"),
+        a: fd.get("a"),
+        b: fd.get("b"),
+        c: fd.get("c"),
+      });
+      if (filled.length) return Challenge.fail("honeypot(s) filled: " + filled.join(","));
+      if ((fd.get("name") ?? "") !== "alex")
+        return Challenge.fail(`name="${fd.get("name")}" (need 'alex')`);
+      Challenge.pass("only visible field filled");
+    });
+  </script>
+</body>

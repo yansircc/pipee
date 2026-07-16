@@ -1,0 +1,91 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>12 fingerprint consistency</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>Auto-check. Looks for cross-API consistency mismatches that betray instrumented Chrome.</p>
+    <pre
+      id="rep"
+      style="font: 12px monospace; background: #111; color: #eee; padding: 12px; border-radius: 6px"
+    ></pre>
+  </main>
+  <script>
+    Challenge.init({ id: "fingerprint", instructions: "no interaction" });
+    (async () => {
+      const checks = [];
+      const ua = navigator.userAgent;
+      const isChrome = /Chrome\/\d+/.test(ua);
+      checks.push({ name: "ua-is-chrome", bad: !isChrome, note: ua });
+
+      // UA-CH: Chrome should expose userAgentData with brands incl Chromium.
+      const uad = navigator.userAgentData;
+      const hasUAD = !!uad;
+      checks.push({
+        name: "userAgentData-present",
+        bad: isChrome && !hasUAD,
+        note: hasUAD ? JSON.stringify(uad.brands) : "missing",
+      });
+
+      // Chrome runtime object exists in normal Chrome.
+      checks.push({
+        name: "window.chrome",
+        bad: isChrome && typeof window.chrome === "undefined",
+        note: typeof window.chrome,
+      });
+
+      // languages must match accept-language semantics.
+      checks.push({
+        name: "languages-includes-language",
+        bad: !navigator.languages?.includes(navigator.language),
+        note: `${navigator.language} vs ${JSON.stringify(navigator.languages)}`,
+      });
+
+      // WebGL vendor/renderer should not be Brian Paul / SwiftShader on user profile.
+      try {
+        const gl = document.createElement("canvas").getContext("webgl");
+        const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+        const vendor = dbg
+          ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL)
+          : gl.getParameter(gl.VENDOR);
+        const renderer = dbg
+          ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)
+          : gl.getParameter(gl.RENDERER);
+        const swiftshader = /SwiftShader|llvmpipe|Software/i.test(renderer);
+        checks.push({
+          name: "webgl-not-software",
+          bad: false,
+          warn: swiftshader,
+          note: `${vendor} / ${renderer}${swiftshader ? " (software renderer; warning in VM/remote contexts)" : ""}`,
+        });
+      } catch (e) {
+        checks.push({ name: "webgl-not-software", bad: false, note: "n/a " + e.message });
+      }
+
+      // hardwareConcurrency / deviceMemory plausibility.
+      checks.push({
+        name: "hardwareConcurrency",
+        bad: !(navigator.hardwareConcurrency > 0),
+        note: String(navigator.hardwareConcurrency),
+      });
+
+      // navigator.webdriver again, separate from challenge 03 so it appears here too.
+      checks.push({
+        name: "webdriver-false",
+        bad: navigator.webdriver === true,
+        note: String(navigator.webdriver),
+      });
+
+      const rep = document.getElementById("rep");
+      rep.textContent = checks
+        .map((c) => `${c.bad ? "✗" : c.warn ? "!" : "✓"} ${c.name}  ${c.note}`)
+        .join("\n");
+      const failed = checks.filter((c) => c.bad);
+      const warned = checks.filter((c) => c.warn);
+      if (failed.length) Challenge.fail(...failed.map((c) => `${c.name}: ${c.note}`));
+      else if (warned.length) Challenge.warn(...warned.map((c) => `${c.name}: ${c.note}`));
+      else Challenge.pass("fingerprint consistent with real Chrome");
+    })();
+  </script>
+</body>

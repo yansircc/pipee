@@ -1,0 +1,92 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>27 scroll momentum tail</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: scroll the box to its bottom using a real wheel/trackpad gesture. Page records the
+      <code>deltaY</code> sequence and requires a momentum-like tail: a peak <code>|deltaY|</code>,
+      then a decreasing decay over several events (≥4 wheel events whose <code>|deltaY|</code> is
+      strictly less than the previous by &gt;5%). Constant or single-shot wheel events (one big
+      delta then nothing) fail.
+    </p>
+    <div
+      id="box"
+      style="
+        height: 200px;
+        overflow: auto;
+        border: 1px solid #555;
+        background: #fff;
+        color: #111;
+        padding: 8px;
+      "
+    >
+      <div style="height: 2400px">scroll me ⬇ … continues …</div>
+    </div>
+  </main>
+  <script>
+    Challenge.init({
+      id: "scroll-momentum",
+      instructions: "scroll the box to its bottom with a real gesture",
+    });
+
+    const box = document.getElementById("box");
+    const deltas = []; // signed
+    const tsLog = [];
+
+    box.addEventListener(
+      "wheel",
+      (e) => {
+        deltas.push(e.deltaY);
+        tsLog.push(e.timeStamp);
+        if (deltas.length > 200) {
+          deltas.shift();
+          tsLog.shift();
+        }
+        Challenge.log("wheel", { dy: e.deltaY, isTrusted: e.isTrusted });
+        if (!e.isTrusted) Challenge.fail("wheel event isTrusted=false");
+      },
+      { passive: true },
+    );
+
+    box.addEventListener("scroll", () => {
+      if (box.scrollTop + box.clientHeight < box.scrollHeight - 2) return;
+      // We hit bottom. Analyze the deltaY trace.
+      if (deltas.length === 0) return Challenge.fail("reached bottom with zero wheel events");
+      if (deltas.length < 6)
+        return Challenge.fail(`only ${deltas.length} wheel events (need ≥6 for momentum)`);
+
+      const abs = deltas.map(Math.abs);
+      // All same sign? Trackpad inertia keeps signs consistent.
+      const allSameSign = deltas.every((d) => Math.sign(d) === Math.sign(deltas[0]));
+      if (!allSameSign)
+        return Challenge.fail("wheel deltaY signs flip — not a continuous scroll gesture");
+
+      // All identical magnitudes? Robotic.
+      const allEqual = abs.every((a) => Math.abs(a - abs[0]) < 0.01);
+      if (allEqual) return Challenge.fail(`all |deltaY|=${abs[0]} — no momentum`);
+
+      // Find peak and require decay tail after it.
+      const peakIdx = abs.indexOf(Math.max(...abs));
+      const tail = abs.slice(peakIdx);
+      let decays = 0;
+      for (let i = 1; i < tail.length; i++) {
+        if (tail[i] < tail[i - 1] * 0.95) decays++;
+      }
+      Challenge.log("trace", { abs, peakIdx, decays });
+      if (decays < 3)
+        return Challenge.fail(`only ${decays} decay steps after peak — no momentum tail`);
+
+      // Timestamps within the tail should span ≥150ms (real inertia lasts hundreds of ms).
+      const tailTs = tsLog.slice(peakIdx);
+      const span = tailTs[tailTs.length - 1] - tailTs[0];
+      if (span < 100) return Challenge.fail(`momentum tail only spans ${span.toFixed(0)}ms`);
+
+      Challenge.pass(
+        `${deltas.length} wheels, peak |dY|=${abs[peakIdx].toFixed(1)}, ${decays} decay steps over ${span.toFixed(0)}ms`,
+      );
+    });
+  </script>
+</body>

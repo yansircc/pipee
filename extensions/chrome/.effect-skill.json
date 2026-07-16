@@ -1,0 +1,56 @@
+{
+  "shape": ["library"],
+  "executableEdges": [],
+  "allowedAdapters": [
+    {
+      "path": "test-suite/unit/connector-http.test.ts",
+      "owner": "@connector-http-test-adapter",
+      "reason": "Browser fetch boundary tests construct Response values as terminal HTTP adapter fixtures",
+      "rules": ["EFF402"]
+    },
+    {
+      "path": "src/browser/platform*.ts",
+      "owner": "@chrome-platform-adapter",
+      "reason": "Chrome debugger, tabs, scripting, and page serialization APIs are Promise and callback terminals beneath the Effect worker runtime",
+      "rules": [
+        "EFF001",
+        "EFF002",
+        "EFF003",
+        "EFF004",
+        "EFF005",
+        "EFF022",
+        "EFF023",
+        "EFF024",
+        "EFF025",
+        "EFF026",
+        "EFF032"
+      ]
+    },
+    {
+      "path": "src/browser/injected/**/*.ts",
+      "owner": "@page-runtime",
+      "reason": "Chrome serializes these functions into page MAIN world without an Effect runtime",
+      "rules": [
+        "EFF001",
+        "EFF002",
+        "EFF003",
+        "EFF004",
+        "EFF005",
+        "EFF022",
+        "EFF023",
+        "EFF024",
+        "EFF025",
+        "EFF026",
+        "EFF032"
+      ]
+    }
+  ],
+  "hostTooling": [
+    {
+      "path": "scripts/**",
+      "owner": "@build-tooling",
+      "reason": "Node build and package synchronization tooling"
+    }
+  ],
+  "testGlobs": ["test-suite/**/*.test.ts"]
+}

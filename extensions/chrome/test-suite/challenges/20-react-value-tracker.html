@@ -1,0 +1,102 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>20 React _valueTracker</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: set the input to <code>react-ok</code> in a way that React would accept. The page mimics
+      React's <code>_valueTracker</code>: it stamps the input with a hidden tracker holding the
+      last-seen value. An <code>input</code> event is only considered "framework-real" if the
+      tracker's recorded value differs from the current <code>input.value</code> at the moment the
+      event fires (i.e. somebody used the native <code>HTMLInputElement.value</code> setter and
+      dispatched <code>input</code> — what React internals require).
+    </p>
+    <p>
+      Setting <code>el.value = ...</code> directly and dispatching a synthetic
+      <code>input</code> fails because the native setter wasn't used. Calling
+      <code>setRangeText</code> without dispatching <code>input</code> also fails.
+    </p>
+    <input
+      id="t"
+      placeholder="type or fill 'react-ok'"
+      style="font-size: 18px; padding: 8px 12px; width: 240px"
+    />
+  </main>
+  <script>
+    Challenge.init({
+      id: "react-value-tracker",
+      instructions: "make input value 'react-ok' as React expects",
+    });
+
+    const t = document.getElementById("t");
+
+    // Install a fake React-style _valueTracker.
+    (function attachTracker(node) {
+      const nativeProto = Object.getPrototypeOf(node);
+      const desc = Object.getOwnPropertyDescriptor(nativeProto, "value");
+      const nativeGet = desc.get,
+        nativeSet = desc.set;
+      let tracked = nativeGet.call(node); // last value the "framework" has seen
+      node._valueTracker = {
+        getValue() {
+          return tracked;
+        },
+        setValue(v) {
+          tracked = v;
+        },
+      };
+      // Wrap the value property on the *instance* to intercept assignments.
+      Object.defineProperty(node, "value", {
+        configurable: true,
+        get() {
+          return nativeGet.call(this);
+        },
+        set(v) {
+          // If somebody assigns via instance property (the bad path), sync the tracker
+          // so the input event below will look "stale" and we can detect it.
+          tracked = String(v);
+          nativeSet.call(this, v);
+        },
+      });
+    })(t);
+
+    let passed = false;
+    t.addEventListener("input", (e) => {
+      if (passed) return;
+      const proto = Object.getPrototypeOf(t);
+      const nativeGet = Object.getOwnPropertyDescriptor(proto, "value").get;
+      const real = nativeGet.call(t);
+      const tracked = t._valueTracker.getValue();
+      Challenge.log("input", { real, tracked, isTrusted: e.isTrusted });
+      if (real !== "react-ok") return;
+      if (!e.isTrusted && tracked === real) {
+        return Challenge.fail(
+          "synthetic input event but _valueTracker already up-to-date (instance value= setter used, not native)",
+        );
+      }
+      // The "good" path: native setter ran (tracker still stale), then input dispatched.
+      // After the framework consumes the event it would syncs the tracker.
+      t._valueTracker.setValue(real);
+      passed = true;
+      Challenge.pass(
+        `value 'react-ok' delivered with stale tracker (native setter path); isTrusted=${e.isTrusted}`,
+      );
+    });
+
+    // Trap: value mutates without input ever firing.
+    setInterval(() => {
+      if (passed) return;
+      const proto = Object.getPrototypeOf(t);
+      const nativeGet = Object.getOwnPropertyDescriptor(proto, "value").get;
+      if (nativeGet.call(t) === "react-ok" && !passed) {
+        // Only fail if we've been sitting on the value with no event for a while.
+        setTimeout(() => {
+          if (!passed && nativeGet.call(t) === "react-ok")
+            Challenge.fail("value='react-ok' but no input event consumed it");
+        }, 600);
+      }
+    }, 300);
+  </script>
+</body>

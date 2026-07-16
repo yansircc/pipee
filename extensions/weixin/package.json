@@ -1,0 +1,89 @@
+{
+  "name": "@yansircc/pi-weixin",
+  "version": "0.0.6",
+  "description": "Weixin iLink bridge for Pi sessions hosted by pi-web",
+  "keywords": [
+    "ilink",
+    "pi-extension",
+    "pi-package",
+    "weixin"
+  ],
+  "homepage": "https://github.com/yansircc/pi-weixin#readme",
+  "bugs": {
+    "url": "https://github.com/yansircc/pi-weixin/issues"
+  },
+  "license": "MIT",
+  "author": "yansircc",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yansircc/pi-weixin.git"
+  },
+  "files": [
+    "dist/pi"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "check": "vp check",
+    "effect:scan": "vp run ci:effect",
+    "test": "vp test",
+    "typecheck": "vp run ci:typecheck",
+    "verify": "pnpm run repo:verify && pnpm run pi:verify",
+    "repo:verify": "vp run ci:verify",
+    "pi:build": "node scripts/pi-extension/build.mjs",
+    "pi:bundle-check": "node scripts/pi-extension/verify-distribution.mjs bundle",
+    "pi:distribution-check": "node scripts/pi-extension/verify-distribution.mjs package",
+    "pi:verify": "pnpm run pi:build && pnpm run pi:bundle-check",
+    "pi:domain-check": "node scripts/domain/verify-extension.mjs",
+    "release:archive-check": "node scripts/pi-extension/verify-distribution.mjs archive",
+    "release:platform-check": "node scripts/pi-extension/verify-distribution.mjs platform"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "catalog:",
+    "@effect/opentelemetry": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/api-logs": "0.217.0",
+    "@opentelemetry/resources": "2.7.1",
+    "@opentelemetry/sdk-logs": "0.217.0",
+    "@opentelemetry/sdk-metrics": "2.7.1",
+    "@opentelemetry/sdk-trace-base": "2.7.1",
+    "@opentelemetry/sdk-trace-node": "2.7.1",
+    "@opentelemetry/sdk-trace-web": "2.7.1",
+    "@opentelemetry/semantic-conventions": "1.40.0",
+    "@pi-suite/companion-contracts": "workspace:*",
+    "@types/node": "^25.0.0",
+    "@types/qrcode": "^1.5.6",
+    "@yansircc/effect-scan": "catalog:",
+    "acorn": "8.15.0",
+    "cross-spawn": "7.0.6",
+    "effect": "catalog:",
+    "qrcode": "^1.5.4",
+    "tar": "7.5.20",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.6"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.11.0"
+  },
+  "packageManager": "pnpm@11.13.1",
+  "ilink": {
+    "appId": "bot",
+    "clientVersion": "2.4.6"
+  },
+  "pi": {
+    "extensions": [
+      "./dist/pi/extension.js"
+    ]
+  }
+}

@@ -1,0 +1,67 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>03 webdriver / runtime fingerprint</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>Auto-checks runtime properties commonly inspected by bot-detection scripts.</p>
+    <pre
+      id="rep"
+      style="font: 12px monospace; background: #111; color: #eee; padding: 12px; border-radius: 6px"
+    ></pre>
+  </main>
+  <script>
+    Challenge.init({
+      id: "webdriver-flag",
+      instructions: "no interaction; auto-verdict on load",
+    });
+    const checks = [];
+    function chk(name, bad, note) {
+      checks.push({ name, bad, note });
+      if (bad) Challenge.log("flag", { name, note });
+    }
+
+    chk("navigator.webdriver", navigator.webdriver === true, String(navigator.webdriver));
+    chk(
+      "languages-empty",
+      !navigator.languages || navigator.languages.length === 0,
+      JSON.stringify(navigator.languages),
+    );
+    chk(
+      "plugins-empty",
+      !navigator.plugins || navigator.plugins.length === 0,
+      `length=${navigator.plugins && navigator.plugins.length}`,
+    );
+    chk("permissions-notifications-quirk", false, "checked async below");
+
+    (async () => {
+      try {
+        const p = await navigator.permissions.query({ name: "notifications" });
+        // Headless Chrome historically returned "denied" while Notification.permission === "default".
+        const mismatch = p.state === "denied" && Notification.permission === "default";
+        checks.push({
+          name: "permissions-notifications-quirk",
+          bad: mismatch,
+          note: `perm=${p.state} api=${Notification.permission}`,
+        });
+        finalize();
+      } catch (e) {
+        checks.push({
+          name: "permissions-notifications-quirk",
+          bad: false,
+          note: "n/a " + e.message,
+        });
+        finalize();
+      }
+    })();
+
+    function finalize() {
+      const rep = document.getElementById("rep");
+      rep.textContent = checks.map((c) => `${c.bad ? "✗" : "✓"} ${c.name}  ${c.note}`).join("\n");
+      const failed = checks.filter((c) => c.bad);
+      if (failed.length) Challenge.fail(...failed.map((c) => `${c.name}: ${c.note}`));
+      else Challenge.pass("all runtime checks clean");
+    }
+  </script>
+</body>

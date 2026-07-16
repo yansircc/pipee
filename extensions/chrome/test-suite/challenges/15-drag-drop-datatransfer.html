@@ -1,0 +1,126 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>15 drag-drop DataTransfer</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: drag the <b>red box</b> into the <b>drop zone</b>. Page asserts a full HTML5 drag
+      sequence with a populated <code>DataTransfer</code> — synthetic pointer drags dispatched
+      without <code>dragstart</code>/<code>drop</code> + DataTransfer payload fail.
+    </p>
+    <div style="display: flex; gap: 24px; align-items: center; margin-top: 16px">
+      <div
+        id="src"
+        draggable="true"
+        style="
+          width: 80px;
+          height: 80px;
+          background: #c33;
+          color: #fff;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 6px;
+          cursor: grab;
+        "
+      >
+        DRAG
+      </div>
+      <div
+        id="dst"
+        style="
+          width: 200px;
+          height: 120px;
+          border: 2px dashed #888;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #888;
+        "
+      >
+        DROP HERE
+      </div>
+    </div>
+  </main>
+  <script>
+    Challenge.init({
+      id: "drag-drop-datatransfer",
+      instructions: "drag red box into drop zone via real HTML5 drag",
+    });
+    const src = document.getElementById("src");
+    const dst = document.getElementById("dst");
+
+    const seen = { dragstart: 0, drag: 0, dragenter: 0, dragover: 0, drop: 0, dragend: 0 };
+    let dtHadTypes = false,
+      dtPayload = null,
+      isTrustedAll = true;
+
+    src.addEventListener("dragstart", (e) => {
+      seen.dragstart++;
+      if (!e.isTrusted) isTrustedAll = false;
+      try {
+        e.dataTransfer.setData("text/plain", "payload-" + Math.random().toString(36).slice(2, 8));
+      } catch {}
+      Challenge.log("dragstart", { hasDt: !!e.dataTransfer });
+    });
+    src.addEventListener("drag", (e) => {
+      seen.drag++;
+      if (!e.isTrusted) isTrustedAll = false;
+    });
+    src.addEventListener("dragend", (e) => {
+      seen.dragend++;
+      if (!e.isTrusted) isTrustedAll = false;
+    });
+
+    dst.addEventListener("dragenter", (e) => {
+      seen.dragenter++;
+      e.preventDefault();
+      if (!e.isTrusted) isTrustedAll = false;
+    });
+    dst.addEventListener("dragover", (e) => {
+      seen.dragover++;
+      e.preventDefault();
+      if (!e.isTrusted) isTrustedAll = false;
+    });
+    dst.addEventListener("drop", (e) => {
+      e.preventDefault();
+      seen.drop++;
+      if (!e.isTrusted) isTrustedAll = false;
+      const dt = e.dataTransfer;
+      if (dt) {
+        dtHadTypes = dt.types && dt.types.length > 0;
+        try {
+          dtPayload = dt.getData("text/plain");
+        } catch {}
+      }
+      Challenge.log("drop", { types: dt && [...dt.types], payload: dtPayload });
+      // dragend fires AFTER drop per spec; give it a tick.
+      setTimeout(evaluate, 50);
+    });
+
+    function evaluate() {
+      const bad = [];
+      if (!isTrustedAll) bad.push("at least one drag event isTrusted=false");
+      for (const k of ["dragstart", "dragover", "drop", "dragend"]) {
+        if (!seen[k]) bad.push(`missing ${k}`);
+      }
+      if (!dtHadTypes) bad.push("DataTransfer.types empty on drop");
+      if (!dtPayload || !dtPayload.startsWith("payload-"))
+        bad.push("DataTransfer payload missing on drop");
+      if (bad.length) Challenge.fail(...bad);
+      else Challenge.pass(`full drag cycle, payload=${dtPayload}`);
+    }
+
+    // Fallback: pointer-drag without dragstart triggers fail after a delay.
+    let pointerDownInSrc = false;
+    src.addEventListener("pointerdown", () => {
+      pointerDownInSrc = true;
+      setTimeout(() => {
+        if (!seen.dragstart && pointerDownInSrc)
+          Challenge.fail("pointerdown on src but no dragstart fired");
+      }, 1500);
+    });
+  </script>
+</body>

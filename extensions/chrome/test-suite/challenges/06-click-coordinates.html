@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>06 click coordinates</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: click the green button 5 times. Page rejects when clicks always land on the exact
+      element center.
+    </p>
+    <button
+      id="go"
+      style="
+        padding: 24px 40px;
+        font-size: 18px;
+        background: #1f7a1f;
+        color: #fff;
+        border: 0;
+        border-radius: 6px;
+      "
+    >
+      Click me (0/5)
+    </button>
+  </main>
+  <script>
+    Challenge.init({
+      id: "click-coordinates",
+      instructions: "click button 5 times; coordinates must vary",
+    });
+    const btn = document.getElementById("go");
+    const pts = [];
+    btn.addEventListener("click", (e) => {
+      const r = btn.getBoundingClientRect();
+      const cx = r.left + r.width / 2,
+        cy = r.top + r.height / 2;
+      pts.push({ x: e.clientX, y: e.clientY, dx: e.clientX - cx, dy: e.clientY - cy });
+      btn.textContent = `Click me (${pts.length}/5)`;
+      if (pts.length < 5) return;
+      const onCenter = pts.filter((p) => Math.abs(p.dx) < 0.51 && Math.abs(p.dy) < 0.51).length;
+      const unique = new Set(pts.map((p) => `${p.x},${p.y}`)).size;
+      Challenge.log("coords", { pts });
+      if (onCenter >= 4) return Challenge.fail(`${onCenter}/5 clicks on exact center`);
+      if (unique <= 1) return Challenge.fail(`only ${unique} unique click coords`);
+      Challenge.pass(`${unique} unique coords, ${onCenter} on center`);
+    });
+  </script>
+</body>

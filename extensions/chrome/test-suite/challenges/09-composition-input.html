@@ -1,0 +1,52 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>09 framework input invariants</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: type <code>abc</code>. Page asserts React-style invariants:
+      <code>beforeinput</code> fires <em>before</em> <code>input</code>, both per-character,
+      <code>inputType==="insertText"</code>, value mutates between events, and no
+      <code>compositionstart</code> for plain typing.
+    </p>
+    <input id="t" placeholder="type abc" style="font-size: 18px; padding: 8px 12px; width: 240px" />
+  </main>
+  <script>
+    Challenge.init({
+      id: "composition-input",
+      instructions: "type 'abc' producing framework-correct event order",
+    });
+    const t = document.getElementById("t");
+    const evs = [];
+    let sawCompositionStart = false;
+    ["beforeinput", "input", "compositionstart", "compositionend"].forEach((name) => {
+      t.addEventListener(name, (e) => {
+        evs.push({ name, t: e.timeStamp, inputType: e.inputType, data: e.data, value: t.value });
+        if (name === "compositionstart") sawCompositionStart = true;
+      });
+    });
+    t.addEventListener("input", () => {
+      if (t.value !== "abc") return;
+      const before = evs.filter((e) => e.name === "beforeinput");
+      const inp = evs.filter((e) => e.name === "input");
+      const bad = [];
+      if (sawCompositionStart) bad.push("compositionstart fired for plain ASCII typing");
+      if (before.length !== 3) bad.push(`beforeinput count=${before.length} (need 3)`);
+      if (inp.length !== 3) bad.push(`input count=${inp.length} (need 3)`);
+      if (before.some((b) => b.inputType !== "insertText"))
+        bad.push(`beforeinput.inputType=${before.map((b) => b.inputType).join(",")}`);
+      // beforeinput must precede matching input.
+      for (let i = 0; i < Math.min(before.length, inp.length); i++) {
+        if (before[i].t > inp[i].t) bad.push(`beforeinput[${i}] after input[${i}]`);
+      }
+      // Value must reflect each char incrementally.
+      const seq = inp.map((e) => e.value).join("|");
+      if (seq !== "a|ab|abc") bad.push(`value seq at input events: ${seq} (need a|ab|abc)`);
+      Challenge.log("seq", { evs });
+      if (bad.length) Challenge.fail(...bad);
+      else Challenge.pass(`event order and invariants OK; seq=${seq}`);
+    });
+  </script>
+</body>

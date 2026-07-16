@@ -1,0 +1,93 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>26 mousemove rate</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: sweep the mouse across the box for ~1s, then click the green button. Page measures the
+      inter-event timestamp distribution of <code>mousemove</code> events. Real pointing devices
+      fire at ~60–250 Hz (median Δt 4–18ms). Bridges that flood synthetic moves on a tight
+      <code>for</code>-loop or <code>setTimeout(...,1)</code> produce a degenerate distribution
+      (most Δt &lt; 2ms, or all Δt identical, or median &gt; 50ms with no jitter).
+    </p>
+    <div
+      id="pad"
+      style="
+        height: 160px;
+        border: 1px solid #555;
+        background: #fff;
+        color: #111;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font: 13px monospace;
+        user-select: none;
+      "
+    >
+      sweep me
+    </div>
+    <button
+      id="go"
+      style="
+        margin-top: 14px;
+        padding: 12px 20px;
+        background: #1f7a1f;
+        color: #fff;
+        border: 0;
+        border-radius: 6px;
+      "
+    >
+      Done
+    </button>
+  </main>
+  <script>
+    Challenge.init({
+      id: "mousemove-rate",
+      instructions: "sweep mouse across pad ~1s, then click Done",
+    });
+
+    const pad = document.getElementById("pad");
+    const stamps = [];
+    pad.addEventListener("mousemove", (e) => {
+      stamps.push(e.timeStamp);
+    });
+
+    document.getElementById("go").addEventListener("click", (e) => {
+      if (!e.isTrusted) return Challenge.fail("Done click isTrusted=false");
+      if (stamps.length < 20)
+        return Challenge.fail(`only ${stamps.length} mousemove events (need ≥20)`);
+
+      const deltas = [];
+      for (let i = 1; i < stamps.length; i++) deltas.push(stamps[i] - stamps[i - 1]);
+      deltas.sort((a, b) => a - b);
+      const median = deltas[Math.floor(deltas.length / 2)];
+      const p10 = deltas[Math.floor(deltas.length * 0.1)];
+      const p90 = deltas[Math.floor(deltas.length * 0.9)];
+      const mean = deltas.reduce((s, x) => s + x, 0) / deltas.length;
+      const variance = deltas.reduce((s, x) => s + (x - mean) ** 2, 0) / deltas.length;
+      const std = Math.sqrt(variance);
+
+      const allSame = deltas.every((d) => Math.abs(d - deltas[0]) < 0.05);
+      const allTiny = deltas.every((d) => d < 1.5);
+
+      Challenge.log("dist", { n: deltas.length, median, p10, p90, mean, std });
+      const bad = [];
+      if (allSame) bad.push(`all Δt identical (~${deltas[0].toFixed(2)}ms) — scripted loop`);
+      if (allTiny) bad.push(`all Δt < 1.5ms — synthetic flood`);
+      if (median < 2) bad.push(`median Δt ${median.toFixed(2)}ms too fast for a real device`);
+      if (median > 60) bad.push(`median Δt ${median.toFixed(0)}ms too slow (real moves ~4–18ms)`);
+      if (std < 0.5) bad.push(`Δt std=${std.toFixed(2)}ms — no jitter (scripted)`);
+      // Ratio p90/p10 should be ≥1.8 for organic motion.
+      if (p10 > 0 && p90 / p10 < 1.5)
+        bad.push(`p90/p10 ratio ${(p90 / p10).toFixed(2)} — distribution too narrow`);
+
+      if (bad.length) Challenge.fail(...bad);
+      else
+        Challenge.pass(
+          `n=${deltas.length}, median=${median.toFixed(1)}ms, std=${std.toFixed(1)}ms`,
+        );
+    });
+  </script>
+</body>

@@ -1,0 +1,100 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>22 touch events</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: tap the green pad on a touch-capable device (or via DevTools touch emulation). Page
+      asserts a real <code>touchstart</code>/<code>touchend</code> sequence: <code>touches</code> /
+      <code>changedTouches</code> are <code>TouchList</code> objects containing
+      <code>Touch</code> instances with <code>identifier</code>, <code>clientX/Y</code>,
+      <code>radiusX/Y</code>, and <code>force</code> in [0,1]. Synthetic
+      <code>PointerEvent</code> with <code>pointerType="touch"</code> alone does not satisfy this —
+      touch events must fire too.
+    </p>
+    <p>
+      <b>Note for caller:</b> requires Chrome touch emulation on (DevTools → Sensors → "Touch: Force
+      enabled") or a real touchscreen. This is intentional: pi-chrome's synthetic
+      <code>pointerType:'touch'</code> does NOT also dispatch TouchEvents.
+    </p>
+    <div
+      id="pad"
+      style="
+        width: 200px;
+        height: 200px;
+        background: #1f7a1f;
+        border-radius: 12px;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font: 18px monospace;
+        touch-action: none;
+        user-select: none;
+      "
+    >
+      TAP
+    </div>
+  </main>
+  <script>
+    Challenge.init({ id: "touch-events", instructions: "tap the pad on a touch-capable device" });
+    const pad = document.getElementById("pad");
+
+    let touchStart = null,
+      touchEnd = null;
+    pad.addEventListener(
+      "touchstart",
+      (e) => {
+        touchStart = e;
+        Challenge.log("touchstart", {
+          tl: e.touches.length,
+          ct: e.changedTouches.length,
+          isTrusted: e.isTrusted,
+        });
+      },
+      { passive: true },
+    );
+    pad.addEventListener(
+      "touchend",
+      (e) => {
+        touchEnd = e;
+        const bad = [];
+        if (!touchStart) return Challenge.fail("touchend without touchstart");
+        if (!e.isTrusted || !touchStart.isTrusted) bad.push("touch event isTrusted=false");
+
+        const ts = touchStart.changedTouches;
+        if (!ts || ts.length === 0) bad.push("touchstart.changedTouches empty");
+        else {
+          const T = ts[0];
+          // Window.Touch should exist as the constructor.
+          if (typeof window.Touch !== "function")
+            bad.push("window.Touch constructor missing (no native TouchEvent support)");
+          if (!(T instanceof Touch)) bad.push("changedTouches[0] not instanceof Touch");
+          if (typeof T.identifier !== "number") bad.push("Touch.identifier not number");
+          if (!Number.isFinite(T.clientX) || !Number.isFinite(T.clientY))
+            bad.push("Touch.clientX/Y invalid");
+          if (!("force" in T) || typeof T.force !== "number" || T.force < 0 || T.force > 1)
+            bad.push(`Touch.force=${T.force}`);
+          if (!("radiusX" in T) || typeof T.radiusX !== "number") bad.push("Touch.radiusX missing");
+        }
+
+        if (!(touchStart instanceof TouchEvent)) bad.push("touchstart not instanceof TouchEvent");
+
+        if (bad.length) Challenge.fail(...bad);
+        else Challenge.pass("real TouchEvent + Touch object surface present");
+      },
+      { passive: true },
+    );
+
+    // Capability check: if TouchEvent constructor missing entirely, hint immediately on click.
+    pad.addEventListener("click", () => {
+      if (!touchStart && typeof window.TouchEvent !== "function") {
+        Challenge.fail("TouchEvent constructor not available on this UA (enable touch emulation)");
+      } else if (!touchStart) {
+        Challenge.fail("click fired but no touchstart — synthetic pointer without TouchEvent");
+      }
+    });
+  </script>
+</body>

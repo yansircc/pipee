@@ -1,0 +1,80 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>24 viewport edge clicks</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: click the button. Page rejects any pointer event whose <code>clientX</code>/<code
+        >clientY</code
+      >
+      falls outside the viewport (<code>x &lt; 0</code>, <code>x &gt; innerWidth</code>, etc.) or
+      lands on a coordinate that's not actually inside the button's
+      <code>getBoundingClientRect()</code>. Real pointing devices can't dispatch clicks at negative
+      coordinates; bridges that pass uncoerced selector-center coords (or coordinates from a stale
+      layout) trip this.
+    </p>
+    <button
+      id="go"
+      style="
+        margin: 40px;
+        padding: 14px 22px;
+        font-size: 16px;
+        background: #1f7a1f;
+        color: #fff;
+        border: 0;
+        border-radius: 6px;
+      "
+    >
+      Click me
+    </button>
+  </main>
+  <script>
+    Challenge.init({
+      id: "viewport-edge-clicks",
+      instructions: "click the button at valid viewport coords",
+    });
+
+    const btn = document.getElementById("go");
+
+    // Track ALL pointer/click events on document — even ones that miss the button.
+    let suspicious = null;
+    for (const name of ["pointerdown", "pointerup", "click", "mousedown", "mouseup"]) {
+      document.addEventListener(
+        name,
+        (e) => {
+          const x = e.clientX,
+            y = e.clientY;
+          const w = window.innerWidth,
+            h = window.innerHeight;
+          if (x < 0 || y < 0 || x > w || y > h) {
+            suspicious = `${name} at (${x},${y}) outside viewport ${w}x${h}`;
+            Challenge.fail(suspicious);
+          }
+          if (x === 0 && y === 0 && e.isTrusted === false) {
+            suspicious = `${name} at (0,0) with isTrusted=false (default synthetic coords)`;
+            Challenge.fail(suspicious);
+          }
+        },
+        true,
+      );
+    }
+
+    btn.addEventListener("click", (e) => {
+      if (suspicious) return;
+      if (!e.isTrusted) return Challenge.fail("click isTrusted=false");
+      const r = btn.getBoundingClientRect();
+      const x = e.clientX,
+        y = e.clientY;
+      const inside = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+      if (!inside)
+        return Challenge.fail(
+          `click at (${x},${y}) outside button rect ${JSON.stringify({ l: r.left, t: r.top, r: r.right, b: r.bottom })}`,
+        );
+      // Coord must not be exactly integer-center (covered by #06 but reinforced here).
+      Challenge.log("click", { x, y, rect: r });
+      Challenge.pass(`click at (${x.toFixed(1)},${y.toFixed(1)}) inside button rect`);
+    });
+  </script>
+</body>

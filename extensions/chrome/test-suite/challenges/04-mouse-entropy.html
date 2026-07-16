@@ -1,0 +1,53 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>04 mouse entropy</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: click the green button after moving the mouse in an organic path. Page requires ≥15
+      <code>mousemove</code> events with non-zero <code>movementX/Y</code> variance before the
+      click.
+    </p>
+    <button
+      id="go"
+      style="
+        padding: 20px 32px;
+        font-size: 18px;
+        background: #1f7a1f;
+        color: #fff;
+        border: 0;
+        border-radius: 6px;
+      "
+    >
+      Click me
+    </button>
+  </main>
+  <script>
+    Challenge.init({
+      id: "mouse-entropy",
+      instructions: "click the button after natural mouse movement",
+    });
+    const moves = [];
+    window.addEventListener("mousemove", (e) => {
+      moves.push({ x: e.clientX, y: e.clientY, mx: e.movementX, my: e.movementY, t: e.timeStamp });
+      if (moves.length > 200) moves.shift();
+    });
+    document.getElementById("go").addEventListener("click", (e) => {
+      if (moves.length < 15)
+        return Challenge.fail(`only ${moves.length} mousemove events before click`);
+      const dx = moves.map((m) => Math.abs(m.mx)).reduce((a, b) => a + b, 0);
+      const dy = moves.map((m) => Math.abs(m.my)).reduce((a, b) => a + b, 0);
+      if (dx + dy < 50) return Challenge.fail(`movement deltas tiny: dx=${dx}, dy=${dy}`);
+      // Detect "teleport then click" — all moves clustered at the button.
+      const r = document.getElementById("go").getBoundingClientRect();
+      const inside = moves.filter(
+        (m) => m.x >= r.left && m.x <= r.right && m.y >= r.top && m.y <= r.bottom,
+      ).length;
+      if (inside === moves.length)
+        return Challenge.fail("all mousemoves inside target rect (teleport)");
+      Challenge.pass(`${moves.length} moves, |dx|+|dy|=${dx + dy}, ${inside} inside target`);
+    });
+  </script>
+</body>

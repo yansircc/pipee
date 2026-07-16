@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>40 dynamic wait readiness</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: wait until an async control exists and is enabled, then click it. Direct early clicks or
+      fixed sleeps should not be required.
+    </p>
+    <div id="status" role="status">Loading async action…</div>
+    <div id="mount" style="margin-top: 20px"></div>
+  </main>
+  <script>
+    Challenge.init({
+      id: "dynamic-wait-readiness",
+      instructions: "wait for async button, then click",
+    });
+    const start = performance.now();
+    setTimeout(() => {
+      const btn = document.createElement("button");
+      btn.id = "readyAction";
+      btn.textContent = "Run ready action";
+      btn.disabled = true;
+      btn.style.cssText =
+        "padding:14px 22px;font-size:16px;background:#1f7a1f;color:#fff;border:0;border-radius:6px";
+      document.getElementById("mount").appendChild(btn);
+      document.getElementById("status").textContent = "Button mounted; enabling soon…";
+      Challenge.log("mounted", { at: performance.now() - start });
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.dataset.ready = "true";
+        document.getElementById("status").textContent = "Ready.";
+        Challenge.log("enabled", { at: performance.now() - start });
+      }, 450);
+      btn.addEventListener("click", (e) => {
+        const elapsed = performance.now() - start;
+        const bad = [];
+        if (!e.isTrusted) bad.push("click isTrusted=false");
+        if (btn.disabled || btn.dataset.ready !== "true") bad.push("clicked before enabled/ready");
+        if (elapsed < 650) bad.push(`clicked too early at ${elapsed.toFixed(0)}ms`);
+        if (bad.length) Challenge.fail(...bad);
+        else Challenge.pass(`waited for async ready state (${elapsed.toFixed(0)}ms)`);
+      });
+    }, 350);
+  </script>
+</body>

@@ -1,0 +1,53 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>47 click blocker preflight</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <h1>Hover-created blocker</h1>
+    <p>The first pointer approach reveals an overlay. The target must not receive that click.</p>
+    <button id="target" style="margin-top: 80px; padding: 18px 32px">Protected action</button>
+    <div
+      id="overlay"
+      style="
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(10, 10, 10, 0.92);
+        z-index: 9999;
+        place-items: center;
+      "
+    >
+      <button id="dismiss" style="padding: 18px 32px">Dismiss blocker</button>
+    </div>
+  </main>
+  <script>
+    Challenge.init({
+      id: "click-blocker-preflight",
+      instructions:
+        "let the first ref click fail closed, dismiss the blocker, resnapshot, then click",
+    });
+    const target = document.getElementById("target");
+    const overlay = document.getElementById("overlay");
+    let shown = false;
+    let targetClicks = 0;
+    target.addEventListener("pointerenter", () => {
+      if (shown) return;
+      shown = true;
+      overlay.style.display = "grid";
+      Challenge.log("blocker-shown", { shown: true });
+    });
+    document.getElementById("dismiss").addEventListener("click", () => {
+      overlay.style.display = "none";
+      Challenge.log("blocker-dismissed", { dismissed: true });
+    });
+    target.addEventListener("click", (event) => {
+      targetClicks += 1;
+      if (!shown) Challenge.fail("target clicked before blocker appeared");
+      else if (targetClicks !== 1) Challenge.fail(`target received ${targetClicks} clicks`);
+      else if (!event.isTrusted) Challenge.fail("protected action click isTrusted=false");
+      else Challenge.pass("blocked click was withheld and the fresh ref executed exactly once");
+    });
+  </script>
+</body>

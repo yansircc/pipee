@@ -1,0 +1,1210 @@
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react"
+import { Data, Effect } from "effect"
+import type { Cancel } from "@/browser/api-client"
+import { after } from "@/browser/timing"
+import { useBrowserEffectScope } from "@/browser/use-browser-effect-scope"
+import { loadSessionSnapshot, observeSession, sessionController } from "@/features/session/session-controller"
+import { controlRequest, type LoopControlAction } from "@/features/session/session-automation"
+import {
+  initialSessionUiState,
+  projectSessionEffectOwner,
+  projectSessionEntryIds,
+  projectSessionMessages,
+  sessionUiReducer,
+} from "@/features/session/session-ui-state"
+import { parseBashCommand } from "@/lib/bash-command"
+import {
+  attachSameProfileChromeSession,
+  ChromeControlError,
+  ensureChromeSessionBinding,
+  getPiChromeExtensionId,
+  getPiChromeExtensionDirectory,
+  getPiChromeToolState,
+  getSameProfileChromeStatus,
+  hasLoadedPiChrome,
+  isPiChromeControlEnabled,
+  type SameProfileChromeConnection,
+} from "@/lib/chrome-control"
+import { getChromeStatusProjection, isChromeAuthorized } from "@/lib/extension-status"
+import { chromeRequirementMessage, firstUnsatisfiedChromeRequirement } from "@/lib/chrome-requirements"
+import {
+  createNotice,
+  getNextAutoDismissNotice,
+  noticeReducer,
+  NOTICE_AUTO_DISMISS_MS,
+  type NoticeSource,
+  type NoticeState,
+  type NoticeType,
+} from "@/lib/notices"
+import { copyText } from "@/lib/clipboard"
+import { DEFAULT_TOOL_PRESET, getPresetFromTools, getToolNamesForPreset, type ToolPreset } from "@/lib/tool-presets"
+import type {
+  ActiveBashExecution,
+  AgentMessage,
+  ExtensionStatusItem,
+  ExtensionUiRequest,
+  ExtensionWidgetItem,
+  SessionInfo,
+  SessionTreeNode,
+  SessionStats as SessionStatsInfo,
+  UserMessage,
+} from "@/api/contract"
+
+export interface SessionData {
+  sessionId: string
+  filePath: string
+  tree: SessionTreeNode[]
+  leafId: string | null
+  context: {
+    messages: AgentMessage[]
+    entryIds: string[]
+    thinkingLevel: string
+    model: { provider: string; modelId: string } | null
+  }
+}
+
+class NoWorkspaceSelected extends Data.TaggedError("NoWorkspaceSelected")<{
+  readonly message: string
+}> {}
+
+export interface QueuedMessages {
+  steering: string[]
+  followUp: string[]
+}
+
+export type AgentPhase =
+  | { kind: "waiting_model" }
+  | { kind: "running_command" }
+  | { kind: "running_tools"; tools: { id: string; name: string }[] }
+  | null
+
+export interface CompactResultInfo {
+  reason: string
+  tokensBefore: number
+  estimatedTokensAfter: number
+}
+
+export interface SlashCommandInfo {
+  name: string
+  description?: string
+  source: "extension" | "prompt" | "skill"
+  sourceInfo?: {
+    path: string
+    source: string
+    scope: "user" | "project" | "temporary"
+    origin: "package" | "top-level"
+    baseDir?: string
+  }
+}
+
+export type BuiltinSlashCommandResult =
+  | { handled: false }
+  | { handled: true; message?: string; error?: string; action?: "openSessionStats" }
+
+export interface ChatInputHandle {
+  insertText: (text: string) => void
+  insertIfEmpty: (content: string) => void
+  prependText: (text: string) => void
+  addImages: (files: File[]) => void
+}
+
+export interface UseAgentSessionOptions {
+  session: SessionInfo | null
+  newSessionCwd: string | null
+  draftEpoch: number
+  sessionRefreshKey: number
+  onAgentEnd?: () => void
+  onSessionIndexChanged?: () => void
+  onSessionCreated?: (session: SessionInfo) => void
+  onSessionForked?: (newSessionId: string) => void
+  modelsRefreshKey?: number
+  chatInputRef?: React.RefObject<ChatInputHandle | null>
+  onBranchDataChange?: (
+    tree: SessionTreeNode[],
+    activeLeafId: string | null,
+    onLeafChange: (leafId: string | null) => void,
+  ) => void
+  onSystemPromptChange?: (prompt: string | null) => void
+  onSessionStatsPanelOpen?: () => void
+  setToolPreset?: (preset: ToolPreset) => void
+}
+
+export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+
+export interface AttachedImage {
+  data: string
+  mimeType: string
+  previewUrl: string
+}
+
+type ChromeDetection =
+  | { readonly _tag: "Loading"; readonly cwd: string | null }
+  | { readonly _tag: "Absent"; readonly cwd: string | null }
+  | { readonly _tag: "Failed"; readonly cwd: string; readonly message: string }
+  | {
+      readonly _tag: "Installed"
+      readonly cwd: string
+      readonly extensionId: string | null
+      readonly extensionDirectory: string | null
+    }
+
+type SelectedModel = { provider: string; modelId: string }
+type ModelEntry = { id: string; name: string; provider: string }
+type ExtensionDialog = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>
+
+const messageFor = (error: unknown): string => {
+  if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
+    return error.message
+  }
+  return String(error)
+}
+
+const cloneTree = (nodes: ReadonlyArray<SessionTreeNode>): SessionTreeNode[] =>
+  nodes.map((node) => ({
+    ...node,
+    children: cloneTree(node.children),
+    ...(node.compressedEntryIds === undefined ? {} : { compressedEntryIds: [...node.compressedEntryIds] }),
+  }))
+
+const asUiMessages = (messages: ReadonlyArray<unknown>): AgentMessage[] =>
+  messages.map((message) => message as AgentMessage)
+
+const asUiStatuses = (statuses: ReadonlyArray<unknown>): ExtensionStatusItem[] =>
+  statuses.map((status) => status as ExtensionStatusItem)
+
+const asUiWidgets = (widgets: ReadonlyArray<unknown>): ExtensionWidgetItem[] =>
+  widgets.map((widget) => widget as ExtensionWidgetItem)
+
+const asChromeConnection = (profile: SameProfileChromeConnection): SameProfileChromeConnection => profile
+
+export function useAgentSession(opts: UseAgentSessionOptions) {
+  const {
+    session,
+    newSessionCwd,
+    draftEpoch,
+    sessionRefreshKey,
+    onAgentEnd,
+    onSessionIndexChanged,
+    onSessionCreated,
+    onSessionForked,
+    onBranchDataChange,
+    onSystemPromptChange,
+    onSessionStatsPanelOpen,
+    setToolPreset: onToolPresetChange,
+    chatInputRef,
+  } = opts
+  const isNew = session === null && newSessionCwd !== null
+  const [state, dispatch] = useReducer(sessionUiReducer, initialSessionUiState)
+  const [loading, setLoading] = useState(!isNew)
+  const [modelNames, setModelNames] = useState<Record<string, string>>({})
+  const [modelList, setModelList] = useState<ModelEntry[]>([])
+  const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({})
+  const [modelThinkingLevelMaps, setModelThinkingLevelMaps] = useState<Record<string, Record<string, string | null>>>(
+    {},
+  )
+  const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null)
+  const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null)
+  const [toolPreset, setToolPreset] = useState<ToolPreset>(DEFAULT_TOOL_PRESET)
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto")
+  const [forkingEntryId, setForkingEntryId] = useState<string | null>(null)
+  const [slashCommands, setSlashCommands] = useState<SlashCommandInfo[]>([])
+  const [slashCommandsLoading, setSlashCommandsLoading] = useState(false)
+  const [sessionStatsOverride, setSessionStatsOverride] = useState<SessionStatsInfo | null>(null)
+  const [chromeDetection, setChromeDetection] = useState<ChromeDetection>({ _tag: "Loading", cwd: null })
+  const [chromeToolsActive, setChromeToolsActive] = useState<boolean | null>(null)
+  const [chromeProfileConnection, setChromeProfileConnection] = useState<SameProfileChromeConnection | null>(null)
+  const [loopControlPending, setLoopControlPending] = useState(false)
+  const [noticeState, dispatchNotice] = useReducer(noticeReducer, { visible: [], pending: [] } satisfies NoticeState)
+  const effectScopeOwner = projectSessionEffectOwner(state, { sessionId: session?.id ?? null, draftEpoch })
+  const runScoped = useBrowserEffectScope(effectScopeOwner)
+
+  const sessionIdRef = useRef<string | null>(session?.id ?? null)
+  const observerRef = useRef<Cancel | null>(null)
+  const createPendingRef = useRef(false)
+  const createWaitersRef = useRef<
+    Array<{
+      readonly onReady: (sessionId: string) => void
+      readonly onFailure: (error: unknown) => void
+    }>
+  >([])
+  const noticeSequenceRef = useRef(0)
+  const bashSequenceRef = useRef(0)
+  const contextSequenceRef = useRef(0)
+  const chromeControlSequenceRef = useRef(0)
+  const messagesEndRef = useRef<HTMLDivElement | null>(null)
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const lastUserMsgRef = useRef<HTMLDivElement | null>(null)
+  const handledCompletionRunIdRef = useRef<string | null>(null)
+
+  const addNotice = useCallback((input: { type: NoticeType; message: string; source?: NoticeSource }) => {
+    noticeSequenceRef.current += 1
+    dispatchNotice({
+      type: "add",
+      notice: createNotice({
+        id: `notice-${noticeSequenceRef.current}`,
+        type: input.type,
+        message: input.message,
+        source: input.source ?? "app",
+      }),
+    })
+  }, [])
+
+  const loadSnapshot = useCallback(
+    (sessionId: string, showLoading = false) => {
+      if (showLoading) setLoading(true)
+      return runScoped(loadSessionSnapshot(sessionId), {
+        onSuccess: (snapshot) => {
+          dispatch({ _tag: "Loaded", sessionId, snapshot })
+          setThinkingLevel(
+            (snapshot.runtime?.thinkingLevel as ThinkingLevelOption | undefined) ??
+              (snapshot.context.thinkingLevel as ThinkingLevelOption),
+          )
+          setLoading(false)
+        },
+        onFailure: (error) => {
+          dispatch({ _tag: "LoadFailed", sessionId, message: messageFor(error) })
+          setLoading(false)
+        },
+      })
+    },
+    [runScoped],
+  )
+
+  const beginObserver = useCallback(
+    (sessionId: string) => {
+      observerRef.current?.()
+      observerRef.current = runScoped(
+        observeSession(sessionId, {
+          onEvent: (event) => {
+            if (event._tag === "ExtensionFailed") {
+              addNotice({ type: "warning", message: event.message, source: "extension" })
+            }
+            if (event._tag === "ExtensionUiRequested" && event.request.method === "notify") {
+              addNotice({
+                type: event.request.notifyType ?? "info",
+                message: event.request.message,
+                source: "extension",
+              })
+            }
+            if (event._tag === "ExtensionUiRequested" && event.request.method === "set_editor_text") {
+              chatInputRef?.current?.insertIfEmpty(event.request.text)
+            }
+            dispatch({ _tag: "RuntimeEvent", sessionId, event })
+          },
+          onSnapshot: (snapshot) => {
+            dispatch({ _tag: "Loaded", sessionId, snapshot })
+            setThinkingLevel(
+              (snapshot.runtime?.thinkingLevel as ThinkingLevelOption | undefined) ??
+                (snapshot.context.thinkingLevel as ThinkingLevelOption),
+            )
+            setLoading(false)
+          },
+          onTransientError: () => undefined,
+        }),
+        {
+          onSuccess: () => undefined,
+          onFailure: (error) => {
+            dispatch({ _tag: "LoadFailed", sessionId, message: messageFor(error) })
+            setLoading(false)
+          },
+        },
+      )
+    },
+    [addNotice, chatInputRef, runScoped],
+  )
+
+  useEffect(() => {
+    const completionRunId = state.completionRunId
+    const sessionId = state.sessionId
+    if (completionRunId === null || sessionId === null || handledCompletionRunIdRef.current === completionRunId) return
+    handledCompletionRunIdRef.current = completionRunId
+    onAgentEnd?.()
+    loadSnapshot(sessionId)
+  }, [loadSnapshot, onAgentEnd, state.completionRunId, state.sessionId])
+
+  const flushCreateWaiters = useCallback((sessionId: string | null, error?: unknown) => {
+    const waiters = createWaitersRef.current
+    createWaitersRef.current = []
+    createPendingRef.current = false
+    for (const waiter of waiters) {
+      if (sessionId === null) waiter.onFailure(error)
+      else waiter.onReady(sessionId)
+    }
+  }, [])
+
+  const ensureSession = useCallback(
+    (onReady: (sessionId: string) => void, onFailure: (error: unknown) => void = () => undefined) => {
+      const existing = sessionIdRef.current
+      if (existing !== null) {
+        onReady(existing)
+        return
+      }
+      if (newSessionCwd === null) {
+        onFailure(new NoWorkspaceSelected({ message: "No workspace selected" }))
+        return
+      }
+      createWaitersRef.current.push({ onReady, onFailure })
+      if (createPendingRef.current) return
+      createPendingRef.current = true
+      runScoped(sessionController.createConfigured(newSessionCwd, getToolNamesForPreset(toolPreset), newSessionModel), {
+        onSuccess: (createdSession) => {
+          sessionIdRef.current = createdSession.id
+          dispatch({ _tag: "BindSession", sessionId: createdSession.id })
+          beginObserver(createdSession.id)
+          onSessionCreated?.({ ...createdSession })
+          flushCreateWaiters(createdSession.id)
+        },
+        onFailure: (error) => flushCreateWaiters(null, error),
+      })
+    },
+    [beginObserver, flushCreateWaiters, newSessionCwd, newSessionModel, onSessionCreated, runScoped, toolPreset],
+  )
+
+  const activeSessionId = session?.id ?? null
+  const activeDraftEpoch = activeSessionId === null ? draftEpoch : null
+  useEffect(() => {
+    dispatch(
+      activeSessionId === null
+        ? { _tag: "Reset", sessionId: null, draftEpoch: activeDraftEpoch! }
+        : { _tag: "Reset", sessionId: activeSessionId },
+    )
+    observerRef.current?.()
+    observerRef.current = null
+    sessionIdRef.current = activeSessionId
+    if (activeSessionId !== null) {
+      setLoading(true)
+      beginObserver(activeSessionId)
+    } else {
+      setLoading(false)
+    }
+    return () => {
+      observerRef.current?.()
+      observerRef.current = null
+    }
+  }, [activeDraftEpoch, activeSessionId, beginObserver])
+
+  const modelCwd = newSessionCwd ?? session?.cwd ?? null
+  useEffect(() => {
+    if (modelCwd === null) return
+    return runScoped(sessionController.modelCatalog(modelCwd), {
+      onSuccess: (catalog) => {
+        setModelNames({ ...catalog.models })
+        setModelList(catalog.modelList.map((model) => ({ ...model })))
+        setModelThinkingLevels(
+          Object.fromEntries(Object.entries(catalog.thinkingLevels).map(([key, values]) => [key, [...values]])),
+        )
+        setModelThinkingLevelMaps(
+          Object.fromEntries(Object.entries(catalog.thinkingLevelMaps).map(([key, value]) => [key, { ...value }])),
+        )
+        if (isNew) {
+          setNewSessionDefaultModel(
+            catalog.defaultModel ??
+              (catalog.modelList[0]
+                ? { provider: catalog.modelList[0].provider, modelId: catalog.modelList[0].id }
+                : null),
+          )
+        }
+      },
+    })
+  }, [isNew, modelCwd, opts.modelsRefreshKey, runScoped, sessionRefreshKey])
+
+  useEffect(() => {
+    setChromeDetection({ _tag: "Loading", cwd: modelCwd })
+    if (modelCwd === null) {
+      setChromeDetection({ _tag: "Absent", cwd: null })
+      return
+    }
+    return runScoped(sessionController.plugins(modelCwd), {
+      onSuccess: (plugins) => {
+        setChromeDetection(
+          hasLoadedPiChrome(plugins)
+            ? {
+                _tag: "Installed",
+                cwd: modelCwd,
+                extensionId: getPiChromeExtensionId(plugins),
+                extensionDirectory: getPiChromeExtensionDirectory(plugins),
+              }
+            : { _tag: "Absent", cwd: modelCwd },
+        )
+      },
+      onFailure: (error) => setChromeDetection({ _tag: "Failed", cwd: modelCwd, message: messageFor(error) }),
+    })
+  }, [modelCwd, runScoped, sessionRefreshKey])
+
+  const chromeExtensionId =
+    chromeDetection.cwd === modelCwd && chromeDetection._tag === "Installed" ? chromeDetection.extensionId : null
+  const chromeExtensionDirectory =
+    chromeDetection.cwd === modelCwd && chromeDetection._tag === "Installed" ? chromeDetection.extensionDirectory : null
+  useEffect(() => {
+    if (chromeExtensionId === null) {
+      setChromeProfileConnection(null)
+      return
+    }
+    return runScoped(getSameProfileChromeStatus(chromeExtensionId), {
+      onSuccess: setChromeProfileConnection,
+      onFailure: () => setChromeProfileConnection({ connected: false }),
+    })
+  }, [chromeExtensionId, runScoped])
+
+  const snapshot = state.snapshot
+  const data = useMemo<SessionData | null>(
+    () =>
+      snapshot === null
+        ? null
+        : {
+            sessionId: snapshot.sessionId,
+            filePath: snapshot.filePath,
+            tree: cloneTree(snapshot.tree as ReadonlyArray<SessionTreeNode>),
+            leafId: snapshot.leafId,
+            context: {
+              messages: asUiMessages(snapshot.context.messages),
+              entryIds: [...snapshot.context.entryIds],
+              thinkingLevel: snapshot.context.thinkingLevel,
+              model: snapshot.context.model,
+            },
+          },
+    [snapshot],
+  )
+
+  const activeLeafId = snapshot?.leafId ?? null
+  const messages = useMemo(() => asUiMessages(projectSessionMessages(state)), [state])
+  const entryIds = useMemo(() => [...projectSessionEntryIds(state)], [state])
+  const extensionStatuses = useMemo(() => asUiStatuses(state.extensionStatuses), [state.extensionStatuses])
+  const extensionWidgets = useMemo(() => asUiWidgets(state.extensionWidgets), [state.extensionWidgets])
+  const activeBashExecution = state.activeBashExecution as ActiveBashExecution | null
+  const currentModel = snapshot?.context.model ?? null
+  const displayModel = isNew ? (newSessionModel ?? newSessionDefaultModel) : currentModel
+  const chromeAuthorized = isChromeAuthorized(extensionStatuses)
+  const chromeControlPending = state.chromeControlOperation !== null
+  const chromeControlEnabled = isPiChromeControlEnabled(chromeAuthorized, chromeToolsActive)
+  const currentChromeRequirement = useCallback(
+    () =>
+      firstUnsatisfiedChromeRequirement({
+        packageLoaded:
+          chromeDetection.cwd !== modelCwd || chromeDetection._tag === "Loading" || chromeDetection._tag === "Failed"
+            ? null
+            : chromeDetection._tag === "Installed",
+        extensionReachable: chromeProfileConnection === null ? null : chromeProfileConnection.connected,
+        extensionId: chromeExtensionId,
+        extensionDirectory: chromeExtensionDirectory,
+        status: getChromeStatusProjection(extensionStatuses),
+      }),
+    [
+      chromeDetection,
+      chromeExtensionDirectory,
+      chromeExtensionId,
+      chromeProfileConnection,
+      extensionStatuses,
+      modelCwd,
+    ],
+  )
+
+  const sessionStats = useMemo<SessionStatsInfo | null>(() => {
+    if (sessionStatsOverride !== null) return sessionStatsOverride
+    if (messages.length === 0) return null
+    const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+    let userMessages = 0
+    let assistantMessages = 0
+    let toolCalls = 0
+    let toolResults = 0
+    let cost = 0
+    for (const message of messages) {
+      if (message.role === "user") userMessages += 1
+      if (message.role === "toolResult") toolResults += 1
+      if (message.role !== "assistant") continue
+      assistantMessages += 1
+      toolCalls += message.content.filter((block) => block.type === "toolCall").length
+      if (message.usage === undefined) continue
+      tokens.input += message.usage.input
+      tokens.output += message.usage.output
+      tokens.cacheRead += message.usage.cacheRead
+      tokens.cacheWrite += message.usage.cacheWrite
+      cost += message.usage.cost.total
+    }
+    tokens.total = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite
+    return {
+      sessionFile: data?.filePath,
+      sessionId: sessionIdRef.current ?? "",
+      sessionName: session?.name,
+      userMessages,
+      assistantMessages,
+      toolCalls,
+      toolResults,
+      totalMessages: messages.length,
+      tokens,
+      cost,
+      ...(snapshot?.runtime?.contextUsage === null || snapshot?.runtime?.contextUsage === undefined
+        ? {}
+        : { contextUsage: snapshot.runtime.contextUsage }),
+    }
+  }, [data?.filePath, messages, session?.name, sessionStatsOverride, snapshot?.runtime?.contextUsage])
+
+  const ensurePromptChromeBinding = useCallback(
+    (sessionId: string) => {
+      const requirement = currentChromeRequirement()
+      if (
+        requirement?.requirement === "PackageLoaded" ||
+        requirement?.requirement === "ExtensionReachable" ||
+        requirement?.requirement === "ProtocolCompatible"
+      ) {
+        return Effect.fail(
+          new ChromeControlError({
+            operation: `binding.${requirement.requirement}`,
+            message: chromeRequirementMessage(requirement),
+          }),
+        )
+      }
+      if (chromeDetection.cwd !== modelCwd || chromeDetection._tag === "Loading") {
+        return Effect.fail(
+          new ChromeControlError({
+            operation: "binding.discovery",
+            message: "Still resolving the Chrome connector for this workspace",
+          }),
+        )
+      }
+      if (chromeDetection._tag === "Failed") {
+        return Effect.fail(
+          new ChromeControlError({
+            operation: "binding.discovery",
+            message: `Could not resolve the Chrome connector for this workspace: ${chromeDetection.message}`,
+          }),
+        )
+      }
+      if (chromeDetection._tag === "Absent" || !chromeControlEnabled) return Effect.void
+      if (chromeDetection.extensionId === null) {
+        return Effect.fail(
+          new ChromeControlError({
+            operation: "binding.discovery",
+            message: "The installed pi-chrome package does not expose a built Chrome extension id",
+          }),
+        )
+      }
+      const command = (args: string) => sessionController.extensionCommand(sessionId, "chrome", args)
+      return ensureChromeSessionBinding(
+        chromeDetection.extensionId,
+        getChromeStatusProjection(extensionStatuses),
+        command,
+      ).pipe(
+        Effect.tap(({ profile, commandResult }) =>
+          Effect.sync(() => {
+            setChromeProfileConnection(profile)
+            if (commandResult === null) return
+            dispatch({ _tag: "ExtensionStatusesChanged", statuses: commandResult.extensionStatuses })
+            setChromeToolsActive(getPiChromeToolState(commandResult.tools.map((tool) => ({ ...tool }))))
+          }),
+        ),
+        Effect.asVoid,
+      )
+    },
+    [chromeControlEnabled, chromeDetection, currentChromeRequirement, extensionStatuses, modelCwd],
+  )
+
+  const handleSend = useCallback(
+    (message: string, images?: AttachedImage[]) => {
+      if ((!message.trim() && !images?.length) || state.agentRunning) return
+      const pendingSessionId = sessionIdRef.current
+      const uiMessage: UserMessage = images?.length
+        ? {
+            role: "user",
+            content: [
+              ...(message.trim() ? [{ type: "text" as const, text: message }] : []),
+              ...images.map((image) => ({
+                type: "image" as const,
+                source: { type: "base64" as const, media_type: image.mimeType, data: image.data },
+              })),
+            ],
+          }
+        : { role: "user", content: message }
+      const payloadImages = images?.map((image) => ({
+        type: "image" as const,
+        data: image.data,
+        mimeType: image.mimeType,
+      }))
+      runScoped(sessionController.nextPromptRequestId, {
+        onSuccess: (requestId) => {
+          dispatch({ _tag: "PromptSubmitted", requestId, message: uiMessage })
+          ensureSession(
+            (sessionId) => {
+              runScoped(
+                ensurePromptChromeBinding(sessionId).pipe(
+                  Effect.andThen(sessionController.prompt(sessionId, requestId, message, payloadImages)),
+                ),
+                {
+                  onSuccess: (accepted) => {
+                    dispatch({
+                      _tag: "PromptAccepted",
+                      sessionId,
+                      requestId: accepted.requestId,
+                      runId: accepted.runId,
+                    })
+                    onSessionIndexChanged?.()
+                  },
+                  onFailure: (error) =>
+                    dispatch({ _tag: "OperationFailed", sessionId, kind: "prompt", message: messageFor(error) }),
+                },
+              )
+            },
+            (error) =>
+              dispatch({
+                _tag: "OperationFailed",
+                sessionId: pendingSessionId,
+                kind: "prompt",
+                message: messageFor(error),
+              }),
+          )
+        },
+        onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+      })
+    },
+    [addNotice, ensurePromptChromeBinding, ensureSession, onSessionIndexChanged, runScoped, state.agentRunning],
+  )
+
+  const handleBashCommand = useCallback(
+    (input: string): boolean => {
+      const parsed = parseBashCommand(input)
+      if (parsed === null || state.agentRunning || activeBashExecution !== null) return false
+      bashSequenceRef.current += 1
+      const id = `bash-${bashSequenceRef.current}`
+      const pendingSessionId = sessionIdRef.current
+      dispatch({ _tag: "OperationPending", sessionId: pendingSessionId, kind: "bash" })
+      ensureSession(
+        (sessionId) => {
+          runScoped(sessionController.bash(sessionId, id, parsed.command, parsed.excludeFromContext), {
+            onSuccess: ({ runId }) => {
+              dispatch({ _tag: "OperationAccepted", sessionId, kind: "bash", runId })
+            },
+            onFailure: (error) => {
+              dispatch({ _tag: "OperationFailed", sessionId, kind: "bash", message: messageFor(error) })
+              addNotice({ type: "error", message: messageFor(error) })
+            },
+          })
+        },
+        (error) =>
+          dispatch({ _tag: "OperationFailed", sessionId: pendingSessionId, kind: "bash", message: messageFor(error) }),
+      )
+      return true
+    },
+    [activeBashExecution, addNotice, ensureSession, runScoped, state.agentRunning],
+  )
+
+  const handleAbort = useCallback(() => {
+    const sessionId = sessionIdRef.current
+    if (sessionId === null) return
+    runScoped(
+      activeBashExecution === null && state.pendingOperation !== "bash"
+        ? sessionController.abort(sessionId)
+        : sessionController.abortBash(sessionId),
+      { onSuccess: () => undefined },
+    )
+  }, [activeBashExecution, runScoped, state.pendingOperation])
+
+  const handleFork = useCallback(
+    (entryId: string) => {
+      const sessionId = sessionIdRef.current
+      if (sessionId === null) return
+      setForkingEntryId(entryId)
+      runScoped(sessionController.fork(sessionId, entryId), {
+        onSuccess: (result) => {
+          setForkingEntryId(null)
+          if (!result.cancelled && result.newSessionId !== undefined) onSessionForked?.(result.newSessionId)
+        },
+        onFailure: (error) => {
+          setForkingEntryId(null)
+          addNotice({ type: "error", message: messageFor(error) })
+        },
+      })
+    },
+    [addNotice, onSessionForked, runScoped],
+  )
+
+  const loadContext = useCallback(
+    (leafId: string | null) => {
+      const sessionId = sessionIdRef.current
+      if (sessionId === null) return
+      contextSequenceRef.current += 1
+      const requestId = contextSequenceRef.current
+      dispatch({ _tag: "ContextRequested", sessionId, requestId })
+      runScoped(sessionController.context(sessionId, leafId ?? undefined), {
+        onSuccess: ({ context }) => dispatch({ _tag: "ContextLoaded", sessionId, requestId, context, leafId }),
+        onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+      })
+    },
+    [addNotice, runScoped],
+  )
+
+  const handleNavigate = useCallback(
+    (entryId: string) => {
+      const sessionId = sessionIdRef.current
+      if (sessionId === null) return
+      runScoped(sessionController.navigate(sessionId, entryId), {
+        onSuccess: () => loadContext(entryId),
+        onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+      })
+    },
+    [addNotice, loadContext, runScoped],
+  )
+
+  const handleLeafChange = useCallback(
+    (leafId: string | null) => {
+      if (leafId === null) {
+        loadContext(null)
+        return
+      }
+      handleNavigate(leafId)
+    },
+    [handleNavigate, loadContext],
+  )
+
+  useEffect(() => {
+    onBranchDataChange?.(data?.tree ?? [], activeLeafId, handleLeafChange)
+  }, [activeLeafId, data?.tree, handleLeafChange, onBranchDataChange])
+
+  useEffect(() => {
+    onSystemPromptChange?.(snapshot?.runtime?.systemPrompt ?? null)
+  }, [onSystemPromptChange, snapshot?.runtime?.systemPrompt])
+
+  const handleModelChange = useCallback(
+    (provider: string, modelId: string) => {
+      const selected = { provider, modelId }
+      if (isNew && sessionIdRef.current === null) {
+        setNewSessionModel(selected)
+        return
+      }
+      ensureSession((sessionId) =>
+        runScoped(sessionController.setModel(sessionId, provider, modelId), {
+          onSuccess: () => loadSnapshot(sessionId),
+          onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+        }),
+      )
+    },
+    [addNotice, ensureSession, isNew, loadSnapshot, runScoped],
+  )
+
+  const handleCompact = useCallback(() => {
+    const sessionId = sessionIdRef.current
+    if (sessionId === null || state.isCompacting) return
+    dispatch({ _tag: "OperationPending", sessionId, kind: "compaction" })
+    runScoped(sessionController.compact(sessionId), {
+      onSuccess: ({ runId }) => {
+        dispatch({ _tag: "OperationAccepted", sessionId, kind: "compaction", runId })
+      },
+      onFailure: (error) =>
+        dispatch({ _tag: "OperationFailed", sessionId, kind: "compaction", message: messageFor(error) }),
+    })
+  }, [runScoped, state.isCompacting])
+
+  const handleAbortCompaction = useCallback(() => {
+    const sessionId = sessionIdRef.current
+    if (sessionId !== null) runScoped(sessionController.abortCompaction(sessionId), { onSuccess: () => undefined })
+  }, [runScoped])
+
+  const queueImages = (images?: AttachedImage[]) =>
+    images?.map((image) => ({
+      type: "image" as const,
+      data: image.data,
+      mimeType: image.mimeType,
+    }))
+
+  const handleSteer = useCallback(
+    (message: string, images?: AttachedImage[]) => {
+      const sessionId = sessionIdRef.current
+      if (sessionId !== null)
+        runScoped(sessionController.steer(sessionId, message, queueImages(images)), {
+          onSuccess: () => undefined,
+          onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+        })
+    },
+    [addNotice, runScoped],
+  )
+
+  const handleFollowUp = useCallback(
+    (message: string, images?: AttachedImage[]) => {
+      const sessionId = sessionIdRef.current
+      if (sessionId !== null)
+        runScoped(sessionController.followUp(sessionId, message, queueImages(images)), {
+          onSuccess: () => undefined,
+          onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+        })
+    },
+    [addNotice, runScoped],
+  )
+
+  const handlePromptWithStreamingBehavior = useCallback(
+    (message: string, behavior: "steer" | "followUp", images?: AttachedImage[]) => {
+      const sessionId = sessionIdRef.current
+      if (sessionId !== null)
+        runScoped(
+          behavior === "steer"
+            ? sessionController.steer(sessionId, message, queueImages(images))
+            : sessionController.followUp(sessionId, message, queueImages(images)),
+          {
+            onSuccess: () => undefined,
+            onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+          },
+        )
+    },
+    [addNotice, runScoped],
+  )
+
+  const handleRecallQueue = useCallback(() => {
+    const sessionId = sessionIdRef.current
+    if (sessionId === null) return
+    runScoped(sessionController.clearQueue(sessionId), {
+      onSuccess: (queued) => {
+        const text = [...queued.steering, ...queued.followUp].join("\n\n")
+        if (text) chatInputRef?.current?.prependText(text)
+      },
+      onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+    })
+  }, [addNotice, chatInputRef, runScoped])
+
+  const handleThinkingLevelChange = useCallback(
+    (level: ThinkingLevelOption) => {
+      setThinkingLevel(level)
+      if (level === "auto") return
+      ensureSession((sessionId) =>
+        runScoped(sessionController.setThinking(sessionId, level), {
+          onSuccess: () => undefined,
+          onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+        }),
+      )
+    },
+    [addNotice, ensureSession, runScoped],
+  )
+
+  const loadTools = useCallback(
+    (sessionId = sessionIdRef.current) => {
+      if (sessionId === null) return
+      runScoped(sessionController.tools(sessionId), {
+        onSuccess: ({ tools }) => {
+          const preset = getPresetFromTools(tools.map((tool) => ({ ...tool })))
+          setToolPreset(preset)
+          onToolPresetChange?.(preset)
+          setChromeToolsActive(getPiChromeToolState(tools.map((tool) => ({ ...tool }))))
+        },
+      })
+    },
+    [onToolPresetChange, runScoped],
+  )
+
+  const handleToolPresetChange = useCallback(
+    (preset: ToolPreset) => {
+      setToolPreset(preset)
+      onToolPresetChange?.(preset)
+      ensureSession((sessionId) =>
+        runScoped(sessionController.setTools(sessionId, getToolNamesForPreset(preset)), {
+          onSuccess: () => loadTools(sessionId),
+          onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+        }),
+      )
+    },
+    [addNotice, ensureSession, loadTools, onToolPresetChange, runScoped],
+  )
+
+  useEffect(() => {
+    if (activeSessionId !== null) loadTools(activeSessionId)
+  }, [activeSessionId, loadTools, sessionRefreshKey])
+
+  const loadSlashCommands = useCallback((): SlashCommandInfo[] => {
+    const sessionId = sessionIdRef.current
+    if (sessionId === null) return slashCommands
+    setSlashCommandsLoading(true)
+    runScoped(sessionController.commands(sessionId), {
+      onSuccess: ({ commands }) => {
+        setSlashCommands(
+          commands.map((command) => ({
+            name: command.name,
+            ...(command.description === undefined ? {} : { description: command.description }),
+            source: command.source,
+            sourceInfo: command.sourceInfo as SlashCommandInfo["sourceInfo"],
+          })),
+        )
+        setSlashCommandsLoading(false)
+      },
+      onFailure: () => setSlashCommandsLoading(false),
+    })
+    return slashCommands
+  }, [runScoped, slashCommands])
+
+  const handleChromeControlChange = useCallback(
+    (enabled: boolean) => {
+      if (chromeControlPending) return
+      const requirement = currentChromeRequirement()
+      if (
+        enabled &&
+        (requirement?.requirement === "PackageLoaded" ||
+          requirement?.requirement === "ExtensionReachable" ||
+          requirement?.requirement === "ProtocolCompatible")
+      ) {
+        addNotice({ type: "error", message: chromeRequirementMessage(requirement) })
+        return
+      }
+      const extensionId = chromeExtensionId
+      if (enabled && extensionId === null) {
+        addNotice({ type: "error", message: "Pi Chrome Connector is unavailable in this browser profile" })
+        return
+      }
+      chromeControlSequenceRef.current += 1
+      const requestId = `chrome-control-${chromeControlSequenceRef.current}`
+      dispatch({ _tag: "ChromeControlRequested", requestId, enabled })
+      ensureSession(
+        (sessionId) => {
+          const command = (args: string) => sessionController.extensionCommand(sessionId, "chrome", args)
+          const operation =
+            enabled && extensionId !== null
+              ? command("authorize").pipe(
+                  Effect.andThen(attachSameProfileChromeSession(extensionId, command)),
+                  Effect.flatMap((result) =>
+                    getSameProfileChromeStatus(extensionId).pipe(
+                      Effect.map((profile) => ({ result, profile: asChromeConnection(profile) })),
+                    ),
+                  ),
+                )
+              : command("revoke").pipe(
+                  Effect.map((result) => ({
+                    result,
+                    profile: asChromeConnection({ connected: false }),
+                  })),
+                )
+          runScoped(operation, {
+            onSuccess: ({ result, profile }) => {
+              setChromeProfileConnection(profile)
+              setChromeToolsActive(getPiChromeToolState(result.tools.map((tool) => ({ ...tool }))))
+              dispatch({
+                _tag: "ChromeControlSucceeded",
+                requestId,
+                statuses: result.extensionStatuses,
+              })
+              addNotice({ type: "success", message: enabled ? "Browser control enabled" : "Browser control disabled" })
+            },
+            onFailure: (error) => {
+              dispatch({ _tag: "ChromeControlFailed", requestId })
+              setChromeProfileConnection({ connected: false })
+              addNotice({ type: "error", message: messageFor(error) })
+            },
+          })
+        },
+        (error) => {
+          dispatch({ _tag: "ChromeControlFailed", requestId })
+          addNotice({ type: "error", message: messageFor(error) })
+        },
+      )
+    },
+    [addNotice, chromeControlPending, chromeExtensionId, currentChromeRequirement, ensureSession, runScoped],
+  )
+
+  const handleLoopControl = useCallback(
+    (action: LoopControlAction) => {
+      const sessionId = sessionIdRef.current
+      if (sessionId === null || loopControlPending) return
+      setLoopControlPending(true)
+      runScoped(sessionController.extensionCommand(sessionId, "loop-control", JSON.stringify(controlRequest(action))), {
+        onSuccess: (result) => {
+          dispatch({ _tag: "ExtensionStatusesChanged", statuses: result.extensionStatuses })
+          setLoopControlPending(false)
+        },
+        onFailure: (error) => {
+          setLoopControlPending(false)
+          addNotice({ type: "error", message: messageFor(error) })
+        },
+      })
+    },
+    [addNotice, loopControlPending, runScoped],
+  )
+
+  const respondToExtensionUi = useCallback(
+    (request: ExtensionDialog, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => {
+      const sessionId = sessionIdRef.current
+      if (sessionId === null) return
+      const payload = { type: "extension_ui_response" as const, id: request.id, ...response }
+      runScoped(sessionController.extensionUiResponse(sessionId, payload), { onSuccess: () => undefined })
+    },
+    [runScoped],
+  )
+
+  const sendExtensionCustomInput = useCallback(
+    (request: Extract<ExtensionUiRequest, { method: "custom" }>, data: string) => {
+      const sessionId = sessionIdRef.current
+      if (sessionId !== null)
+        runScoped(sessionController.extensionUiInput(sessionId, request.id, data), { onSuccess: () => undefined })
+    },
+    [runScoped],
+  )
+
+  const handleBuiltinSlashCommand = useCallback(
+    (text: string): BuiltinSlashCommandResult => {
+      const match = text.match(/^\/([^\s]+)(?:\s+([\s\S]*))?$/)
+      if (match === null) return { handled: false }
+      const command = match[1]
+      const args = (match[2] ?? "").trim()
+      if (command === "compact") {
+        const sessionId = sessionIdRef.current
+        if (sessionId === null) return { handled: true, error: "No active session to compact" }
+        dispatch({ _tag: "OperationPending", sessionId, kind: "compaction" })
+        runScoped(sessionController.compact(sessionId, args || undefined), {
+          onSuccess: ({ runId }) => {
+            dispatch({ _tag: "OperationAccepted", sessionId, kind: "compaction", runId })
+          },
+          onFailure: (error) =>
+            dispatch({ _tag: "OperationFailed", sessionId, kind: "compaction", message: messageFor(error) }),
+        })
+        return { handled: true }
+      }
+      if (command === "reload") {
+        const sessionId = sessionIdRef.current
+        if (sessionId === null) return { handled: true, error: "No active session to reload" }
+        runScoped(sessionController.reload(sessionId), {
+          onSuccess: () => {
+            loadSnapshot(sessionId)
+            loadTools(sessionId)
+            loadSlashCommands()
+          },
+          onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+        })
+        return { handled: true }
+      }
+      if (command === "name") {
+        const sessionId = sessionIdRef.current
+        if (sessionId === null || !args) return { handled: true, error: "Usage: /name <name>" }
+        runScoped(sessionController.rename(sessionId, args), {
+          onSuccess: () => loadSnapshot(sessionId),
+          onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+        })
+        return { handled: true }
+      }
+      if (command === "session") {
+        const sessionId = sessionIdRef.current
+        if (sessionId === null) return { handled: true, error: "No active session" }
+        runScoped(sessionController.stats(sessionId), {
+          onSuccess: (stats) => {
+            setSessionStatsOverride(stats as SessionStatsInfo)
+            onSessionStatsPanelOpen?.()
+          },
+          onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+        })
+        return { handled: true, action: "openSessionStats" }
+      }
+      if (command === "copy") {
+        const sessionId = sessionIdRef.current
+        if (sessionId === null) return { handled: true, error: "No active session" }
+        runScoped(
+          sessionController
+            .lastAssistant(sessionId)
+            .pipe(Effect.flatMap(({ text }) => (text.length === 0 ? Effect.void : copyText(text)))),
+          {
+            onSuccess: () => addNotice({ type: "success", message: "Copied last assistant message" }),
+            onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+          },
+        )
+        return { handled: true }
+      }
+      return { handled: false }
+    },
+    [addNotice, loadSlashCommands, loadSnapshot, loadTools, onSessionStatsPanelOpen, runScoped],
+  )
+
+  const dismissNotice = useCallback((id: string) => {
+    dispatchNotice({ type: "remove", id })
+  }, [])
+
+  const autoDismissNotice = getNextAutoDismissNotice(noticeState)
+  useEffect(() => {
+    if (autoDismissNotice === undefined) return
+    return runScoped(
+      after(`${NOTICE_AUTO_DISMISS_MS} millis`, () => {
+        dispatchNotice({ type: "remove", id: autoDismissNotice.id })
+      }),
+      { onSuccess: () => undefined },
+    )
+  }, [autoDismissNotice, runScoped])
+
+  const extensionDialog = state.extensionDialog as ExtensionDialog | null
+  const extensionCustomUi = state.extensionCustomUi as Extract<ExtensionUiRequest, { method: "custom" }> | null
+  const contextUsage = snapshot?.runtime?.contextUsage ?? null
+  const systemPrompt = snapshot?.runtime?.systemPrompt ?? null
+  const agentPhase: AgentPhase =
+    activeBashExecution !== null ? { kind: "running_command" } : state.agentRunning ? { kind: "waiting_model" } : null
+
+  return {
+    data,
+    loading,
+    error: state.error,
+    activeLeafId,
+    messages,
+    entryIds,
+    streamState: {
+      isStreaming: state.isStreaming,
+      streamingMessage: state.streamingMessage as AgentMessage | null,
+    },
+    agentRunning: state.agentRunning,
+    activeBashExecution,
+    modelNames,
+    modelList,
+    modelThinkingLevels,
+    modelThinkingLevelMaps,
+    newSessionModel,
+    toolPreset,
+    thinkingLevel,
+    retryInfo: state.retryInfo,
+    contextUsage,
+    systemPrompt,
+    forkingEntryId,
+    isCompacting: state.isCompacting,
+    compactError: state.isCompacting ? null : state.error,
+    compactResult: state.compactResult,
+    currentModel,
+    displayModel,
+    sessionStats,
+    slashCommands,
+    slashCommandsLoading,
+    queuedMessages: {
+      steering: [...state.queuedMessages.steering],
+      followUp: [...state.queuedMessages.followUp],
+    },
+    notices: noticeState.visible,
+    autoDismissNoticeId: autoDismissNotice?.id ?? null,
+    dismissNotice,
+    extensionDialog,
+    extensionCustomUi,
+    extensionStatuses,
+    extensionWidgets,
+    respondToExtensionUi,
+    sendExtensionCustomInput,
+    chromePackageLoaded:
+      chromeDetection.cwd !== modelCwd || chromeDetection._tag === "Loading" || chromeDetection._tag === "Failed"
+        ? null
+        : chromeDetection._tag === "Installed",
+    chromeControlEnabled,
+    chromeControlPending,
+    chromeProfileConnection,
+    isAutoModelSelection: isNew && newSessionModel === null,
+    agentPhase,
+    isNew,
+    sessionIdRef,
+    messagesEndRef,
+    scrollContainerRef,
+    lastUserMsgRef,
+    handleSend,
+    handleBashCommand,
+    handleAbort,
+    handleFork,
+    handleNavigate,
+    handleModelChange,
+    handleCompact,
+    handleSteer,
+    handleFollowUp,
+    handlePromptWithStreamingBehavior,
+    handleAbortCompaction,
+    handleRecallQueue,
+    handleBuiltinSlashCommand,
+    handleToolPresetChange,
+    handleChromeControlChange,
+    handleLoopControl,
+    loopControlPending,
+    handleThinkingLevelChange,
+    loadTools,
+    loadSlashCommands,
+    chromeExtensionId,
+    chromeExtensionDirectory,
+  }
+}

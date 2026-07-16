@@ -1,0 +1,18 @@
+{
+  "extensionPublicKey": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxOM4CMNraddlpkOjrntKxTQZth8PQVBPo8fF3jMETPAecXJc1WMV58kG4MYkELqJI2PF2tNhsHLX6M013uPhqL1WEFpInAvX3v0+vMj+IeLWtyy5I/TR2AcRWnKi+UBn/x9chtZ/8iZF9iNXHu7gY8S4F9atScM1BvbpDJmYm48UDjV5YTTEOqLFonCdMEeW3l1EMSTM6uJ68aiXdemAAHzQbVd1Hu8TI5oawPyW3uPhe0clKN1r2O/lu7Xf/HOgo8OvArIfacICEdlcEoBR/WKxK7ENtwbEHQjqYUghjHLyLLuc1uk9ze9c2d6RRRFYmdVfJnwC8JOKccsE5Fb0FQIDAQAB",
+  "storageKey": "piChromeConnectorIdentity",
+  "headers": {
+    "id": "x-pi-chrome-connector-id",
+    "extensionId": "x-pi-chrome-extension-id",
+    "clientNonce": "x-pi-chrome-connector-client-nonce",
+    "bridgeEpoch": "x-pi-chrome-connector-bridge-epoch",
+    "requestNonce": "x-pi-chrome-connector-request-nonce",
+    "bodySha256": "x-pi-chrome-connector-body-sha256",
+    "proof": "x-pi-chrome-connector-proof",
+    "pairingId": "x-pi-chrome-pairing-id"
+  },
+  "metadataHeaders": {
+    "displayVersion": "x-pi-chrome-extension-version",
+    "protocolFingerprint": "x-pi-chrome-protocol-fingerprint"
+  }
+}

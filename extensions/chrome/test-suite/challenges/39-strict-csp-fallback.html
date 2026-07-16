@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta
+  http-equiv="Content-Security-Policy"
+  content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'"
+/>
+<title>39 strict CSP fallback</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: page blocks <code>unsafe-eval</code>. Agent should fall back to screenshot/coordinate
+      observation and click the target without relying on snapshot/evaluate.
+    </p>
+    <p id="hint">
+      The green target is fixed at known viewport coordinates. Use a screenshot, then click inside
+      it.
+    </p>
+    <button id="cspTarget" aria-label="strict CSP target">CSP TARGET</button>
+  </main>
+  <script src="39-strict-csp-fallback.js"></script>
+</body>

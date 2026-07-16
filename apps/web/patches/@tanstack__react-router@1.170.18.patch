@@ -1,0 +1,84 @@
+diff --git a/dist/cjs/Transitioner.cjs b/dist/cjs/Transitioner.cjs
+index 67316e343d41c40a0c0208e5b26095d7b2f3c4e7..06928031d934746a0f286816b7c20a786fc14b49 100644
+--- a/dist/cjs/Transitioner.cjs
++++ b/dist/cjs/Transitioner.cjs
+@@ -21,13 +21,20 @@ function Transitioner() {
+ 	const previousIsAnyPending = require_utils.usePrevious(isAnyPending);
+ 	const isPagePending = isLoading || hasPending;
+ 	const previousIsPagePending = require_utils.usePrevious(isPagePending);
+-	router.startTransition = (fn) => {
++	const startTransition = react.useCallback((fn) => {
+ 		setIsTransitioning(true);
+ 		react.startTransition(() => {
+ 			fn();
+ 			setIsTransitioning(false);
+ 		});
+-	};
++	}, []);
++	(0, require_utils.useLayoutEffect)(() => {
++		const previous = router.startTransition;
++		router.startTransition = startTransition;
++		return () => {
++			if (router.startTransition === startTransition) router.startTransition = previous;
++		};
++	}, [router, startTransition]);
+ 	react.useEffect(() => {
+ 		const unsub = router.history.subscribe(router.load);
+ 		const nextLocation = router.buildLocation({
+diff --git a/dist/esm/Transitioner.js b/dist/esm/Transitioner.js
+index f544c0d67098d4b3b95e684cbe53d7dd55c646af..db29bcb688e7f1db2691c9b1bd616024c18b7708 100644
+--- a/dist/esm/Transitioner.js
++++ b/dist/esm/Transitioner.js
+@@ -19,13 +19,20 @@ function Transitioner() {
+ 	const previousIsAnyPending = usePrevious(isAnyPending);
+ 	const isPagePending = isLoading || hasPending;
+ 	const previousIsPagePending = usePrevious(isPagePending);
+-	router.startTransition = (fn) => {
++	const startTransition = React$1.useCallback((fn) => {
+ 		setIsTransitioning(true);
+ 		React$1.startTransition(() => {
+ 			fn();
+ 			setIsTransitioning(false);
+ 		});
+-	};
++	}, []);
++	useLayoutEffect(() => {
++		const previous = router.startTransition;
++		router.startTransition = startTransition;
++		return () => {
++			if (router.startTransition === startTransition) router.startTransition = previous;
++		};
++	}, [router, startTransition]);
+ 	React$1.useEffect(() => {
+ 		const unsub = router.history.subscribe(router.load);
+ 		const nextLocation = router.buildLocation({
+diff --git a/src/Transitioner.tsx b/src/Transitioner.tsx
+index bf945571a6bdd8bb9f900931836d675ab3bc70aa..401cbce401955f02f9ae43c56fe430c3182cd023 100644
+--- a/src/Transitioner.tsx
++++ b/src/Transitioner.tsx
+@@ -23,13 +23,23 @@ export function Transitioner() {
+   const isPagePending = isLoading || hasPending
+   const previousIsPagePending = usePrevious(isPagePending)
+ 
+-  router.startTransition = (fn: () => void) => {
++  const startTransition = React.useCallback((fn: () => void) => {
+     setIsTransitioning(true)
+     React.startTransition(() => {
+       fn()
+       setIsTransitioning(false)
+     })
+-  }
++  }, [])
++
++  useLayoutEffect(() => {
++    const previous = router.startTransition
++    router.startTransition = startTransition
++    return () => {
++      if (router.startTransition === startTransition) {
++        router.startTransition = previous
++      }
++    }
++  }, [router, startTransition])
+ 
+   // Subscribe to location changes
+   // and try to load the new location

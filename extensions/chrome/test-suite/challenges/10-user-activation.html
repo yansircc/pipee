@@ -1,0 +1,71 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>10 user activation gates</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: click the button. Handler then tries gated APIs (clipboard.writeText, fullscreen).
+      Success requires <code>navigator.userActivation.isActive</code> and at least one gated API to
+      succeed.
+    </p>
+    <button
+      id="go"
+      style="
+        padding: 20px 32px;
+        font-size: 18px;
+        background: #1f7a1f;
+        color: #fff;
+        border: 0;
+        border-radius: 6px;
+      "
+    >
+      Click me
+    </button>
+  </main>
+  <script>
+    Challenge.init({
+      id: "user-activation",
+      instructions: "click button; user-activation must unlock gated APIs",
+    });
+    document.getElementById("go").addEventListener("click", async () => {
+      // Capture activation state synchronously before any await (activation can be consumed by gated APIs).
+      const ua = navigator.userActivation;
+      const wasActive = !!ua?.isActive;
+      const hadBeenActive = !!ua?.hasBeenActive;
+      Challenge.log("activation", { isActive: wasActive, hasBeenActive: hadBeenActive });
+      let clip = "skip",
+        fs = "skip";
+      try {
+        await navigator.clipboard.writeText("pi-chrome-test");
+        clip = "ok";
+      } catch (e) {
+        clip = "err:" + e.name;
+      }
+      try {
+        await document.documentElement.requestFullscreen();
+        fs = "ok";
+        document.exitFullscreen?.();
+      } catch (e) {
+        fs = "err:" + e.name;
+      }
+      Challenge.log("gates", { clip, fs });
+      if (!wasActive && !hadBeenActive) {
+        return Challenge.fail("userActivation.isActive/hasBeenActive both false (synthetic click)");
+      }
+      const okCount = [clip, fs].filter((x) => x === "ok").length;
+      if (okCount === 0) {
+        return Challenge.skip(
+          `activation present, but gated APIs blocked by environment/policy: clipboard=${clip}; fullscreen=${fs}`,
+        );
+      }
+      const warnings = [];
+      if (clip.startsWith("err")) warnings.push("clipboard.writeText " + clip);
+      if (fs.startsWith("err")) warnings.push("requestFullscreen " + fs);
+      if (warnings.length)
+        Challenge.pass(`activation active; ${okCount}/2 gates succeeded; ${warnings.join("; ")}`);
+      else Challenge.pass(`activation active; clipboard=${clip}; fullscreen=${fs}`);
+    });
+  </script>
+</body>
