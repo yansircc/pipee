@@ -91,7 +91,7 @@ it("updates the whole Suite once and reuses the release for the same source", ()
         projection: candidate.projection,
       },
       {
-        schemaVersion: 2,
+        schemaVersion: 3,
         sourceSha: source,
         releasable: true,
         projection: {
@@ -119,16 +119,20 @@ it("updates the whole Suite once and reuses the release for the same source", ()
     git(fixture.root, "checkout", "--detach", source);
     assert.match(JSON.stringify(prepare(fixture.root, source)), /"mode":"existing"/);
     assert.deepEqual(versions(fixture.root), Array(5).fill("0.6.0"));
-    run(fixture.root, process.execPath, [
-      "tooling/release/build-candidates.mjs",
-      "--existing-release",
-      source,
-    ]);
-    const existingCandidate = JSON.parse(
-      readFileSync(join(fixture.root, "release", "candidate.json"), "utf8"),
+    assert.throws(
+      () =>
+        run(fixture.root, process.execPath, [
+          "tooling/release/build-candidates.mjs",
+          "--existing-release",
+          source,
+        ]),
+      /must restore its witnessed candidate/,
     );
-    assert.equal(existingCandidate.sourceSha, source);
-    assert.equal(existingCandidate.releaseCommit, git(fixture.root, "rev-parse", "HEAD"));
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(fixture.root, "release", "candidate.json"), "utf8")),
+      candidate,
+      "existing release must leave the first candidate untouched",
+    );
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
     rmSync(fixture.remote, { recursive: true, force: true });
