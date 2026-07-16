@@ -36,6 +36,7 @@ import { DEFAULT_PI_WEB_BASE_URL, makePiGateway, type PiGateway } from "./gatewa
 import { makeJsonHttpClient } from "./http.ts";
 import { makeIlinkClient, type LoginCallbacks, type WeixinTransport } from "./ilink.ts";
 import { IlinkMessageSchema, type IlinkImage, type UpdatesResponse } from "./ilink-protocol.ts";
+import { cancelLogin, clearLogin, releaseSessionLogin } from "./login-ownership.ts";
 import {
   messageIdentity,
   parseInboundMessage,
@@ -629,21 +630,7 @@ export const BridgeLive = Layer.effect(
       if (Option.isSome(state) && state.value.auth) yield* notifyStop(state.value.auth);
       yield* closeAccountOwner;
     });
-    const cancelLoginRaw = Ref.getAndSet(loginFiber, Option.none()).pipe(
-      Effect.flatMap(
-        Option.match({
-          onNone: () => Effect.void,
-          onSome: ({ fiber }) => Fiber.interrupt(fiber).pipe(Effect.asVoid),
-        }),
-      ),
-    );
-    const cancelOwnedLoginRaw = (sessionId: string) =>
-      Effect.gen(function* () {
-        const current = yield* Ref.get(loginFiber);
-        if (Option.isNone(current) || current.value.ownerSessionId !== sessionId) return;
-        yield* Ref.set(loginFiber, Option.none());
-        yield* Fiber.interrupt(current.value.fiber);
-      });
+    const cancelLoginRaw = cancelLogin(loginFiber);
     const stopRaw = lifecycle.withPermits(1)(
       Effect.gen(function* () {
         yield* cancelLoginRaw;
@@ -658,7 +645,8 @@ export const BridgeLive = Layer.effect(
       statusChanges,
       start: observeStatus(startRaw),
       stop: observeStatus(stopRaw),
-      releaseSession: (sessionId) => lifecycle.withPermits(1)(cancelOwnedLoginRaw(sessionId)),
+      releaseSession: (sessionId) =>
+        lifecycle.withPermits(1)(releaseSessionLogin(loginFiber, sessionId)),
       loginAndBind: (callbacks, binding) =>
         observeStatus(
           Effect.gen(function* () {
@@ -693,11 +681,7 @@ export const BridgeLive = Layer.effect(
             );
             return yield* Fiber.join(fiber).pipe(
               Effect.onInterrupt(() => Fiber.interrupt(fiber).pipe(Effect.asVoid)),
-              Effect.ensuring(
-                Ref.update(loginFiber, (current) =>
-                  Option.isSome(current) && current.value.fiber === fiber ? Option.none() : current,
-                ),
-              ),
+              Effect.ensuring(clearLogin(loginFiber, fiber)),
             );
           }),
         ),
