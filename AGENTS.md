@@ -26,9 +26,10 @@
 pnpm install --frozen-lockfile
 pnpm verify
 pnpm verify:packages
-pnpm build:candidates
+pnpm release:build-candidates
 pnpm verify:candidates
 pnpm verify:consumers
+pnpm release:preflight
 git diff --check
 ```
 

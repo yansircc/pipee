@@ -47,11 +47,13 @@
     "@effect/vitest": "catalog:",
     "@pi-suite/companion-contracts": "workspace:*",
     "@pi-suite/host-runtime": "workspace:*",
+    "@types/cross-spawn": "catalog:",
     "@types/node": "^25.0.0",
     "@types/qrcode": "^1.5.6",
     "@yansircc/effect-scan": "catalog:",
     "cross-spawn": "7.0.6",
     "effect": "catalog:",
+    "jiti": "catalog:",
     "qrcode": "^1.5.4",
     "vite-plus": "catalog:"
   },

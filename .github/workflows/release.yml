@@ -36,9 +36,9 @@ jobs:
       contents: read
       actions: read
     outputs:
-      mode: ${{ steps.prepare.outputs.mode }}
-      version: ${{ steps.prepare.outputs.version }}
-      tag: ${{ steps.prepare.outputs.tag }}
+      mode: ${{ steps.source.outputs.mode }}
+      version: ${{ steps.source.outputs.version }}
+      tag: ${{ steps.source.outputs.tag }}
       artifact: ${{ steps.artifact.outputs.name }}
     steps:
       - uses: actions/checkout@v4
@@ -51,12 +51,11 @@ jobs:
           node-version: 24.11.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - id: prepare
+      - id: source
         if: github.event_name == 'push'
-        run: node tooling/release/prepare.mjs "${{ github.sha }}"
-      - run: pnpm verify
-      - name: Verify a real Chrome connector
-        run: pnpm --filter @yansircc/pi-chrome run release:check
+        run: node tooling/release/candidate-pipeline.mjs verify-release-source "${{ github.sha }}"
+      - if: github.event_name == 'pull_request'
+        run: pnpm release:verify-source
       - name: Materialize the one candidate owned by this source
         shell: bash
         env:
@@ -73,17 +72,17 @@ jobs:
           }
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            node tooling/release/build-candidates.mjs
+            node tooling/release/candidate-pipeline.mjs build
           else
             asset="suite-candidates-${{ github.sha }}.tgz"
             prior_artifact="$(
               gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" \
                 --jq '.artifacts | map(select(.expired == false and (.name | startswith("suite-candidates-'"$GITHUB_RUN_ID"'-")))) | sort_by(.id) | last | .name // ""'
             )"
-            if [ "${{ steps.prepare.outputs.mode }}" = "existing" ]; then
+            if [ "${{ steps.source.outputs.mode }}" = "existing" ]; then
               rm -rf release/restore release/assets
               mkdir -p release/restore release/assets
-              if gh release download "${{ steps.prepare.outputs.tag }}" \
+              if gh release download "${{ steps.source.outputs.tag }}" \
                 --pattern "$asset" \
                 --dir release/restore; then
                 stored="release/restore/$asset"
@@ -98,12 +97,11 @@ jobs:
             elif [ -n "$prior_artifact" ]; then
               restore_prior_attempt
             else
-              node tooling/release/build-candidates.mjs --prepared-source "${{ github.sha }}"
+              node tooling/release/candidate-pipeline.mjs build "${{ github.sha }}"
               node tooling/release/candidate-store.mjs bundle "${{ github.sha }}"
             fi
           fi
-      - run: pnpm verify:candidates
-      - run: pnpm verify:consumers
+      - run: node tooling/release/candidate-pipeline.mjs verify-candidate
       - id: artifact
         shell: bash
         run: echo "name=suite-candidates-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"

@@ -19,8 +19,11 @@ The four public npm packages and the Chrome browser extension share one Suite ve
 pnpm install
 pnpm verify
 pnpm release:verify
+pnpm release:preflight
 ```
 
-`pnpm build:candidates -- --development` builds and packs each workspace once, records archive integrity, and marks the result non-releasable while the Git worktree is dirty. A releasable candidate requires a clean committed source tree.
+`pnpm release:build-candidates -- --development` builds and packs each workspace once, records archive integrity, and marks the result non-releasable while the Git worktree is dirty. A releasable candidate requires a clean committed source tree.
+
+`pnpm release:preflight` clones the committed HEAD into a clean Apple Linux container, installs from the frozen lockfile, and runs the same candidate pipeline used by Actions. `pnpm push:release` is the thin clean-tree preflight-and-push entrypoint.
 
 See [docs/release.md](docs/release.md) for the OIDC release transition and evidence contract.

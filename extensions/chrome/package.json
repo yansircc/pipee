@@ -75,7 +75,7 @@
     "@pi-suite/companion-contracts": "workspace:*",
     "@puppeteer/browsers": "3.0.6",
     "@types/chrome": "0.1.36",
-    "@types/cross-spawn": "6.0.6",
+    "@types/cross-spawn": "catalog:",
     "@types/node": "22.20.1",
     "@yansircc/effect-scan": "catalog:",
     "cross-spawn": "7.0.6",

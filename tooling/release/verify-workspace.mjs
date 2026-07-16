@@ -66,8 +66,10 @@ for (const entry of config.packages) {
     "@effect/platform-node",
     "@effect/tsgo",
     "@effect/vitest",
+    "@types/cross-spawn",
     "@yansircc/effect-scan",
     "effect",
+    "jiti",
     "typescript",
     "vite",
     "vite-plus",
@@ -102,7 +104,11 @@ for (const entry of config.packages) {
     `${entry.id} must declare a default exact-candidate platform witness`,
   );
   for (const script of new Set(Object.values(entry.platformChecks ?? {}))) {
-    assert.equal(typeof manifest.scripts?.[script], "string", `${entry.id} is missing platform script ${script}`);
+    assert.equal(
+      typeof manifest.scripts?.[script],
+      "string",
+      `${entry.id} is missing platform script ${script}`,
+    );
     assert.doesNotMatch(
       manifest.scripts[script],
       /\b(?:build|pack|pi:build|pi:domain-check)\b/,
@@ -188,7 +194,11 @@ for (const forbidden of [
   ["NODE", "AUTH", "TOKEN"].join("_"),
   ["_auth", "Token"].join(""),
 ]) {
-  assert.equal(releaseWorkflow.includes(forbidden), false, `release workflow contains token fallback ${forbidden}`);
+  assert.equal(
+    releaseWorkflow.includes(forbidden),
+    false,
+    `release workflow contains token fallback ${forbidden}`,
+  );
 }
 process.stdout.write(
   `Verified ${config.packages.length} Suite packages and ${schemaOwners.length} shared contracts.\n`,
