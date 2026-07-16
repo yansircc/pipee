@@ -1,0 +1,66 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>02 isTrusted keyboard</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: type <code>hello</code> into the box. Each character must arrive via a trusted
+      keydown/keypress/input.
+    </p>
+    <input
+      id="t"
+      placeholder="type hello"
+      style="font-size: 18px; padding: 8px 12px; width: 240px"
+    />
+  </main>
+  <script>
+    Challenge.init({
+      id: "is-trusted-keyboard",
+      instructions: "type 'hello'; every keydown.isTrusted must be true",
+    });
+    const t = document.getElementById("t");
+    let trustedKeys = 0,
+      untrustedKeys = 0,
+      inputs = 0,
+      untrustedInputs = 0;
+    t.addEventListener("keydown", (e) => {
+      Challenge.log("keydown", { key: e.key, isTrusted: e.isTrusted });
+      if (e.isTrusted) trustedKeys++;
+      else untrustedKeys++;
+    });
+    t.addEventListener("input", (e) => {
+      Challenge.log("input", { isTrusted: e.isTrusted, inputType: e.inputType, data: e.data });
+      inputs++;
+      if (!e.isTrusted) untrustedInputs++;
+    });
+    t.addEventListener("keyup", () => {
+      if (t.value === "hello") {
+        if (untrustedKeys || untrustedInputs) {
+          Challenge.fail(
+            `untrusted keydowns=${untrustedKeys}, untrusted inputs=${untrustedInputs}`,
+          );
+        } else if (trustedKeys < 5) {
+          Challenge.fail(`only ${trustedKeys} trusted keydowns (need >=5)`);
+        } else {
+          Challenge.pass(`${trustedKeys} trusted keydowns, ${inputs} trusted inputs`);
+        }
+      }
+    });
+    // Programmatic value-set detection.
+    const desc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+    Object.defineProperty(t, "value", {
+      get() {
+        return desc.get.call(this);
+      },
+      set(v) {
+        Challenge.log("value-set", { v });
+        if (untrustedKeys === 0 && trustedKeys === 0) {
+          Challenge.fail("value set programmatically without any keydown");
+        }
+        return desc.set.call(this, v);
+      },
+    });
+  </script>
+</body>

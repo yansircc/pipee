@@ -1,0 +1,25 @@
+{
+  "shape": ["library", "http-client", "node-tool"],
+  "testGlobs": ["test/**/*.test.ts"],
+  "gate": {
+    "notProven": [
+      {
+        "id": "managed-runtime-host-callback",
+        "owner": "@pi-extension-adapter",
+        "reason": "Pi callbacks execute through ManagedRuntime.runPromise; the scanner executable grammar currently admits only Effect.run* runners."
+      }
+    ]
+  },
+  "hostTooling": [
+    {
+      "path": "scripts/**/*.ts",
+      "owner": "@distribution-tooling",
+      "reason": "Build, bundle inspection, tar extraction, and clean-host loading are terminal distribution tooling."
+    },
+    {
+      "path": "vite.config.ts",
+      "owner": "@vite-plus-tooling",
+      "reason": "Vite+ task, lint, format, test, and packaging configuration is host tooling rather than application runtime code."
+    }
+  ]
+}

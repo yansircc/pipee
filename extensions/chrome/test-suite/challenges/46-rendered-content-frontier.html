@@ -1,0 +1,38 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>46 rendered content frontier</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <h1>Signed-in account handbook</h1>
+    <p>
+      Read this rendered SPA content through chrome_read, then submit the code from the next
+      frontier.
+    </p>
+    <article id="handbook"></article>
+    <label>Frontier code <input id="code" autocomplete="off" /></label>
+    <button id="verify">Verify rendered code</button>
+  </main>
+  <script>
+    Challenge.init({
+      id: "rendered-content-frontier",
+      instructions: "use chrome_read and its content frontier to find code FRONTIER-READ-46",
+    });
+    const filler =
+      "This authenticated account section is rendered by the client and contains intentionally verbose policy context. ";
+    const handbook = document.getElementById("handbook");
+    const first = document.createElement("p");
+    first.textContent = filler.repeat(10);
+    handbook.appendChild(first);
+    const second = document.createElement("p");
+    second.textContent = `${filler.repeat(8)} The required frontier code is FRONTIER-READ-46.`;
+    handbook.appendChild(second);
+    document.getElementById("verify").addEventListener("click", (event) => {
+      const value = document.getElementById("code").value.trim();
+      if (!event.isTrusted) Challenge.fail("verify click isTrusted=false");
+      else if (value !== "FRONTIER-READ-46") Challenge.fail(`wrong frontier code: ${value}`);
+      else Challenge.pass("rendered content was expanded without loading the Action Graph");
+    });
+  </script>
+</body>

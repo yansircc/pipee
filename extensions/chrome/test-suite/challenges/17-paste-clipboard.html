@@ -1,0 +1,62 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>17 paste clipboard</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: paste the string <code>pi-chrome</code> into the input via a real OS paste (Cmd/Ctrl+V
+      firing a trusted <code>paste</code> event with populated <code>clipboardData</code>).
+      Programmatic <code>value=</code> or <code>setRangeText</code> fail. The
+      <code>input</code> event's <code>inputType</code> must be <code>insertFromPaste</code>.
+    </p>
+    <input
+      id="t"
+      placeholder="paste here"
+      style="font-size: 18px; padding: 8px 12px; width: 280px"
+    />
+  </main>
+  <script>
+    Challenge.init({ id: "paste-clipboard", instructions: "paste 'pi-chrome' via OS clipboard" });
+    const t = document.getElementById("t");
+    let sawPaste = false,
+      pasteIsTrusted = false,
+      pastePayload = null;
+    t.addEventListener("paste", (e) => {
+      sawPaste = true;
+      pasteIsTrusted = e.isTrusted;
+      try {
+        pastePayload = e.clipboardData && e.clipboardData.getData("text/plain");
+      } catch {}
+      Challenge.log("paste", { isTrusted: e.isTrusted, payload: pastePayload });
+    });
+
+    let lastInputType = null;
+    t.addEventListener("input", (e) => {
+      lastInputType = e.inputType;
+      if (t.value !== "pi-chrome") return;
+      const bad = [];
+      if (!sawPaste) bad.push("no paste event fired before value matched");
+      if (!pasteIsTrusted) bad.push("paste event isTrusted=false");
+      if (pastePayload !== "pi-chrome")
+        bad.push(`clipboardData payload="${pastePayload}" (need 'pi-chrome')`);
+      if (lastInputType !== "insertFromPaste")
+        bad.push(`input.inputType="${lastInputType}" (need 'insertFromPaste')`);
+      if (bad.length) Challenge.fail(...bad);
+      else Challenge.pass("trusted paste with clipboardData text/plain match");
+    });
+
+    // Also fail loudly if value is set without any input event (raw .value=)
+    let inputFired = false;
+    t.addEventListener("input", () => {
+      inputFired = true;
+    });
+    const obs = new MutationObserver(() => {});
+    obs.observe(t, { attributes: true, attributeFilter: ["value"] });
+    setInterval(() => {
+      if (t.value === "pi-chrome" && !inputFired)
+        Challenge.fail("value matched without input event firing");
+    }, 200);
+  </script>
+</body>

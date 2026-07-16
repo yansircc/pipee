@@ -1,0 +1,70 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>18 native select option</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: select the option <code>banana</code> from the native <code>&lt;select&gt;</code>. Page
+      asserts a real picker interaction: <code>mousedown</code>/<code>pointerdown</code> on the
+      &lt;select&gt; (opening the OS picker), then a <code>change</code> event with
+      <code>isTrusted=true</code>. Programmatically setting <code>.value</code> or clicking the
+      option element directly fails (clicking &lt;option&gt; does not change selection in real
+      browsers).
+    </p>
+    <select id="s" style="font-size: 18px; padding: 6px 10px">
+      <option value="">— pick a fruit —</option>
+      <option value="apple">apple</option>
+      <option value="banana">banana</option>
+      <option value="cherry">cherry</option>
+    </select>
+  </main>
+  <script>
+    Challenge.init({ id: "native-select", instructions: "pick 'banana' from native select" });
+    const s = document.getElementById("s");
+
+    let sawPointerDownOnSelect = false,
+      pointerDownTrusted = false;
+    s.addEventListener("pointerdown", (e) => {
+      sawPointerDownOnSelect = true;
+      pointerDownTrusted = e.isTrusted;
+    });
+    s.addEventListener("mousedown", (e) => {
+      sawPointerDownOnSelect = true;
+      pointerDownTrusted ||= e.isTrusted;
+    });
+
+    // Trap: if a click bubbles up from an <option>, that's bot-like (real OS pickers don't dispatch this).
+    s.addEventListener("click", (e) => {
+      if (e.target && e.target.tagName === "OPTION") {
+        Challenge.fail(
+          "click event with target=<option> bubbled to <select> (synthetic option click)",
+        );
+      }
+    });
+
+    let changeTrusted = false;
+    s.addEventListener("change", (e) => {
+      changeTrusted = e.isTrusted;
+      Challenge.log("change", { v: s.value, isTrusted: e.isTrusted });
+      if (s.value !== "banana") return Challenge.fail(`selected="${s.value}" (need 'banana')`);
+      const bad = [];
+      if (!changeTrusted) bad.push("change event isTrusted=false");
+      if (!sawPointerDownOnSelect) bad.push("no pointerdown/mousedown on <select> before change");
+      if (!pointerDownTrusted) bad.push("pointerdown on select isTrusted=false");
+      if (bad.length) Challenge.fail(...bad);
+      else Challenge.pass("native picker opened and trusted change fired");
+    });
+
+    // Also trip if value mutates without change firing.
+    let changed = false;
+    s.addEventListener("change", () => {
+      changed = true;
+    });
+    setInterval(() => {
+      if (s.value === "banana" && !changed)
+        Challenge.fail("value='banana' without any change event");
+    }, 200);
+  </script>
+</body>

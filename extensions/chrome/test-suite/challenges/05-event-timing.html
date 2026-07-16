@@ -1,0 +1,56 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>05 event timing</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: click the button 3 times. Page rejects when <code>pointerdown→pointerup</code> is
+      &lt;30ms or always identical, and when between-click gaps are too uniform.
+    </p>
+    <button
+      id="go"
+      style="
+        padding: 20px 32px;
+        font-size: 18px;
+        background: #1f7a1f;
+        color: #fff;
+        border: 0;
+        border-radius: 6px;
+      "
+    >
+      Click me (0/3)
+    </button>
+  </main>
+  <script>
+    Challenge.init({
+      id: "event-timing",
+      instructions: "click button 3 times with human-like timing",
+    });
+    const btn = document.getElementById("go");
+    const ups = [],
+      downs = [],
+      clickTs = [];
+    btn.addEventListener("pointerdown", (e) => downs.push(e.timeStamp));
+    btn.addEventListener("pointerup", (e) => ups.push(e.timeStamp));
+    btn.addEventListener("click", (e) => {
+      clickTs.push(e.timeStamp);
+      btn.textContent = `Click me (${clickTs.length}/3)`;
+      if (clickTs.length < 3) return;
+      const holds = downs.map((d, i) => (ups[i] ?? d) - d);
+      const allSame = holds.every((h) => Math.abs(h - holds[0]) < 0.5);
+      const tooFast = holds.some((h) => h < 30);
+      const gaps = clickTs.slice(1).map((t, i) => t - clickTs[i]);
+      const gapsUniform = gaps.length > 1 && Math.abs(gaps[0] - gaps[1]) < 5;
+      Challenge.log("timing", { holds, gaps });
+      if (tooFast) return Challenge.fail(`pointer hold too short: ${holds.join(",")}ms`);
+      if (allSame) return Challenge.fail(`pointer holds identical: ${holds.join(",")}ms`);
+      if (gapsUniform)
+        return Challenge.fail(`between-click gaps suspiciously uniform: ${gaps.join(",")}ms`);
+      Challenge.pass(
+        `holds=${holds.map((h) => h.toFixed(1)).join(",")}ms gaps=${gaps.map((g) => g.toFixed(0)).join(",")}ms`,
+      );
+    });
+  </script>
+</body>

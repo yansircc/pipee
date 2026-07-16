@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "locale": "zh-CN",
+  "theme": "dark",
+  "soundEnabled": true,
+  "unreadSessionIds": ["fixture-session"],
+  "drafts": {}
+}

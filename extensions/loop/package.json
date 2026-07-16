@@ -1,0 +1,73 @@
+{
+  "name": "@yansircc/pi-loop",
+  "version": "0.5.7",
+  "description": "Effect-based temporal loops for Pi",
+  "keywords": [
+    "cron",
+    "pi-extension",
+    "pi-package",
+    "scheduler"
+  ],
+  "homepage": "https://github.com/yansircc/pi-loop#readme",
+  "bugs": {
+    "url": "https://github.com/yansircc/pi-loop/issues"
+  },
+  "license": "MIT",
+  "author": "Yansir <markyan@foxmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yansircc/pi-loop.git"
+  },
+  "files": [
+    "dist/pi"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "verify": "pnpm run repo:quality && pnpm run pi:verify",
+    "repo:quality": "vp run quality",
+    "test": "vp test",
+    "pi:build": "node scripts/pi-extension/build.mjs",
+    "pi:bundle-check": "node scripts/pi-extension/verify-distribution.mjs bundle",
+    "pi:distribution-check": "node scripts/pi-extension/verify-distribution.mjs package",
+    "pi:verify": "pnpm run pi:build && pnpm run pi:bundle-check",
+    "pi:domain-check": "node scripts/domain/verify-extension.mjs",
+    "release:archive-check": "node scripts/pi-extension/verify-distribution.mjs archive",
+    "release:platform-check": "node scripts/pi-extension/verify-distribution.mjs platform"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@pi-suite/companion-contracts": "workspace:*",
+    "@sinclair/typebox": "0.34.41",
+    "@types/node": "22.20.1",
+    "@yansircc/effect-scan": "catalog:",
+    "acorn": "8.15.0",
+    "cross-spawn": "7.0.6",
+    "effect": "catalog:",
+    "tar": "7.5.20",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.11.0"
+  },
+  "packageManager": "pnpm@11.13.1",
+  "pi": {
+    "extensions": [
+      "./dist/pi/extension.js"
+    ]
+  }
+}

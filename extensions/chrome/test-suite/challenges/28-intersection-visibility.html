@@ -1,0 +1,100 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>28 IntersectionObserver visibility</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: scroll until the hidden <b>TARGET</b> button comes into view, then click it. Page uses
+      an <code>IntersectionObserver</code> to track when TARGET crosses the viewport. Real scrolling
+      produces a sequence of intersection updates with gradually increasing
+      <code>intersectionRatio</code> (0 → 1) across animation frames. Programmatic teleports
+      (<code>scrollIntoView({behavior:"instant"})</code>, direct <code>scrollTop=</code>) produce
+      exactly one observer callback with <code>ratio≈1</code> and no rAF samples in between — fail.
+    </p>
+    <div
+      id="scroller"
+      style="height: 240px; overflow: auto; border: 1px solid #555; background: #fff; color: #111"
+    >
+      <div style="height: 1600px; padding: 8px">keep scrolling …</div>
+      <button
+        id="target"
+        style="
+          margin: 0 auto 1600px;
+          display: block;
+          padding: 14px 22px;
+          background: #1f7a1f;
+          color: #fff;
+          border: 0;
+          border-radius: 6px;
+        "
+      >
+        TARGET
+      </button>
+    </div>
+  </main>
+  <script>
+    Challenge.init({
+      id: "intersection-visibility",
+      instructions: "scroll until TARGET visible, then click",
+    });
+
+    const scroller = document.getElementById("scroller");
+    const target = document.getElementById("target");
+
+    const ratioSamples = [];
+    const rafSamples = [];
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries)
+          ratioSamples.push({ r: e.intersectionRatio, t: performance.now() });
+      },
+      { root: scroller, threshold: Array.from({ length: 21 }, (_, i) => i / 20) },
+    );
+    io.observe(target);
+
+    // Track rAF ticks during which scroll was happening.
+    let lastScrollTop = scroller.scrollTop;
+    let scrollingFrames = 0;
+    function tick() {
+      if (scroller.scrollTop !== lastScrollTop) {
+        scrollingFrames++;
+        rafSamples.push({ st: scroller.scrollTop, t: performance.now() });
+        lastScrollTop = scroller.scrollTop;
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+
+    target.addEventListener("click", (e) => {
+      if (!e.isTrusted) return Challenge.fail("TARGET click isTrusted=false");
+
+      // Need the target to actually be in the viewport at click time.
+      const rect = target.getBoundingClientRect();
+      const sRect = scroller.getBoundingClientRect();
+      const inViewport = rect.top < sRect.bottom && rect.bottom > sRect.top;
+      if (!inViewport) return Challenge.fail("TARGET clicked while still off-screen");
+
+      // Require at least a gradient of intersection ratios from low to high.
+      const lows = ratioSamples.filter((s) => s.r > 0 && s.r < 0.3).length;
+      const mids = ratioSamples.filter((s) => s.r >= 0.3 && s.r < 0.7).length;
+      const highs = ratioSamples.filter((s) => s.r >= 0.7).length;
+      Challenge.log("io", { samples: ratioSamples.length, lows, mids, highs, scrollingFrames });
+
+      const bad = [];
+      if (ratioSamples.length < 4)
+        bad.push(`only ${ratioSamples.length} IntersectionObserver samples (teleport)`);
+      if (lows === 0) bad.push("no low-ratio IO samples — target appeared instantly");
+      if (mids === 0) bad.push("no mid-ratio IO samples — no smooth approach");
+      if (scrollingFrames < 5) bad.push(`only ${scrollingFrames} rAF frames saw scroll motion`);
+
+      if (bad.length) Challenge.fail(...bad);
+      else
+        Challenge.pass(
+          `IO gradient seen: lows=${lows} mids=${mids} highs=${highs}, rafFrames=${scrollingFrames}`,
+        );
+    });
+  </script>
+</body>

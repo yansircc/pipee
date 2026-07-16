@@ -1,0 +1,275 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>pi-chrome browser-control benchmark</title>
+<link rel="stylesheet" href="_style.css" />
+<body>
+  <main style="max-width: 1280px">
+    <h1>pi-chrome browser-control benchmark</h1>
+    <p>
+      This benchmark measures how well Chrome-control tools let agents do real browser work: DOM
+      discovery, trusted input, keyboard/focus, scroll, drag/drop, files, frames, clipboard, and
+      observability.
+    </p>
+
+    <section class="panel">
+      <div class="controls">
+        <button id="refresh">Refresh verdicts</button>
+        <button id="clear">Clear local verdicts</button>
+        <button id="copy">Copy JSON report</button>
+        <label>Filter <input id="filter" placeholder="category, id, expected..." /></label>
+        <label
+          >Mode
+          <select id="mode">
+            <option value="trusted">trusted</option>
+            <option value="synthetic">synthetic</option>
+            <option value="manual">manual</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint">
+        Open a row, drive it with <code>chrome_*</code> tools, then return here. Verdicts are read
+        from <code>localStorage</code>. Expected outcomes come from <code>manifest.json</code>.
+      </p>
+      <textarea
+        id="copyFallback"
+        class="copy-fallback"
+        readonly
+        aria-label="JSON report fallback"
+      ></textarea>
+    </section>
+
+    <div id="summary" class="summary"></div>
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th>id</th>
+          <th>gate</th>
+          <th>category</th>
+          <th>verdict</th>
+          <th>expected</th>
+          <th>baseline</th>
+          <th>risk</th>
+          <th>goal / notes</th>
+          <th>open</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <h2>Long-horizon hermetic tasks</h2>
+    <p class="hint">
+      These WebArena/BrowserGym-inspired tasks use deterministic in-page graders and fresh
+      <code>$RUN_ID</code> state. They test multi-step browser work beyond event fidelity.
+    </p>
+    <table id="taskTbl">
+      <thead>
+        <tr>
+          <th>id</th>
+          <th>difficulty</th>
+          <th>category</th>
+          <th>intent</th>
+          <th>requires</th>
+          <th>open</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <h2>Agent run loop</h2>
+    <pre class="code">
+python3 -m http.server 8765
+# For each manifest entry:
+# 1. chrome_navigate http://127.0.0.1:8765/&lt;file&gt;
+# 2. chrome_snapshot before acting; prefer Action Graph refs.
+# 3. Execute recipe with selected mode, adapting descriptive frame/shadow selectors to tool uids.
+# 4. chrome_evaluate JSON.stringify({v:window.__verdict,r:window.__reason,e:window.__events?.slice(-20)})
+# 5. Compare verdict to manifest.expected[mode]; CONDITIONAL means inspect prerequisites/notes.</pre
+    >
+  </main>
+  <script>
+    let manifest = [];
+    let taskManifest = [];
+    const tbody = document.querySelector("#tbl tbody");
+    const taskTbody = document.querySelector("#taskTbl tbody");
+    const modeEl = document.getElementById("mode");
+    const filterEl = document.getElementById("filter");
+
+    function verdictFor(id) {
+      const raw = localStorage.getItem("pi-chrome-suite:" + id);
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    }
+    function classFor(v) {
+      if (!v) return "pending";
+      return String(v).toLowerCase();
+    }
+    function expectedClass(actual, expected) {
+      if (!actual) return "pending";
+      if (expected === "CONDITIONAL") return actual === "PASS" ? "ok" : "conditional";
+      return actual === expected ? "ok" : "mismatch";
+    }
+    function report() {
+      const mode = modeEl.value;
+      return manifest.map((m) => {
+        const v = verdictFor(m.id);
+        return {
+          id: m.id,
+          category: m.category,
+          gate: m.gate ?? "core",
+          file: m.file,
+          verdict: v?.verdict ?? "PENDING",
+          reason: v?.reason ?? [],
+          expected: m.expected?.[mode] ?? "—",
+          timestamp: v?.ts ?? null,
+          goal: m.goal,
+          prerequisites: m.prerequisites ?? [],
+          notes: m.notes ?? [],
+        };
+      });
+    }
+    function paint() {
+      const q = filterEl.value.trim().toLowerCase();
+      const mode = modeEl.value;
+      tbody.innerHTML = "";
+      const rows = report();
+      const counts = rows.reduce(
+        (acc, r) => ((acc[r.verdict] = (acc[r.verdict] || 0) + 1), acc),
+        {},
+      );
+      const mismatches = rows.filter(
+        (r) =>
+          r.verdict !== "PENDING" &&
+          r.expected !== "CONDITIONAL" &&
+          r.expected !== "—" &&
+          r.verdict !== r.expected,
+      ).length;
+      const coreMismatches = rows.filter(
+        (r) =>
+          (r.gate ?? "core") === "core" &&
+          r.verdict !== "PENDING" &&
+          r.expected !== "CONDITIONAL" &&
+          r.expected !== "—" &&
+          r.verdict !== r.expected,
+      ).length;
+      const gates = rows.reduce(
+        (acc, r) => ((acc[r.gate ?? "core"] = (acc[r.gate ?? "core"] || 0) + 1), acc),
+        {},
+      );
+      document.getElementById("summary").innerHTML = `
+    <span class="pill pass">PASS ${counts.PASS || 0}</span>
+    <span class="pill fail">FAIL ${counts.FAIL || 0}</span>
+    <span class="pill skip">SKIP ${counts.SKIP || 0}</span>
+    <span class="pill warn">WARN ${counts.WARN || 0}</span>
+    <span class="pill pending">PENDING ${counts.PENDING || 0}</span>
+    <span class="pill ${coreMismatches ? "fail" : "pass"}">core unexpected ${coreMismatches}</span>
+    <span class="pill ${mismatches ? "fail" : "pass"}">all unexpected ${mismatches}</span>
+    <span class="pill expected">core ${gates.core || 0}</span>
+    <span class="pill expected">conditional ${gates.conditional || 0}</span>
+    <span class="pill expected">quality ${gates.quality || 0}</span>
+  `;
+      for (const m of manifest) {
+        const v = verdictFor(m.id);
+        const verdict = v?.verdict ?? "PENDING";
+        const expected = m.expected?.[mode] ?? "—";
+        const hay = JSON.stringify({
+          id: m.id,
+          gate: m.gate,
+          category: m.category,
+          verdict,
+          expected,
+          goal: m.goal,
+          notes: m.notes,
+        }).toLowerCase();
+        if (q && !hay.includes(q)) continue;
+        const tr = document.createElement("tr");
+        tr.className = expectedClass(verdict, expected);
+        const reason = (v?.reason || []).join(" / ");
+        const notes = [...(m.prerequisites || []).map((x) => "pre: " + x), ...(m.notes || [])].join(
+          "; ",
+        );
+        tr.innerHTML = `
+      <td><code>${m.id}</code></td>
+      <td><span class="pill expected">${m.gate || "core"}</span></td>
+      <td>${m.category || "—"}</td>
+      <td><span class="pill ${classFor(verdict)}">${verdict}</span><div class="reason">${escapeHtml(reason)}</div></td>
+      <td><span class="pill expected">${expected}</span></td>
+      <td><span class="pill ${m.manualBaseline === "verified" ? "pass" : "pending"}">${m.manualBaseline || "unverified"}</span></td>
+      <td>${m.flakeRisk ? `<span class="risk">${m.flakeRisk}</span>` : ""}</td>
+      <td><div>${escapeHtml(m.goal || "")}</div><div class="notes">${escapeHtml(notes)}</div><details><summary>recipe</summary><pre>${escapeHtml(JSON.stringify(m.recipe || [], null, 2))}</pre></details></td>
+      <td><a target="_blank" href="${m.file}">open</a></td>
+    `;
+        tbody.appendChild(tr);
+      }
+    }
+    function escapeHtml(s) {
+      return String(s).replace(
+        /[&<>"']/g,
+        (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+      );
+    }
+    function paintTasks() {
+      taskTbody.innerHTML = "";
+      const run = "manual-" + new Date().toISOString().slice(0, 10);
+      for (const t of taskManifest) {
+        const url = t.startUrl.replaceAll("$RUN_ID", run).replaceAll("$SEED", String(t.seed ?? 0));
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+      <td><code>${t.taskId || t.id}</code><div class="notes">seed=${t.seed ?? 0} maxSteps=${t.maxSteps ?? "—"}</div></td>
+      <td><span class="pill expected">${t.difficulty}</span></td>
+      <td>${t.category}</td>
+      <td>${escapeHtml(t.goal || t.intent)}</td>
+      <td><div class="notes">${escapeHtml((t.requires || []).join(", "))}</div><div class="notes">actions: ${escapeHtml((t.actionSubsets || []).join(", "))}</div></td>
+      <td><a target="_blank" href="${url}">open</a></td>
+    `;
+        taskTbody.appendChild(tr);
+      }
+    }
+    async function init() {
+      manifest = await fetch("manifest.json", { cache: "no-store" }).then((r) => r.json());
+      taskManifest = await fetch("task-manifest.json", { cache: "no-store" })
+        .then((r) => r.json())
+        .catch(() => []);
+      paint();
+      paintTasks();
+    }
+    document.getElementById("refresh").addEventListener("click", paint);
+    document.getElementById("clear").addEventListener("click", () => {
+      if (!confirm("Clear pi-chrome-suite verdicts for this origin?")) return;
+      for (const m of manifest) localStorage.removeItem("pi-chrome-suite:" + m.id);
+      paint();
+    });
+    document.getElementById("copy").addEventListener("click", async () => {
+      const text = JSON.stringify(
+        { mode: modeEl.value, generatedAt: new Date().toISOString(), rows: report() },
+        null,
+        2,
+      );
+      const box = document.getElementById("copyFallback");
+      box.value = text;
+      box.style.display = "block";
+      box.focus();
+      box.select();
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+      } catch {}
+      if (!copied) {
+        try {
+          copied = document.execCommand("copy");
+        } catch {}
+      }
+      box.dataset.copied = copied ? "true" : "false";
+      console.log(text);
+    });
+    modeEl.addEventListener("change", paint);
+    filterEl.addEventListener("input", paint);
+    window.addEventListener("storage", paint);
+    setInterval(paint, 1000);
+    init();
+  </script>
+</body>

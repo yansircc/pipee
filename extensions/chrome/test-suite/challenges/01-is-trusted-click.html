@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>01 isTrusted click</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>Goal: click the green button. Page only accepts <code>event.isTrusted === true</code>.</p>
+    <button
+      id="go"
+      style="
+        padding: 20px 32px;
+        font-size: 18px;
+        background: #1f7a1f;
+        color: #fff;
+        border: 0;
+        border-radius: 6px;
+      "
+    >
+      Click me
+    </button>
+  </main>
+  <script>
+    Challenge.init({
+      id: "is-trusted-click",
+      instructions: "click the green button; isTrusted must be true",
+    });
+    const btn = document.getElementById("go");
+    btn.addEventListener(
+      "click",
+      (e) => {
+        Challenge.log("click", { isTrusted: e.isTrusted, x: e.clientX, y: e.clientY });
+        if (e.isTrusted) Challenge.pass("click.isTrusted === true");
+        else Challenge.fail("click.isTrusted === false (synthetic dispatchEvent)");
+      },
+      { capture: true },
+    );
+    // Also watch pointerdown to detect bot earlier.
+    btn.addEventListener("pointerdown", (e) => {
+      Challenge.log("pointerdown", {
+        isTrusted: e.isTrusted,
+        pressure: e.pressure,
+        pointerType: e.pointerType,
+      });
+      if (!e.isTrusted) Challenge.fail("pointerdown.isTrusted === false");
+    });
+  </script>
+</body>

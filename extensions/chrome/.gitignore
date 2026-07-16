@@ -1,0 +1,9 @@
+node_modules/
+.pi/
+.effect-scan/
+*.log
+.DS_Store
+dist/
+build/
+*.tgz
+/package/

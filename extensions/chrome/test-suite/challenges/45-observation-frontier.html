@@ -1,0 +1,34 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>45 observation frontier</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <h1>Expandable action context</h1>
+    <p>Find and click the final action through the frontier returned by chrome_snapshot.</p>
+    <section id="dense" aria-label="Dense action grid"></section>
+  </main>
+  <script>
+    Challenge.init({
+      id: "observation-frontier",
+      instructions: "expand the omitted Dense action grid context and click Final frontier action",
+    });
+    const grid = document.getElementById("dense");
+    grid.style.cssText =
+      "display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:3px;max-width:900px";
+    for (let index = 1; index <= 90; index += 1) {
+      const button = document.createElement("button");
+      button.textContent = index === 90 ? "Final frontier action" : `Action ${index}`;
+      button.style.cssText = "font-size:10px;padding:3px;min-height:22px";
+      if (index === 90) {
+        button.id = "finalAction";
+        button.addEventListener("click", (event) => {
+          if (!event.isTrusted) Challenge.fail("final action click isTrusted=false");
+          else Challenge.pass("action omitted by the first budget was expanded and executed");
+        });
+      }
+      grid.appendChild(button);
+    }
+  </script>
+</body>

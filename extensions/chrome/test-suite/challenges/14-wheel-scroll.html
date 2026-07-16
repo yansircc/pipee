@@ -1,0 +1,50 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>14 wheel scroll</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: scroll the box to the bottom. Page rejects raw <code>scrollTop</code> assignment without
+      <code>wheel</code> events.
+    </p>
+    <div
+      id="box"
+      style="
+        height: 200px;
+        overflow: auto;
+        border: 1px solid #555;
+        background: #fff;
+        color: #111;
+        padding: 8px;
+      "
+    >
+      <div style="height: 1200px">scroll me ⬇<br /><br />...lots of content...</div>
+    </div>
+  </main>
+  <script>
+    Challenge.init({ id: "wheel-scroll", instructions: "scroll the box to its bottom" });
+    const box = document.getElementById("box");
+    let wheelCount = 0,
+      lastWheelTs = -Infinity;
+    box.addEventListener(
+      "wheel",
+      (e) => {
+        wheelCount++;
+        lastWheelTs = e.timeStamp;
+        Challenge.log("wheel", { dy: e.deltaY });
+      },
+      { passive: true },
+    );
+    box.addEventListener("scroll", () => {
+      Challenge.log("scroll", { top: box.scrollTop });
+      if (box.scrollTop + box.clientHeight >= box.scrollHeight - 2) {
+        if (wheelCount === 0) Challenge.fail("scrolled to bottom with zero wheel events");
+        else if (performance.now() - lastWheelTs > 1500)
+          Challenge.fail("wheel events too far before final scroll");
+        else Challenge.pass(`${wheelCount} wheel events accompanied scroll`);
+      }
+    });
+  </script>
+</body>

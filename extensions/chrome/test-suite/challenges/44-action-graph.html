@@ -1,0 +1,32 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>44 Action Graph refs</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <h1>Action Graph checkout</h1>
+    <label>Email <input id="email" type="email" autocomplete="off" /></label>
+    <label><input id="terms" type="checkbox" /> Accept terms</label>
+    <button id="submit">Submit order</button>
+    <p id="status" aria-live="polite"></p>
+  </main>
+  <script>
+    Challenge.init({
+      id: "action-graph-refs",
+      instructions:
+        "Use chrome_snapshot Action Graph refs to fill Email, accept terms, and submit the order.",
+    });
+
+    document.getElementById("submit").addEventListener("click", (event) => {
+      const email = document.getElementById("email").value;
+      const terms = document.getElementById("terms").checked;
+      const failures = [];
+      if (!event.isTrusted) failures.push("submit click isTrusted=false");
+      if (email !== "agent@example.com") failures.push(`wrong email: ${email}`);
+      if (!terms) failures.push("terms checkbox is not checked");
+      if (failures.length) Challenge.fail(...failures);
+      else Challenge.pass("snapshot refs and declared verbs executed against the live nodes");
+    });
+  </script>
+</body>

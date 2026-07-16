@@ -1,0 +1,55 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>08 keyboard cadence</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: type <code>secret</code>. Page demands per-key keydown+keypress+keyup with non-uniform
+      gaps and non-zero hold time.
+    </p>
+    <input
+      id="t"
+      placeholder="type 'secret'"
+      style="font-size: 18px; padding: 8px 12px; width: 240px"
+    />
+  </main>
+  <script>
+    Challenge.init({
+      id: "keyboard-cadence",
+      instructions: "type 'secret' with realistic per-key cadence",
+    });
+    const t = document.getElementById("t");
+    const evs = [];
+    ["keydown", "keypress", "keyup", "input"].forEach((name) => {
+      t.addEventListener(name, (e) =>
+        evs.push({ name, key: e.key ?? e.data, t: e.timeStamp, trusted: e.isTrusted }),
+      );
+    });
+    t.addEventListener("keyup", () => {
+      if (t.value !== "secret") return;
+      const downs = evs.filter((e) => e.name === "keydown");
+      const presses = evs.filter((e) => e.name === "keypress");
+      const ups = evs.filter((e) => e.name === "keyup");
+      const bad = [];
+      if (downs.length < 6) bad.push(`only ${downs.length} keydowns (need >=6)`);
+      if (presses.length < 6) bad.push(`only ${presses.length} keypress events`);
+      if (ups.length < 6) bad.push(`only ${ups.length} keyups`);
+      const holds = downs.slice(0, ups.length).map((d, i) => ups[i].t - d.t);
+      if (holds.some((h) => h <= 0))
+        bad.push(`some keyup at-or-before keydown: ${holds.join(",")}`);
+      if (holds.length && holds.every((h) => Math.abs(h - holds[0]) < 0.5))
+        bad.push(`hold times identical: ${holds.join(",")}`);
+      const gaps = downs.slice(1).map((d, i) => d.t - downs[i].t);
+      if (gaps.length && gaps.every((g) => Math.abs(g - gaps[0]) < 0.5))
+        bad.push(`keydown gaps identical: ${gaps.join(",")}`);
+      Challenge.log("cadence", { holds, gaps });
+      if (bad.length) Challenge.fail(...bad);
+      else
+        Challenge.pass(
+          `holds=${holds.map((h) => h.toFixed(0)).join(",")} gaps=${gaps.map((g) => g.toFixed(0)).join(",")}`,
+        );
+    });
+  </script>
+</body>

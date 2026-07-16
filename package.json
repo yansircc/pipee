@@ -1,0 +1,24 @@
+{
+  "name": "@yansircc/pi-suite-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.13.1",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "prepare": "effect-tsgo patch --typescript-package typescript",
+    "check:workspace": "node tooling/release/verify-workspace.mjs",
+    "test:upgrade": "node tooling/release/test-upgrades.mjs",
+    "build:candidates": "node tooling/release/build-candidates.mjs",
+    "verify:candidates": "node tooling/release/verify-candidates.mjs",
+    "verify:packages": "pnpm -r --if-present run verify",
+    "verify": "pnpm run check:workspace && pnpm run test:upgrade"
+  },
+  "devDependencies": {
+    "@effect/tsgo": "catalog:",
+    "typescript": "catalog:",
+    "tar": "7.5.20"
+  }
+}

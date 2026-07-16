@@ -1,0 +1,13 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/pi/extension.ts",
+    "src/browser/service-worker.ts",
+    "src/browser/popup.ts",
+    "src/browser/injected/snapshot.ts",
+    "test-suite/**/*.test.ts",
+    "test-suite/**/*.js"
+  ],
+  "project": ["src/**/*.ts", "scripts/**/*.ts", "test-suite/**/*.{js,mjs,ts}"],
+  "ignoreDependencies": ["@types/chrome"]
+}

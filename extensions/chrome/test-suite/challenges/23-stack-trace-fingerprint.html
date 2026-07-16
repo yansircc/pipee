@@ -1,0 +1,90 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>23 stack-trace fingerprint</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: click the button. The page samples call stacks from inside several instrumented globals
+      (<code>Function.prototype.toString</code>, <code>document.querySelector</code>,
+      <code>Element.prototype.click</code>) and inspects the stack of
+      <em>this script's own</em> handler. It fails if it sees telltales of evaluator-injected frames
+      (e.g. <code>at &lt;anonymous&gt;</code> as the only frame, the bridge's
+      <code>new Function</code> wrapper, <code>callFunctionOn</code>, <code>executeScript</code>, or
+      extension URLs).
+    </p>
+    <button
+      id="go"
+      style="
+        padding: 14px 22px;
+        font-size: 16px;
+        background: #1f7a1f;
+        color: #fff;
+        border: 0;
+        border-radius: 6px;
+      "
+    >
+      Click me
+    </button>
+  </main>
+  <script>
+    Challenge.init({ id: "stack-trace-fingerprint", instructions: "click the button" });
+
+    // Suspicious stack-frame patterns commonly observed when code is invoked via
+    // CDP Runtime.evaluate / chrome.scripting.executeScript / new Function bodies
+    // dispatched from an MV3 service worker.
+    const SUSPICIOUS = [
+      /chrome-extension:\/\//i,
+      /\bnew Function\b/,
+      /Runtime\.evaluate/i,
+      /Runtime\.callFunctionOn/i,
+      /executeScript/i,
+      /content[_-]?script/i,
+      /^\s*at\s+eval\b/m,
+    ];
+
+    function inspectStack(stack) {
+      if (!stack) return ["empty stack"];
+      const hits = SUSPICIOUS.filter((r) => r.test(stack)).map((r) => r.source);
+      const lines = stack.split("\n").filter((l) => l.trim().startsWith("at "));
+      // Do not fail on generic <anonymous> frames alone: inline scripts, extensions,
+      // and browser versions vary here. This test should catch concrete automation
+      // tells, not punish legitimate stack formatting differences.
+      const reasons = [];
+      if (hits.length) reasons.push("suspicious frames: " + hits.join(","));
+      return reasons;
+    }
+
+    // Hook some commonly-touched APIs so any pre-click bridge instrumentation also
+    // leaves a trail. Their stacks get inspected the moment the click handler fires.
+    const probeStacks = [];
+    const oTo = Function.prototype.toString;
+    Function.prototype.toString = function () {
+      probeStacks.push({ where: "Function.toString", stack: new Error().stack });
+      return oTo.apply(this, arguments);
+    };
+    const oQS = Document.prototype.querySelector;
+    Document.prototype.querySelector = function (sel) {
+      probeStacks.push({ where: "document.querySelector", sel, stack: new Error().stack });
+      return oQS.apply(this, arguments);
+    };
+
+    document.getElementById("go").addEventListener("click", (e) => {
+      const ownStack = new Error().stack || "";
+      const reasons = inspectStack(ownStack);
+      // Also check any probe stacks gathered before the click — the bridge often
+      // queries the DOM right before dispatching.
+      const probeBad = [];
+      for (const p of probeStacks) {
+        const r = inspectStack(p.stack);
+        if (r.length) probeBad.push(`${p.where}: ${r.join("; ")}`);
+      }
+      Challenge.log("stacks", { ownStack, probeStacks });
+      if (!e.isTrusted) return Challenge.fail("click isTrusted=false");
+      if (reasons.length) return Challenge.fail(...reasons);
+      if (probeBad.length) return Challenge.fail(...probeBad.slice(0, 3));
+      Challenge.pass("call stack matches an in-page event handler");
+    });
+  </script>
+</body>

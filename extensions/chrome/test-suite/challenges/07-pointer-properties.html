@@ -1,0 +1,57 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>07 pointer properties</title>
+<link rel="stylesheet" href="../_style.css" />
+<script src="../_lib.js"></script>
+<body>
+  <main>
+    <p>
+      Goal: click the button. Page inspects <code>pointerType</code>, <code>pressure</code>,
+      <code>movementX/Y</code> on the preceding pointermove, and that pointerId is non-zero.
+    </p>
+    <button
+      id="go"
+      style="
+        padding: 20px 32px;
+        font-size: 18px;
+        background: #1f7a1f;
+        color: #fff;
+        border: 0;
+        border-radius: 6px;
+      "
+    >
+      Click me
+    </button>
+  </main>
+  <script>
+    Challenge.init({
+      id: "pointer-properties",
+      instructions: "click button; pointer event details must look real",
+    });
+    const btn = document.getElementById("go");
+    let lastMove = null;
+    window.addEventListener("pointermove", (e) => {
+      lastMove = { mx: e.movementX, my: e.movementY, pid: e.pointerId, type: e.pointerType };
+    });
+    btn.addEventListener("pointerdown", (e) => {
+      Challenge.log("pointerdown", {
+        type: e.pointerType,
+        pressure: e.pressure,
+        pid: e.pointerId,
+        mx: e.movementX,
+        my: e.movementY,
+      });
+      const bad = [];
+      if (e.pointerType !== "mouse" && e.pointerType !== "touch" && e.pointerType !== "pen")
+        bad.push(`pointerType=${e.pointerType}`);
+      if (e.pointerType === "mouse" && e.pressure !== 0.5)
+        bad.push(`mouse pressure=${e.pressure} (real=0.5)`);
+      if (e.pointerId === 0) bad.push("pointerId=0");
+      if (!lastMove) bad.push("no preceding pointermove");
+      else if (lastMove.mx === 0 && lastMove.my === 0)
+        bad.push("preceding pointermove had movementX=movementY=0");
+      if (bad.length) Challenge.fail(...bad);
+      else Challenge.pass(`type=${e.pointerType} pressure=${e.pressure} pid=${e.pointerId}`);
+    });
+  </script>
+</body>
