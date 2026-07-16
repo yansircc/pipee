@@ -791,7 +791,9 @@ export function ChatWindow({
                           ? withAssistantBlocks(finalAssistant, finalSplit.processBlocks, { omitUsage: true })
                           : null
                       const finalAnswerMessage =
-                        finalSplit.answerBlocks.length > 0
+                        finalSplit.answerBlocks.length > 0 ||
+                        finalAssistant.stopReason === "aborted" ||
+                        Boolean(finalAssistant.errorMessage?.trim())
                           ? withAssistantBlocks(finalAssistant, finalSplit.answerBlocks)
                           : null
 

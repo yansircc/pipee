@@ -37,7 +37,9 @@ Missed recurring occurrences coalesce into one claim.
 
 Session loops are stored as versioned custom entries in the owning Pi session. Forked sessions do
 not inherit them. Durable cron and one-shot loops are stored in `.pi-loop.json`. One PID lease owns
-durable mutation; follower sessions may still run session loops.
+durable mutation. Followers continue running session loops and retry ownership while draining project
+loops, so one live follower reloads the durable file and takes over after the previous owner exits.
+Completed, expired, and cancelled loops are removed; `Stopped` is not a persisted phase.
 
 When the extension runs inside pi-web it also exposes a structured multi-loop status and a typed
 control command. pi-web keeps a session runtime alive while at least one loop exists. If pi-web is

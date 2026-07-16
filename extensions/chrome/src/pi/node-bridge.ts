@@ -7,6 +7,10 @@ import * as Schema from "effect/Schema";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 import { layer as nodeServicesLayer, type NodeServices } from "@effect/platform-node/NodeServices";
+import {
+  classifyChromeConnectorCompatibility,
+  type ChromeExtensionExpectation,
+} from "@pi-suite/companion-contracts/chrome";
 import { CommandBroker } from "../core/broker.js";
 import {
   BridgeBindFailed,
@@ -224,7 +228,6 @@ export class NodeBridge {
     private readonly protocolFingerprint: string,
     private readonly credentialStore: BridgeOwnerCredentialStore,
     private readonly ownerIdentityRef: Ref.Ref<BridgeOwnerIdentity | undefined>,
-    private readonly connectorObservationRef: Ref.Ref<PublicConnector | undefined>,
     private readonly connectors: ConnectorOwner,
     private readonly broker: CommandBroker,
     private readonly pairing: PairingCoordinator,
@@ -244,14 +247,12 @@ export class NodeBridge {
       const sessionBindings = yield* makeSessionConnectorBindingStore(persistence.agentDir);
       const connectors = yield* ConnectorOwner.make(persistence, broker, sessionBindings);
       const credentialStore = yield* makeBridgeOwnerCredentialStore(persistence.agentDir);
-      const { ownerIdentityRef, connectorObservationRef, pairing, lifecycleGate, ownership } =
-        yield* Effect.all({
-          ownerIdentityRef: Ref.make<BridgeOwnerIdentity | undefined>(undefined),
-          connectorObservationRef: Ref.make<PublicConnector | undefined>(undefined),
-          pairing: PairingCoordinator.make,
-          lifecycleGate: Semaphore.make(1),
-          ownership: Semaphore.make(1),
-        });
+      const { ownerIdentityRef, pairing, lifecycleGate, ownership } = yield* Effect.all({
+        ownerIdentityRef: Ref.make<BridgeOwnerIdentity | undefined>(undefined),
+        pairing: PairingCoordinator.make,
+        lifecycleGate: Semaphore.make(1),
+        ownership: Semaphore.make(1),
+      });
       return new NodeBridge(
         host,
         port,
@@ -259,7 +260,6 @@ export class NodeBridge {
         protocolFingerprint,
         credentialStore,
         ownerIdentityRef,
-        connectorObservationRef,
         connectors,
         broker,
         pairing,
@@ -577,30 +577,16 @@ export class NodeBridge {
   private get localStatus(): Effect.Effect<BridgeStatus> {
     return Effect.gen({ self: this }, function* () {
       const binding = yield* this.connectors.current;
-      const observedConnector = yield* Ref.get(this.connectorObservationRef);
       const sessionRoutes = yield* this.connectors.sessionRouteStatuses;
-      const compatibilityConnector = observedConnector ?? binding;
-      const protocolCompatibility =
-        compatibilityConnector?.protocolFingerprint === undefined ||
-        compatibilityConnector.protocolFingerprint === this.protocolFingerprint
-          ? {
-              compatible: true as const,
-              expectedExtensionDisplayVersion: this.displayVersion(),
-            }
-          : {
-              compatible: false as const,
-              extensionId: compatibilityConnector.extensionId,
-              expectedExtensionDisplayVersion: this.displayVersion(),
-              actualExtensionDisplayVersion: compatibilityConnector.extensionDisplayVersion,
-            };
+      const extensionExpectation = this.extensionExpectation;
       if (!binding) {
-        return { url: this.url, mode: this.runtime.mode, sessionRoutes, protocolCompatibility };
+        return { url: this.url, mode: this.runtime.mode, sessionRoutes, extensionExpectation };
       }
       return {
         url: this.url,
         mode: this.runtime.mode,
         sessionRoutes,
-        protocolCompatibility,
+        extensionExpectation,
         binding: publicBinding(binding),
         connector: yield* this.broker.status(binding.connectorId),
       };
@@ -608,10 +594,19 @@ export class NodeBridge {
   }
 
   private get pairingExpectation(): PairingExpectation {
+    const expectation = this.extensionExpectation;
     return {
-      expectedExtensionId: EXTENSION_PACKAGE_ID,
-      expectedExtensionDisplayVersion: this.displayVersion(),
-      expectedProtocolFingerprint: this.protocolFingerprint,
+      expectedExtensionId: expectation.extensionId,
+      expectedExtensionDisplayVersion: expectation.displayVersion,
+      expectedProtocolFingerprint: expectation.protocolFingerprint,
+    };
+  }
+
+  private get extensionExpectation(): ChromeExtensionExpectation {
+    return {
+      extensionId: EXTENSION_PACKAGE_ID,
+      displayVersion: this.displayVersion(),
+      protocolFingerprint: this.protocolFingerprint,
     };
   }
 
@@ -1477,11 +1472,9 @@ export class NodeBridge {
     headers: Record<string, string>,
   ): Effect.Effect<void, ProtocolFailure> {
     return Effect.gen({ self: this }, function* () {
-      yield* Ref.set(this.connectorObservationRef, connector);
       if (yield* this.respondIfIncompatible(connector, response, headers)) return;
       const command = yield* this.broker.next(connector, POLL_WAIT_DEADLINE_MS);
-      const expectedExtensionDisplayVersion = this.displayVersion();
-      const expectedProtocolFingerprint = this.protocolFingerprint;
+      const expectation = this.extensionExpectation;
       yield* writeJson(
         response,
         200,
@@ -1489,13 +1482,15 @@ export class NodeBridge {
           ? {
               type: "command",
               command,
-              expectedExtensionDisplayVersion,
-              expectedProtocolFingerprint,
+              expectedExtensionId: expectation.extensionId,
+              expectedExtensionDisplayVersion: expectation.displayVersion,
+              expectedProtocolFingerprint: expectation.protocolFingerprint,
             }
           : {
               type: "none",
-              expectedExtensionDisplayVersion,
-              expectedProtocolFingerprint,
+              expectedExtensionId: expectation.extensionId,
+              expectedExtensionDisplayVersion: expectation.displayVersion,
+              expectedProtocolFingerprint: expectation.protocolFingerprint,
             },
         headers,
       );
@@ -1536,16 +1531,18 @@ export class NodeBridge {
     response: ServerResponse,
     headers: Record<string, string>,
   ): Effect.Effect<boolean, ProtocolFailure> {
-    const expectedProtocolFingerprint = this.protocolFingerprint;
-    if (connector.protocolFingerprint === expectedProtocolFingerprint) return Effect.succeed(false);
+    const expectation = this.extensionExpectation;
+    const compatibility = classifyChromeConnectorCompatibility(expectation, connector);
+    if (compatibility._tag === "Verified") return Effect.succeed(false);
     return writeJson(
       response,
       200,
       {
         type: "incompatible",
-        expectedExtensionDisplayVersion: this.displayVersion(),
+        expectedExtensionId: expectation.extensionId,
+        expectedExtensionDisplayVersion: expectation.displayVersion,
         actualExtensionDisplayVersion: connector.extensionDisplayVersion,
-        expectedProtocolFingerprint,
+        expectedProtocolFingerprint: expectation.protocolFingerprint,
         actualProtocolFingerprint: connector.protocolFingerprint,
       },
       headers,
@@ -1572,14 +1569,14 @@ export class NodeBridge {
   ): Effect.Effect<void, BridgeFailure> {
     return this.lifecycleGate.withPermits(1)(
       Effect.gen({ self: this }, function* () {
-        if (
-          offer.connector.extensionId !== EXTENSION_PACKAGE_ID ||
-          offer.connector.extensionDisplayVersion !== this.displayVersion() ||
-          offer.connector.protocolFingerprint !== this.protocolFingerprint
-        ) {
+        const compatibility = classifyChromeConnectorCompatibility(
+          this.extensionExpectation,
+          offer.connector,
+        );
+        if (compatibility._tag === "Incompatible") {
           return yield* new WebConnectorLeaseUnavailable({
             pairingId: claim.pairingId,
-            message: "Web run offer does not match this pi-chrome package",
+            message: `Web run offer does not match this pi-chrome package: ${compatibility.mismatches.join(", ")}`,
           });
         }
         if (yield* this.connectors.hasWebLease(claim)) return;
@@ -1665,14 +1662,14 @@ export class NodeBridge {
     connector: ProfileConnector,
     authenticateCapability: (capability: string) => boolean,
   ) {
-    if (connector.extensionId !== EXTENSION_PACKAGE_ID)
-      return Effect.fail(
-        new PairingUnavailable({ message: "connector belongs to a different extension package" }),
-      );
-    if (connector.protocolFingerprint !== this.protocolFingerprint)
+    const compatibility = classifyChromeConnectorCompatibility(
+      this.extensionExpectation,
+      connector,
+    );
+    if (compatibility._tag === "Incompatible")
       return Effect.fail(
         new PairingUnavailable({
-          message: `connector protocol fingerprint ${connector.protocolFingerprint} does not match ${this.protocolFingerprint}`,
+          message: `connector does not match this pi-chrome package: ${compatibility.mismatches.join(", ")}`,
         }),
       );
     return this.lifecycleGate.withPermits(1)(

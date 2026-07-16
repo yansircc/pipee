@@ -9,7 +9,7 @@ import {
 } from "@/api/contract"
 import { extensionStructuredStatusOrUndefined } from "@/lib/extension-status"
 import { decodeExtensionImageWidget } from "@/lib/extension-widget"
-import { Cause, Crypto, Data, Deferred, Effect, Exit, FiberSet, Option, Semaphore } from "effect"
+import { Cause, Context, Crypto, Data, Deferred, Effect, Exit, FiberSet, Option, Semaphore } from "effect"
 import { makeRuntimeRetention } from "./runtime-retention"
 
 export class PiInteractionConflictError extends Data.TaggedError("PiInteractionConflictError")<{
@@ -20,6 +20,10 @@ export class PiInteractionResponseError extends Data.TaggedError("PiInteractionR
   readonly interactionId: string
   readonly method: ExtensionInteractionValue["method"]
   readonly responseTag: ExtensionInteractionAnswerValue["_tag"]
+}> {}
+
+export class PiExtensionUiClosedError extends Data.TaggedError("PiExtensionUiClosedError")<{
+  readonly message: string
 }> {}
 
 export const matchExtensionInteractionResponse = (
@@ -63,7 +67,9 @@ type InteractionInput = ExtensionInteractionValue extends infer Interaction
   : never
 
 export const makeExtensionUiRuntime = (
-  crypto: Crypto.Crypto,
+  crypto: {
+    readonly randomUUIDv4: Context.Service.Shape<typeof Crypto.Crypto>["randomUUIDv4"]
+  },
   publish: (event: typeof SessionScopedEvent.Type) => void,
   theme: unknown,
   customUnavailable: () => unknown,
@@ -78,12 +84,18 @@ export const makeExtensionUiRuntime = (
     })
     let pending: PendingUi | null = null
     const requests = new Map<string, PendingUi>()
+    let lifecycle: "Open" | "Closing" | "Closed" = "Open"
+    const admissionLock = yield* Semaphore.make(1)
     const interactionLock = yield* Semaphore.make(1)
     const fibers = yield* FiberSet.make()
     const runFork = yield* FiberSet.runtime(fibers)()
 
     const runPromise = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
       new Promise((resolve, reject) => {
+        if (lifecycle !== "Open") {
+          reject(new PiExtensionUiClosedError({ message: "Extension UI runtime is closed" }))
+          return
+        }
         runFork(effect).addObserver(
           Exit.match({
             onFailure: (cause) => reject(Cause.squash(cause)),
@@ -93,6 +105,7 @@ export const makeExtensionUiRuntime = (
       })
 
     const runCallback = (effect: Effect.Effect<unknown, unknown>) => {
+      if (lifecycle !== "Open") return
       runFork(
         effect.pipe(
           Effect.catchCause((cause) =>
@@ -105,6 +118,7 @@ export const makeExtensionUiRuntime = (
     const commit = (
       update: (current: typeof ExtensionUiProjection.Type) => Omit<typeof ExtensionUiProjection.Type, "revision">,
     ) => {
+      if (lifecycle !== "Open") return
       projection = ExtensionUiProjection.make({ ...update(projection), revision: projection.revision + 1 })
       publish(SessionScopedEvent.make({ _tag: "ExtensionUiChanged", projection }))
     }
@@ -157,11 +171,22 @@ export const makeExtensionUiRuntime = (
     ): Promise<A> =>
       runPromise(
         Effect.gen(function* () {
-          const interactionId = yield* crypto.randomUUIDv4
-          const interaction = { interactionId, ...request } as ExtensionInteractionValue
-          const deferred = yield* Deferred.make<UiResponse>()
-          const queued = { interaction, deferred }
-          requests.set(interactionId, queued)
+          const queued = yield* admissionLock.withPermits(1)(
+            Effect.gen(function* () {
+              if (lifecycle !== "Open") {
+                return yield* new PiExtensionUiClosedError({ message: "Extension UI runtime is closed" })
+              }
+              const interactionId = yield* crypto.randomUUIDv4
+              const interaction = { interactionId, ...request } as ExtensionInteractionValue
+              const deferred = yield* Deferred.make<UiResponse>()
+              const admitted = { interaction, deferred }
+              requests.set(interactionId, admitted)
+              return admitted
+            }),
+          )
+          const interactionId = queued.interaction.interactionId
+          const interaction = queued.interaction
+          const deferred = queued.deferred
           return yield* Effect.gen(function* () {
             const acquired = yield* Effect.raceFirst(
               interactionLock.take(1).pipe(Effect.as(true)),
@@ -221,6 +246,7 @@ export const makeExtensionUiRuntime = (
         }))
       },
       setStructuredStatus: (key: string, value?: unknown) => {
+        if (lifecycle !== "Open") return
         const retention = runtimeRetention.update(key, value)
         if (retention._tag === "RetentionHandled") {
           if (!retention.valid) runCallback(Effect.logWarning("Ignored invalid runtime lease projection", { key }))
@@ -328,17 +354,30 @@ export const makeExtensionUiRuntime = (
       })
 
     const dispose = Effect.gen(function* () {
-      const currentRequests = [...requests.values()]
-      requests.clear()
-      if (pending !== null) {
-        pending = null
-        commit((current) => ({ ...current, pendingInteraction: null }))
-      }
+      const currentRequests = yield* admissionLock.withPermits(1)(
+        Effect.sync(() => {
+          if (lifecycle !== "Open") return []
+          lifecycle = "Closing"
+          const admitted = [...requests.values()]
+          requests.clear()
+          if (pending !== null) {
+            pending = null
+            projection = ExtensionUiProjection.make({
+              ...projection,
+              pendingInteraction: null,
+              revision: projection.revision + 1,
+            })
+            publish(SessionScopedEvent.make({ _tag: "ExtensionUiChanged", projection }))
+          }
+          return admitted
+        }),
+      )
       yield* Effect.forEach(currentRequests, ({ deferred }) => Deferred.succeed(deferred, cancelledResponse()), {
         discard: true,
       })
-      yield* FiberSet.awaitEmpty(fibers)
       yield* Effect.yieldNow
+      yield* FiberSet.clear(fibers)
+      lifecycle = "Closed"
     })
 
     return {

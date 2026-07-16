@@ -5,7 +5,9 @@ import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Schedule from "effect/Schedule";
 import {
+  classifyChromeConnectorCompatibility,
   ChromeExtensionEvidence,
+  projectChromeExtensionEvidence,
   type ChromeExternalRequest as ChromeExternalRequestType,
 } from "@pi-suite/companion-contracts/chrome";
 import { messageOf } from "../core/errors.js";
@@ -119,13 +121,22 @@ const commandFromPollResponse = (
   response: PollResponse,
   connector: ProfileConnector,
 ): Effect.Effect<WireCommand | undefined, BrowserRuntimeFailure> => {
-  if (connector.protocolFingerprint !== response.expectedProtocolFingerprint) {
+  const compatibility = classifyChromeConnectorCompatibility(
+    {
+      extensionId: response.expectedExtensionId,
+      displayVersion: response.expectedExtensionDisplayVersion,
+      protocolFingerprint: response.expectedProtocolFingerprint,
+    },
+    connector,
+  );
+  if (compatibility._tag === "Incompatible") {
     return Effect.fail(
       new BrowserRuntimeFailure({
         code: "extension-protocol-mismatch",
         message:
           `Extension ${connector.extensionDisplayVersion}/${connector.protocolFingerprint.slice(0, 12)} ` +
-          `does not match bridge ${response.expectedExtensionDisplayVersion}/${response.expectedProtocolFingerprint.slice(0, 12)}`,
+          `does not match bridge ${response.expectedExtensionDisplayVersion}/${response.expectedProtocolFingerprint.slice(0, 12)}: ` +
+          compatibility.mismatches.join(", "),
       }),
     );
   }
@@ -253,12 +264,7 @@ const handleConnectorIdentityRequest = (
   );
 
 const extensionEvidence = (connector: ProfileConnector) =>
-  ChromeExtensionEvidence.make({
-    extensionId: connector.extensionId,
-    displayVersion: connector.extensionDisplayVersion,
-    protocolFingerprint: connector.protocolFingerprint,
-    connectorIdentity: { connectorId: connector.connectorId, connectorLabel: connector.label },
-  });
+  ChromeExtensionEvidence.make(projectChromeExtensionEvidence(connector));
 
 const handleExternalWebRunRequest = (request: ChromeExternalRequestType, webOrigin: string) =>
   connectorIdentity.load.pipe(

@@ -5,25 +5,38 @@
       "id": "web",
       "name": "@yansircc/pi-web",
       "path": "apps/web",
-      "prepareScript": "build"
+      "prepareScript": "build",
+      "platformChecks": {
+        "default": "release:platform-check:macos",
+        "win32": "release:platform-check:windows"
+      }
     },
     {
       "id": "loop",
       "name": "@yansircc/pi-loop",
       "path": "extensions/loop",
-      "prepareScript": "pi:build"
+      "prepareScript": "pi:build",
+      "platformChecks": {
+        "default": "release:platform-check"
+      }
     },
     {
       "id": "weixin",
       "name": "@yansircc/pi-weixin",
       "path": "extensions/weixin",
-      "prepareScript": "pi:build"
+      "prepareScript": "pi:build",
+      "platformChecks": {
+        "default": "release:platform-check"
+      }
     },
     {
       "id": "chrome",
       "name": "@yansircc/pi-chrome",
       "path": "extensions/chrome",
       "prepareScript": "pi:build",
+      "platformChecks": {
+        "default": "release:platform-check"
+      },
       "browserExtension": "dist/browser-extension/manifest.json"
     }
   ]

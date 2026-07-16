@@ -132,6 +132,10 @@ export interface PiRuntimeCreateOptions {
   readonly sessionFile: string | null
   readonly cwd: string
   readonly toolNames?: ReadonlyArray<string>
+  readonly model?: {
+    readonly provider: string
+    readonly modelId: string
+  }
 }
 
 export interface PromptAndWaitResult {
@@ -142,6 +146,10 @@ export interface PromptAndWaitResult {
 export interface PromptRequestHandle {
   readonly runId: RunId
   readonly completion: Effect.Effect<PromptAndWaitResult, PiAdapterError | PiPromptIdempotencyError>
+}
+
+export interface RuntimeOperationHandle<A> {
+  readonly completion: Effect.Effect<A, PiAdapterError>
 }
 
 export type PluginAction = "install" | "remove" | "update" | "disable" | "enable"
@@ -155,6 +163,9 @@ export interface PiRuntime {
   readonly firstMessage: Effect.Effect<string | null>
   readonly isConversationEmpty: Effect.Effect<boolean>
   readonly hasRetention: Effect.Effect<boolean>
+  readonly matchesConfiguration: (
+    configuration: Pick<PiRuntimeCreateOptions, "toolNames" | "model">,
+  ) => Effect.Effect<boolean>
   readonly events: PubSub.PubSub<RuntimeEnvelopeValue>
   readonly publishRunEvent: (event: typeof RunScopedEvent.Type) => void
   readonly snapshot: Effect.Effect<typeof RuntimeSnapshot.Type, PiAdapterError>
@@ -171,7 +182,7 @@ export interface PiRuntime {
     id: string,
     command: string,
     excludeFromContext: boolean,
-  ) => Effect.Effect<typeof CompletedBashExecution.Type, PiAdapterError | PiOperationBusyError>
+  ) => Effect.Effect<RuntimeOperationHandle<typeof CompletedBashExecution.Type>, PiOperationBusyError>
   readonly abortBash: Effect.Effect<void, PiAdapterError>
   readonly setModel: (
     provider: string,
@@ -183,11 +194,11 @@ export interface PiRuntime {
     runId: RunId,
     instructions?: string,
   ) => Effect.Effect<
-    {
+    RuntimeOperationHandle<{
       readonly tokensBefore?: number
       readonly estimatedTokensAfter?: number
-    },
-    PiAdapterError | PiOperationBusyError
+    }>,
+    PiOperationBusyError
   >
   readonly abortCompaction: Effect.Effect<void, PiAdapterError>
   readonly setSessionName: (name: string) => Effect.Effect<void, PiAdapterError>
@@ -760,6 +771,7 @@ const makeRuntime = (
   created: string,
   identity: typeof RuntimeIdentity.Type,
   toolNames?: ReadonlyArray<string>,
+  requestedModel?: { readonly provider: string; readonly modelId: string },
 ) =>
   Effect.gen(function* () {
     const inner = runtime.session as unknown as AgentSessionLike
@@ -811,6 +823,26 @@ const makeRuntime = (
       crypto.randomUUIDv4.pipe(
         Effect.mapError(adapterError(`runtime.${kind}.operationId`)),
         Effect.flatMap((operationId) => operationSlot.run(kind, operationId, effect)),
+      )
+
+    const startOperation = <A>(kind: OperationKind, operationId: string, effect: Effect.Effect<A, PiAdapterError>) =>
+      Effect.uninterruptible(
+        Effect.gen(function* () {
+          yield* operationSlot.begin(kind, operationId)
+          const completion = yield* Deferred.make<A, PiAdapterError>()
+          const execution = operationSlot
+            .activate(kind, operationId)
+            .pipe(Effect.andThen(effect), Effect.ensuring(operationSlot.release(kind, operationId)))
+          yield* Effect.sync(() => {
+            runFork(execution).addObserver((exit) => {
+              Deferred.doneUnsafe(
+                completion,
+                Exit.isSuccess(exit) ? Effect.succeed(exit.value) : Effect.failCause(exit.cause),
+              )
+            })
+          })
+          return { completion: Deferred.await(completion) } satisfies RuntimeOperationHandle<A>
+        }),
       )
 
     let messageEventSequence = 0
@@ -940,6 +972,16 @@ const makeRuntime = (
     const selectedTools = withExtensionTools(inner, toolNames ?? getToolNamesForPreset(DEFAULT_TOOL_PRESET))
     inner.setActiveToolsByName(selectedTools)
     if (selectedTools.length === 0 && inner.agent.state) inner.agent.state.systemPrompt = ""
+    if (requestedModel !== undefined) {
+      const model = inner.modelRegistry.find(requestedModel.provider, requestedModel.modelId)
+      if (model === undefined) {
+        return yield* new PiAdapterError({
+          operation: "runtime.create.model",
+          message: `Model not found: ${requestedModel.provider}/${requestedModel.modelId}`,
+        })
+      }
+      yield* Effect.tryPromise({ try: () => inner.setModel(model), catch: adapterError("runtime.create.model") })
+    }
 
     const snapshot = Effect.gen(function* () {
       const runId = yield* Ref.get(runIdRef)
@@ -987,6 +1029,24 @@ const makeRuntime = (
         () => !inner.sessionManager.getEntries().some((entry) => entry.type === "message"),
       ),
       hasRetention: extensionUi.hasRetention,
+      matchesConfiguration: (configuration) =>
+        Effect.sync(() => {
+          if (configuration.model !== undefined) {
+            if (
+              inner.model?.provider !== configuration.model.provider ||
+              inner.model.id !== configuration.model.modelId
+            ) {
+              return false
+            }
+          }
+          if (configuration.toolNames !== undefined) {
+            const expected = [...withExtensionTools(inner, configuration.toolNames)].sort()
+            const active = [...inner.getActiveToolNames()].sort()
+            if (expected.length !== active.length || expected.some((name, index) => name !== active[index]))
+              return false
+          }
+          return true
+        }),
       events,
       publishRunEvent: publish,
       snapshot,
@@ -1158,7 +1218,7 @@ const makeRuntime = (
         }),
       abort: Effect.tryPromise({ try: () => inner.abort(), catch: adapterError("runtime.abort") }),
       executeBash: (runId, id, command, excludeFromContext) =>
-        operationSlot.run(
+        startOperation(
           "bash",
           id,
           Effect.gen(function* () {
@@ -1245,7 +1305,7 @@ const makeRuntime = (
           }
         }),
       compact: (runId, instructions) =>
-        operationSlot.run(
+        startOperation(
           "compaction",
           runId,
           Effect.gen(function* () {
@@ -2060,9 +2120,18 @@ const adapterLive = Effect.gen(function* () {
             }),
           catch: adapterError("runtime.create"),
         })
-        return yield* makeRuntime(runtime, crypto, created, identity, options.toolNames).pipe(
+        const createdSessionFile = options.sessionFile === null ? manager.getSessionFile() : undefined
+        return yield* makeRuntime(runtime, crypto, created, identity, options.toolNames, options.model).pipe(
           Effect.tapError(() =>
-            Effect.tryPromise({ try: () => runtime.dispose(), catch: () => undefined }).pipe(Effect.ignore),
+            Effect.all(
+              [
+                Effect.tryPromise({ try: () => runtime.dispose(), catch: () => undefined }).pipe(Effect.ignore),
+                createdSessionFile === undefined || createdSessionFile.length === 0
+                  ? Effect.void
+                  : fs.remove(createdSessionFile).pipe(Effect.ignore),
+              ],
+              { concurrency: "unbounded", discard: true },
+            ),
           ),
         )
       }),

@@ -1,6 +1,7 @@
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readJson, root, run, suiteConfig } from "./lib.mjs";
+import { assertReleaseRecordCommit, parseReleaseRecord } from "./release-record.mjs";
 import { bumpVersion, releaseBumpFromMessage } from "./version.mjs";
 
 const sourceSha = process.argv[2];
@@ -8,21 +9,17 @@ if (!sourceSha) throw new Error("usage: prepare.mjs <source-sha>");
 
 const git = (args, options = {}) => run("git", args, { capture: true, ...options }).trim();
 const writeJson = (path, value) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
-const releaseSource = (message) => {
-  const matches = String(message)
-    .split(/\r?\n/)
-    .flatMap((line) => {
-      const match = line.match(/^Release-Source:\s*([0-9a-f]{40})\s*$/);
-      return match?.[1] ? [match[1]] : [];
-    });
-  return matches.length === 1 ? matches[0] : undefined;
-};
 const releaseCommits = () => {
-  const records = git(["log", "origin/main", "--format=%H%x1f%B%x1e"]);
+  const records = git(["log", "origin/main", "--format=%H%x1f%P%x1f%B%x1e"]);
   return records.split("\x1e").flatMap((record) => {
-    const [commit, message = ""] = record.trim().split("\x1f", 2);
-    const source = releaseSource(message);
-    return commit && source ? [{ commit, source }] : [];
+    const [commit, rawParents = "", message = ""] = record.trim().split("\x1f", 3);
+    if (!commit) return [];
+    const parsed = parseReleaseRecord(message);
+    if (parsed === undefined) return [];
+    const parents = rawParents.split(/\s+/).filter(Boolean);
+    const manifestVersions = versionsAt(commit);
+    assertReleaseRecordCommit({ record: parsed, parents, manifestVersions });
+    return [{ commit, source: parsed.source, version: parsed.version, bump: parsed.bump }];
   });
 };
 const manifestPaths = () => [
@@ -41,7 +38,9 @@ const assertUnified = (versions, context) => {
 
 git(["cat-file", "-e", `${sourceSha}^{commit}`]);
 const releases = releaseCommits();
-const existing = releases.find(({ source }) => source === sourceSha);
+const matchingReleases = releases.filter(({ source }) => source === sourceSha);
+if (matchingReleases.length > 1) throw new Error("one source commit has multiple release records");
+const existing = matchingReleases[0];
 if (existing) git(["checkout", "--detach", existing.commit]);
 else if (git(["rev-parse", "HEAD"]) !== sourceSha) {
   throw new Error("new release preparation must run from the source commit");

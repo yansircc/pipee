@@ -956,7 +956,7 @@ it.live("rejects an oversized request body with 413 before decoding", () =>
   ),
 );
 
-it.live("rejects a mismatched protocol without consuming the pairing capability", () =>
+it.live("rejects mismatched connector evidence without consuming the pairing capability", () =>
   withBridge((bridge) =>
     Effect.gen(function* () {
       const pairing = yield* bridge.beginPairing();
@@ -980,14 +980,17 @@ it.live("rejects a mismatched protocol without consuming the pairing capability"
       });
       expect(wrongProtocol.status).toBe(409);
 
-      const accepted = yield* pairingRequest(bridge.url, pairing.challenge, {
+      const wrongDisplayVersion = yield* pairingRequest(bridge.url, pairing.challenge, {
         ...connector,
         extensionDisplayVersion: "0.15.0",
       });
+      expect(wrongDisplayVersion.status).toBe(409);
+
+      const accepted = yield* pairingRequest(bridge.url, pairing.challenge, connector);
       expect(accepted.status).toBe(200);
 
       expect((yield* bridge.beginPairing().pipe(Effect.flip))._tag).toBe("PairingUnavailable");
-      const pairedConnector = { ...connector, extensionDisplayVersion: "0.15.0" };
+      const pairedConnector = connector;
       const cleanupPoll = yield* Effect.forkChild(
         connectorRequest(bridge.url, "poll", pairedConnector),
       );
@@ -1039,28 +1042,33 @@ it.live("reports an incompatible poll without dequeueing or accepting its result
       expect(incompatible.status).toBe(200);
       expect(yield* decodePollResponseJson(incompatible.text)).toEqual({
         type: "incompatible",
+        expectedExtensionId: pairedPrimary.extensionId,
         expectedExtensionDisplayVersion: "0.16.0",
         actualExtensionDisplayVersion: "0.15.0",
         expectedProtocolFingerprint: pairedPrimary.protocolFingerprint,
         actualProtocolFingerprint: "f".repeat(64),
       });
-      expect((yield* bridge.status).protocolCompatibility).toEqual({
-        compatible: false,
-        extensionId: pairedPrimary.extensionId,
-        expectedExtensionDisplayVersion: "0.16.0",
-        actualExtensionDisplayVersion: "0.15.0",
-      });
-
       const differentDisplayVersionConnector = {
         ...pairedPrimary,
         extensionDisplayVersion: "0.15.0",
       };
       const polled = yield* connectorRequest(bridge.url, "poll", differentDisplayVersionConnector);
-      expect((yield* bridge.status).protocolCompatibility).toEqual({
-        compatible: true,
+      expect(yield* decodePollResponseJson(polled.text)).toEqual({
+        type: "incompatible",
+        expectedExtensionId: pairedPrimary.extensionId,
         expectedExtensionDisplayVersion: "0.16.0",
+        actualExtensionDisplayVersion: "0.15.0",
+        expectedProtocolFingerprint: pairedPrimary.protocolFingerprint,
+        actualProtocolFingerprint: pairedPrimary.protocolFingerprint,
       });
-      const envelope = yield* decodePollResponseJson(polled.text);
+      expect((yield* bridge.status).extensionExpectation).toEqual({
+        extensionId: pairedPrimary.extensionId,
+        displayVersion: "0.16.0",
+        protocolFingerprint: pairedPrimary.protocolFingerprint,
+      });
+
+      const compatiblePoll = yield* connectorRequest(bridge.url, "poll", pairedPrimary);
+      const envelope = yield* decodePollResponseJson(compatiblePoll.text);
       expect(envelope.type).toBe("command");
       if (envelope.type !== "command") return;
       const result = yield* connectorRequest(

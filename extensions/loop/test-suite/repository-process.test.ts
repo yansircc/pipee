@@ -27,7 +27,7 @@ const firstLine = (child: ChildProcessWithoutNullStreams): Promise<string> =>
     });
   });
 
-it("persists one project occurrence across competing processes", async () => {
+it("persists each occurrence once and lets a live follower take over after owner exit", async () => {
   const directory = mkdtempSync(join(tmpdir(), "pi-loop-process-"));
   const durable = {
     version: 2,
@@ -39,6 +39,14 @@ it("persists one project occurrence across competing processes", async () => {
         retention: "project",
         createdAt: 1,
         dueAt: 10,
+      }),
+      createLoop({
+        _tag: "Once",
+        id: "cross-process-successor",
+        prompt: "run after takeover",
+        retention: "project",
+        createdAt: 1,
+        dueAt: 20,
       }),
     ],
   };
@@ -61,6 +69,14 @@ it("persists one project occurrence across competing processes", async () => {
     };
     expect(ownerResult).toEqual({ access: "owner", ids: ["cross-process-once:0"] });
     expect(followerResult).toEqual({ access: "follower", ids: [] });
+    const followerTakeover = firstLine(follower);
+    const ownerExit = new Promise<void>((resolve) => owner.once("exit", () => resolve()));
+    owner.kill();
+    await ownerExit;
+    expect(JSON.parse(await followerTakeover)).toEqual({
+      access: "owner",
+      ids: ["cross-process-successor:0"],
+    });
   } finally {
     const running = [owner, follower].filter(
       (child): child is ChildProcessWithoutNullStreams =>

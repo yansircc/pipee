@@ -3,6 +3,14 @@
   "version": "0.5.7",
   "private": true,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yansircc/pi-suite.git"
+  },
+  "homepage": "https://github.com/yansircc/pi-suite#readme",
+  "bugs": {
+    "url": "https://github.com/yansircc/pi-suite/issues"
+  },
   "scripts": {
     "prepare": "effect-tsgo patch --typescript-package typescript",
     "check:workspace": "node tooling/release/verify-workspace.mjs",

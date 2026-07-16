@@ -224,6 +224,28 @@ seededSession.appendMessage({
   stopReason: "stop",
   timestamp: 1_700_000_000_001,
 })
+const failedSession = SessionManager.create(workspace, undefined, {
+  id: "00000000-0000-4000-8000-000000000002",
+})
+failedSession.appendMessage({ role: "user", content: "trigger provider failure", timestamp: 1_700_000_000_002 })
+failedSession.appendMessage({
+  role: "assistant",
+  content: [],
+  api: "openai-completions",
+  provider: "fixture",
+  model: "fixture",
+  usage: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  },
+  stopReason: "error",
+  errorMessage: "Fixture provider timed out.",
+  timestamp: 1_700_000_000_003,
+})
 await run("git", ["init", "--initial-branch=main"])
 await run("git", ["add", "hello.txt"])
 await run("git", [

@@ -16,6 +16,26 @@ export const ChromeExtensionEvidence = Schema.Struct({
 })
 export type ChromeExtensionEvidence = typeof ChromeExtensionEvidence.Type
 
+export interface ChromeConnectorEvidenceSource {
+  readonly connectorId: string
+  readonly label: string
+  readonly extensionId: string
+  readonly extensionDisplayVersion: string
+  readonly protocolFingerprint: string
+}
+
+export const projectChromeExtensionEvidence = (
+  connector: ChromeConnectorEvidenceSource,
+): ChromeExtensionEvidence => ({
+  extensionId: connector.extensionId,
+  displayVersion: connector.extensionDisplayVersion,
+  protocolFingerprint: connector.protocolFingerprint,
+  connectorIdentity: {
+    connectorId: connector.connectorId,
+    connectorLabel: connector.label,
+  },
+})
+
 export const ChromeExternalRequest = Schema.Union([
   Schema.Struct({ version: Schema.Literal(1), type: Schema.Literal("pi-chrome/web-run/status") }),
   Schema.Struct({ version: Schema.Literal(1), type: Schema.Literal("pi-chrome/web-run/prepare") }),
@@ -65,11 +85,23 @@ export const ChromeCompatibility = Schema.Union([
   }),
 ])
 export type ChromeCompatibility = typeof ChromeCompatibility.Type
+export type ChromeKnownCompatibility = Exclude<
+  ChromeCompatibility,
+  { readonly _tag: "Unknown" }
+>
 
-export const classifyChromeCompatibility = (
+export function classifyChromeCompatibility(
+  expected: ChromeExtensionExpectation,
+  actual: ChromeExtensionEvidence,
+): ChromeKnownCompatibility
+export function classifyChromeCompatibility(
   expected: ChromeExtensionExpectation | null,
   actual: ChromeExtensionEvidence | null,
-): ChromeCompatibility => {
+): ChromeCompatibility
+export function classifyChromeCompatibility(
+  expected: ChromeExtensionExpectation | null,
+  actual: ChromeExtensionEvidence | null,
+): ChromeCompatibility {
   if (expected === null || actual === null) return { _tag: "Unknown" }
   const mismatches: Array<typeof ChromeCompatibilityMismatch.Type> = []
   if (expected.extensionId !== actual.extensionId) mismatches.push("ExtensionId")
@@ -79,6 +111,12 @@ export const classifyChromeCompatibility = (
     ? { _tag: "Verified", evidence: actual }
     : { _tag: "Incompatible", expected, actual, mismatches }
 }
+
+export const classifyChromeConnectorCompatibility = (
+  expected: ChromeExtensionExpectation,
+  connector: ChromeConnectorEvidenceSource,
+): ChromeKnownCompatibility =>
+  classifyChromeCompatibility(expected, projectChromeExtensionEvidence(connector))
 
 export const ChromeProtocolRequirement = Schema.Union([
   Schema.Struct({ requirement: Schema.Literal("ProtocolCompatible"), satisfied: Schema.Literal(true) }),

@@ -8,15 +8,16 @@
     "pi-package",
     "scheduler"
   ],
-  "homepage": "https://github.com/yansircc/pi-loop#readme",
+  "homepage": "https://github.com/yansircc/pi-suite/tree/main/extensions/loop#readme",
   "bugs": {
-    "url": "https://github.com/yansircc/pi-loop/issues"
+    "url": "https://github.com/yansircc/pi-suite/issues"
   },
   "license": "MIT",
   "author": "Yansir <markyan@foxmail.com>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yansircc/pi-loop.git"
+    "url": "git+https://github.com/yansircc/pi-suite.git",
+    "directory": "extensions/loop"
   },
   "files": [
     "dist/pi"

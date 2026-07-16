@@ -360,6 +360,13 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
             ...(cause instanceof PiOperationBusyError ? { conflictOperation: cause.kind } : {}),
           })
 
+    const runtimeOperationError = (operation: string) => (cause: { readonly message: string }) =>
+      new RuntimeRegistryError({
+        operation,
+        message: cause.message,
+        ...(cause instanceof PiOperationBusyError ? { conflictOperation: cause.kind } : {}),
+      })
+
     const promptRequest = (sessionId: string, requestId: string, input: PromptInput) =>
       Effect.gen(function* () {
         const handle = yield* active(sessionId)
@@ -381,8 +388,10 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
         const handle = yield* active(sessionId)
         const runId = yield* nextRunId
         Queue.offerUnsafe(handle.activity, undefined)
-        yield* handle.runtime.compact(runId, instructions).pipe(
-          Effect.mapError(operationError("runtime.compact")),
+        const request = yield* handle.runtime
+          .compact(runId, instructions)
+          .pipe(Effect.mapError(runtimeOperationError("runtime.compact")))
+        yield* request.completion.pipe(
           Effect.tapError(() =>
             Effect.sync(() => {
               handle.runtime.publishRunEvent(
@@ -407,8 +416,10 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
         const handle = yield* active(sessionId)
         const runId = yield* nextRunId
         Queue.offerUnsafe(handle.activity, undefined)
-        yield* handle.runtime.executeBash(runId, id, command, excludeFromContext).pipe(
-          Effect.mapError(operationError("runtime.bash")),
+        const request = yield* handle.runtime
+          .executeBash(runId, id, command, excludeFromContext)
+          .pipe(Effect.mapError(runtimeOperationError("runtime.bash")))
+        yield* request.completion.pipe(
           Effect.tapError(() =>
             Effect.sync(() => {
               handle.runtime.publishRunEvent(

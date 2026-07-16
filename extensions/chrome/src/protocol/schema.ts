@@ -186,18 +186,11 @@ const BridgeStatusFields = {
   url: Schema.String,
   mode: Schema.Literals(["server", "client", "stopped", "closed"]),
   sessionRoutes: Schema.Array(SessionWebRouteStatus),
-  protocolCompatibility: Schema.Union([
-    Schema.Struct({
-      compatible: Schema.Literal(true),
-      expectedExtensionDisplayVersion: DisplayVersion,
-    }),
-    Schema.Struct({
-      compatible: Schema.Literal(false),
-      extensionId: ChromeExtensionId,
-      expectedExtensionDisplayVersion: DisplayVersion,
-      actualExtensionDisplayVersion: DisplayVersion,
-    }),
-  ]),
+  extensionExpectation: Schema.Struct({
+    extensionId: ChromeExtensionId,
+    displayVersion: DisplayVersion,
+    protocolFingerprint: ProtocolFingerprint,
+  }),
 };
 
 export const BridgeStatusResponse = Schema.Union([
@@ -400,6 +393,7 @@ export const BridgeAuthenticationHandshake = Schema.Struct({
 export const PollResponse = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("incompatible"),
+    expectedExtensionId: ChromeExtensionId,
     expectedExtensionDisplayVersion: DisplayVersion,
     actualExtensionDisplayVersion: DisplayVersion,
     expectedProtocolFingerprint: ProtocolFingerprint,
@@ -408,11 +402,13 @@ export const PollResponse = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("command"),
     command: WireCommand,
+    expectedExtensionId: ChromeExtensionId,
     expectedExtensionDisplayVersion: DisplayVersion,
     expectedProtocolFingerprint: ProtocolFingerprint,
   }),
   Schema.Struct({
     type: Schema.Literal("none"),
+    expectedExtensionId: ChromeExtensionId,
     expectedExtensionDisplayVersion: DisplayVersion,
     expectedProtocolFingerprint: ProtocolFingerprint,
   }),

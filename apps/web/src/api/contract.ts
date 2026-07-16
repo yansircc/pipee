@@ -877,9 +877,13 @@ const SessionsApi = HttpApiGroup.make("sessions").add(
   HttpApiEndpoint.post("create", "/api/sessions", {
     payload: Schema.Struct({
       cwd: Schema.String,
-      provider: Schema.optionalKey(Schema.String),
-      modelId: Schema.optionalKey(Schema.String),
       toolNames: Schema.optionalKey(Schema.Array(Schema.String)),
+      model: Schema.optionalKey(
+        Schema.Struct({
+          provider: Schema.NonEmptyString,
+          modelId: Schema.NonEmptyString,
+        }),
+      ),
     }),
     success: SessionInfo,
     error: CommonErrors,

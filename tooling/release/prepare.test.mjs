@@ -22,7 +22,7 @@ const makeRepository = () => {
   git(root, "remote", "add", "origin", remote);
   mkdirSync(join(root, "tooling", "release"), { recursive: true });
   mkdirSync(join(root, "release"), { recursive: true });
-  for (const file of ["build-candidates.mjs", "lib.mjs", "prepare.mjs", "version.mjs"]) {
+  for (const file of ["build-candidates.mjs", "lib.mjs", "prepare.mjs", "release-record.mjs", "version.mjs"]) {
     cpSync(join(projectRoot, "tooling", "release", file), join(root, "tooling", "release", file));
   }
   writeJson(join(root, "release", "suite.config.json"), {

@@ -106,9 +106,10 @@ it("reprojects tools from the current branch on every session_tree event", async
       url: "http://127.0.0.1:17318",
       mode: "server",
       sessionRoutes: [],
-      protocolCompatibility: {
-        compatible: true,
-        expectedExtensionDisplayVersion: "1.0.0",
+      extensionExpectation: {
+        extensionId: "abcdefghijklmnopabcdefghijklmnop",
+        displayVersion: "1.0.0",
+        protocolFingerprint: "a".repeat(64),
       },
       binding: {
         connectorId: "00000000-0000-4000-8000-000000000010",

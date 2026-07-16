@@ -163,7 +163,16 @@ export class ConnectorOwner {
                       source: "web" as const,
                       sessionKey: route.sessionKey,
                       generation: route.generation,
-                      connector: publicConnector(route.connector),
+                      connector:
+                        status.extensionId === undefined
+                          ? publicConnector(route.connector)
+                          : {
+                              connectorId: status.connectorId,
+                              label: status.label,
+                              extensionId: status.extensionId,
+                              extensionDisplayVersion: status.extensionDisplayVersion,
+                              protocolFingerprint: status.protocolFingerprint,
+                            },
                       availability: "live" as const,
                       claim: route.live!.claim,
                       expiresAt: route.live!.expiresAt,

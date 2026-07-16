@@ -38,15 +38,18 @@ export class SmokeCommandScenario {
   private commands: ReadonlyArray<WireCommand> = [];
   private fingerprintMismatchArmed = false;
   private fingerprintMismatchPhase = 0;
+  private readonly expectedExtensionId: string;
   private readonly expectedExtensionDisplayVersion: string;
   private readonly protocolFingerprint: () => string;
   private readonly writeJson: WriteJson;
 
   constructor(
+    expectedExtensionId: string,
     expectedExtensionDisplayVersion: string,
     protocolFingerprint: () => string,
     writeJson: WriteJson,
   ) {
+    this.expectedExtensionId = expectedExtensionId;
     this.expectedExtensionDisplayVersion = expectedExtensionDisplayVersion;
     this.protocolFingerprint = protocolFingerprint;
     this.writeJson = writeJson;
@@ -85,6 +88,7 @@ export class SmokeCommandScenario {
         200,
         {
           type: "none",
+          expectedExtensionId: this.expectedExtensionId,
           expectedExtensionDisplayVersion: this.expectedExtensionDisplayVersion,
           expectedProtocolFingerprint: protocolFingerprint,
         },
@@ -100,6 +104,7 @@ export class SmokeCommandScenario {
         200,
         {
           type: "incompatible",
+          expectedExtensionId: this.expectedExtensionId,
           expectedExtensionDisplayVersion: this.expectedExtensionDisplayVersion,
           actualExtensionDisplayVersion: this.expectedExtensionDisplayVersion,
           expectedProtocolFingerprint: mismatchedFingerprint,
@@ -117,6 +122,7 @@ export class SmokeCommandScenario {
         {
           type: "command",
           command: INCOMPATIBLE_COMMAND,
+          expectedExtensionId: this.expectedExtensionId,
           expectedExtensionDisplayVersion: this.expectedExtensionDisplayVersion,
           expectedProtocolFingerprint: mismatchedFingerprint,
         },
@@ -144,6 +150,7 @@ export class SmokeCommandScenario {
         {
           type: "command",
           command: nextCommand,
+          expectedExtensionId: this.expectedExtensionId,
           expectedExtensionDisplayVersion: this.expectedExtensionDisplayVersion,
           expectedProtocolFingerprint: protocolFingerprint,
         },
@@ -157,6 +164,7 @@ export class SmokeCommandScenario {
       200,
       {
         type: "none",
+        expectedExtensionId: this.expectedExtensionId,
         expectedExtensionDisplayVersion: this.expectedExtensionDisplayVersion,
         expectedProtocolFingerprint: protocolFingerprint,
       },

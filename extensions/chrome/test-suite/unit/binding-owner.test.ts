@@ -230,6 +230,50 @@ it.effect(
     }).pipe(Effect.provide(nodeServicesLayer)),
 );
 
+it.effect("keeps interleaved live connector evidence scoped to its session route", () =>
+  Effect.gen(function* () {
+    const persistence: BindingPersistence = {
+      load: Effect.sync(() => undefined),
+      save: () => Effect.sync(() => undefined),
+      clear: Effect.sync(() => undefined),
+    };
+    const broker = yield* CommandBroker.make;
+    const owner = yield* ConnectorOwner.make(persistence, broker);
+    yield* owner.reload;
+    const firstClaim = {
+      pairingId: "11111111-1111-4111-8111-111111111111",
+      leaseToken: "c".repeat(64),
+      connectorId: primary.connectorId,
+      sessionKey: "session:first",
+    } satisfies WebRunLeaseClaim;
+    const secondClaim = {
+      pairingId: "22222222-2222-4222-8222-222222222222",
+      leaseToken: "d".repeat(64),
+      connectorId: secondary.connectorId,
+      sessionKey: "session:second",
+    } satisfies WebRunLeaseClaim;
+    yield* owner.registerWebLease(firstClaim, primary);
+    yield* owner.registerWebLease(secondClaim, secondary);
+
+    const firstObserved = { ...publicConnector(primary), extensionDisplayVersion: "1.1.0" };
+    const secondObserved = {
+      ...publicConnector(secondary),
+      extensionDisplayVersion: "0.9.0",
+      protocolFingerprint: "f".repeat(64),
+    };
+    yield* broker.next(firstObserved, 0);
+    yield* broker.next(secondObserved, 0);
+    yield* broker.next(firstObserved, 0);
+
+    const bySession = new Map(
+      (yield* owner.sessionRouteStatuses).map((route) => [route.sessionKey, route.connector]),
+    );
+    expect(bySession.get(firstClaim.sessionKey)).toEqual(firstObserved);
+    expect(bySession.get(secondClaim.sessionKey)).toEqual(secondObserved);
+    yield* broker.stop;
+  }).pipe(Effect.provide(nodeServicesLayer)),
+);
+
 it.effect("refreshes a durable binding from the current projection of the same connector", () =>
   Effect.gen(function* () {
     const stored = yield* Ref.make<BoundConnector | undefined>(primary);

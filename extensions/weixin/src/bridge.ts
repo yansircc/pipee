@@ -395,6 +395,17 @@ export class Bridge extends Context.Service<Bridge, BridgeService>()("pi-weixin/
 
 const describeError = (error: BridgeLoopError): string => error._tag;
 
+export const bindAfterDispatchBarrier = <StopE, StopR, BindE, BindR, StartE, StartR>(
+  stopDispatches: Effect.Effect<void, StopE, StopR>,
+  persistBinding: Effect.Effect<unknown, BindE, BindR>,
+  startDispatches: Effect.Effect<unknown, StartE, StartR>,
+): Effect.Effect<void, StopE | BindE | StartE, StopR | BindR | StartR> =>
+  stopDispatches.pipe(
+    Effect.andThen(persistBinding),
+    Effect.andThen(startDispatches),
+    Effect.asVoid,
+  );
+
 export const BridgeLive = Layer.effect(
   Bridge,
   Effect.gen(function* () {
@@ -592,35 +603,34 @@ export const BridgeLive = Layer.effect(
     const notifyStop = (auth: WeixinAuth) =>
       transport.notifyStop(auth).pipe(Effect.tapError(presenceFailure("stop")), Effect.ignore);
 
-    const startRaw = lifecycle.withPermits(1)(
-      Effect.gen(function* () {
-        if (Option.isSome(yield* Ref.get(bridgeFiber))) return false;
-        const state = yield* store.read;
-        if (!state.enabled || !state.auth || !state.binding) return false;
-        yield* acquireAccountOwner(state.auth.accountId);
-        yield* Ref.set(connection, { _tag: "Connecting" });
-        yield* Ref.set(lastError, Option.none());
-        yield* invalidateStatus;
-        yield* notifyStart(state.auth);
-        yield* Effect.uninterruptible(
-          Effect.gen(function* () {
-            const registered = yield* Deferred.make<void>();
-            const fiber = yield* Effect.forkDetach(
-              Deferred.await(registered).pipe(
-                Effect.andThen(runLoop()),
-                Effect.ensuring(Ref.set(bridgeFiber, Option.none())),
-                Effect.ensuring(invalidateStatus),
-              ),
-            );
-            yield* Ref.set(bridgeFiber, Option.some(fiber));
-            yield* Deferred.succeed(registered, undefined);
-            yield* Ref.set(connection, { _tag: "Connected" });
-            yield* invalidateStatus;
-          }),
-        );
-        return true;
-      }),
-    );
+    const startBridgeRaw = Effect.gen(function* () {
+      if (Option.isSome(yield* Ref.get(bridgeFiber))) return false;
+      const state = yield* store.read;
+      if (!state.enabled || !state.auth || !state.binding) return false;
+      yield* acquireAccountOwner(state.auth.accountId);
+      yield* Ref.set(connection, { _tag: "Connecting" });
+      yield* Ref.set(lastError, Option.none());
+      yield* invalidateStatus;
+      yield* notifyStart(state.auth);
+      yield* Effect.uninterruptible(
+        Effect.gen(function* () {
+          const registered = yield* Deferred.make<void>();
+          const fiber = yield* Effect.forkDetach(
+            Deferred.await(registered).pipe(
+              Effect.andThen(runLoop()),
+              Effect.ensuring(Ref.set(bridgeFiber, Option.none())),
+              Effect.ensuring(invalidateStatus),
+            ),
+          );
+          yield* Ref.set(bridgeFiber, Option.some(fiber));
+          yield* Deferred.succeed(registered, undefined);
+          yield* Ref.set(connection, { _tag: "Connected" });
+          yield* invalidateStatus;
+        }),
+      );
+      return true;
+    });
+    const startRaw = lifecycle.withPermits(1)(startBridgeRaw);
 
     const stopBridgeRaw = Effect.gen(function* () {
       const state = yield* Effect.option(store.read);
@@ -686,7 +696,11 @@ export const BridgeLive = Layer.effect(
           }),
         ),
       bind: (binding) =>
-        observeStatus(store.bind(binding).pipe(Effect.andThen(startRaw), Effect.asVoid)),
+        observeStatus(
+          lifecycle.withPermits(1)(
+            bindAfterDispatchBarrier(stopBridgeRaw, store.bind(binding), startBridgeRaw),
+          ),
+        ),
       setEnabled: (enabled) =>
         observeStatus(
           enabled

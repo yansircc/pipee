@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Schema } from "effect";
 import { createLoop, Loop as LoopSchema, type Loop } from "../src/domain/model.js";
-import { arm, cancel, tick } from "../src/domain/transition.js";
+import { arm, tick } from "../src/domain/transition.js";
 
 const manual = (): Loop =>
   createLoop({
@@ -22,21 +22,41 @@ describe("temporal transition", () => {
   it("claims one cursor once and waits for manual arm", () => {
     const first = tick(manual(), 100, "open");
     expect(first.occurrence?.id).toBe("loop-1:0");
-    expect(first.loop.phase).toEqual({ _tag: "AwaitingArm", cursor: 1 });
-    expect(tick(first.loop, 200, "open")).toEqual({ loop: first.loop });
+    expect(first.loop?.phase).toEqual({ _tag: "AwaitingArm", cursor: 1 });
+    expect(first.loop && tick(first.loop, 200, "open")).toEqual({ loop: first.loop });
   });
 
   it("only arms a manual loop that is awaiting an arm", () => {
     const loop = manual();
     expect(arm(loop, 300)).toBeUndefined();
     const claimed = tick(loop, 100, "open").loop;
-    expect(arm(claimed, 300)?.phase).toEqual({ _tag: "Waiting", dueAt: 300, cursor: 1 });
+    expect(claimed && arm(claimed, 300)?.phase).toEqual({
+      _tag: "Waiting",
+      dueAt: 300,
+      cursor: 1,
+    });
   });
 
-  it("makes cancellation terminal", () => {
-    const stopped = cancel(manual());
-    expect(cancel(stopped)).toBe(stopped);
-    expect(tick(stopped, 1_000, "open")).toEqual({ loop: stopped });
+  it("removes completed one-shot loops instead of materializing a stopped state", () => {
+    const once = createLoop({
+      _tag: "Once",
+      id: "once",
+      prompt: "run",
+      retention: "session",
+      createdAt: 1,
+      dueAt: 10,
+    });
+    expect(tick(once, 10, "open")).toEqual({
+      occurrence: {
+        id: "once:0",
+        loopId: "once",
+        cursor: 0,
+        prompt: "run",
+        dueAt: 10,
+        claimedAt: 10,
+        trigger: "scheduled",
+      },
+    });
   });
 
   it("keeps arbitrary fixed intervals exact across clock boundaries", () => {
@@ -50,7 +70,7 @@ describe("temporal transition", () => {
       spec: { periodMs: 420_000, jitterFraction: 0, jitterCapMs: 0 },
     });
     const claimed = tick(loop, 3_480_000, "open").loop;
-    expect(claimed.phase).toEqual({ _tag: "Waiting", dueAt: 3_900_000, cursor: 1 });
+    expect(claimed?.phase).toEqual({ _tag: "Waiting", dueAt: 3_900_000, cursor: 1 });
   });
 
   it("cannot decode a project-retained manual loop", () => {
@@ -62,6 +82,21 @@ describe("temporal transition", () => {
         retention: "project",
         createdAt: 1,
         phase: { _tag: "AwaitingArm", cursor: 1 },
+      }),
+    ).toThrow();
+  });
+
+  it("cannot decode a stopped loop because absence is the terminal state", () => {
+    expect(() =>
+      Schema.decodeUnknownSync(LoopSchema)({
+        _tag: "Once",
+        id: "stopped",
+        prompt: "x",
+        retention: "project",
+        createdAt: 1,
+        enabled: true,
+        manualCursor: 0,
+        phase: { _tag: "Stopped", reason: "completed", cursor: 1 },
       }),
     ).toThrow();
   });
