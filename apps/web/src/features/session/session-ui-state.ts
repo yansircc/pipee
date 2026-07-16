@@ -1,18 +1,20 @@
-import { ActiveBashExecution, ExtensionUiProjection, RuntimeSnapshot } from "@/api/contract"
+import { ActiveBashExecution, ExtensionUiProjection, RuntimeIdentity, RuntimeSnapshot } from "@/api/contract"
 import type { AgentMessage, RunScopedEvent, SessionScopedEvent, SessionSnapshot, UserMessage } from "@/api/contract"
 
 type ActiveBashExecutionValue = typeof ActiveBashExecution.Type
 type ExtensionUiProjectionValue = typeof ExtensionUiProjection.Type
+type RuntimeIdentityValue = typeof RuntimeIdentity.Type
 type RuntimeSnapshotValue = typeof RuntimeSnapshot.Type
 export type OperationKind = "prompt" | "bash" | "compaction"
 
 export interface SessionUiState {
   readonly sessionId: string | null
-  readonly runtimeId: string | null
+  readonly runtimeIdentity: RuntimeIdentityValue | null
   readonly chromeControlOperation: {
     readonly requestId: string
     readonly enabled: boolean
   } | null
+  readonly snapshotRequestId: number
   readonly contextRequestId: number
   readonly snapshot: SessionSnapshot | null
   readonly messages: ReadonlyArray<AgentMessage>
@@ -49,8 +51,9 @@ export interface SessionUiState {
 
 export const initialSessionUiState: SessionUiState = {
   sessionId: null,
-  runtimeId: null,
+  runtimeIdentity: null,
   chromeControlOperation: null,
+  snapshotRequestId: 0,
   contextRequestId: 0,
   snapshot: null,
   messages: [],
@@ -80,7 +83,12 @@ export const initialSessionUiState: SessionUiState = {
 }
 
 export type SessionUiAction =
-  | { readonly _tag: "Loaded"; readonly sessionId: string; readonly snapshot: SessionSnapshot }
+  | {
+      readonly _tag: "Loaded"
+      readonly sessionId: string
+      readonly requestId: number
+      readonly snapshot: SessionSnapshot
+    }
   | { readonly _tag: "ContextRequested"; readonly sessionId: string; readonly requestId: number }
   | {
       readonly _tag: "ContextLoaded"
@@ -114,7 +122,7 @@ export type SessionUiAction =
   | {
       readonly _tag: "RuntimeEvent"
       readonly sessionId: string
-      readonly runtimeId: string
+      readonly identity: RuntimeIdentityValue
       readonly event: RunScopedEvent | SessionScopedEvent
     }
   | { readonly _tag: "Reset"; readonly sessionId: string }
@@ -141,6 +149,31 @@ const activeRunId = (state: SessionUiState): string | null => {
   return state.runId
 }
 
+const sameRuntimeIdentity = (left: RuntimeIdentityValue, right: RuntimeIdentityValue): boolean =>
+  left.registryId === right.registryId && left.runtimeEpoch === right.runtimeEpoch && left.runtimeId === right.runtimeId
+
+const installRuntimeIdentity = (
+  state: SessionUiState,
+  identity: RuntimeIdentityValue,
+  extensionUi: ExtensionUiProjectionValue,
+): SessionUiState => ({
+  ...state,
+  runtimeIdentity: identity,
+  extensionUi,
+  runId: null,
+  terminalRunId: null,
+  completionRunId: null,
+  pendingPrompt: null,
+  pendingOperation: null,
+  ephemeralMessages: [],
+  agentRunning: false,
+  isStreaming: false,
+  streamingMessage: null,
+  activeBashExecution: null,
+  retryInfo: null,
+  isCompacting: false,
+})
+
 export const projectSessionMessages = (state: SessionUiState): ReadonlyArray<AgentMessage> => [
   ...state.messages,
   ...(state.pendingPrompt === null ? [] : [state.pendingPrompt.message]),
@@ -156,27 +189,11 @@ export const projectSessionEntryIds = (state: SessionUiState): ReadonlyArray<str
 const applyRuntime = (state: SessionUiState, runtime: RuntimeSnapshotValue | null): SessionUiState => {
   if (runtime === null) return state
   const identified: SessionUiState =
-    state.runtimeId === runtime.runtimeId
+    state.runtimeIdentity !== null && sameRuntimeIdentity(state.runtimeIdentity, runtime.identity)
       ? runtime.extensionUi.revision > state.extensionUi.revision
         ? { ...state, extensionUi: runtime.extensionUi }
         : state
-      : {
-          ...state,
-          runtimeId: runtime.runtimeId,
-          extensionUi: runtime.extensionUi,
-          runId: null,
-          terminalRunId: null,
-          completionRunId: null,
-          pendingPrompt: null,
-          pendingOperation: null,
-          ephemeralMessages: [],
-          agentRunning: false,
-          isStreaming: false,
-          streamingMessage: null,
-          activeBashExecution: null,
-          retryInfo: null,
-          isCompacting: false,
-        }
+      : installRuntimeIdentity(state, runtime.identity, runtime.extensionUi)
   if (identified.pendingPrompt !== null && runtime.runId === null) {
     return { ...identified, queuedMessages: runtime.queuedMessages }
   }
@@ -233,7 +250,12 @@ export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction)
         ? { ...state, chromeControlOperation: null }
         : state
     case "Loaded":
-      if (action.sessionId !== state.sessionId || action.snapshot.sessionId !== action.sessionId) return state
+      if (
+        action.sessionId !== state.sessionId ||
+        action.snapshot.sessionId !== action.sessionId ||
+        action.requestId < state.snapshotRequestId
+      )
+        return state
       const loadedReceipt = promptReceipt(state.pendingPrompt, action.snapshot.context)
       const loadedPending =
         state.pendingPrompt === null
@@ -247,18 +269,20 @@ export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction)
       const expectedRunId = loadedPending?.runId ?? state.runId
       if (
         loadedRuntime !== null &&
-        state.runtimeId === loadedRuntime.runtimeId &&
+        state.runtimeIdentity !== null &&
+        sameRuntimeIdentity(state.runtimeIdentity, loadedRuntime.identity) &&
         expectedRunId !== null &&
         loadedRuntime.runId !== null &&
         loadedRuntime.runId !== expectedRunId
       ) {
         return loadedRuntime.extensionUi.revision > state.extensionUi.revision
-          ? { ...state, extensionUi: loadedRuntime.extensionUi }
-          : state
+          ? { ...state, snapshotRequestId: action.requestId, extensionUi: loadedRuntime.extensionUi }
+          : { ...state, snapshotRequestId: action.requestId }
       }
       return applyRuntime(
         {
           ...state,
+          snapshotRequestId: action.requestId,
           snapshot: action.snapshot,
           messages: action.snapshot.context.messages,
           entryIds: action.snapshot.context.entryIds,
@@ -370,9 +394,26 @@ export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction)
         : state
     case "RuntimeEvent": {
       if (action.sessionId !== state.sessionId) return state
-      if (state.runtimeId === null) return sessionUiReducer({ ...state, runtimeId: action.runtimeId }, action)
-      if (action.runtimeId !== state.runtimeId) return state
       const event = action.event
+      const currentIdentity = state.runtimeIdentity
+      if (currentIdentity === null) {
+        return event._tag === "RuntimeActivated"
+          ? installRuntimeIdentity(state, action.identity, event.projection)
+          : state
+      }
+      if (action.identity.registryId !== currentIdentity.registryId) return state
+      if (action.identity.runtimeEpoch < currentIdentity.runtimeEpoch) return state
+      if (action.identity.runtimeEpoch > currentIdentity.runtimeEpoch) {
+        return event._tag === "RuntimeActivated"
+          ? installRuntimeIdentity(state, action.identity, event.projection)
+          : state
+      }
+      if (!sameRuntimeIdentity(action.identity, currentIdentity)) return state
+      if (event._tag === "RuntimeActivated") {
+        return event.projection.revision > state.extensionUi.revision
+          ? { ...state, extensionUi: event.projection }
+          : state
+      }
       if (event._tag === "ExtensionUiChanged") {
         return event.projection.revision > state.extensionUi.revision
           ? { ...state, extensionUi: event.projection }

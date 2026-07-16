@@ -62,7 +62,7 @@ import {
   RunId,
   RunScopedEvent,
   RuntimeEnvelope,
-  RuntimeId,
+  RuntimeIdentity,
   SessionScopedEvent,
   RuntimeSnapshot,
   SessionEntry,
@@ -259,7 +259,10 @@ export class PiAgentAdapter extends Context.Service<
       },
       PiAdapterError
     >
-    readonly createRuntime: (options: PiRuntimeCreateOptions) => Effect.Effect<PiRuntime, PiAdapterError, Scope.Scope>
+    readonly createRuntime: (
+      options: PiRuntimeCreateOptions,
+      identity: typeof RuntimeIdentity.Type,
+    ) => Effect.Effect<PiRuntime, PiAdapterError, Scope.Scope>
     readonly exportHtml: (filePath: string) => Effect.Effect<string, PiAdapterError>
     readonly modelCatalog: (cwd: string) => Effect.Effect<typeof ModelCatalog.Type, PiAdapterError>
     readonly readModelsConfig: Effect.Effect<typeof ModelsConfig.Type, PiAdapterError>
@@ -797,14 +800,11 @@ const makeRuntime = (
   runtime: AgentSessionRuntime,
   crypto: Crypto.Crypto,
   created: string,
+  identity: typeof RuntimeIdentity.Type,
   toolNames?: ReadonlyArray<string>,
 ) =>
   Effect.gen(function* () {
     const inner = runtime.session as unknown as AgentSessionLike
-    const runtimeId = yield* crypto.randomUUIDv4.pipe(
-      Effect.mapError(adapterError("runtime.id")),
-      Effect.flatMap((id) => decode(RuntimeId, "runtime.id", id)),
-    )
     // Prompt returns before the browser can open SSE, so late subscribers need a
     // bounded replay window. Sliding capacity prevents a stalled tab from
     // retaining an unbounded stream of token updates.
@@ -860,7 +860,7 @@ const makeRuntime = (
     }
 
     const publish = (event: typeof RunScopedEvent.Type | typeof SessionScopedEvent.Type) => {
-      PubSub.publishUnsafe(events, RuntimeEnvelope.make({ runtimeId, event }))
+      PubSub.publishUnsafe(events, RuntimeEnvelope.make({ identity, event }))
     }
     const currentRunId = () => Ref.getUnsafe(runIdRef)
     const publishForRun = (make: (runId: RunId) => typeof RunScopedEvent.Type | null) => {
@@ -1180,7 +1180,7 @@ const makeRuntime = (
       const completedBashExecution = yield* Ref.get(completedBash)
       const usage = inner.getContextUsage()
       return yield* decode(RuntimeSnapshot, "runtime.snapshot", {
-        runtimeId,
+        identity,
         runId,
         sessionId: inner.sessionId,
         sessionFile: inner.sessionFile ?? "",
@@ -2332,7 +2332,7 @@ const adapterLive = Effect.gen(function* () {
         const newSessionId = SessionManager.open(newSessionFile, sessionDir).getSessionId()
         return { cancelled: false, newSessionId, newSessionFile }
       }),
-    createRuntime: (options) =>
+    createRuntime: (options, identity) =>
       Effect.gen(function* () {
         const manager =
           options.sessionFile === null ? SessionManager.create(options.cwd) : SessionManager.open(options.sessionFile)
@@ -2346,7 +2346,7 @@ const adapterLive = Effect.gen(function* () {
             }),
           catch: adapterError("runtime.create"),
         })
-        return yield* makeRuntime(runtime, crypto, created, options.toolNames).pipe(
+        return yield* makeRuntime(runtime, crypto, created, identity, options.toolNames).pipe(
           Effect.tapError(() =>
             Effect.tryPromise({ try: () => runtime.dispose(), catch: () => undefined }).pipe(Effect.ignore),
           ),

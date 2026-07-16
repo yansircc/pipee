@@ -34,6 +34,16 @@ export type RunId = typeof RunId.Type
 export const RuntimeId = Schema.String.pipe(Schema.brand("RuntimeId"))
 export type RuntimeId = typeof RuntimeId.Type
 
+export const RegistryId = Schema.String.pipe(Schema.brand("RegistryId"))
+export type RegistryId = typeof RegistryId.Type
+
+export const RuntimeIdentity = Schema.Struct({
+  registryId: RegistryId,
+  runtimeEpoch: Schema.Int.check(Schema.isGreaterThan(0)),
+  runtimeId: RuntimeId,
+})
+export type RuntimeIdentity = typeof RuntimeIdentity.Type
+
 export const SessionId = Schema.String.pipe(Schema.brand("SessionId"))
 export type SessionId = typeof SessionId.Type
 
@@ -439,7 +449,7 @@ export const QueuedMessages = Schema.Struct({
   followUp: Schema.Array(Schema.String),
 })
 export const RuntimeSnapshot = Schema.Struct({
-  runtimeId: RuntimeId,
+  identity: RuntimeIdentity,
   runId: Schema.NullOr(RunId),
   sessionId: Schema.String,
   sessionFile: Schema.String,
@@ -510,6 +520,7 @@ export const RunScopedEvent = Schema.Union([
 export type RunScopedEvent = typeof RunScopedEvent.Type
 
 export const SessionScopedEvent = Schema.Union([
+  Schema.TaggedStruct("RuntimeActivated", { projection: ExtensionUiProjection }),
   Schema.TaggedStruct("ExtensionUiChanged", { projection: ExtensionUiProjection }),
   Schema.TaggedStruct("ExtensionNotice", {
     noticeId: Schema.String,
@@ -521,7 +532,7 @@ export const SessionScopedEvent = Schema.Union([
 export type SessionScopedEvent = typeof SessionScopedEvent.Type
 
 export const RuntimeEnvelope = Schema.Struct({
-  runtimeId: RuntimeId,
+  identity: RuntimeIdentity,
   event: Schema.Union([RunScopedEvent, SessionScopedEvent]),
 })
 export type RuntimeEnvelope = typeof RuntimeEnvelope.Type

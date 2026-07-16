@@ -29,26 +29,30 @@ export const observeSession = (
   sessionId: string,
   callbacks: {
     readonly onEvent: (event: RuntimeEnvelope) => void
-    readonly onSnapshot: (snapshot: SessionSnapshot) => void
+    readonly onSnapshotStarted: () => number
+    readonly onSnapshot: (snapshot: SessionSnapshot, requestId: number) => void
     readonly onTransientError: (message: string) => void
   },
 ) => {
-  const events = Effect.suspend(() => withApi((api) => api.sessions.events({ params: { id: sessionId } }))).pipe(
+  const loadSnapshot = Effect.suspend(() => {
+    const requestId = callbacks.onSnapshotStarted()
+    return loadSessionSnapshot(sessionId).pipe(
+      Effect.tap((snapshot) => Effect.sync(() => callbacks.onSnapshot(snapshot, requestId))),
+    )
+  })
+  const events = loadSnapshot.pipe(
+    Effect.andThen(Effect.suspend(() => withApi((api) => api.sessions.events({ params: { id: sessionId } })))),
     Effect.flatMap((stream) => stream.pipe(Stream.runForEach((event) => Effect.sync(() => callbacks.onEvent(event))))),
     Effect.catch((error) => Effect.sync(() => callbacks.onTransientError(errorMessage(error)))),
     Effect.andThen(Effect.sleep("1 second")),
     Effect.forever,
   )
   const reconcile = Effect.sleep("15 seconds").pipe(
-    Effect.andThen(loadSessionSnapshot(sessionId)),
-    Effect.tap((snapshot) => Effect.sync(() => callbacks.onSnapshot(snapshot))),
+    Effect.andThen(loadSnapshot),
     Effect.catch((error) => Effect.sync(() => callbacks.onTransientError(errorMessage(error)))),
     Effect.forever,
   )
-  return loadSessionSnapshot(sessionId).pipe(
-    Effect.tap((snapshot) => Effect.sync(() => callbacks.onSnapshot(snapshot))),
-    Effect.andThen(Effect.all([events, reconcile], { concurrency: "unbounded", discard: true })),
-  )
+  return Effect.all([events, reconcile], { concurrency: "unbounded", discard: true })
 }
 
 export const observeRunningSessions = (callbacks: {

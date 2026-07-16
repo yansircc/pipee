@@ -10,6 +10,7 @@ import {
   Layer,
   PubSub,
   Queue,
+  Ref,
   Scope,
   Stream,
   SynchronizedRef,
@@ -17,8 +18,13 @@ import {
 import {
   RunId,
   RunScopedEvent,
+  RuntimeEnvelope,
+  RuntimeIdentity,
+  RuntimeId,
+  RegistryId,
   RunningSessionsEvent,
   RuntimeSnapshot,
+  SessionScopedEvent,
   type RuntimeEnvelope as RuntimeEnvelopeValue,
 } from "@/api/contract"
 import {
@@ -40,6 +46,7 @@ export class RuntimeRegistryError extends Data.TaggedError("RuntimeRegistryError
 
 export interface RuntimeHandle {
   readonly sessionId: string
+  readonly identity: typeof RuntimeIdentity.Type
   readonly runtime: PiRuntime
   readonly scope: Scope.Closeable
   readonly activity: Queue.Queue<void>
@@ -118,7 +125,9 @@ export class SessionRuntimeRegistry extends Context.Service<
       },
       RuntimeRegistryError
     >
-    readonly events: (sessionId: string) => Effect.Effect<Stream.Stream<RuntimeEnvelopeValue>, RuntimeRegistryError>
+    readonly events: (
+      sessionId: string,
+    ) => Effect.Effect<Stream.Stream<RuntimeEnvelopeValue, RuntimeRegistryError>, RuntimeRegistryError>
     readonly activeSessions: Effect.Effect<ReadonlyArray<ActiveRuntimeSession>>
     readonly runningIds: Effect.Effect<ReadonlyArray<string>>
     readonly runningEvents: Stream.Stream<typeof RunningSessionsEvent.Type>
@@ -137,6 +146,11 @@ export interface RunIdGenerator {
 
 export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGenerator: RunIdGenerator) =>
   Effect.gen(function* () {
+    const registryId = RegistryId.make(yield* idGenerator.randomUUIDv4.pipe(Effect.orDie))
+    const nextRuntimeId = idGenerator.randomUUIDv4.pipe(
+      Effect.mapError((cause) => new RuntimeRegistryError({ operation: "runtime.identity", message: String(cause) })),
+    )
+    const runtimeEpoch = yield* Ref.make(0)
     const table = yield* SynchronizedRef.make<TableState>({ accepting: true, slots: new Map() })
     const startupFibers = yield* FiberSet.make<void, never>()
     // Changes are invalidations, not an event log. One replayed signal closes the
@@ -216,12 +230,14 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
       requestedId: string,
       starting: Extract<Slot, { readonly _tag: "Starting" }>,
       runtime: PiRuntime,
+      identity: typeof RuntimeIdentity.Type,
       scope: Scope.Closeable,
     ) =>
       Effect.gen(function* () {
         const activity = yield* Queue.sliding<void>(1)
         const handle: RuntimeHandle = {
           sessionId: runtime.sessionId,
+          identity,
           runtime,
           scope,
           activity,
@@ -312,10 +328,15 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
         if (decision._tag === "Reject") return yield* decision.error
 
         const scope = yield* Scope.make("sequential")
-        const startup = adapter.createRuntime(options).pipe(
+        const identity = RuntimeIdentity.make({
+          registryId,
+          runtimeEpoch: yield* Ref.updateAndGet(runtimeEpoch, (current) => current + 1),
+          runtimeId: RuntimeId.make(yield* nextRuntimeId),
+        })
+        const startup = adapter.createRuntime(options, identity).pipe(
           Effect.provideService(Scope.Scope, scope),
           Effect.mapError((cause) => new RuntimeRegistryError({ operation: "runtime.start", message: cause.message })),
-          Effect.flatMap((runtime) => installHandle(requestedId, decision.starting, runtime, scope)),
+          Effect.flatMap((runtime) => installHandle(requestedId, decision.starting, runtime, identity, scope)),
           Effect.matchCauseEffect({
             onFailure: (cause) =>
               Effect.gen(function* () {
@@ -456,7 +477,35 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
       })
 
     const events = (sessionId: string) =>
-      Effect.map(active(sessionId), (handle) => Stream.fromPubSub(handle.runtime.events))
+      Effect.map(active(sessionId), (handle) =>
+        Stream.unwrap(
+          PubSub.subscribe(handle.runtime.events).pipe(
+            Effect.flatMap((subscription) =>
+              handle.runtime.snapshot.pipe(
+                Effect.mapError(
+                  (cause) => new RuntimeRegistryError({ operation: "runtime.events.snapshot", message: cause.message }),
+                ),
+                Effect.map((snapshot) =>
+                  Stream.concat(
+                    Stream.succeed(
+                      RuntimeEnvelope.make({
+                        identity: handle.identity,
+                        event: SessionScopedEvent.make({
+                          _tag: "RuntimeActivated",
+                          projection: snapshot.extensionUi,
+                        }),
+                      }),
+                    ),
+                    Stream.unfold(subscription, (current) =>
+                      PubSub.take(current).pipe(Effect.map((envelope) => [envelope, current] as const)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      )
 
     const activeSessions = Effect.gen(function* () {
       const current = yield* SynchronizedRef.get(table)

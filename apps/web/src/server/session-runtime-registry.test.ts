@@ -2,13 +2,27 @@ import { it } from "@effect/vitest"
 import { Deferred, Effect, Exit, Fiber, PubSub, Ref, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import { expect } from "vite-plus/test"
-import { RunId, RunScopedEvent, RuntimeEnvelope, RuntimeId, RuntimeSnapshot } from "@/api/contract"
+import {
+  RegistryId,
+  RunId,
+  RunScopedEvent,
+  RuntimeEnvelope,
+  RuntimeId,
+  RuntimeIdentity,
+  RuntimeSnapshot,
+} from "@/api/contract"
 import { PiAdapterError, type PiRuntime } from "./pi-agent-adapter"
 import { makeSessionRuntimeRegistry, type SessionRuntimeAdapter } from "./session-runtime-registry"
 
+const identity = RuntimeIdentity.make({
+  registryId: RegistryId.make("00000000-0000-4000-8000-000000000001"),
+  runtimeEpoch: 1,
+  runtimeId: RuntimeId.make("00000000-0000-4000-8000-000000000001"),
+})
+
 const runtimeSnapshot = (sessionId: string, sessionFile: string) =>
   RuntimeSnapshot.make({
-    runtimeId: RuntimeId.make(`runtime-${sessionId}`),
+    identity,
     runId: null,
     sessionId,
     sessionFile,
@@ -40,7 +54,6 @@ const makeRuntime = (
   promptEffect: Effect.Effect<void, PiAdapterError> = Effect.void,
 ) =>
   Effect.gen(function* () {
-    const runtimeId = RuntimeId.make(`runtime-${sessionId}`)
     const events = yield* PubSub.sliding<RuntimeEnvelope>({ capacity: 256, replay: 64 })
     const firstMessage = yield* Ref.make<string | null>(null)
     const sessionFile = `/sessions/${sessionId}.jsonl`
@@ -53,7 +66,7 @@ const makeRuntime = (
       isConversationEmpty: Ref.get(firstMessage).pipe(Effect.map((message) => message === null)),
       events,
       publishRunEvent: (event) => {
-        PubSub.publishUnsafe(events, RuntimeEnvelope.make({ runtimeId, event }))
+        PubSub.publishUnsafe(events, RuntimeEnvelope.make({ identity, event }))
       },
       snapshot: Effect.succeed(runtimeSnapshot(sessionId, sessionFile)),
       promptRequest: (runId, _requestId, input) =>
@@ -491,7 +504,10 @@ it.effect("returns bash run identity before completion and redacts background fa
     const runId = yield* registry.bash("session-bash", "bash-1", "printf secret", false)
     expect(runId).toBe("00000000-0000-4000-8000-000000000001")
     yield* Deferred.succeed(release, undefined)
-    const event = yield* Stream.runHead(stream)
+    const event = yield* stream.pipe(
+      Stream.filter((envelope) => envelope.event._tag === "BashFailed"),
+      Stream.runHead,
+    )
     expect(event._tag).toBe("Some")
     if (event._tag === "Some") {
       expect(event.value).toMatchObject({
@@ -520,11 +536,10 @@ it.effect("replays pre-SSE events and releases disconnected subscriptions", () =
     runtime.publishRunEvent(RunScopedEvent.make({ _tag: "RunStarted", runId: RunId.make("run-before-sse") }))
 
     const stream = yield* registry.events("session-6")
-    const first = yield* Stream.runHead(stream)
-    expect(first._tag).toBe("Some")
-    if (first._tag === "Some" && first.value.event._tag === "RunStarted") {
-      expect(first.value.event.runId).toBe("run-before-sse")
-    }
+    const first = yield* stream.pipe(Stream.take(2), Stream.runCollect)
+    expect(first.map((envelope) => envelope.event._tag)).toEqual(["RuntimeActivated", "RunStarted"])
+    expect(first[0]?.identity).toEqual(identity)
+    if (first[1]?.event._tag === "RunStarted") expect(first[1].event.runId).toBe("run-before-sse")
 
     yield* Effect.yieldNow
     const baseline = runtime.events.subscribers.size
