@@ -12,16 +12,18 @@ import { DateTime, Duration, Effect, Option } from "effect"
 import type { SessionInfo, WeixinBindingStatus } from "@/api/contract"
 import { FileExplorer } from "./FileExplorer"
 import { useI18n, type Locale } from "@/lib/i18n"
-import { withApi, runApi, runApiStream, runBrowser, type Cancel } from "@/browser/api-client"
+import { withApi, runApi, runBrowser, type Cancel } from "@/browser/api-client"
 import { useBrowserPreferences } from "@/browser/preferences-react"
 import { after, observeCurrentTime } from "@/browser/timing"
 import { BrowserPlatform } from "@/browser/browser-platform"
+import { observeRunningSessions } from "@/features/session/session-controller"
 
 interface Props {
   selectedSessionId: string | null
   weixinBindings: ReadonlyArray<WeixinBindingStatus>
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void
   onNewSession?: (cwd: string) => void
+  newSessionPending?: boolean
   initialSessionId?: string | null
   onInitialRestoreDone?: () => void
   refreshKey?: number
@@ -339,6 +341,7 @@ export function SessionSidebar({
   weixinBindings,
   onSelectSession,
   onNewSession,
+  newSessionPending = false,
   initialSessionId,
   onInitialRestoreDone,
   refreshKey,
@@ -396,9 +399,6 @@ export function SessionSidebar({
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set())
   const [currentTimeMillis, setCurrentTimeMillis] = useState(0)
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set())
-  // Once the SSE stream has delivered a frame it is the source of truth for
-  // running state; late /api/sessions responses must not overwrite it.
-  const sseAuthoritativeRef = useRef(false)
   const sessionRefreshTimerRef = useRef<Cancel | null>(null)
   const explorerRefreshTimerRef = useRef<Cancel | null>(null)
 
@@ -419,11 +419,6 @@ export function SessionSidebar({
           onSuccess: (data) => {
             const sessions = data.sessions.map((session) => ({ ...session }))
             setAllSessions(sessions)
-            // Treat the fetched running set as an initial fallback only. Once SSE is
-            // live it owns this state, so a slow fetch can't revive a stale snapshot.
-            if (!sseAuthoritativeRef.current) {
-              setRunningSessionIds(new Set(data.runningSessionIds))
-            }
             // Drop unread markers for sessions that no longer exist (e.g. deleted).
             const existingIds = new Set(sessions.map((s) => s.id))
             updateUnreadSessionIds((prev) => {
@@ -462,17 +457,18 @@ export function SessionSidebar({
   }, [loadSessions, refreshKey])
 
   useEffect(() => {
-    // Live running status via SSE — no polling. The server pushes the current
-    // set of running session ids whenever any session starts/stops working.
-    return runApiStream(
-      withApi((api) => api.sessions.runningEvents({})),
-      {
-        onValue: (data) => {
-          if (data._tag === "RunningSessionsChanged") {
-            sseAuthoritativeRef.current = true
-            setRunningSessionIds(new Set(data.sessionIds))
-          }
+    return runApi(
+      observeRunningSessions({
+        onSnapshot: (sessionIds) => {
+          setRunningSessionIds((current) => {
+            const next = new Set(sessionIds)
+            return current.size === next.size && [...current].every((id) => next.has(id)) ? current : next
+          })
         },
+        onTransientError: () => undefined,
+      }),
+      {
+        onSuccess: () => undefined,
       },
     )
   }, [])
@@ -782,9 +778,9 @@ export function SessionSidebar({
   )
 
   const handleNewSession = useCallback(() => {
-    if (!selectedCwd) return
+    if (!selectedCwd || newSessionPending) return
     onNewSession?.(selectedCwd)
-  }, [selectedCwd, onNewSession])
+  }, [newSessionPending, selectedCwd, onNewSession])
 
   const recentProjects = getRecentProjects(allSessions)
   const showProjectFilter = recentProjects.length > 8
@@ -840,7 +836,7 @@ export function SessionSidebar({
           <div style={{ display: "flex", gap: 6 }}>
             <button
               onClick={handleNewSession}
-              disabled={!selectedCwd}
+              disabled={!selectedCwd || newSessionPending}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -849,7 +845,7 @@ export function SessionSidebar({
                 background: "var(--bg-hover)",
                 border: "1px solid var(--border)",
                 color: selectedCwd ? "var(--text-muted)" : "var(--text-dim)",
-                cursor: selectedCwd ? "pointer" : "not-allowed",
+                cursor: selectedCwd && !newSessionPending ? "pointer" : "not-allowed",
                 height: 32,
                 paddingLeft: 10,
                 paddingRight: 12,
@@ -862,7 +858,7 @@ export function SessionSidebar({
               }}
               title={selectedCwd ? t("New session in {cwd}", { cwd: selectedCwd }) : t("Select a project first")}
               onMouseEnter={(e) => {
-                if (!selectedCwd) return
+                if (!selectedCwd || newSessionPending) return
                 e.currentTarget.style.background = "var(--bg-selected)"
                 e.currentTarget.style.color = "var(--accent)"
                 e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)"

@@ -22,6 +22,7 @@ const activeSession = (firstMessage: string | null = null) =>
       cwd: "/repo",
       created: "2026-07-15T00:00:00.000Z",
       firstMessage,
+      isConversationEmpty: firstMessage === null,
     },
     { projectRoot: "/repo" },
   )

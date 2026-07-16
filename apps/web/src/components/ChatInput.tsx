@@ -58,6 +58,7 @@ interface Props {
   onFollowUp?: (message: string, images?: AttachedImage[]) => void
   onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", images?: AttachedImage[]) => void
   isStreaming: boolean
+  sessionLoading?: boolean
   isBashRunning?: boolean
   model?: { provider: string; modelId: string } | null
   isAutoModelSelection?: boolean
@@ -99,6 +100,7 @@ interface Props {
 }
 
 export interface ChatInputHandle {
+  focus: () => void
   insertText: (text: string) => void
   insertIfEmpty: (text: string) => void
   prependText: (text: string) => void
@@ -618,6 +620,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     onSteer,
     onFollowUp,
     isStreaming,
+    sessionLoading = false,
     isBashRunning,
     model,
     isAutoModelSelection,
@@ -714,6 +717,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
   attachedFilesRef.current = attachedFiles
 
   useImperativeHandle(ref, () => ({
+    focus() {
+      textareaRef.current?.focus()
+    },
     insertIfEmpty(text: string) {
       const ta = textareaRef.current
       const current = ta ? ta.value : value
@@ -2029,6 +2035,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
             <textarea
               ref={textareaRef}
               value={value}
+              disabled={sessionLoading}
               onChange={(e) => {
                 setValue(e.target.value)
                 updateAtQuery(e.target.value, e.target.selectionStart)
@@ -2164,7 +2171,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
             ) : (
               <button
                 onClick={handleSend}
-                disabled={(!value.trim() && !hasAttachments) || uploadingAttachments > 0}
+                disabled={sessionLoading || (!value.trim() && !hasAttachments) || uploadingAttachments > 0}
                 style={{
                   flexShrink: 0,
                   alignSelf: "flex-end",
@@ -2173,18 +2180,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                   gap: 6,
                   padding: "7px 14px",
                   background:
-                    (value.trim() || hasAttachments) && uploadingAttachments === 0
+                    !sessionLoading && (value.trim() || hasAttachments) && uploadingAttachments === 0
                       ? "var(--accent)"
                       : "var(--bg-panel)",
                   border: "none",
                   borderRadius: 8,
-                  color: (value.trim() || hasAttachments) && uploadingAttachments === 0 ? "#fff" : "var(--text-dim)",
-                  cursor: (value.trim() || hasAttachments) && uploadingAttachments === 0 ? "pointer" : "not-allowed",
+                  color:
+                    !sessionLoading && (value.trim() || hasAttachments) && uploadingAttachments === 0
+                      ? "#fff"
+                      : "var(--text-dim)",
+                  cursor:
+                    !sessionLoading && (value.trim() || hasAttachments) && uploadingAttachments === 0
+                      ? "pointer"
+                      : "not-allowed",
                   fontSize: 13,
                   fontWeight: 600,
                   letterSpacing: "-0.01em",
                   boxShadow:
-                    (value.trim() || hasAttachments) && uploadingAttachments === 0
+                    !sessionLoading && (value.trim() || hasAttachments) && uploadingAttachments === 0
                       ? "0 1px 3px rgba(37,99,235,0.25)"
                       : "none",
                   transition: "background 0.15s, box-shadow 0.15s",
@@ -2200,10 +2213,25 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
-                  <line x1="2" y1="7" x2="11" y2="7" />
-                  <polyline points="7.5 3 12 7 7.5 11" />
+                  {sessionLoading ? (
+                    <circle cx="7" cy="7" r="4.5" strokeDasharray="18 10">
+                      <animateTransform
+                        attributeName="transform"
+                        type="rotate"
+                        from="0 7 7"
+                        to="360 7 7"
+                        dur="0.8s"
+                        repeatCount="indefinite"
+                      />
+                    </circle>
+                  ) : (
+                    <>
+                      <line x1="2" y1="7" x2="11" y2="7" />
+                      <polyline points="7.5 3 12 7 7.5 11" />
+                    </>
+                  )}
                 </svg>
-                {t("Send")}
+                {sessionLoading ? t("Loading...") : t("Send")}
               </button>
             )}
           </div>
@@ -2818,7 +2846,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                 </div>
               )}
 
-              {onBrowserControlChange && (
+              {onBrowserControlChange && browserControlPackageLoaded === true && (
                 <BrowserControl
                   enabled={Boolean(browserControlEnabled)}
                   pending={Boolean(browserControlPending)}

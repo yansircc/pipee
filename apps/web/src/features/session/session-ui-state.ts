@@ -9,7 +9,6 @@ export type OperationKind = "prompt" | "bash" | "compaction"
 
 export interface SessionUiState {
   readonly sessionId: string | null
-  readonly draftEpoch: number | null
   readonly chromeControlOperation: {
     readonly requestId: string
     readonly enabled: boolean
@@ -56,7 +55,6 @@ export interface SessionUiState {
 
 export const initialSessionUiState: SessionUiState = {
   sessionId: null,
-  draftEpoch: null,
   chromeControlOperation: null,
   contextRequestId: 0,
   snapshot: null,
@@ -118,9 +116,7 @@ export type SessionUiAction =
     }
   | { readonly _tag: "ChromeControlFailed"; readonly requestId: string }
   | { readonly _tag: "RuntimeEvent"; readonly sessionId: string; readonly event: RuntimeEvent }
-  | { readonly _tag: "BindSession"; readonly sessionId: string }
   | { readonly _tag: "Reset"; readonly sessionId: string }
-  | { readonly _tag: "Reset"; readonly sessionId: null; readonly draftEpoch: number }
 
 const appendEphemeral = (
   messages: SessionUiState["ephemeralMessages"],
@@ -132,16 +128,6 @@ const appendEphemeral = (
 
 const promptReceipt = (pendingPrompt: SessionUiState["pendingPrompt"], context: SessionSnapshot["context"]) =>
   pendingPrompt === null ? undefined : context.promptRequests.find((item) => item.requestId === pendingPrompt.requestId)
-
-export const projectSessionEffectOwner = (
-  state: Pick<SessionUiState, "sessionId" | "draftEpoch">,
-  active: { readonly sessionId: string | null; readonly draftEpoch: number },
-): string => {
-  const materializedDraft =
-    state.draftEpoch !== null && state.sessionId !== null && state.sessionId === active.sessionId
-  if (materializedDraft) return `draft:${state.draftEpoch}`
-  return active.sessionId === null ? `draft:${active.draftEpoch}` : `session:${active.sessionId}`
-}
 
 const activeRunId = (state: SessionUiState): string | null => {
   if (state.pendingPrompt !== null) return state.pendingPrompt.runId
@@ -212,16 +198,7 @@ const applyRuntime = (state: SessionUiState, runtime: RuntimeSnapshotValue | nul
 export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction): SessionUiState => {
   switch (action._tag) {
     case "Reset":
-      if (action.sessionId !== null) {
-        return action.sessionId === state.sessionId
-          ? state
-          : { ...initialSessionUiState, sessionId: action.sessionId, draftEpoch: null }
-      }
-      return state.sessionId === null && state.draftEpoch === action.draftEpoch
-        ? state
-        : { ...initialSessionUiState, draftEpoch: action.draftEpoch }
-    case "BindSession":
-      return state.sessionId === null ? { ...state, sessionId: action.sessionId } : state
+      return action.sessionId === state.sessionId ? state : { ...initialSessionUiState, sessionId: action.sessionId }
     case "LoadFailed":
       return action.sessionId === state.sessionId ? { ...state, error: action.message } : state
     case "ExtensionStatusesChanged":

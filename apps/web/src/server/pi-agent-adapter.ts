@@ -172,6 +172,7 @@ export interface PiRuntime {
   readonly cwd: string
   readonly created: string
   readonly firstMessage: Effect.Effect<string | null>
+  readonly isConversationEmpty: Effect.Effect<boolean>
   readonly events: PubSub.PubSub<RuntimeEventValue>
   readonly snapshot: Effect.Effect<typeof RuntimeSnapshot.Type, PiAdapterError>
   readonly promptRequest: (
@@ -1170,6 +1171,9 @@ const makeRuntime = (
       cwd: inner.sessionManager.getCwd(),
       created,
       firstMessage: Ref.get(firstMessageRef),
+      isConversationEmpty: Effect.sync(
+        () => !inner.sessionManager.getEntries().some((entry) => entry.type === "message"),
+      ),
       events,
       snapshot,
       promptRequest: (proposedRunId, requestId, input) =>

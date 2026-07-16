@@ -51,6 +51,7 @@ export interface ActiveRuntimeSession {
   readonly cwd: string
   readonly created: string
   readonly firstMessage: string | null
+  readonly isConversationEmpty: boolean
 }
 
 type Slot =
@@ -358,9 +359,11 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
         const runId = yield* nextRunId
         Queue.offerUnsafe(handle.activity, undefined)
         const request = yield* handle.runtime.promptRequest(runId, requestId, input).pipe(Effect.mapError(promptError))
+        const completion = request.completion.pipe(Effect.mapError(promptError))
+        yield* completion.pipe(Effect.ensuring(changed), Effect.ignore, Effect.forkIn(handle.scope))
         return {
           runId: request.runId,
-          completion: request.completion.pipe(Effect.mapError(promptError)),
+          completion,
         }
       })
 
@@ -395,6 +398,7 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
               )
             }),
           ),
+          Effect.ensuring(changed),
           Effect.ignore,
           Effect.forkIn(handle.scope),
         )
@@ -432,6 +436,7 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
               )
             }),
           ),
+          Effect.ensuring(changed),
           Effect.ignore,
           Effect.forkIn(handle.scope),
         )
@@ -459,15 +464,19 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
       return yield* Effect.forEach(
         handles,
         (handle) =>
-          handle.runtime.firstMessage.pipe(
+          Effect.all({
+            firstMessage: handle.runtime.firstMessage,
+            isConversationEmpty: handle.runtime.isConversationEmpty,
+          }).pipe(
             Effect.map(
-              (firstMessage) =>
+              ({ firstMessage, isConversationEmpty }) =>
                 ({
                   sessionId: handle.sessionId,
                   sessionFile: handle.runtime.sessionFile,
                   cwd: handle.runtime.cwd,
                   created: handle.runtime.created,
                   firstMessage,
+                  isConversationEmpty,
                 }) satisfies ActiveRuntimeSession,
             ),
           ),

@@ -141,6 +141,41 @@ test("projects an active session before Pi persists its first message", async ({
   expect(removed.status).toBe(200)
 })
 
+test("materializes a new session before exposing the conversation UI", async ({ page }) => {
+  await page.goto("/")
+  let createRequests = 0
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/api/sessions") createRequests += 1
+  })
+  await page.route("**/api/sessions", async (route) => {
+    if (route.request().method() === "POST") await new Promise((resolve) => setTimeout(resolve, 250))
+    await route.continue()
+  })
+  const create = page.getByRole("button", { name: "新建", exact: true })
+  await expect(create).toBeEnabled()
+  await create.click()
+  await expect(page.getByRole("button", { name: "加载中…", exact: true })).toBeDisabled()
+
+  await expect(page).toHaveURL(/\?session=/)
+  const sessionId = new URL(page.url()).searchParams.get("session")
+  expect(sessionId).toBeTruthy()
+  const row = page.locator(`[data-session-id="${sessionId}"]`)
+  await expect(row).toContainText("(no messages)")
+
+  const input = page.locator("textarea").first()
+  await expect(input).toBeFocused()
+  await input.fill("/")
+  await expect(page.getByText("/skill:e2e-skill", { exact: true })).toBeVisible()
+
+  await create.click()
+  await expect(page).toHaveURL(new RegExp(`\\?session=${sessionId}$`))
+  await expect(input).toBeFocused()
+  expect(createRequests).toBe(2)
+
+  const removed = await mutate(page, `/api/sessions/${sessionId}`, {}, "DELETE")
+  expect(removed.status).toBe(200)
+})
+
 test("deleting the selected session does not issue late session-owned requests", async ({ page }) => {
   await page.goto("/")
   await mutate(page, "/api/workspace/cwd/validate", { cwd: fixtureWorkspace })
@@ -369,8 +404,15 @@ test("runs and aborts Pi-native bash inside an isolated session", async ({ page 
 test("runs and aborts a second shell operation through the React controller", async ({ page }) => {
   test.setTimeout(30_000)
   const sessionId = "00000000-0000-4000-8000-000000000001"
+  let runningStreamRequests = 0
+  await page.route("**/api/sessions/running/events", async (route) => {
+    runningStreamRequests += 1
+    if (runningStreamRequests === 1) await route.abort()
+    else await route.continue()
+  })
   await page.goto(`/?session=${sessionId}`)
   await expect(page.getByText("seed reply", { exact: true })).toBeVisible()
+  await expect.poll(() => runningStreamRequests).toBeGreaterThanOrEqual(2)
   const turnSummary = page.locator("summary").filter({ hasText: "本轮" })
   await expect(turnSummary.getByText("1ms", { exact: true })).toBeVisible()
   await turnSummary.click()
@@ -392,6 +434,7 @@ test("runs and aborts a second shell operation through the React controller", as
   await expect(stop).toBeVisible()
   await stop.click()
   await expect(page.getByText("已取消").last()).toBeVisible()
+  await expect(page.locator(`[data-session-id="${sessionId}"]`).getByLabel("Agent 正在运行")).toHaveCount(0)
 })
 
 test("forks the root message with one stable persisted identity", async ({ page }) => {

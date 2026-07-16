@@ -11,11 +11,13 @@ import { copyText } from "@/lib/clipboard"
 import { getFileName } from "@/lib/file-paths"
 import { buildAtMentionText } from "@/lib/file-fuzzy"
 import type { SessionInfo, SessionStats, SessionTreeNode, WeixinStatusProjection } from "@/api/contract"
-import type { ChatInputHandle } from "./ChatInput"
+import { ChatInput, type ChatInputHandle } from "./ChatInput"
 import { useI18n } from "@/lib/i18n"
 import { withApi, apiUrls, runApi, runBrowser, type Cancel } from "@/browser/api-client"
 import { BrowserPlatform } from "@/browser/browser-platform"
 import { FileViewer, ModelsConfig, PluginsConfig, SkillsConfig } from "@/browser/code-split"
+import { sessionController } from "@/features/session/session-controller"
+import { DEFAULT_TOOL_PRESET, getToolNamesForPreset } from "@/lib/tool-presets"
 
 type SessionCopyField = "file" | "id"
 
@@ -35,13 +37,11 @@ export function AppShell() {
         : (sessionCollection.find((candidate) => candidate.id === search.session) ?? null),
     [search.session, sessionCollection],
   )
-  // When user clicks +, we only store the cwd — no fake session id
-  const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null)
+  const [creatingSessionCwd, setCreatingSessionCwd] = useState<string | null>(null)
+  const [createSessionError, setCreateSessionError] = useState<string | null>(null)
+  const [inputFocusEpoch, setInputFocusEpoch] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
-  // Persisted session identity comes only from the URL. This epoch distinguishes
-  // consecutive unpersisted drafts that intentionally share the same cwd.
-  const [draftEpoch, setDraftEpoch] = useState(0)
-  const sessionProjectionOwner = selectedSession === null ? `draft:${draftEpoch}` : `session:${selectedSession.id}`
+  const sessionProjectionOwner = selectedSession === null ? "none" : `session:${selectedSession.id}`
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0)
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0)
   const [modelsConfigOpen, setModelsConfigOpen] = useState(false)
@@ -203,11 +203,7 @@ export function AppShell() {
       }
       // Close any session that belongs to a different project — it no longer
       // matches the selected project directory.
-      setNewSessionCwd((prev) => {
-        if (prev && prev !== cwd) return null
-        return prev
-      })
-      setDraftEpoch((epoch) => epoch + 1)
+      setCreateSessionError(null)
       setBranchTree([])
       setBranchActiveLeafId(null)
       setSystemPrompt(null)
@@ -219,7 +215,6 @@ export function AppShell() {
 
   const handleSelectSession = useCallback(
     (session: SessionInfo, isRestore = false) => {
-      setNewSessionCwd(null)
       setSessionCollection((current) =>
         current.some((candidate) => candidate.id === session.id)
           ? current.map((candidate) => (candidate.id === session.id ? session : candidate))
@@ -243,18 +238,43 @@ export function AppShell() {
     [navigate, isMobile],
   )
 
+  const acceptCreatedSession = useCallback(
+    (session: SessionInfo) => {
+      setSessionCollection((current) =>
+        current.some((candidate) => candidate.id === session.id)
+          ? current.map((candidate) => (candidate.id === session.id ? session : candidate))
+          : [...current, session],
+      )
+      setRefreshKey((key) => key + 1)
+      void navigate({ to: "/", search: { session: session.id }, replace: true })
+    },
+    [navigate],
+  )
+
   const handleNewSession = useCallback(
     (cwd: string) => {
-      setNewSessionCwd(cwd)
-      setDraftEpoch((epoch) => epoch + 1)
+      if (creatingSessionCwd !== null) return
+      setInputFocusEpoch((epoch) => epoch + 1)
+      setCreatingSessionCwd(cwd)
+      setCreateSessionError(null)
       setBranchTree([])
       setBranchActiveLeafId(null)
       setSystemPrompt(null)
       setActiveTopPanel(null)
       if (isMobile) setSidebarOpen(false)
       void navigate({ to: "/", search: {}, replace: true })
+      runApi(sessionController.createConfigured(cwd, getToolNamesForPreset(DEFAULT_TOOL_PRESET), null), {
+        onSuccess: (session) => {
+          setCreatingSessionCwd(null)
+          acceptCreatedSession({ ...session })
+        },
+        onFailure: (error) => {
+          setCreatingSessionCwd(null)
+          setCreateSessionError(error instanceof Error ? error.message : String(error))
+        },
+      })
     },
-    [navigate, isMobile],
+    [acceptCreatedSession, creatingSessionCwd, isMobile, navigate],
   )
 
   useEffect(
@@ -266,21 +286,6 @@ export function AppShell() {
         },
       ),
     [refreshKey],
-  )
-
-  // Called by ChatWindow when a new session gets its real id from pi
-  const handleSessionCreated = useCallback(
-    (session: SessionInfo) => {
-      setNewSessionCwd(null)
-      setSessionCollection((current) =>
-        current.some((candidate) => candidate.id === session.id)
-          ? current.map((candidate) => (candidate.id === session.id ? session : candidate))
-          : [...current, session],
-      )
-      setRefreshKey((k) => k + 1)
-      void navigate({ to: "/", search: { session: session.id }, replace: true })
-    },
-    [navigate],
   )
 
   const handleAgentEnd = useCallback(() => {
@@ -295,7 +300,6 @@ export function AppShell() {
   const handleSessionForked = useCallback(
     (newSessionId: string) => {
       setRefreshKey((k) => k + 1)
-      setNewSessionCwd(null)
       setSessionCollection((current) => {
         const parent =
           search.session === undefined ? undefined : current.find((candidate) => candidate.id === search.session)
@@ -322,9 +326,6 @@ export function AppShell() {
       setSessionCollection((current) => current.filter((session) => session.id !== sessionId))
       setRefreshKey((k) => k + 1)
       if (selectedSession?.id === sessionId) {
-        const cwd = selectedSession.cwd
-        setNewSessionCwd(cwd ?? null)
-        setDraftEpoch((epoch) => epoch + 1)
         setBranchTree([])
         setBranchActiveLeafId(null)
         setSystemPrompt(null)
@@ -385,9 +386,7 @@ export function AppShell() {
     )
   }, [selectedSession])
 
-  // Show chat area if a session is selected, or if we have a cwd to start a new session in
-  const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null)
-  const showChat = selectedSession !== null || effectiveNewSessionCwd !== null
+  const showChat = selectedSession !== null
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat
 
@@ -399,11 +398,12 @@ export function AppShell() {
         weixinBindings={weixinBindings}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
+        newSessionPending={creatingSessionCwd !== null}
         initialSessionId={initialSessionId}
         onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
         onSessionDeleted={handleSessionDeleted}
-        selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
+        selectedCwd={selectedSession?.cwd ?? creatingSessionCwd ?? null}
         onCwdChange={handleCwdChange}
         onOpenFile={handleOpenFile}
         explorerRefreshKey={explorerRefreshKey}
@@ -443,7 +443,7 @@ export function AppShell() {
             {
               label: tr("Skills"),
               onClick: () => setSkillsConfigOpen(true),
-              disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
+              disabled: !activeCwd && !selectedSession?.cwd,
               icon: (
                 <svg
                   width="14"
@@ -464,7 +464,7 @@ export function AppShell() {
             {
               label: tr("Plugins"),
               onClick: () => setPluginsConfigOpen(true),
-              disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
+              disabled: !activeCwd && !selectedSession?.cwd,
               icon: (
                 <svg
                   width="14"
@@ -1372,12 +1372,10 @@ export function AppShell() {
             {showChat ? (
               <ChatWindow
                 session={selectedSession}
-                newSessionCwd={effectiveNewSessionCwd}
-                draftEpoch={draftEpoch}
                 sessionRefreshKey={sessionRefreshKey}
+                inputFocusEpoch={inputFocusEpoch}
                 onAgentEnd={handleAgentEnd}
                 onSessionIndexChanged={handleSessionIndexChanged}
-                onSessionCreated={handleSessionCreated}
                 onSessionForked={handleSessionForked}
                 modelsRefreshKey={modelsRefreshKey}
                 chatInputRef={chatInputRef}
@@ -1389,6 +1387,20 @@ export function AppShell() {
                 onWeixinStatusChange={handleWeixinStatusChange}
                 onOpenFile={handleOpenLinkedFile}
               />
+            ) : creatingSessionCwd !== null ? (
+              <div className="flex h-full flex-col items-center justify-center overflow-y-auto px-4 py-8">
+                <div className="w-full max-w-[820px]">
+                  <ChatInput
+                    onSend={() => undefined}
+                    onAbort={() => undefined}
+                    isStreaming={false}
+                    sessionLoading
+                    cwd={creatingSessionCwd}
+                  />
+                </div>
+              </div>
+            ) : createSessionError !== null ? (
+              <div className="flex h-full items-center justify-center text-red-400">{createSessionError}</div>
             ) : showPlaceholder ? (
               activeCwd ? (
                 <div
@@ -1560,15 +1572,12 @@ export function AppShell() {
             }}
           />
         )}
-        {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
-          <SkillsConfig
-            cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}
-            onClose={() => setSkillsConfigOpen(false)}
-          />
+        {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd) && (
+          <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd)!} onClose={() => setSkillsConfigOpen(false)} />
         )}
-        {pluginsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
+        {pluginsConfigOpen && (activeCwd ?? selectedSession?.cwd) && (
           <PluginsConfig
-            cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}
+            cwd={(activeCwd ?? selectedSession?.cwd)!}
             sessionId={selectedSession?.id ?? null}
             onClose={() => setPluginsConfigOpen(false)}
             onReloaded={() => setSessionRefreshKey((key) => key + 1)}

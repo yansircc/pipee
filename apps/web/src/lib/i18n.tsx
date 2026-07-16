@@ -94,6 +94,7 @@ const zhCN: Record<string, string> = {
   "Agent running": "Agent 正在运行",
   "New activity": "有新动态",
   "New session activity": "会话有新动态",
+  "Starting session...": "正在启动会话...",
   Delete: "删除",
   Rename: "重命名",
   "Expand forks": "展开分支会话",
