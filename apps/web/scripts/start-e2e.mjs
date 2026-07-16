@@ -142,6 +142,38 @@ await writeFile(
       context.ui.setStatus("e2e-interaction-queue", String(first) + ":" + String(second))
     },
   })
+  pi.registerCommand("interaction-timeout-test", {
+    description: "Exercise active interaction timeout",
+    async handler(_args, context) {
+      const value = await context.ui.input("Timed interaction", "wait for timeout", { timeout: 50 })
+      context.ui.setStatus("e2e-interaction-timeout", value === undefined ? "cancelled" : "resolved:" + value)
+    },
+  })
+  pi.registerCommand("interaction-abort-test", {
+    description: "Exercise queued interaction AbortSignal",
+    async handler(_args, context) {
+      const controller = new AbortController()
+      const blocker = context.ui.input("Abort blocker", "resolve blocker")
+      const queued = context.ui.input("Aborted interaction", "must not activate", { signal: controller.signal })
+      controller.abort()
+      const queuedValue = await queued
+      const blockerValue = await blocker
+      context.ui.setStatus(
+        "e2e-interaction-abort",
+        String(queuedValue) + ":" + String(blockerValue),
+      )
+    },
+  })
+  pi.registerCommand("interaction-close-test", {
+    description: "Exercise runtime close cancellation",
+    async handler(_args, context) {
+      const [active, queued] = await Promise.all([
+        context.ui.input("Close active interaction", "active close"),
+        context.ui.input("Close queued interaction", "queued close"),
+      ])
+      context.ui.setStatus("e2e-interaction-close", String(active) + ":" + String(queued))
+    },
+  })
 }
 `,
 )

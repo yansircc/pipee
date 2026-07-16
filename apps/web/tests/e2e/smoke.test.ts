@@ -208,7 +208,7 @@ test("resolves a session-scoped extension interaction before any run exists", as
       runId: null,
       extensionUi: {
         pendingInteraction: null,
-        statuses: [{ _tag: "Text", key: "e2e-interaction", text: "resolved:2468" }],
+        statuses: expect.arrayContaining([{ _tag: "Text", key: "e2e-interaction", text: "resolved:2468" }]),
       },
     },
   })
@@ -252,8 +252,71 @@ test("resolves a session-scoped extension interaction before any run exists", as
     },
   })
 
+  const timed = await mutate(page, `/api/sessions/${sessionId}/actions/slash-command`, {
+    name: "interaction-timeout-test",
+    args: "",
+  })
+  expect(timed).toMatchObject({ status: 200, body: { ok: true } })
+  await expect.poll(snapshot).toMatchObject({
+    runtime: {
+      runId: null,
+      extensionUi: {
+        pendingInteraction: null,
+        statuses: expect.arrayContaining([{ _tag: "Text", key: "e2e-interaction-timeout", text: "cancelled" }]),
+      },
+    },
+  })
+
+  await page.evaluate((id) => {
+    const state = window as typeof window & { interactionAbortResult?: unknown }
+    void fetch(`/api/sessions/${id}/actions/slash-command`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "interaction-abort-test", args: "" }),
+    })
+      .then(async (response) => ({ status: response.status, body: await response.json() }))
+      .then((result) => {
+        state.interactionAbortResult = result
+      })
+  }, sessionId)
+  await expect(page.getByText("Abort blocker", { exact: true })).toBeVisible()
+  await expect(page.getByText("Aborted interaction", { exact: true })).toHaveCount(0)
+  await page.getByPlaceholder("resolve blocker").fill("done")
+  await page.getByRole("button", { name: "Submit", exact: true }).click()
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as typeof window & { interactionAbortResult?: unknown }).interactionAbortResult),
+    )
+    .toMatchObject({ status: 200, body: { ok: true } })
+  await expect.poll(snapshot).toMatchObject({
+    runtime: {
+      extensionUi: {
+        statuses: expect.arrayContaining([{ _tag: "Text", key: "e2e-interaction-abort", text: "undefined:done" }]),
+      },
+    },
+  })
+
+  await page.evaluate((id) => {
+    const state = window as typeof window & { interactionCloseResult?: unknown }
+    void fetch(`/api/sessions/${id}/actions/slash-command`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "interaction-close-test", args: "" }),
+    })
+      .then(async (response) => ({ status: response.status, body: await response.json() }))
+      .then((result) => {
+        state.interactionCloseResult = result
+      })
+  }, sessionId)
+  await expect(page.getByText("Close active interaction", { exact: true })).toBeVisible()
+
   const removed = await mutate(page, `/api/sessions/${sessionId}`, {}, "DELETE")
   expect(removed.status).toBe(200)
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as typeof window & { interactionCloseResult?: unknown }).interactionCloseResult),
+    )
+    .toMatchObject({ status: 200, body: { ok: true } })
 })
 
 test("materializes a new session before exposing the conversation UI", async ({ page }) => {

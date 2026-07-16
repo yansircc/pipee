@@ -826,14 +826,21 @@ const makeRuntime = (
       statuses: [],
       widgets: [],
     })
-    let pendingUi: {
+    type UiResponse = {
+      readonly value?: string
+      readonly confirmed?: boolean
+      readonly cancelled?: true
+    }
+    type UiDialogOptions = {
+      readonly signal?: AbortSignal
+      readonly timeout?: number
+    }
+    type PendingUi = {
       readonly interaction: ExtensionInteractionValue
-      readonly deferred: Deferred.Deferred<{
-        readonly value?: string
-        readonly confirmed?: boolean
-        readonly cancelled?: true
-      }>
-    } | null = null
+      readonly deferred: Deferred.Deferred<UiResponse>
+    }
+    let pendingUi: PendingUi | null = null
+    const pendingUiRequests = new Map<string, PendingUi>()
     const interactionLock = yield* Semaphore.make(1)
     const promptRequestLock = yield* Semaphore.make(1)
     const promptRequests = new Map<
@@ -844,7 +851,8 @@ const makeRuntime = (
         readonly deferred: Deferred.Deferred<PromptAndWaitResult, PiAdapterError | PiPromptIdempotencyError>
       }
     >()
-    const runFork = yield* FiberSet.makeRuntime()
+    const uiFibers = yield* FiberSet.make()
+    const runFork = yield* FiberSet.runtime(uiFibers)()
     const runPromise = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
       new Promise((resolve, reject) => {
         runFork(effect).addObserver(
@@ -893,6 +901,36 @@ const makeRuntime = (
         ),
       )
 
+    const cancelledUiResponse = (): UiResponse => ({ cancelled: true })
+    const awaitAbort = (signal: AbortSignal): Effect.Effect<void> =>
+      Effect.callback<void>((resume) => {
+        if (signal.aborted) {
+          resume(Effect.void)
+          return
+        }
+        const onAbort = () => resume(Effect.void)
+        signal.addEventListener("abort", onAbort, { once: true })
+        return Effect.sync(() => signal.removeEventListener("abort", onAbort))
+      })
+
+    const awaitUiResponse = (
+      deferred: Deferred.Deferred<UiResponse>,
+      options: UiDialogOptions | undefined,
+      includeTimeout: boolean,
+    ): Effect.Effect<UiResponse> => {
+      let cancellation: Effect.Effect<UiResponse> | null =
+        options?.signal === undefined ? null : awaitAbort(options.signal).pipe(Effect.as(cancelledUiResponse()))
+      if (includeTimeout && options?.timeout !== undefined && Number.isFinite(options.timeout)) {
+        const timeout = Effect.sleep(Math.max(0, options.timeout)).pipe(Effect.as(cancelledUiResponse()))
+        cancellation = cancellation === null ? timeout : Effect.raceFirst(cancellation, timeout)
+      }
+      if (cancellation === null) return Deferred.await(deferred)
+      return Effect.raceFirst(Deferred.await(deferred), cancellation).pipe(
+        Effect.flatMap((response) => Deferred.succeed(deferred, response)),
+        Effect.andThen(Deferred.await(deferred)),
+      )
+    }
+
     type InteractionInput = ExtensionInteractionValue extends infer Interaction
       ? Interaction extends { readonly interactionId: string }
         ? Omit<Interaction, "interactionId">
@@ -901,23 +939,27 @@ const makeRuntime = (
 
     const requestUi = <A>(
       request: InteractionInput,
-      select: (response: { readonly value?: string; readonly confirmed?: boolean; readonly cancelled?: true }) => A,
+      select: (response: UiResponse) => A,
+      options?: UiDialogOptions,
     ): Promise<A> =>
       runPromise(
-        interactionLock.withPermits(1)(
-          Effect.gen(function* () {
-            const interactionId = yield* crypto.randomUUIDv4
-            const interaction = { interactionId, ...request } as ExtensionInteractionValue
-            const deferred = yield* Deferred.make<{
-              readonly value?: string
-              readonly confirmed?: boolean
-              readonly cancelled?: true
-            }>()
+        Effect.gen(function* () {
+          const interactionId = yield* crypto.randomUUIDv4
+          const interaction = { interactionId, ...request } as ExtensionInteractionValue
+          const deferred = yield* Deferred.make<UiResponse>()
+          const queued = { interaction, deferred }
+          pendingUiRequests.set(interactionId, queued)
+          return yield* Effect.gen(function* () {
+            const acquired = yield* Effect.raceFirst(
+              interactionLock.take(1).pipe(Effect.as(true)),
+              awaitUiResponse(deferred, options, false).pipe(Effect.as(false)),
+            )
+            if (!acquired) return select(yield* Deferred.await(deferred))
             yield* Effect.sync(() => {
-              pendingUi = { interaction, deferred }
+              pendingUi = queued
               commitExtensionUi((current) => ({ ...current, pendingInteraction: interaction }))
             })
-            const response = yield* Deferred.await(deferred).pipe(
+            const response = yield* awaitUiResponse(deferred, options, true).pipe(
               Effect.ensuring(
                 Effect.sync(() => {
                   if (pendingUi?.interaction.interactionId !== interactionId) return
@@ -925,21 +967,29 @@ const makeRuntime = (
                   commitExtensionUi((current) => ({ ...current, pendingInteraction: null }))
                 }),
               ),
+              Effect.ensuring(interactionLock.release(1)),
             )
             return select(response)
-          }),
-        ),
+          }).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                pendingUiRequests.delete(interactionId)
+              }),
+            ),
+          )
+        }),
       )
 
     const uiContext = {
-      select: (title: string, options: ReadonlyArray<string>) =>
-        requestUi({ method: "select", title, options: [...options] }, (response) => response.value),
-      confirm: (title: string, message: string) =>
-        requestUi({ method: "confirm", title, message }, (response) => response.confirmed === true),
-      input: (title: string, placeholder?: string) =>
+      select: (title: string, options: ReadonlyArray<string>, dialogOptions?: UiDialogOptions) =>
+        requestUi({ method: "select", title, options: [...options] }, (response) => response.value, dialogOptions),
+      confirm: (title: string, message: string, dialogOptions?: UiDialogOptions) =>
+        requestUi({ method: "confirm", title, message }, (response) => response.confirmed === true, dialogOptions),
+      input: (title: string, placeholder?: string, dialogOptions?: UiDialogOptions) =>
         requestUi(
           { method: "input", title, ...(placeholder === undefined ? {} : { placeholder }) },
           (response) => response.value,
+          dialogOptions,
         ),
       editor: (title: string, prefill?: string) =>
         requestUi(
@@ -1597,12 +1647,17 @@ const makeRuntime = (
       }),
       dispose: Effect.gen(function* () {
         unsubscribe()
-        const current = pendingUi
-        if (current !== null) {
+        const requests = [...pendingUiRequests.values()]
+        pendingUiRequests.clear()
+        if (pendingUi !== null) {
           pendingUi = null
           commitExtensionUi((projection) => ({ ...projection, pendingInteraction: null }))
-          yield* Deferred.succeed(current.deferred, { cancelled: true })
         }
+        yield* Effect.forEach(requests, ({ deferred }) => Deferred.succeed(deferred, cancelledUiResponse()), {
+          discard: true,
+        })
+        yield* FiberSet.awaitEmpty(uiFibers)
+        yield* Effect.yieldNow
         yield* PubSub.shutdown(events)
         yield* Effect.tryPromise({ try: () => runtime.dispose(), catch: () => undefined }).pipe(Effect.ignore)
       }),
