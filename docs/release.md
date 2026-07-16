@@ -26,7 +26,7 @@ Do not change package versions, create release tags, publish archives, or add np
 
 The first Linux build is the only writer of candidate bytes. The workflow stores `candidate.json` and all four archives as one release asset named by the source SHA before calling `npm publish`. Any same-source rerun first restores a prior attempt artifact, even when the release record does not exist yet; after the tag exists it prefers the durable release asset. It fails closed if stored bytes differ and never rebuilds or repacks a witnessed candidate. The prior attempt artifact also closes the failure window between pushing the tag and creating its release asset. Per-attempt Actions artifacts otherwise only transport the durable candidate between jobs.
 
-Main releases use GitHub Actions' maximal concurrency queue and are isolated from pull-request groups. This preserves every eligible main source in order (up to GitHub's documented queue limit) instead of allowing a newer pending run or a pull request to replace it.
+Main releases use GitHub Actions' maximal concurrency queue and are isolated from pull-request groups, so pending runs are not silently replaced. The release commit is still an atomic child of its source and must advance `main` directly. Therefore, do not push another main source until the preceding release finishes. Preparation rejects a source that is no longer `origin/main` before building any candidate. If accepting overlapping main pushes while publishing every source becomes a requirement, replace this boundary with a serialized release-ledger worker; retries against a moving branch are not valid.
 
 Local source and candidate gates:
 
