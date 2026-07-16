@@ -15,6 +15,8 @@ it("owns one Linux candidate and same-artifact macOS/Windows witnesses", () => {
   assert.match(workflow, /suite-candidates-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}/)
   assert.match(workflow, /artifact: \$\{\{ steps\.artifact\.outputs\.name \}\}/)
   assert.match(workflow, /name: \$\{\{ needs\.candidate\.outputs\.artifact \}\}/)
+  assert.match(workflow, /group: \$\{\{ github\.event_name == 'push'[\s\S]*pi-suite-release-pr-/)
+  assert.match(workflow, /queue: max/)
 })
 
 it("restores an existing source and persists its exact candidate before npm publication", () => {
@@ -22,7 +24,7 @@ it("restores an existing source and persists its exact candidate before npm publ
   const publish = workflow.match(/\n  publish:[\s\S]*?\n  public-acceptance:/)?.[0] ?? ""
   const existing = materialize.match(/else\n[\s\S]*?candidate-store\.mjs restore/)?.[0] ?? ""
   assert.match(existing, /gh release download/)
-  assert.match(existing, /gh run download/)
+  assert.match(materialize, /gh run download/)
   assert.doesNotMatch(existing, /build-candidates|\bpack\b/)
   assert.match(publish, /Persist the exact candidate before publication[\s\S]*gh release upload/)
   assert.ok(
@@ -32,6 +34,15 @@ it("restores an existing source and persists its exact candidate before npm publ
   )
   assert.doesNotMatch(workflow, /--existing-release/)
   assert.doesNotMatch(workflow, /overwrite:\s*true|--clobber/)
+})
+
+it("reuses a prior attempt candidate even before a release record exists", () => {
+  const materialize = workflow.match(/name: Materialize the one candidate[\s\S]*?\n      - run: pnpm verify:candidates/)?.[0] ?? ""
+  assert.match(materialize, /actions\/runs\/\$GITHUB_RUN_ID\/artifacts/)
+  assert.match(materialize, /elif \[ -n "\$prior_artifact" \]; then\s+restore_prior_attempt/)
+  const restoreIndex = materialize.indexOf('elif [ -n "$prior_artifact" ]')
+  const buildIndex = materialize.indexOf('build-candidates.mjs --prepared-source')
+  assert.ok(restoreIndex >= 0 && restoreIndex < buildIndex, "full rerun must restore before considering a rebuild")
 })
 
 it("keeps OIDC publish and public propagation in separate jobs", () => {

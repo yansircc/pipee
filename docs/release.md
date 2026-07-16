@@ -24,7 +24,9 @@ Environment:  none
 
 Do not change package versions, create release tags, publish archives, or add npm credentials manually. The workflow owns versions and publication. An ordinary source commit requests `patch`; exactly one `Release-Bump: minor` or `Release-Bump: major` trailer overrides it.
 
-The first Linux build is the only writer of candidate bytes. The workflow stores `candidate.json` and all four archives as one release asset named by the source SHA before calling `npm publish`. A same-source rerun restores that asset and fails closed if it is different; it never rebuilds or repacks an existing release. The only missing-asset recovery is the prior attempt's immutable Actions artifact in the same workflow run, which closes the failure window between pushing the tag and creating its release asset. Per-attempt Actions artifacts otherwise only transport the durable candidate between jobs.
+The first Linux build is the only writer of candidate bytes. The workflow stores `candidate.json` and all four archives as one release asset named by the source SHA before calling `npm publish`. Any same-source rerun first restores a prior attempt artifact, even when the release record does not exist yet; after the tag exists it prefers the durable release asset. It fails closed if stored bytes differ and never rebuilds or repacks a witnessed candidate. The prior attempt artifact also closes the failure window between pushing the tag and creating its release asset. Per-attempt Actions artifacts otherwise only transport the durable candidate between jobs.
+
+Main releases use GitHub Actions' maximal concurrency queue and are isolated from pull-request groups. This preserves every eligible main source in order (up to GitHub's documented queue limit) instead of allowing a newer pending run or a pull request to replace it.
 
 Local source and candidate gates:
 
