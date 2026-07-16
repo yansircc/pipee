@@ -26,13 +26,8 @@ import {
   SessionScopedEvent,
   type RuntimeEnvelope as RuntimeEnvelopeValue,
 } from "@/api/contract"
-import {
-  PiAgentAdapter,
-  type PiRuntime,
-  type PiRuntimeCreateOptions,
-  PiOperationBusyError,
-  PiPromptIdempotencyError,
-} from "./pi-agent-adapter"
+import { PiAgentAdapter, type PiRuntime, type PiRuntimeCreateOptions, PiOperationBusyError } from "./pi-agent-adapter"
+import { PiPromptIdempotencyError } from "./pi-adapter-errors"
 import type { PromptInput } from "./prompt-request"
 
 export class RuntimeRegistryError extends Data.TaggedError("RuntimeRegistryError")<{

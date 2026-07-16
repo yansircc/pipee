@@ -1,6 +1,7 @@
 import { expect, test } from "vite-plus/test"
 import { RunId, SessionEntry } from "@/api/contract"
-import { matchExtensionInteractionResponse, normalizePiMessage, normalizePiTree } from "./pi-agent-adapter"
+import { matchExtensionInteractionResponse } from "./extension-ui-runtime"
+import { normalizePiMessage, normalizePiTree } from "./pi-agent-adapter"
 import { canonicalPromptInput, decidePromptRequest, projectPromptRequestReceipts } from "./prompt-request"
 
 test("normalizes Pi flat images and tool calls into the canonical API shape", () => {
