@@ -120,3 +120,4 @@ declare var __piChromeGrantActionVerbs: undefined | PiChromeGrantActionVerbs;
 declare var __piChromeMarkContextRef: undefined | PiChromeMarkContextRef;
 declare var __piChromeRegisterFrontier: undefined | PiChromeRegisterFrontier;
 declare const __PI_CHROME_BRIDGE_URL__: string;
+declare const __PI_CHROME_PROTOCOL_FINGERPRINT__: string;

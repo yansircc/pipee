@@ -202,6 +202,7 @@ describe("Chrome status projection", () => {
       satisfied: false,
       expectedVersion: "0.1.5",
       actualVersion: "0.16.0",
+      mismatches: ["ProtocolFingerprint"],
       remediation: {
         type: "ReloadUnpackedExtension",
         extensionId: "abcdefghijklmnopabcdefghijklmnop",

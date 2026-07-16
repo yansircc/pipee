@@ -1,5 +1,85 @@
 import { Schema } from "effect"
 
+export const ChromeExtensionExpectation = Schema.Struct({
+  extensionId: Schema.NonEmptyString,
+  displayVersion: Schema.NonEmptyString,
+  protocolFingerprint: Schema.NonEmptyString,
+})
+export type ChromeExtensionExpectation = typeof ChromeExtensionExpectation.Type
+
+export const ChromeExtensionEvidence = Schema.Struct({
+  ...ChromeExtensionExpectation.fields,
+  connectorIdentity: Schema.Struct({
+    connectorId: Schema.NonEmptyString,
+    connectorLabel: Schema.NonEmptyString,
+  }),
+})
+export type ChromeExtensionEvidence = typeof ChromeExtensionEvidence.Type
+
+export const ChromeExternalRequest = Schema.Union([
+  Schema.Struct({ version: Schema.Literal(1), type: Schema.Literal("pi-chrome/web-run/status") }),
+  Schema.Struct({ version: Schema.Literal(1), type: Schema.Literal("pi-chrome/web-run/prepare") }),
+  Schema.Struct({
+    version: Schema.Literal(1),
+    type: Schema.Literal("pi-chrome/web-run/complete"),
+    pairingId: Schema.NonEmptyString,
+  }),
+])
+export type ChromeExternalRequest = typeof ChromeExternalRequest.Type
+
+export const ChromeExternalSuccess = Schema.Union([
+  Schema.Struct({ version: Schema.Literal(1), ok: Schema.Literal(true), type: Schema.Literal("Status"), evidence: ChromeExtensionEvidence }),
+  Schema.Struct({
+    version: Schema.Literal(1),
+    ok: Schema.Literal(true),
+    type: Schema.Literal("Prepared"),
+    evidence: ChromeExtensionEvidence,
+    pairingId: Schema.NonEmptyString,
+    offer: Schema.NonEmptyString,
+  }),
+  Schema.Struct({ version: Schema.Literal(1), ok: Schema.Literal(true), type: Schema.Literal("Completed"), evidence: ChromeExtensionEvidence }),
+])
+
+export const ChromeExternalError = Schema.Struct({
+  version: Schema.Literal(1),
+  ok: Schema.Literal(false),
+  error: Schema.Struct({ code: Schema.NonEmptyString, message: Schema.NonEmptyString }),
+})
+
+export const ChromeExternalResponse = Schema.Union([ChromeExternalSuccess, ChromeExternalError])
+export type ChromeExternalResponse = typeof ChromeExternalResponse.Type
+
+export const ChromeCompatibilityMismatch = Schema.Literals([
+  "ExtensionId",
+  "DisplayVersion",
+  "ProtocolFingerprint",
+])
+
+export const ChromeCompatibility = Schema.Union([
+  Schema.TaggedStruct("Unknown", {}),
+  Schema.TaggedStruct("Verified", { evidence: ChromeExtensionEvidence }),
+  Schema.TaggedStruct("Incompatible", {
+    expected: ChromeExtensionExpectation,
+    actual: ChromeExtensionEvidence,
+    mismatches: Schema.Array(ChromeCompatibilityMismatch),
+  }),
+])
+export type ChromeCompatibility = typeof ChromeCompatibility.Type
+
+export const classifyChromeCompatibility = (
+  expected: ChromeExtensionExpectation | null,
+  actual: ChromeExtensionEvidence | null,
+): ChromeCompatibility => {
+  if (expected === null || actual === null) return { _tag: "Unknown" }
+  const mismatches: Array<typeof ChromeCompatibilityMismatch.Type> = []
+  if (expected.extensionId !== actual.extensionId) mismatches.push("ExtensionId")
+  if (expected.displayVersion !== actual.displayVersion) mismatches.push("DisplayVersion")
+  if (expected.protocolFingerprint !== actual.protocolFingerprint) mismatches.push("ProtocolFingerprint")
+  return mismatches.length === 0
+    ? { _tag: "Verified", evidence: actual }
+    : { _tag: "Incompatible", expected, actual, mismatches }
+}
+
 export const ChromeProtocolRequirement = Schema.Union([
   Schema.Struct({ requirement: Schema.Literal("ProtocolCompatible"), satisfied: Schema.Literal(true) }),
   Schema.Struct({
@@ -7,6 +87,7 @@ export const ChromeProtocolRequirement = Schema.Union([
     satisfied: Schema.Literal(false),
     expectedVersion: Schema.String,
     actualVersion: Schema.String,
+    mismatches: Schema.optionalKey(Schema.Array(ChromeCompatibilityMismatch)),
     remediation: Schema.Struct({
       type: Schema.Literal("ReloadUnpackedExtension"),
       extensionId: Schema.String,

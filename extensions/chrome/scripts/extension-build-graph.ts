@@ -1,16 +1,17 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join, posix, sep } from "node:path";
+import { Schema } from "effect";
+import { ChromeExtensionExpectation } from "@pi-suite/companion-contracts/chrome";
 import {
   SNAPSHOT_BUNDLE_PATH,
   TARGET_BOOTSTRAP_DOCUMENT_PATH,
 } from "../src/browser/extension-runtime-assets.ts";
 import { extensionPackageIdFromPublicKey } from "../src/pi/extension-package.ts";
 
-export type ExtensionArtifact = {
-  readonly kind: "bundle" | "static";
-  readonly source: string;
-  readonly output: string;
-};
+export type ExtensionArtifact =
+  | { readonly kind: "bundle"; readonly source: string; readonly output: string }
+  | { readonly kind: "static"; readonly source: string; readonly output: string }
+  | { readonly kind: "generated"; readonly output: string };
 
 export type ExtensionBuildGraph = {
   readonly minimumChromeVersion: number;
@@ -65,6 +66,10 @@ export const EXTENSION_BUILD_GRAPH = {
       source: "src/browser/target-bootstrap.html",
       output: TARGET_BOOTSTRAP_DOCUMENT_PATH,
     },
+    evidence: {
+      kind: "generated",
+      output: "evidence.json",
+    },
   },
   htmlReferences: {
     popup: {
@@ -77,6 +82,7 @@ export const EXTENSION_BUILD_GRAPH = {
 export type BuildManifestInputs = {
   readonly version: string;
   readonly publicKey: string;
+  readonly protocolFingerprint: string;
 };
 
 export const validateChromeExtensionVersion = (version: string): void => {
@@ -111,10 +117,16 @@ export const artifactEntries = (graph: ExtensionBuildGraph = EXTENSION_BUILD_GRA
   Object.entries(graph.artifacts);
 
 export const bundleEntries = (graph: ExtensionBuildGraph = EXTENSION_BUILD_GRAPH) =>
-  artifactEntries(graph).filter((entry) => entry[1].kind === "bundle");
+  artifactEntries(graph).filter(
+    (entry): entry is [string, Extract<ExtensionArtifact, { readonly kind: "bundle" }>] =>
+      entry[1].kind === "bundle",
+  );
 
 export const staticEntries = (graph: ExtensionBuildGraph = EXTENSION_BUILD_GRAPH) =>
-  artifactEntries(graph).filter((entry) => entry[1].kind === "static");
+  artifactEntries(graph).filter(
+    (entry): entry is [string, Extract<ExtensionArtifact, { readonly kind: "static" }>] =>
+      entry[1].kind === "static",
+  );
 
 export const htmlDocumentIds = (graph: ExtensionBuildGraph = EXTENSION_BUILD_GRAPH) =>
   new Set(Object.values(graph.htmlReferences).map((reference) => reference.document));
@@ -404,12 +416,32 @@ export const validateExtensionDirectory = async (
   if (actualExtensionId !== expectedExtensionId) {
     throw new Error("Built extension manifest key derives an unexpected Chrome extension id");
   }
+  const evidenceArtifact = graph.artifacts.evidence;
+  if (evidenceArtifact?.kind !== "generated") {
+    throw new Error("Extension evidence must be a generated build artifact");
+  }
+  const evidence = Schema.decodeUnknownSync(ChromeExtensionExpectation, {
+    onExcessProperty: "error",
+  })(JSON.parse(await readFile(join(directory, evidenceArtifact.output), "utf8")));
+  if (
+    evidence.extensionId !== expectedExtensionId ||
+    evidence.displayVersion !== inputs.version ||
+    evidence.protocolFingerprint !== inputs.protocolFingerprint
+  ) {
+    throw new Error("Built extension evidence diverges from the candidate inputs");
+  }
   const serviceWorker = graph.artifacts[String(graph.manifest.serviceWorker)];
   const defaultPopup = graph.artifacts[String(graph.manifest.defaultPopup)];
   const background = asObject(manifest.background, "Built extension manifest background");
   const action = asObject(manifest.action, "Built extension manifest action");
   if (background.service_worker !== serviceWorker?.output) {
     throw new Error("Built extension manifest service_worker diverges from the build graph");
+  }
+  if (serviceWorker?.kind !== "bundle")
+    throw new Error("Extension service worker bundle is missing");
+  const serviceWorkerSource = await readFile(join(directory, serviceWorker.output), "utf8");
+  if (!serviceWorkerSource.includes(inputs.protocolFingerprint)) {
+    throw new Error("Built service worker does not contain the candidate protocol fingerprint");
   }
   if (action.default_popup !== defaultPopup?.output) {
     throw new Error("Built extension manifest default_popup diverges from the build graph");

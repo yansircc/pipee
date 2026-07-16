@@ -78,6 +78,7 @@ export const projectChromeStatus = (
             satisfied: false,
             expectedVersion: status.protocolCompatibility.expectedExtensionDisplayVersion,
             actualVersion: status.protocolCompatibility.actualExtensionDisplayVersion,
+            mismatches: ["ProtocolFingerprint"],
             remediation: {
               type: "ReloadUnpackedExtension",
               extensionId: status.protocolCompatibility.extensionId,

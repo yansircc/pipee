@@ -36,6 +36,7 @@ test("folds local and extension-owned Chrome requirements in capability order", 
     extensionReachable: true,
     extensionId: "abcdefghijklmnopabcdefghijklmnop",
     extensionDirectory: "/npm/pi-chrome/dist/browser-extension",
+    compatibility: { _tag: "Unknown" },
     status,
   } as const
   expect(projectChromeRequirements(facts).map((requirement) => requirement.requirement)).toEqual([
@@ -59,6 +60,7 @@ test("never lets a remote requirement outrank a missing local package", () => {
       extensionReachable: false,
       extensionId: null,
       extensionDirectory: null,
+      compatibility: { _tag: "Unknown" },
       status,
     }),
   ).toMatchObject({ requirement: "PackageLoaded", remediation: { type: "InstallPiPackage" } })

@@ -1,4 +1,5 @@
 import type { ChromeStatusProjection, ChromeStatusRequirement } from "@/api/contract"
+import type { ChromeCompatibility } from "@pi-suite/companion-contracts/chrome"
 import { PI_COMPANION_PACKAGE_NAMES } from "./plugin-package-settings"
 
 export type ChromeLocalRequirement =
@@ -28,6 +29,7 @@ export interface ChromeRequirementFacts {
   readonly extensionReachable: boolean | null
   readonly extensionId: string | null
   readonly extensionDirectory: string | null
+  readonly compatibility: ChromeCompatibility
   readonly status: ChromeStatusProjection | undefined
 }
 
@@ -35,6 +37,22 @@ const remoteRequirementOrder = ["ProtocolCompatible", "ConnectorLive", "Authoriz
 
 export const projectChromeRequirements = (facts: ChromeRequirementFacts): ReadonlyArray<ChromeRequirement> => {
   const remote = new Map(facts.status?.requirements.map((requirement) => [requirement.requirement, requirement]))
+  if (facts.compatibility._tag === "Verified") {
+    remote.set("ProtocolCompatible", { requirement: "ProtocolCompatible", satisfied: true })
+  } else if (facts.compatibility._tag === "Incompatible") {
+    remote.set("ProtocolCompatible", {
+      requirement: "ProtocolCompatible",
+      satisfied: false,
+      expectedVersion: facts.compatibility.expected.displayVersion,
+      actualVersion: facts.compatibility.actual.displayVersion,
+      mismatches: facts.compatibility.mismatches,
+      remediation: {
+        type: "ReloadUnpackedExtension",
+        extensionId: facts.compatibility.expected.extensionId,
+        directory: facts.extensionDirectory ?? "the installed pi-chrome browser-extension directory",
+      },
+    })
+  }
   const extensionUrl = facts.extensionId ? `chrome://extensions/?id=${facts.extensionId}` : "chrome://extensions/"
   return [
     {
@@ -76,7 +94,7 @@ export const chromeRequirementMessage = (requirement: ChromeRequirement): string
     case "ProtocolCompatible":
       return requirement.satisfied
         ? "Chrome extension protocol is compatible"
-        : `Chrome extension and Pi package are incompatible. Package ${requirement.expectedVersion}, Extension ${requirement.actualVersion}. Reload ${requirement.remediation.directory}`
+        : `Chrome extension and Pi package are incompatible (${requirement.mismatches?.join(", ") ?? "version"}). Package ${requirement.expectedVersion}, Extension ${requirement.actualVersion}. Reload ${requirement.remediation.directory}`
     case "ConnectorLive":
       return requirement.satisfied
         ? "Chrome connector is live"

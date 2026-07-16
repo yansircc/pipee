@@ -449,15 +449,27 @@ export const QueuedMessages = Schema.Struct({
   steering: Schema.Array(Schema.String),
   followUp: Schema.Array(Schema.String),
 })
+export const OperationKind = Schema.Literals([
+  "prompt",
+  "bash",
+  "compaction",
+  "slash-command",
+  "loop-control",
+  "weixin-control",
+  "chrome-control",
+])
+export const OperationSlot = Schema.Union([
+  Schema.TaggedStruct("Idle", {}),
+  Schema.TaggedStruct("Starting", { kind: OperationKind, operationId: Schema.NonEmptyString }),
+  Schema.TaggedStruct("Active", { kind: OperationKind, operationId: Schema.NonEmptyString }),
+])
+export type OperationSlot = typeof OperationSlot.Type
 export const RuntimeSnapshot = Schema.Struct({
   identity: RuntimeIdentity,
   runId: Schema.NullOr(RunId),
   sessionId: Schema.String,
   sessionFile: Schema.String,
-  isStreaming: Schema.Boolean,
-  isPromptRunning: Schema.Boolean,
-  isCompacting: Schema.Boolean,
-  isBashRunning: Schema.Boolean,
+  operation: OperationSlot,
   activeBashExecution: Schema.NullOr(ActiveBashExecution),
   completedBashExecution: Schema.NullOr(CompletedBashExecution),
   autoCompactionEnabled: Schema.Boolean,
@@ -792,6 +804,8 @@ export const PluginPackageInfo = Schema.Struct({
   version: Schema.optionalKey(Schema.String),
   chromeExtensionId: Schema.optionalKey(Schema.String),
   chromeExtensionDirectory: Schema.optionalKey(Schema.String),
+  chromeExtensionDisplayVersion: Schema.optionalKey(Schema.String),
+  chromeProtocolFingerprint: Schema.optionalKey(Schema.String),
   configuredVersion: Schema.optionalKey(Schema.String),
   counts: PluginResourceCounts,
   resources: Schema.Array(PluginResourceInfo),

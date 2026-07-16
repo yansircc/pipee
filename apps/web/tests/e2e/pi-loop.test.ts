@@ -43,9 +43,11 @@ test("controls the real pi-loop extension through structured status", async ({ p
           ],
         }),
       }),
-      expect.objectContaining({ key: "pi-loop/runtime-lease" }),
     ]),
   })
+  expect((await projection()).statuses.some((item: { key?: string }) => item.key === "pi-loop/runtime-lease")).toBe(
+    false,
+  )
 
   const current = await projection()
   const loops = current.statuses.find(
@@ -56,9 +58,5 @@ test("controls the real pi-loop extension through structured status", async ({ p
   expect(firstDelete.status).toBe(200)
   const secondDelete = await command({ _tag: "Delete", id: loops[1].id })
   expect(secondDelete.status).toBe(200)
-  await expect
-    .poll(async () =>
-      (await projection()).statuses.some((item: { key?: string }) => item.key === "pi-loop/runtime-lease"),
-    )
-    .toBe(false)
+  await expect.poll(async () => (await projection()).statuses.length).toBe(0)
 })

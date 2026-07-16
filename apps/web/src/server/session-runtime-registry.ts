@@ -23,7 +23,6 @@ import {
   RuntimeId,
   RegistryId,
   RunningSessionsEvent,
-  RuntimeSnapshot,
   SessionScopedEvent,
   type RuntimeEnvelope as RuntimeEnvelopeValue,
 } from "@/api/contract"
@@ -31,11 +30,10 @@ import {
   PiAgentAdapter,
   type PiRuntime,
   type PiRuntimeCreateOptions,
-  PiPromptBusyError,
+  PiOperationBusyError,
   PiPromptIdempotencyError,
 } from "./pi-agent-adapter"
 import type { PromptInput } from "./prompt-request"
-import { hasRuntimeLease } from "@/lib/runtime-lease"
 
 export class RuntimeRegistryError extends Data.TaggedError("RuntimeRegistryError")<{
   readonly operation: string
@@ -212,12 +210,8 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
         ).pipe(
           Effect.flatMap((expired) =>
             expired
-              ? handle.runtime.snapshot.pipe(
-                  Effect.matchEffect({
-                    onFailure: () => closeHandle(handle),
-                    onSuccess: (snapshot) =>
-                      hasRuntimeLease(snapshot.extensionUi.statuses) ? idleLoop(handle) : closeHandle(handle),
-                  }),
+              ? handle.runtime.hasRetention.pipe(
+                  Effect.flatMap((retained) => (retained ? idleLoop(handle) : closeHandle(handle))),
                 )
               : idleLoop(handle),
           ),
@@ -362,16 +356,13 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
       Effect.mapError((cause) => new RuntimeRegistryError({ operation: "runtime.runId", message: String(cause) })),
     )
 
-    const isBusy = (snapshot: typeof RuntimeSnapshot.Type) =>
-      snapshot.isStreaming || snapshot.isPromptRunning || snapshot.isCompacting || snapshot.isBashRunning
-
-    const promptError = (cause: { readonly message: string }) =>
+    const operationError = (operation: string) => (cause: { readonly message: string }) =>
       cause instanceof PiPromptIdempotencyError
         ? cause
         : new RuntimeRegistryError({
-            operation: "runtime.promptRequest",
+            operation,
             message: cause.message,
-            ...(cause instanceof PiPromptBusyError ? { conflictOperation: "prompt" } : {}),
+            ...(cause instanceof PiOperationBusyError ? { conflictOperation: cause.kind } : {}),
           })
 
     const promptRequest = (sessionId: string, requestId: string, input: PromptInput) =>
@@ -379,8 +370,10 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
         const handle = yield* active(sessionId)
         const runId = yield* nextRunId
         Queue.offerUnsafe(handle.activity, undefined)
-        const request = yield* handle.runtime.promptRequest(runId, requestId, input).pipe(Effect.mapError(promptError))
-        const completion = request.completion.pipe(Effect.mapError(promptError))
+        const request = yield* handle.runtime
+          .promptRequest(runId, requestId, input)
+          .pipe(Effect.mapError(operationError("runtime.promptRequest")))
+        const completion = request.completion.pipe(Effect.mapError(operationError("runtime.promptRequest")))
         yield* completion.pipe(Effect.ensuring(changed), Effect.ignore, Effect.forkIn(handle.scope))
         return {
           runId: request.runId,
@@ -391,21 +384,10 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
     const compact = (sessionId: string, instructions?: string) =>
       Effect.gen(function* () {
         const handle = yield* active(sessionId)
-        const snapshot = yield* handle.runtime.snapshot.pipe(
-          Effect.mapError(
-            (cause) => new RuntimeRegistryError({ operation: "runtime.snapshot", message: cause.message }),
-          ),
-        )
-        if (isBusy(snapshot)) {
-          return yield* new RuntimeRegistryError({
-            operation: "runtime.compact",
-            message: "Session already has an active operation",
-            conflictOperation: "compact",
-          })
-        }
         const runId = yield* nextRunId
         Queue.offerUnsafe(handle.activity, undefined)
         yield* handle.runtime.compact(runId, instructions).pipe(
+          Effect.mapError(operationError("runtime.compact")),
           Effect.tapError(() =>
             Effect.sync(() => {
               handle.runtime.publishRunEvent(
@@ -428,21 +410,10 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
     const bash = (sessionId: string, id: string, command: string, excludeFromContext: boolean) =>
       Effect.gen(function* () {
         const handle = yield* active(sessionId)
-        const snapshot = yield* handle.runtime.snapshot.pipe(
-          Effect.mapError(
-            (cause) => new RuntimeRegistryError({ operation: "runtime.snapshot", message: cause.message }),
-          ),
-        )
-        if (isBusy(snapshot)) {
-          return yield* new RuntimeRegistryError({
-            operation: "runtime.bash",
-            message: "Session already has an active operation",
-            conflictOperation: "bash",
-          })
-        }
         const runId = yield* nextRunId
         Queue.offerUnsafe(handle.activity, undefined)
         yield* handle.runtime.executeBash(runId, id, command, excludeFromContext).pipe(
+          Effect.mapError(operationError("runtime.bash")),
           Effect.tapError(() =>
             Effect.sync(() => {
               handle.runtime.publishRunEvent(
@@ -544,13 +515,7 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
         { concurrency: "unbounded" },
       )
       return states.flatMap((state) =>
-        state._tag === "Some" &&
-        (state.value.snapshot.isStreaming ||
-          state.value.snapshot.isPromptRunning ||
-          state.value.snapshot.isCompacting ||
-          state.value.snapshot.isBashRunning)
-          ? [state.value.handle.sessionId]
-          : [],
+        state._tag === "Some" && state.value.snapshot.operation._tag !== "Idle" ? [state.value.handle.sessionId] : [],
       )
     })
 

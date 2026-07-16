@@ -18,7 +18,11 @@ import {
   type LaunchedChrome,
 } from "./smoke/chrome-process.ts";
 import { FakeBridge, type BoundSmokeConnector } from "./smoke/fake-bridge.ts";
-import { EXTENSION_PUBLIC_KEY, extensionIdFromManifestKey } from "./smoke/protocol-fixture.ts";
+import {
+  BRIDGE_PORT,
+  EXTENSION_PUBLIC_KEY,
+  extensionIdFromManifestKey,
+} from "./smoke/protocol-fixture.ts";
 import { pageCommands, VERSION_COMMAND } from "./smoke/scenario-fixture.ts";
 import { REPOSITORY_ROOT, SmokeFailure, SmokeSkip } from "./smoke/support.ts";
 
@@ -34,8 +38,8 @@ const asObject = (value: unknown, label: string): JsonObject => {
 const readJson = async (path: string): Promise<unknown> =>
   JSON.parse(await readFile(path, "utf8")) as unknown;
 
-const readPackageVersion = async (): Promise<string> => {
-  const manifest = asObject(await readJson(join(REPOSITORY_ROOT, "package.json")), "package.json");
+const readPackageVersion = async (packageRoot = REPOSITORY_ROOT): Promise<string> => {
+  const manifest = asObject(await readJson(join(packageRoot, "package.json")), "package.json");
   if (typeof manifest.version !== "string") throw new SmokeFailure("package version is missing");
   return manifest.version;
 };
@@ -71,20 +75,36 @@ const assertStablePublicIdentity = (
   }
 };
 
-const smokeOptions = (): { readonly requireBrowser: boolean; readonly noSandbox: boolean } => {
-  const arguments_ = new Set(process.argv.slice(2));
-  for (const argument of arguments_) {
-    if (argument !== "--require-browser" && argument !== "--no-sandbox")
+const smokeOptions = (): {
+  readonly requireBrowser: boolean;
+  readonly noSandbox: boolean;
+  readonly candidateExtension?: string;
+} => {
+  const arguments_ = process.argv.slice(2);
+  let candidateExtension: string | undefined;
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const argument = arguments_[index];
+    if (argument === "--candidate-extension") {
+      const value = arguments_[index + 1];
+      if (value === undefined) throw new SmokeFailure("--candidate-extension requires a directory");
+      candidateExtension = resolve(value);
+      index += 1;
+    } else if (argument !== "--require-browser" && argument !== "--no-sandbox") {
       throw new SmokeFailure(`Unknown smoke option: ${argument}`);
+    }
   }
   return {
-    requireBrowser: arguments_.has("--require-browser"),
-    noSandbox: arguments_.has("--no-sandbox"),
+    requireBrowser: arguments_.includes("--require-browser"),
+    noSandbox: arguments_.includes("--no-sandbox"),
+    ...(candidateExtension === undefined ? {} : { candidateExtension }),
   };
 };
 
-const runSmoke = async (): Promise<void> => {
-  const packageVersion = await readPackageVersion();
+const runSmoke = async (options: ReturnType<typeof smokeOptions>): Promise<void> => {
+  const candidatePackageRoot = options.candidateExtension
+    ? resolve(options.candidateExtension, "../..")
+    : REPOSITORY_ROOT;
+  const packageVersion = await readPackageVersion(candidatePackageRoot);
   const expectedExtensionId = extensionIdFromManifestKey(EXTENSION_PUBLIC_KEY);
   const bridge = new FakeBridge(expectedExtensionId, packageVersion);
   let temporaryDirectory: string | undefined;
@@ -92,18 +112,19 @@ const runSmoke = async (): Promise<void> => {
   const failures: Array<unknown> = [];
 
   try {
-    await bridge.listen();
+    await bridge.listen(options.candidateExtension ? BRIDGE_PORT : 0);
     const commands = [VERSION_COMMAND, ...pageCommands(`${bridge.url}/smoke-page`)];
     bridge.setCommands(commands);
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pi-chrome-connector-smoke-"));
-    const extensionDirectory = join(temporaryDirectory, "extension");
+    const extensionDirectory = options.candidateExtension ?? join(temporaryDirectory, "extension");
     const userDataDirectory = join(temporaryDirectory, "chrome-profile");
-    assert.notEqual(
-      resolve(extensionDirectory),
-      resolve(REPOSITORY_ROOT, "dist/browser-extension"),
-    );
-
-    await buildSmokeExtension(bridge.url, extensionDirectory);
+    if (options.candidateExtension === undefined) {
+      assert.notEqual(
+        resolve(extensionDirectory),
+        resolve(REPOSITORY_ROOT, "dist/browser-extension"),
+      );
+      await buildSmokeExtension(bridge.url, extensionDirectory);
+    }
     const manifest = asObject(
       await readJson(join(extensionDirectory, "manifest.json")),
       "built extension manifest",
@@ -123,7 +144,8 @@ const runSmoke = async (): Promise<void> => {
       "alarms",
       "debugger",
     ]);
-    await assertNoProductionOrigin(extensionDirectory);
+    if (options.candidateExtension === undefined)
+      await assertNoProductionOrigin(extensionDirectory);
 
     chrome = await launchChrome(extensionDirectory, userDataDirectory, "about:blank");
     await waitForBrowserEvent(
@@ -341,7 +363,7 @@ const runSmoke = async (): Promise<void> => {
 const options = smokeOptions();
 if (options.noSandbox) process.env.PI_CHROME_SMOKE_NO_SANDBOX = "1";
 try {
-  await runSmoke();
+  await runSmoke(options);
 } catch (error) {
   if (error instanceof SmokeSkip && !options.requireBrowser) {
     console.log(`SKIP connector smoke: ${error.message}`);

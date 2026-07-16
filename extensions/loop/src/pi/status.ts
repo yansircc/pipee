@@ -1,4 +1,3 @@
-import { Schema } from "effect";
 import {
   LoopControlRequest,
   LoopPhaseProjection,
@@ -16,13 +15,6 @@ export {
   LoopScheduleProjection,
   LoopStatusProjection,
 };
-
-export const RuntimeLeaseProjection = Schema.Struct({
-  kind: Schema.Literal("pi/runtime-lease"),
-  version: Schema.Literal(1),
-  owner: Schema.NonEmptyString,
-  reason: Schema.NonEmptyString,
-});
 
 const schedule = (loop: Loop): LoopProjectionType["schedule"] => {
   switch (loop._tag) {

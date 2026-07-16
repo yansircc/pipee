@@ -224,22 +224,26 @@ export class FakeBridge {
     return this.scenario.results;
   }
 
-  async listen(): Promise<void> {
+  async listen(port = 0): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const onError = (error: Error) => reject(error);
       this.server.once("error", onError);
-      this.server.listen(0, BRIDGE_HOST, () => {
+      this.server.listen(port, BRIDGE_HOST, () => {
         this.server.off("error", onError);
         resolve();
       });
     });
     const address = this.server.address();
     assert(address && typeof address === "object", "Fake bridge did not expose a TCP address");
-    assert.notEqual(
-      address.port,
-      BRIDGE_PORT,
-      `Ephemeral bridge selected production port ${BRIDGE_PORT}`,
-    );
+    if (port === 0) {
+      assert.notEqual(
+        address.port,
+        BRIDGE_PORT,
+        `Ephemeral bridge selected production port ${BRIDGE_PORT}`,
+      );
+    } else {
+      assert.equal(address.port, port, "Fake bridge did not bind the requested candidate port");
+    }
     this.port = address.port;
     this.url = `http://${BRIDGE_HOST}:${address.port}`;
   }

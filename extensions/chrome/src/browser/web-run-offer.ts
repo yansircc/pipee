@@ -14,6 +14,12 @@ import { pairingRequest, requireConnectorSuccess } from "./connector-http.js";
 
 const WEB_RUN_OFFERS_STORAGE_KEY = "piChromeWebRunOffers";
 
+const StoredWebRunOffer = Schema.Struct({
+  offer: WebRunOfferSchema,
+  webOrigin: Schema.NonEmptyString,
+});
+type StoredWebRunOffer = typeof StoredWebRunOffer.Type;
+
 export class WebRunOfferFailure extends Data.TaggedError("WebRunOfferFailure")<{
   readonly message: string;
   readonly cause?: unknown;
@@ -41,12 +47,12 @@ const readOffers = Effect.tryPromise({
 }).pipe(
   Effect.flatMap((record) => {
     const stored = record[WEB_RUN_OFFERS_STORAGE_KEY];
-    if (stored === undefined) return Effect.succeed(new Map<string, WebRunOffer>());
+    if (stored === undefined) return Effect.succeed(new Map<string, StoredWebRunOffer>());
     if (typeof stored !== "object" || stored === null || Array.isArray(stored)) {
       return Effect.fail(new WebRunOfferFailure({ message: "Pending web run offers are invalid" }));
     }
     return Effect.forEach(Object.entries(stored), ([pairingId, value]) =>
-      Schema.decodeUnknownEffect(WebRunOfferSchema, { onExcessProperty: "error" })(value).pipe(
+      Schema.decodeUnknownEffect(StoredWebRunOffer, { onExcessProperty: "error" })(value).pipe(
         Effect.mapError(
           (cause) =>
             new WebRunOfferFailure({
@@ -60,7 +66,7 @@ const readOffers = Effect.tryPromise({
   }),
 );
 
-const persistOffers = (offers: ReadonlyMap<string, WebRunOffer>) =>
+const persistOffers = (offers: ReadonlyMap<string, StoredWebRunOffer>) =>
   Effect.tryPromise({
     try: () =>
       offers.size === 0
@@ -72,8 +78,8 @@ const persistOffers = (offers: ReadonlyMap<string, WebRunOffer>) =>
       new WebRunOfferFailure({ message: "Could not persist pending web run offers", cause }),
   });
 
-const pruneOffers = (offers: ReadonlyMap<string, WebRunOffer>, now: number) =>
-  new Map([...offers].filter(([, offer]) => offer.expiresAt > now));
+const pruneOffers = (offers: ReadonlyMap<string, StoredWebRunOffer>, now: number) =>
+  new Map([...offers].filter(([, stored]) => stored.offer.expiresAt > now));
 
 const makeCapability = (): string =>
   Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), (byte) =>
@@ -99,7 +105,10 @@ export class WebRunOfferOwner {
 
   static makeUnsafe = (): WebRunOfferOwner => new WebRunOfferOwner(Semaphore.makeUnsafe(1));
 
-  prepare(connector: ProfileConnector): Effect.Effect<PreparedWebRunOffer, WebRunOfferFailure> {
+  prepare(
+    connector: ProfileConnector,
+    webOrigin: string,
+  ): Effect.Effect<PreparedWebRunOffer, WebRunOfferFailure> {
     return this.lock.withPermits(1)(
       Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis;
@@ -115,7 +124,7 @@ export class WebRunOfferOwner {
           expiresAt: now + WEB_RUN_OFFER_LIFETIME_MS,
           connector: publicConnector(connector),
         } satisfies WebRunOffer;
-        yield* persistOffers(new Map(offers).set(pairingId, offer));
+        yield* persistOffers(new Map(offers).set(pairingId, { offer, webOrigin }));
         return { pairingId, offer: encodeOffer(offer) };
       }),
     );
@@ -124,17 +133,24 @@ export class WebRunOfferOwner {
   complete(
     pairingId: string,
     connector: ProfileConnector,
+    webOrigin: string,
   ): Effect.Effect<PublicConnector, WebRunOfferFailure> {
     return this.lock.withPermits(1)(
       Effect.gen(function* () {
         const now = yield* Clock.currentTimeMillis;
         const offers = pruneOffers(yield* readOffers, now);
-        const offer = offers.get(pairingId);
-        if (!offer) {
+        const stored = offers.get(pairingId);
+        if (!stored) {
           return yield* new WebRunOfferFailure({
             message: `Web run offer ${pairingId} is missing or expired`,
           });
         }
+        if (stored.webOrigin !== webOrigin) {
+          return yield* new WebRunOfferFailure({
+            message: "Web run offer belongs to another Pi Web origin",
+          });
+        }
+        const { offer } = stored;
         if (!samePublicConnector(offer.connector, publicConnector(connector))) {
           return yield* new WebRunOfferFailure({
             message: "Web run offer belongs to another Chrome profile connector",

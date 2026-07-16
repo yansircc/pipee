@@ -31,6 +31,7 @@ const root = process.cwd();
 const manifestInputs = {
   version: "1.2.3",
   publicKey: connectorAuth.extensionPublicKey,
+  protocolFingerprint: "a".repeat(64),
 };
 
 const withExtensionFixture = async (run: (directory: string) => Promise<void>): Promise<void> => {
@@ -40,8 +41,21 @@ const withExtensionFixture = async (run: (directory: string) => Promise<void>): 
     for (const [id, artifact] of artifactEntries()) {
       const output = join(directory, artifact.output);
       await mkdir(dirname(output), { recursive: true });
-      if (artifact.kind === "bundle") await writeFile(output, "(() => undefined)();\n");
-      else {
+      if (artifact.kind === "bundle")
+        await writeFile(
+          output,
+          `(() => ${JSON.stringify(manifestInputs.protocolFingerprint)})();\n`,
+        );
+      else if (artifact.kind === "generated") {
+        await writeFile(
+          output,
+          JSON.stringify({
+            extensionId: EXTENSION_PACKAGE_ID,
+            displayVersion: manifestInputs.version,
+            protocolFingerprint: manifestInputs.protocolFingerprint,
+          }),
+        );
+      } else {
         const source = await readFile(join(root, artifact.source), "utf8");
         await writeFile(output, documents.has(id) ? renderExtensionDocument(id, source) : source);
       }
@@ -69,6 +83,7 @@ it("derives every extension output and manifest entry from one build graph", () 
     popupScript: ["src/browser/popup.ts", "popup.js"],
   });
   expect([...expectedExtensionOutputs()].sort()).toEqual([
+    "evidence.json",
     "manifest.json",
     "popup.css",
     "popup.html",

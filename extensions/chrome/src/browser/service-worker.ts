@@ -4,12 +4,14 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Schedule from "effect/Schedule";
-import * as Schema from "effect/Schema";
+import {
+  ChromeExtensionEvidence,
+  type ChromeExternalRequest as ChromeExternalRequestType,
+} from "@pi-suite/companion-contracts/chrome";
 import { messageOf } from "../core/errors.js";
 import { decodePollResponseJson } from "../protocol/codec.js";
 import { encodeJsonTransport } from "../protocol/json-transport.js";
 import { WireResult as WireResultSchema } from "../protocol/schema.js";
-import { PairingId as PairingIdSchema } from "../protocol/schema.js";
 import type {
   PollResponse,
   ProfileConnector,
@@ -45,6 +47,7 @@ import {
 } from "./platform.js";
 import { localDurabilityRetrySchedule, sharedBridgeRetrySchedule } from "./runtime-scheduling.js";
 import { WebRunOfferOwner } from "./web-run-offer.js";
+import { decodeExternalWebRun } from "./external-web-run.js";
 
 const KEEPALIVE_ALARM = "pi-chrome-runtime";
 const connectorIdentity = ConnectorIdentityOwner.makeUnsafe();
@@ -249,59 +252,55 @@ const handleConnectorIdentityRequest = (
     }),
   );
 
-type ExternalWebRunRequest =
-  | { readonly type: "pi-chrome/web-run/status" }
-  | { readonly type: "pi-chrome/web-run/prepare" }
-  | { readonly type: "pi-chrome/web-run/complete"; readonly pairingId: string };
+const extensionEvidence = (connector: ProfileConnector) =>
+  ChromeExtensionEvidence.make({
+    extensionId: connector.extensionId,
+    displayVersion: connector.extensionDisplayVersion,
+    protocolFingerprint: connector.protocolFingerprint,
+    connectorIdentity: { connectorId: connector.connectorId, connectorLabel: connector.label },
+  });
 
-const isExternalWebRunRequest = (value: unknown): value is ExternalWebRunRequest => {
-  if (typeof value !== "object" || value === null || !("type" in value)) return false;
-  if (value.type === "pi-chrome/web-run/status") return true;
-  if (value.type === "pi-chrome/web-run/prepare") return true;
-  return (
-    value.type === "pi-chrome/web-run/complete" &&
-    "pairingId" in value &&
-    Schema.is(PairingIdSchema)(value.pairingId)
-  );
-};
-
-const isPiWebSender = (sender: chrome.runtime.MessageSender): boolean => {
-  if (!sender.url) return false;
-  return effectRuntime.runSync(
-    Effect.try({
-      try: () => new URL(sender.url!),
-      catch: () => undefined,
-    }).pipe(
-      Effect.map(
-        (url) =>
-          url !== undefined &&
-          url.protocol === "http:" &&
-          (url.hostname === "127.0.0.1" || url.hostname === "localhost") &&
-          url.port === "30141",
-      ),
-    ),
-  );
-};
-
-const handleExternalWebRunRequest = (request: ExternalWebRunRequest) =>
+const handleExternalWebRunRequest = (request: ChromeExternalRequestType, webOrigin: string) =>
   connectorIdentity.load.pipe(
     Effect.flatMap((connector) =>
-      request.type === "pi-chrome/web-run/status"
-        ? Effect.succeed({
-            ok: true,
-            connectorId: connector.connectorId,
-            connectorLabel: connector.label,
-          } as const)
-        : request.type === "pi-chrome/web-run/prepare"
-          ? webRunOffers
-              .prepare(connector)
-              .pipe(Effect.map((prepared) => ({ ok: true, ...prepared }) as const))
-          : webRunOffers.complete(request.pairingId, connector).pipe(
-              Effect.tap(() => runtimeOwner.restart),
-              Effect.as({ ok: true } as const),
-            ),
+      Effect.gen(function* () {
+        switch (request.type) {
+          case "pi-chrome/web-run/status":
+            return {
+              version: 1,
+              ok: true,
+              type: "Status",
+              evidence: extensionEvidence(connector),
+            } as const;
+          case "pi-chrome/web-run/prepare": {
+            const prepared = yield* webRunOffers.prepare(connector, webOrigin);
+            return {
+              version: 1,
+              ok: true,
+              type: "Prepared",
+              evidence: extensionEvidence(connector),
+              ...prepared,
+            } as const;
+          }
+          case "pi-chrome/web-run/complete":
+            yield* webRunOffers.complete(request.pairingId, connector, webOrigin);
+            yield* runtimeOwner.restart;
+            return {
+              version: 1,
+              ok: true,
+              type: "Completed",
+              evidence: extensionEvidence(connector),
+            } as const;
+        }
+      }),
     ),
-    Effect.catch((error) => Effect.succeed({ ok: false, error: error.message } as const)),
+    Effect.catch((error) =>
+      Effect.succeed({
+        version: 1,
+        ok: false,
+        error: { code: "web-run-failed", message: messageOf(error) },
+      } as const),
+    ),
   );
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -315,9 +314,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
-  if (!isPiWebSender(sender) || !isExternalWebRunRequest(message)) return false;
+  const decoded = decodeExternalWebRun(message, sender.url);
+  if (decoded === null) return false;
   launch(
-    handleExternalWebRunRequest(message).pipe(
+    handleExternalWebRunRequest(decoded.request, decoded.webOrigin).pipe(
       Effect.tap((response) => Effect.sync(() => sendResponse(response))),
     ),
   );

@@ -51,3 +51,20 @@ it("releases the lease when an owner process is terminated", async () => {
     rmSync(directory, { recursive: true, force: true });
   }
 }, 10_000);
+
+it("admits exactly one owner across eight independent processes", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "pi-suite-lease-eight-processes-"));
+  const path = join(directory, "contended.lease.sqlite");
+  const contenders = Array.from({ length: 8 }, () => start(path, "hold"));
+  try {
+    const results = await Promise.all(contenders.map(firstLine));
+    expect(results.filter((result) => result === "acquired")).toHaveLength(1);
+    expect(results.filter((result) => result === "unavailable")).toHaveLength(7);
+  } finally {
+    const running = contenders.filter((contender) => contender.exitCode === null);
+    const exits = running.map(exited);
+    for (const contender of running) contender.kill();
+    await Promise.all(exits);
+    rmSync(directory, { recursive: true, force: true });
+  }
+}, 10_000);
