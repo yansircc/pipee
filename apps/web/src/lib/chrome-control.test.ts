@@ -1,7 +1,7 @@
 import { it } from "@effect/vitest"
 import { Data, Effect, Exit } from "effect"
 import { expect } from "vite-plus/test"
-import { ChromeStatusProjection } from "@/api/contract"
+import { ChromeStatusProjection, type ChromeControlRequestType } from "@/api/contract"
 import { BrowserPlatformLive, type ChromeExtensionRuntime } from "@/browser/browser-platform"
 import {
   attachSameProfileChromeSession,
@@ -126,29 +126,36 @@ it.effect("establishes one session binding and compensates a failed assertion", 
       },
     })
 
-    const successfulCommands: Array<string> = []
-    const result = yield* attachSameProfileChromeSession("extension-id", (args) =>
+    const successfulCommands: Array<ChromeControlRequestType> = []
+    const result = yield* attachSameProfileChromeSession("extension-id", (request) =>
       Effect.sync(() => {
-        successfulCommands.push(args)
-        return { args }
+        successfulCommands.push(request)
+        return { request }
       }),
     )
-    expect(successfulCommands).toEqual(["web-attach opaque-offer", "web-assert pairing-id"])
-    expect(result).toEqual({ args: "web-assert pairing-id" })
+    expect(successfulCommands).toEqual([
+      { action: { _tag: "WebAttach", offer: "opaque-offer" } },
+      { action: { _tag: "WebAssert", pairingId: "pairing-id" } },
+    ])
+    expect(result).toEqual({ request: { action: { _tag: "WebAssert", pairingId: "pairing-id" } } })
 
-    const failedCommands: Array<string> = []
+    const failedCommands: Array<ChromeControlRequestType> = []
     const exit = yield* Effect.exit(
-      attachSameProfileChromeSession("extension-id", (args) =>
+      attachSameProfileChromeSession("extension-id", (request) =>
         Effect.suspend(() => {
-          failedCommands.push(args)
-          return args === "web-assert pairing-id"
+          failedCommands.push(request)
+          return request.action._tag === "WebAssert"
             ? Effect.fail(new AssertionFailure({ reason: "assertion failed" }))
             : Effect.void
         }),
       ),
     )
     expect(Exit.isFailure(exit)).toBe(true)
-    expect(failedCommands).toEqual(["web-attach opaque-offer", "web-assert pairing-id", "web-detach pairing-id"])
+    expect(failedCommands).toEqual([
+      { action: { _tag: "WebAttach", offer: "opaque-offer" } },
+      { action: { _tag: "WebAssert", pairingId: "pairing-id" } },
+      { action: { _tag: "WebDetach", pairingId: "pairing-id" } },
+    ])
   }).pipe(Effect.provide(BrowserPlatformLive)),
 )
 
@@ -169,11 +176,11 @@ it.effect("reuses only a live route for the current browser profile", () =>
       },
     })
 
-    const commands: Array<string> = []
-    const invoke = (args: string) =>
+    const commands: Array<ChromeControlRequestType> = []
+    const invoke = (request: ChromeControlRequestType) =>
       Effect.sync(() => {
-        commands.push(args)
-        return { args }
+        commands.push(request)
+        return { request }
       })
     const ready = ChromeStatusProjection.make({
       kind: "pi-chrome/status",
@@ -197,18 +204,18 @@ it.effect("reuses only a live route for the current browser profile", () =>
     const staleProfile = ChromeStatusProjection.make({ ...ready, connectorId: "connector-old" })
     expect(yield* ensureChromeSessionBinding("extension-id", staleProfile, invoke)).toEqual({
       profile: { connected: true, connectorId: "connector-work", connectorLabel: "Work profile" },
-      commandResult: { args: "web-assert pairing-id" },
+      commandResult: { request: { action: { _tag: "WebAssert", pairingId: "pairing-id" } } },
     })
     const expiringLease = ChromeStatusProjection.make({ ...ready, connectorExpiresAt: 0 })
     expect(yield* ensureChromeSessionBinding("extension-id", expiringLease, invoke)).toEqual({
       profile: { connected: true, connectorId: "connector-work", connectorLabel: "Work profile" },
-      commandResult: { args: "web-assert pairing-id" },
+      commandResult: { request: { action: { _tag: "WebAssert", pairingId: "pairing-id" } } },
     })
     expect(commands).toEqual([
-      "web-attach opaque-offer",
-      "web-assert pairing-id",
-      "web-attach opaque-offer",
-      "web-assert pairing-id",
+      { action: { _tag: "WebAttach", offer: "opaque-offer" } },
+      { action: { _tag: "WebAssert", pairingId: "pairing-id" } },
+      { action: { _tag: "WebAttach", offer: "opaque-offer" } },
+      { action: { _tag: "WebAssert", pairingId: "pairing-id" } },
     ])
     expect(extensionMessages).toHaveLength(7)
   }).pipe(Effect.provide(BrowserPlatformLive)),

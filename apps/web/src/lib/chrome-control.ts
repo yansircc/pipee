@@ -1,6 +1,6 @@
 import { Clock, Data, Duration, Effect, Schema } from "effect"
 import { BrowserPlatform } from "@/browser/browser-platform"
-import type { ChromeStatusProjection } from "@/api/contract"
+import type { ChromeControlRequestType, ChromeStatusProjection } from "@/api/contract"
 import { PI_COMPANION_PACKAGE_NAMES } from "./plugin-package-settings"
 import type { ToolEntry } from "./tool-presets"
 
@@ -158,21 +158,23 @@ export const completeSameProfileWebRun = (extensionId: string, pairingId: string
 
 export const attachSameProfileChromeSession = <T, E, R>(
   extensionId: string,
-  invokeChromeCommand: (args: string) => Effect.Effect<T, E, R>,
+  invokeChromeControl: (request: ChromeControlRequestType) => Effect.Effect<T, E, R>,
 ): Effect.Effect<T, ChromeControlError | E, BrowserPlatform | R> =>
   Effect.gen(function* () {
     const prepared = yield* prepareSameProfileWebRun(extensionId)
-    yield* invokeChromeCommand(`web-attach ${prepared.offer}`)
+    yield* invokeChromeControl({ action: { _tag: "WebAttach", offer: prepared.offer } })
     return yield* completeSameProfileWebRun(extensionId, prepared.pairingId).pipe(
-      Effect.andThen(invokeChromeCommand(`web-assert ${prepared.pairingId}`)),
-      Effect.onError(() => invokeChromeCommand(`web-detach ${prepared.pairingId}`).pipe(Effect.ignore)),
+      Effect.andThen(invokeChromeControl({ action: { _tag: "WebAssert", pairingId: prepared.pairingId } })),
+      Effect.onError(() =>
+        invokeChromeControl({ action: { _tag: "WebDetach", pairingId: prepared.pairingId } }).pipe(Effect.ignore),
+      ),
     )
   })
 
 export const ensureChromeSessionBinding = <T, E, R>(
   extensionId: string,
   sessionStatus: ChromeStatusProjection | undefined,
-  invokeChromeCommand: (args: string) => Effect.Effect<T, E, R>,
+  invokeChromeControl: (request: ChromeControlRequestType) => Effect.Effect<T, E, R>,
 ): Effect.Effect<ChromeSessionBinding<T>, ChromeControlError | E, BrowserPlatform | R> =>
   Effect.gen(function* () {
     const profile = yield* getSameProfileChromeStatus(extensionId)
@@ -199,6 +201,6 @@ export const ensureChromeSessionBinding = <T, E, R>(
       sessionStatus.connectorExpiresAt > now + minimumRouteLease
     if (routeReady) return { profile, commandResult: null }
 
-    const commandResult = yield* attachSameProfileChromeSession(extensionId, invokeChromeCommand)
+    const commandResult = yield* attachSameProfileChromeSession(extensionId, invokeChromeControl)
     return { profile, commandResult }
   })

@@ -40,8 +40,8 @@ import { DEFAULT_TOOL_PRESET, getPresetFromTools, getToolNamesForPreset, type To
 import type {
   ActiveBashExecution,
   AgentMessage,
+  ExtensionInteraction,
   ExtensionStatusItem,
-  ExtensionUiRequest,
   ExtensionWidgetItem,
   SessionInfo,
   SessionTreeNode,
@@ -141,7 +141,7 @@ type ChromeDetection =
     }
 
 type ModelEntry = { id: string; name: string; provider: string }
-type ExtensionDialog = Extract<ExtensionUiRequest, { method: "select" | "confirm" | "input" | "editor" }>
+type ExtensionDialog = ExtensionInteraction
 
 const messageFor = (error: unknown): string => {
   if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
@@ -253,21 +253,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       observerRef.current?.()
       observerRef.current = runScoped(
         observeSession(sessionId, {
-          onEvent: (event) => {
+          onEvent: (envelope) => {
+            const event = envelope.event
             if (event._tag === "ExtensionFailed") {
               addNotice({ type: "warning", message: event.message, source: "extension" })
             }
-            if (event._tag === "ExtensionUiRequested" && event.request.method === "notify") {
+            if (event._tag === "ExtensionNotice") {
               addNotice({
-                type: event.request.notifyType ?? "info",
-                message: event.request.message,
+                type: event.notifyType,
+                message: event.message,
                 source: "extension",
               })
             }
-            if (event._tag === "ExtensionUiRequested" && event.request.method === "set_editor_text") {
-              chatInputRef?.current?.insertIfEmpty(event.request.text)
-            }
-            dispatch({ _tag: "RuntimeEvent", sessionId, event })
+            dispatch({ _tag: "RuntimeEvent", sessionId, runtimeId: envelope.runtimeId, event })
           },
           onSnapshot: (snapshot) => {
             dispatch({ _tag: "Loaded", sessionId, snapshot })
@@ -288,7 +286,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         },
       )
     },
-    [addNotice, chatInputRef, runScoped],
+    [addNotice, runScoped],
   )
 
   useEffect(() => {
@@ -393,8 +391,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const activeLeafId = snapshot?.leafId ?? null
   const messages = useMemo(() => asUiMessages(projectSessionMessages(state)), [state])
   const entryIds = useMemo(() => [...projectSessionEntryIds(state)], [state])
-  const extensionStatuses = useMemo(() => asUiStatuses(state.extensionStatuses), [state.extensionStatuses])
-  const extensionWidgets = useMemo(() => asUiWidgets(state.extensionWidgets), [state.extensionWidgets])
+  const extensionStatuses = useMemo(
+    () => asUiStatuses([...state.extensionUi.textStatuses, ...state.extensionUi.companionStatuses]),
+    [state.extensionUi],
+  )
+  const extensionWidgets = useMemo(() => asUiWidgets(state.extensionUi.widgets), [state.extensionUi])
   const activeBashExecution = state.activeBashExecution as ActiveBashExecution | null
   const currentModel = snapshot?.context.model ?? null
   const displayModel = currentModel
@@ -504,17 +505,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           }),
         )
       }
-      const command = (args: string) => sessionController.extensionCommand(sessionId, "chrome", args)
+      const control = (request: Parameters<typeof sessionController.chromeControl>[1]) =>
+        sessionController.chromeControl(sessionId, request)
       return ensureChromeSessionBinding(
         chromeDetection.extensionId,
         getChromeStatusProjection(extensionStatuses),
-        command,
+        control,
       ).pipe(
         Effect.tap(({ profile, commandResult }) =>
           Effect.sync(() => {
             setChromeProfileConnection(profile)
             if (commandResult === null) return
-            dispatch({ _tag: "ExtensionStatusesChanged", statuses: commandResult.extensionStatuses })
             setChromeToolsActive(getPiChromeToolState(commandResult.tools.map((tool) => ({ ...tool }))))
           }),
         ),
@@ -854,18 +855,19 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const requestId = `chrome-control-${chromeControlSequenceRef.current}`
       dispatch({ _tag: "ChromeControlRequested", requestId, enabled })
       withSession((sessionId) => {
-        const command = (args: string) => sessionController.extensionCommand(sessionId, "chrome", args)
+        const control = (request: Parameters<typeof sessionController.chromeControl>[1]) =>
+          sessionController.chromeControl(sessionId, request)
         const operation =
           enabled && extensionId !== null
-            ? command("authorize").pipe(
-                Effect.andThen(attachSameProfileChromeSession(extensionId, command)),
+            ? control({ action: { _tag: "Authorize" } }).pipe(
+                Effect.andThen(attachSameProfileChromeSession(extensionId, control)),
                 Effect.flatMap((result) =>
                   getSameProfileChromeStatus(extensionId).pipe(
                     Effect.map((profile) => ({ result, profile: asChromeConnection(profile) })),
                   ),
                 ),
               )
-            : command("revoke").pipe(
+            : control({ action: { _tag: "Revoke" } }).pipe(
                 Effect.map((result) => ({
                   result,
                   profile: asChromeConnection({ connected: false }),
@@ -878,7 +880,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             dispatch({
               _tag: "ChromeControlSucceeded",
               requestId,
-              statuses: result.extensionStatuses,
             })
             addNotice({ type: "success", message: enabled ? "Browser control enabled" : "Browser control disabled" })
           },
@@ -898,9 +899,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const sessionId = sessionIdRef.current
       if (sessionId === null || loopControlPending) return
       setLoopControlPending(true)
-      runScoped(sessionController.extensionCommand(sessionId, "loop-control", JSON.stringify(controlRequest(action))), {
-        onSuccess: (result) => {
-          dispatch({ _tag: "ExtensionStatusesChanged", statuses: result.extensionStatuses })
+      runScoped(sessionController.loopControl(sessionId, controlRequest(action)), {
+        onSuccess: () => {
           setLoopControlPending(false)
         },
         onFailure: (error) => {
@@ -916,19 +916,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     (request: ExtensionDialog, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => {
       const sessionId = sessionIdRef.current
       if (sessionId === null) return
-      const payload = { type: "extension_ui_response" as const, id: request.id, ...response }
-      runScoped(sessionController.extensionUiResponse(sessionId, payload), { onSuccess: () => undefined })
+      const payload =
+        "cancelled" in response
+          ? ({ _tag: "Cancelled" } as const)
+          : "confirmed" in response
+            ? ({ _tag: "Confirmation", confirmed: response.confirmed } as const)
+            : ({ _tag: "Value", value: response.value } as const)
+      runScoped(sessionController.resolveInteraction(sessionId, request.interactionId, { answer: payload }), {
+        onSuccess: () => undefined,
+        onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+      })
     },
-    [runScoped],
-  )
-
-  const sendExtensionCustomInput = useCallback(
-    (request: Extract<ExtensionUiRequest, { method: "custom" }>, data: string) => {
-      const sessionId = sessionIdRef.current
-      if (sessionId !== null)
-        runScoped(sessionController.extensionUiInput(sessionId, request.id, data), { onSuccess: () => undefined })
-    },
-    [runScoped],
+    [addNotice, runScoped],
   )
 
   const handleBuiltinSlashCommand = useCallback(
@@ -998,9 +997,36 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         )
         return { handled: true }
       }
+      const registered = slashCommands.find((item) => item.name === command)
+      if (registered?.source === "extension") {
+        const sessionId = sessionIdRef.current
+        if (sessionId === null) return { handled: true, error: "No active session" }
+        runScoped(sessionController.slashCommand(sessionId, command, args), {
+          onSuccess: (result) => {
+            setChromeToolsActive(getPiChromeToolState(result.tools.map((tool) => ({ ...tool }))))
+          },
+          onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+        })
+        return { handled: true }
+      }
+      if (registered === undefined) {
+        return {
+          handled: true,
+          error: slashCommandsLoading ? "Slash commands are still loading" : `Unknown slash command: /${command}`,
+        }
+      }
       return { handled: false }
     },
-    [addNotice, loadSlashCommands, loadSnapshot, loadTools, onSessionStatsPanelOpen, runScoped],
+    [
+      addNotice,
+      loadSlashCommands,
+      loadSnapshot,
+      loadTools,
+      onSessionStatsPanelOpen,
+      runScoped,
+      slashCommands,
+      slashCommandsLoading,
+    ],
   )
 
   const dismissNotice = useCallback((id: string) => {
@@ -1018,8 +1044,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     )
   }, [autoDismissNotice, runScoped])
 
-  const extensionDialog = state.extensionDialog as ExtensionDialog | null
-  const extensionCustomUi = state.extensionCustomUi as Extract<ExtensionUiRequest, { method: "custom" }> | null
+  const extensionDialog = state.extensionUi.pendingInteraction as ExtensionDialog | null
   const contextUsage = snapshot?.runtime?.contextUsage ?? null
   const systemPrompt = snapshot?.runtime?.systemPrompt ?? null
   const agentPhase: AgentPhase =
@@ -1064,11 +1089,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     autoDismissNoticeId: autoDismissNotice?.id ?? null,
     dismissNotice,
     extensionDialog,
-    extensionCustomUi,
     extensionStatuses,
     extensionWidgets,
     respondToExtensionUi,
-    sendExtensionCustomInput,
     chromePackageLoaded:
       chromeDetection.cwd !== modelCwd || chromeDetection._tag === "Loading" || chromeDetection._tag === "Failed"
         ? null

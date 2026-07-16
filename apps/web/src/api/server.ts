@@ -374,13 +374,13 @@ const SessionActionsLive = HttpApiBuilder.group(PiWebApi, "sessionActions", (han
             expose(registry.events(params.id)).pipe(
               Effect.map((events) => {
                 const tools: Stream.Stream<PromptProgressEvent> = events.pipe(
-                  Stream.filterMap((event) =>
-                    event.runId === request.runId && event._tag === "ToolStarted"
+                  Stream.filterMap((envelope) =>
+                    envelope.event._tag === "ToolStarted" && envelope.event.runId === request.runId
                       ? Result.succeed({
                           _tag: "ToolStarted" as const,
-                          runId: event.runId,
-                          toolCallId: event.toolCallId,
-                          toolName: event.toolName,
+                          runId: envelope.event.runId,
+                          toolCallId: envelope.event.toolCallId,
+                          toolName: envelope.event.toolName,
                         })
                       : Result.fail(undefined),
                   ),
@@ -515,20 +515,23 @@ const SessionActionsLive = HttpApiBuilder.group(PiWebApi, "sessionActions", (han
           Effect.as(ok),
         ),
       )
-      .handle("extensionCommand", ({ params, payload }) =>
+      .handle("slashCommand", ({ params, payload }) =>
         runtime(params.id).pipe(
-          Effect.flatMap((handle) => expose(handle.runtime.invokeExtensionCommand(payload.name, payload.args))),
+          Effect.flatMap((handle) => expose(handle.runtime.invokeSlashCommand(payload.name, payload.args))),
         ),
       )
-      .handle("extensionUiResponse", ({ params, payload }) =>
-        runtime(params.id).pipe(
-          Effect.flatMap((handle) => handle.runtime.resolveExtensionUi(payload)),
-          Effect.as(ok),
-        ),
+      .handle("loopControl", ({ params, payload }) =>
+        runtime(params.id).pipe(Effect.flatMap((handle) => expose(handle.runtime.controlLoop(payload)))),
       )
-      .handle("extensionUiInput", ({ params, payload }) =>
+      .handle("weixinControl", ({ params, payload }) =>
+        runtime(params.id).pipe(Effect.flatMap((handle) => expose(handle.runtime.controlWeixin(payload)))),
+      )
+      .handle("chromeControl", ({ params, payload }) =>
+        runtime(params.id).pipe(Effect.flatMap((handle) => expose(handle.runtime.controlChrome(payload)))),
+      )
+      .handle("resolveInteraction", ({ params, payload }) =>
         runtime(params.id).pipe(
-          Effect.flatMap((handle) => handle.runtime.sendExtensionUiInput(payload.id, payload.data)),
+          Effect.flatMap((handle) => expose(handle.runtime.resolveInteraction(params.interactionId, payload))),
           Effect.as(ok),
         ),
       )

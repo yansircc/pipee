@@ -9,13 +9,10 @@ test("controls the real pi-loop extension through structured status", async ({ p
   const command = async (action: unknown) =>
     page.evaluate(
       async ({ sessionId, action }) => {
-        const response = await fetch(`/api/sessions/${sessionId}/actions/extension-command`, {
+        const response = await fetch(`/api/sessions/${sessionId}/companions/loop/control`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            name: "loop-control",
-            args: JSON.stringify({ kind: "pi-loop/control", version: 1, action }),
-          }),
+          body: JSON.stringify({ kind: "pi-loop/control", version: 1, action }),
         })
         return { status: response.status, body: await response.json() }
       },
@@ -26,7 +23,7 @@ test("controls the real pi-loop extension through structured status", async ({ p
   expect(first.status, JSON.stringify(first.body)).toBe(200)
   const second = await command({ _tag: "CreateInterval", periodMs: 120_000, prompt: "inspect beta" })
   expect(second.status, JSON.stringify(second.body)).toBe(200)
-  expect(second.body.extensionStatuses).toEqual(
+  expect(second.body.extensionUi.companionStatuses).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
         key: "pi-loop",
@@ -42,7 +39,7 @@ test("controls the real pi-loop extension through structured status", async ({ p
     ]),
   )
 
-  const loops = second.body.extensionStatuses.find(
+  const loops = second.body.extensionUi.companionStatuses.find(
     (item: { key?: string; status?: { loops?: Array<{ id: string }> } }) => item.key === "pi-loop",
   )?.status.loops
   expect(loops).toHaveLength(2)
@@ -50,7 +47,7 @@ test("controls the real pi-loop extension through structured status", async ({ p
   expect(firstDelete.status).toBe(200)
   const secondDelete = await command({ _tag: "Delete", id: loops[1].id })
   expect(secondDelete.status).toBe(200)
-  expect(secondDelete.body.extensionStatuses).not.toEqual(
+  expect(secondDelete.body.extensionUi.companionStatuses).not.toEqual(
     expect.arrayContaining([expect.objectContaining({ key: "pi-loop/runtime-lease" })]),
   )
 })

@@ -37,3 +37,15 @@ export const WeixinStatusProjection = Schema.Struct({
   bindings: WeixinBindings,
 })
 export type WeixinStatusProjection = typeof WeixinStatusProjection.Type
+
+export const WeixinControlRequest = Schema.Struct({
+  action: Schema.Union([
+    Schema.TaggedStruct("Login", {}),
+    Schema.TaggedStruct("Bind", {}),
+    Schema.TaggedStruct("Start", {}),
+    Schema.TaggedStruct("Stop", {}),
+    Schema.TaggedStruct("Status", {}),
+    Schema.TaggedStruct("Logout", {}),
+  ]),
+})
+export type WeixinControlRequest = typeof WeixinControlRequest.Type

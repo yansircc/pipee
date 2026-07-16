@@ -87,6 +87,7 @@ await writeFile(
   "---\nname: e2e-skill\ndescription: isolated fixture\n---\n\n# E2E skill\n",
 )
 const fixturePluginDirectory = join(fixtureRoot, "e2e-plugin")
+const fixtureExtensionDirectory = join(fixtureRoot, "e2e-extension")
 const fixtureNpmCommandLog = join(fixtureRoot, "npm-command.log")
 const fixtureNpmCommand = join(fixtureRoot, "npm-command.mjs")
 const fixturePluginSkillDirectory = join(fixturePluginDirectory, "skills", "plugin-skill")
@@ -107,6 +108,33 @@ await writeFile(
   join(fixturePluginSkillDirectory, "SKILL.md"),
   "---\nname: plugin-skill\ndescription: local package fixture\n---\n\n# Plugin skill\n",
 )
+await mkdir(fixtureExtensionDirectory, { recursive: true })
+await writeFile(
+  join(fixtureExtensionDirectory, "package.json"),
+  JSON.stringify(
+    {
+      name: "pi-web-e2e-extension",
+      version: "1.0.0",
+      type: "module",
+      pi: { extensions: ["extension.mjs"] },
+    },
+    null,
+    2,
+  ),
+)
+await writeFile(
+  join(fixtureExtensionDirectory, "extension.mjs"),
+  `export default function e2eExtension(pi) {
+  pi.registerCommand("interaction-test", {
+    description: "Exercise session-scoped extension interaction",
+    async handler(_args, context) {
+      const value = await context.ui.input("E2E interaction", "pairing code")
+      context.ui.setStatus("e2e-interaction", value === undefined ? undefined : "resolved:" + value)
+    },
+  })
+}
+`,
+)
 const agentDirectory = join(home, ".pi", "agent")
 await mkdir(join(agentDirectory, "npm"), { recursive: true })
 await writeFile(
@@ -126,7 +154,7 @@ child.once("exit", (code) => process.exit(code ?? 1))
 await writeFile(
   join(agentDirectory, "settings.json"),
   JSON.stringify({
-    packages: extensionPath === undefined ? [] : [extensionPath],
+    packages: [fixtureExtensionDirectory, ...(extensionPath === undefined ? [] : [extensionPath])],
     npmCommand: [process.execPath, fixtureNpmCommand],
   }),
 )

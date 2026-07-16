@@ -1,7 +1,14 @@
 import { Effect, Stream } from "effect"
 import { withApi } from "@/browser/api-client"
 import { BrowserPlatform } from "@/browser/browser-platform"
-import type { RuntimeEvent, SessionSnapshot } from "@/api/contract"
+import type {
+  ChromeControlRequestType,
+  ExtensionInteractionResponse,
+  LoopControlRequestType,
+  RuntimeEnvelope,
+  SessionSnapshot,
+  WeixinControlRequestType,
+} from "@/api/contract"
 
 const errorMessage = (error: unknown): string => {
   if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
@@ -21,7 +28,7 @@ export const loadSessionSnapshot = (sessionId: string) =>
 export const observeSession = (
   sessionId: string,
   callbacks: {
-    readonly onEvent: (event: RuntimeEvent) => void
+    readonly onEvent: (event: RuntimeEnvelope) => void
     readonly onSnapshot: (snapshot: SessionSnapshot) => void
     readonly onTransientError: (message: string) => void
   },
@@ -57,6 +64,15 @@ export const observeRunningSessions = (callbacks: {
   )
   return events
 }
+
+const weixinControl = (sessionId: string, payload: WeixinControlRequestType) =>
+  withApi((api) => api.sessionActions.weixinControl({ params: { id: sessionId }, payload }))
+
+const chromeControl = (sessionId: string, payload: ChromeControlRequestType) =>
+  withApi((api) => api.sessionActions.chromeControl({ params: { id: sessionId }, payload }))
+
+const resolveInteraction = (sessionId: string, interactionId: string, payload: ExtensionInteractionResponse) =>
+  withApi((api) => api.sessionActions.resolveInteraction({ params: { id: sessionId, interactionId }, payload }))
 
 export const sessionController = {
   nextPromptRequestId: Effect.gen(function* () {
@@ -210,47 +226,18 @@ export const sessionController = {
     withApi((api) => api.sessionActions.clearQueue({ params: { id: sessionId }, payload: {} })),
   reload: (sessionId: string) =>
     withApi((api) => api.sessionActions.reload({ params: { id: sessionId }, payload: {} })),
-  extensionCommand: (sessionId: string, name: string, args: string) =>
+  slashCommand: (sessionId: string, name: string, args: string) =>
+    withApi((api) => api.sessionActions.slashCommand({ params: { id: sessionId }, payload: { name, args } })),
+  loopControl: (sessionId: string, payload: LoopControlRequestType) =>
     withApi((api) =>
-      api.sessionActions.extensionCommand({
+      api.sessionActions.loopControl({
         params: { id: sessionId },
-        payload: { name, args },
+        payload,
       }),
     ),
-  extensionUiResponse: (
-    sessionId: string,
-    response:
-      | { readonly type: "extension_ui_response"; readonly id: string; readonly value: string }
-      | { readonly type: "extension_ui_response"; readonly id: string; readonly confirmed: boolean }
-      | { readonly type: "extension_ui_response"; readonly id: string; readonly cancelled: true },
-  ) =>
-    "value" in response
-      ? withApi((api) =>
-          api.sessionActions.extensionUiResponse({
-            params: { id: sessionId },
-            payload: { id: response.id, value: response.value },
-          }),
-        )
-      : "confirmed" in response
-        ? withApi((api) =>
-            api.sessionActions.extensionUiResponse({
-              params: { id: sessionId },
-              payload: { id: response.id, confirmed: response.confirmed },
-            }),
-          )
-        : withApi((api) =>
-            api.sessionActions.extensionUiResponse({
-              params: { id: sessionId },
-              payload: { id: response.id, cancelled: true },
-            }),
-          ),
-  extensionUiInput: (sessionId: string, id: string, data: string) =>
-    withApi((api) =>
-      api.sessionActions.extensionUiInput({
-        params: { id: sessionId },
-        payload: { id, data },
-      }),
-    ),
+  weixinControl,
+  chromeControl,
+  resolveInteraction,
   modelCatalog: (cwd: string) => withApi((api) => api.models.catalog({ query: { cwd } })),
   plugins: (cwd: string) => withApi((api) => api.packages.plugins({ query: { cwd } })),
 }
