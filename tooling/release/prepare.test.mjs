@@ -162,3 +162,19 @@ it("rejects source-side drift from the previous unified release version", () => 
     rmSync(fixture.remote, { recursive: true, force: true });
   }
 });
+
+it("rejects a superseded source before building a release candidate", () => {
+  const fixture = makeRepository();
+  try {
+    const first = commitAll(fixture.root, "feat: first");
+    git(fixture.root, "push", "-u", "origin", "main");
+    writeFileSync(join(fixture.root, "change.txt"), "second\n");
+    commitAll(fixture.root, "feat: second");
+    git(fixture.root, "push", "origin", "main");
+    git(fixture.root, "checkout", "--detach", first);
+    assert.throws(() => prepare(fixture.root, first), /source is no longer origin\/main/);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+    rmSync(fixture.remote, { recursive: true, force: true });
+  }
+});

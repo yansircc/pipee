@@ -42,8 +42,15 @@ const matchingReleases = releases.filter(({ source }) => source === sourceSha);
 if (matchingReleases.length > 1) throw new Error("one source commit has multiple release records");
 const existing = matchingReleases[0];
 if (existing) git(["checkout", "--detach", existing.commit]);
-else if (git(["rev-parse", "HEAD"]) !== sourceSha) {
-  throw new Error("new release preparation must run from the source commit");
+else {
+  if (git(["rev-parse", "HEAD"]) !== sourceSha) {
+    throw new Error("new release preparation must run from the source commit");
+  }
+  if (git(["rev-parse", "origin/main"]) !== sourceSha) {
+    throw new Error(
+      "release source is no longer origin/main; wait for each main release before pushing the next source",
+    );
+  }
 }
 
 const sourceMessage = git(["show", "-s", "--format=%B", sourceSha]);
