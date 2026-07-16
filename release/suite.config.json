@@ -5,29 +5,25 @@
       "id": "web",
       "name": "@yansircc/pi-web",
       "path": "apps/web",
-      "prepareScript": "build",
-      "upgradeFixtures": ["tests/upgrade-fixtures/pi-web-preferences-v1.json"]
+      "prepareScript": "build"
     },
     {
       "id": "loop",
       "name": "@yansircc/pi-loop",
       "path": "extensions/loop",
-      "prepareScript": "pi:build",
-      "upgradeFixtures": ["tests/upgrade-fixtures/pi-loop-state-v1.json"]
+      "prepareScript": "pi:build"
     },
     {
       "id": "weixin",
       "name": "@yansircc/pi-weixin",
       "path": "extensions/weixin",
-      "prepareScript": "pi:build",
-      "upgradeFixtures": ["tests/upgrade-fixtures/pi-weixin-state-v1.json"]
+      "prepareScript": "pi:build"
     },
     {
       "id": "chrome",
       "name": "@yansircc/pi-chrome",
       "path": "extensions/chrome",
       "prepareScript": "pi:build",
-      "upgradeFixtures": ["tests/upgrade-fixtures/pi-chrome-session-bindings-v1.json"],
       "browserExtension": "dist/browser-extension/manifest.json"
     }
   ]

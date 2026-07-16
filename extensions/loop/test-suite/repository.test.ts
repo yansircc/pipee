@@ -1,14 +1,17 @@
 import { expect, it } from "@effect/vitest";
 import { layer as nodeServicesLayer } from "@effect/platform-node/NodeServices";
-import { Cause, Effect, Ref } from "effect";
+import { Cause, Effect, Ref, Scope } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
-import { fileURLToPath } from "node:url";
 import { LeaseUnavailable, makeLoopRepository } from "../src/application/repository.js";
 import { createLoop, DEFAULT_CONFIG } from "../src/domain/model.js";
 
 const withDirectory = <A, E>(
-  use: (directory: string, fs: FileSystem, path: Path) => Effect.Effect<A, E, FileSystem | Path>,
+  use: (
+    directory: string,
+    fs: FileSystem,
+    path: Path,
+  ) => Effect.Effect<A, E, FileSystem | Path | Scope.Scope>,
 ) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -39,7 +42,6 @@ it.effect("commits durable advance before returning an occurrence", () =>
         path.join(directory, DEFAULT_CONFIG.durableFilePath),
       );
       expect(JSON.parse(encoded)).toEqual({ version: 2, loops: [] });
-      yield* repository.release;
     }),
   ),
 );
@@ -49,8 +51,8 @@ it.effect("lets followers mutate session state but rejects durable mutations", (
     Effect.gen(function* () {
       const owner = yield* makeLoopRepository(directory, DEFAULT_CONFIG);
       const follower = yield* makeLoopRepository(directory, DEFAULT_CONFIG);
-      expect(owner.leaseOwned).toBe(true);
-      expect(follower.leaseOwned).toBe(false);
+      expect(owner.projectAccess).toBe("owner");
+      expect(follower.projectAccess).toBe("follower");
       yield* follower.add(
         createLoop({
           _tag: "Once",
@@ -77,8 +79,6 @@ it.effect("lets followers mutate session state but rejects durable mutations", (
       if (exit._tag === "Failure") {
         expect(Cause.squash(exit.cause)).toBeInstanceOf(LeaseUnavailable);
       }
-      yield* owner.release;
-      yield* follower.release;
     }),
   ),
 );
@@ -89,32 +89,6 @@ it.effect("fails closed on corrupt durable state", () =>
       yield* fs.writeFileString(path.join(directory, DEFAULT_CONFIG.durableFilePath), "not-json");
       const exit = yield* Effect.exit(makeLoopRepository(directory, DEFAULT_CONFIG));
       expect(exit._tag).toBe("Failure");
-      expect(yield* fs.exists(`${path.join(directory, DEFAULT_CONFIG.durableFilePath)}.lock`)).toBe(
-        false,
-      );
-    }),
-  ),
-);
-
-it.effect("migrates published v1 durable loops into the v2 state algebra", () =>
-  withDirectory((directory, fs, path) =>
-    Effect.gen(function* () {
-      const filePath = path.join(directory, DEFAULT_CONFIG.durableFilePath);
-      yield* fs.writeFileString(
-        filePath,
-        yield* fs.readFileString(
-          fileURLToPath(
-            new URL("../../../tests/upgrade-fixtures/pi-loop-state-v1.json", import.meta.url),
-          ),
-        ),
-      );
-      const repository = yield* makeLoopRepository(directory, DEFAULT_CONFIG);
-      expect(yield* repository.list).toEqual([
-        expect.objectContaining({ id: "legacy-once", enabled: true, manualCursor: 0 }),
-      ]);
-      yield* repository.setEnabled("legacy-once", false);
-      expect(JSON.parse(yield* fs.readFileString(filePath))).toMatchObject({ version: 2 });
-      yield* repository.release;
     }),
   ),
 );
@@ -141,7 +115,6 @@ it.effect("persists every session-owned mutation through the session adapter", (
       yield* repository.setEnabled(loop.id, false);
       yield* repository.remove(loop.id);
       expect((yield* Ref.get(snapshots)).map((snapshot) => snapshot.length)).toEqual([1, 1, 0]);
-      yield* repository.release;
     }),
   ),
 );

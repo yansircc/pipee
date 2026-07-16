@@ -4,7 +4,7 @@
   "sources": {
     "web": {
       "repository": "/Users/yansir/code/52/pi-web",
-      "commit": "0c3654523729f8581cc15b30390899b9bbf3f16c"
+      "commit": "7be15b015d1753e93ae9b90dda87b9049f5896fc"
     },
     "loop": {
       "repository": "/Users/yansir/code/52/pi-loop",

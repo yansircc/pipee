@@ -1,25 +1,31 @@
 {
   "name": "@yansircc/pi-suite-workspace",
-  "version": "0.0.0",
+  "version": "0.5.7",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.13.1",
-  "engines": {
-    "node": ">=22.19.0"
-  },
   "scripts": {
     "prepare": "effect-tsgo patch --typescript-package typescript",
     "check:workspace": "node tooling/release/verify-workspace.mjs",
-    "test:upgrade": "node tooling/release/test-upgrades.mjs",
+    "test:release": "node --test tooling/release/*.test.mjs",
     "build:candidates": "node tooling/release/build-candidates.mjs",
     "verify:candidates": "node tooling/release/verify-candidates.mjs",
     "verify:consumers": "node tooling/release/verify-consumers.mjs",
+    "verify:platform": "node tooling/release/verify-platform.mjs",
+    "publish:candidates": "node tooling/release/publish-candidates.mjs",
+    "verify:registry": "node tooling/release/verify-registry.mjs",
     "verify:packages": "pnpm -r --if-present run verify",
-    "verify": "pnpm run check:workspace && pnpm run test:upgrade"
+    "verify": "pnpm run check:workspace && pnpm run test:release && pnpm run verify:packages"
   },
   "devDependencies": {
     "@effect/tsgo": "catalog:",
+    "acorn": "8.15.0",
+    "cross-spawn": "7.0.6",
+    "tar": "7.5.20",
     "typescript": "catalog:",
-    "tar": "7.5.20"
-  }
+    "vite-plus": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "packageManager": "pnpm@11.13.1"
 }

@@ -1,0 +1,26 @@
+{
+  "name": "@pi-suite/host-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./cross-process-lease": "./src/cross-process-lease.ts"
+  },
+  "scripts": {
+    "check": "vp check",
+    "effect:scan": "vp run ci:effect",
+    "test": "vp test",
+    "typecheck": "vp run ci:typecheck",
+    "verify": "vp run ci:verify"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@types/node": "25.0.0",
+    "@yansircc/effect-scan": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

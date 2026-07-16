@@ -48,6 +48,15 @@ export class BridgeConfigurationError extends Data.TaggedError("BridgeConfigurat
   readonly reason: string;
 }> {}
 
+export class BridgeOwnershipConflict extends Data.TaggedError("BridgeOwnershipConflict")<{
+  readonly resource: "state" | "account";
+}> {}
+
+export class BridgeBusy extends Data.TaggedError("BridgeBusy")<{
+  readonly operation: "login";
+  readonly ownerSessionId: string;
+}> {}
+
 export class QrCodeError extends Data.TaggedError("QrCodeError")<{
   readonly cause: unknown;
 }> {}

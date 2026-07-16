@@ -1,0 +1,11 @@
+{
+  "shape": ["library", "node-tool"],
+  "testGlobs": ["test/**/*.test.ts"],
+  "hostTooling": [
+    {
+      "path": "vite.config.ts",
+      "owner": "@vite-plus-tooling",
+      "reason": "Vite+ task, lint, format, test, and scanner configuration is host tooling."
+    }
+  ]
+}
