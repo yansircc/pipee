@@ -6,7 +6,8 @@ on:
   pull_request:
 
 concurrency:
-  group: pi-suite-release-main
+  group: ${{ github.event_name == 'push' && 'pi-suite-release-main' || format('pi-suite-release-pr-{0}', github.event.pull_request.number) }}
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -61,30 +62,45 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            node tooling/release/build-candidates.mjs
-          elif [ "${{ steps.prepare.outputs.mode }}" = "new" ]; then
-            node tooling/release/build-candidates.mjs --prepared-source "${{ github.sha }}"
-            node tooling/release/candidate-store.mjs bundle "${{ github.sha }}"
-          else
-            asset="suite-candidates-${{ github.sha }}.tgz"
+          restore_prior_attempt() {
             rm -rf release/restore release/assets
             mkdir -p release/restore release/assets
-            if gh release download "${{ steps.prepare.outputs.tag }}" \
-              --pattern "$asset" \
-              --dir release/restore; then
-              stored="release/restore/$asset"
-            else
-              rm -rf release/restore
-              mkdir -p release/restore
-              gh run download "$GITHUB_RUN_ID" \
-                --pattern "suite-candidates-${GITHUB_RUN_ID}-*" \
-                --dir release/restore
-              stored="$(find release/restore -type f -name "$asset" -print -quit)"
-              test -n "$stored"
-            fi
+            gh run download "$GITHUB_RUN_ID" --name "$prior_artifact" --dir release/restore
+            stored="$(find release/restore -type f -name "$asset" -print -quit)"
+            test -n "$stored"
             cp "$stored" "release/assets/$asset"
             node tooling/release/candidate-store.mjs restore "${{ github.sha }}" "release/assets/$asset"
+          }
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            node tooling/release/build-candidates.mjs
+          else
+            asset="suite-candidates-${{ github.sha }}.tgz"
+            prior_artifact="$(
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" \
+                --jq '.artifacts | map(select(.expired == false and (.name | startswith("suite-candidates-'"$GITHUB_RUN_ID"'-")))) | sort_by(.id) | last | .name // ""'
+            )"
+            if [ "${{ steps.prepare.outputs.mode }}" = "existing" ]; then
+              rm -rf release/restore release/assets
+              mkdir -p release/restore release/assets
+              if gh release download "${{ steps.prepare.outputs.tag }}" \
+                --pattern "$asset" \
+                --dir release/restore; then
+                stored="release/restore/$asset"
+                cp "$stored" "release/assets/$asset"
+                node tooling/release/candidate-store.mjs restore "${{ github.sha }}" "release/assets/$asset"
+              elif [ -n "$prior_artifact" ]; then
+                restore_prior_attempt
+              else
+                echo "The existing release has no durable or prior-attempt candidate." >&2
+                exit 1
+              fi
+            elif [ -n "$prior_artifact" ]; then
+              restore_prior_attempt
+            else
+              node tooling/release/build-candidates.mjs --prepared-source "${{ github.sha }}"
+              node tooling/release/candidate-store.mjs bundle "${{ github.sha }}"
+            fi
           fi
       - run: pnpm verify:candidates
       - run: pnpm verify:consumers
