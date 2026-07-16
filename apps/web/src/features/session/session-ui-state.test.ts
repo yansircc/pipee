@@ -38,8 +38,7 @@ const runtime = (runId: string | null, streaming: boolean, runtimeIdentityValue 
     extensionUi: {
       revision: 0,
       pendingInteraction: null,
-      textStatuses: [],
-      companionStatuses: [],
+      statuses: [],
       widgets: [],
     },
   })
@@ -792,8 +791,7 @@ test("projects extension interaction without a run and rejects stale projection 
       title: "输入手机微信显示的配对码",
       placeholder: "配对码",
     },
-    textStatuses: [],
-    companionStatuses: [],
+    statuses: [],
     widgets: [],
   }
   const projected = sessionUiReducer(idle, {

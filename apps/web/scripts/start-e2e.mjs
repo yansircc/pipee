@@ -132,6 +132,16 @@ await writeFile(
       context.ui.setStatus("e2e-interaction", value === undefined ? undefined : "resolved:" + value)
     },
   })
+  pi.registerCommand("interaction-queue-test", {
+    description: "Exercise FIFO extension interactions",
+    async handler(_args, context) {
+      const [first, second] = await Promise.all([
+        context.ui.input("First interaction", "first value"),
+        context.ui.input("Second interaction", "second value"),
+      ])
+      context.ui.setStatus("e2e-interaction-queue", String(first) + ":" + String(second))
+    },
+  })
 }
 `,
 )

@@ -18,16 +18,24 @@ test("controls the real pi-loop extension through structured status", async ({ p
       },
       { sessionId, action },
     )
+  const projection = () =>
+    page.evaluate(async (id) => {
+      const response = await fetch(`/api/sessions/${id}?deferThinking=1&deferMedia=1`)
+      const snapshot = await response.json()
+      return snapshot.runtime.extensionUi
+    }, sessionId)
 
   const first = await command({ _tag: "CreateInterval", periodMs: 60_000, prompt: "inspect alpha" })
   expect(first.status, JSON.stringify(first.body)).toBe(200)
   const second = await command({ _tag: "CreateInterval", periodMs: 120_000, prompt: "inspect beta" })
   expect(second.status, JSON.stringify(second.body)).toBe(200)
-  expect(second.body.extensionUi.companionStatuses).toEqual(
-    expect.arrayContaining([
+  expect(second.body).toEqual({ ok: true })
+  await expect.poll(projection).toMatchObject({
+    statuses: expect.arrayContaining([
       expect.objectContaining({
+        _tag: "Structured",
         key: "pi-loop",
-        status: expect.objectContaining({
+        value: expect.objectContaining({
           kind: "pi-loop/status",
           loops: [
             expect.objectContaining({ prompt: "inspect alpha" }),
@@ -37,17 +45,20 @@ test("controls the real pi-loop extension through structured status", async ({ p
       }),
       expect.objectContaining({ key: "pi-loop/runtime-lease" }),
     ]),
-  )
+  })
 
-  const loops = second.body.extensionUi.companionStatuses.find(
-    (item: { key?: string; status?: { loops?: Array<{ id: string }> } }) => item.key === "pi-loop",
-  )?.status.loops
+  const current = await projection()
+  const loops = current.statuses.find(
+    (item: { key?: string; value?: { loops?: Array<{ id: string }> } }) => item.key === "pi-loop",
+  )?.value.loops
   expect(loops).toHaveLength(2)
   const firstDelete = await command({ _tag: "Delete", id: loops[0].id })
   expect(firstDelete.status).toBe(200)
   const secondDelete = await command({ _tag: "Delete", id: loops[1].id })
   expect(secondDelete.status).toBe(200)
-  expect(secondDelete.body.extensionUi.companionStatuses).not.toEqual(
-    expect.arrayContaining([expect.objectContaining({ key: "pi-loop/runtime-lease" })]),
-  )
+  await expect
+    .poll(async () =>
+      (await projection()).statuses.some((item: { key?: string }) => item.key === "pi-loop/runtime-lease"),
+    )
+    .toBe(false)
 })

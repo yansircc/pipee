@@ -268,12 +268,16 @@ export {
 } from "@pi-suite/companion-contracts/weixin"
 export { ChromeControlRequest, LoopControlRequest, WeixinControlRequest }
 export type { LoopControlRequest as LoopControlRequestType } from "@pi-suite/companion-contracts/loop"
-export const ExtensionStatusItem = Schema.Struct({
-  key: Schema.String,
-  text: Schema.optionalKey(Schema.String),
-  status: Schema.optionalKey(JsonValue),
-})
-export type ExtensionStatusItem = typeof ExtensionStatusItem.Type
+export const ExtensionStatusContribution = Schema.Union([
+  Schema.TaggedStruct("Text", { key: Schema.String, text: Schema.String }),
+  Schema.TaggedStruct("Structured", {
+    key: Schema.String,
+    kind: Schema.NonEmptyString,
+    version: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+    value: JsonValue,
+  }),
+])
+export type ExtensionStatusContribution = typeof ExtensionStatusContribution.Type
 export const ExtensionWidgetContent = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("text"), lines: Schema.Array(Schema.String) }),
   Schema.Struct({
@@ -329,13 +333,10 @@ export type ExtensionInteractionAnswer = typeof ExtensionInteractionAnswer.Type
 export const ExtensionInteractionResponse = Schema.Struct({ answer: ExtensionInteractionAnswer })
 export type ExtensionInteractionResponse = typeof ExtensionInteractionResponse.Type
 
-const ExtensionTextStatus = Schema.Struct({ key: Schema.String, text: Schema.String })
-const ExtensionCompanionStatus = Schema.Struct({ key: Schema.String, status: JsonValue })
 export const ExtensionUiProjection = Schema.Struct({
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   pendingInteraction: Schema.NullOr(ExtensionInteraction),
-  textStatuses: Schema.Array(ExtensionTextStatus),
-  companionStatuses: Schema.Array(ExtensionCompanionStatus),
+  statuses: Schema.Array(ExtensionStatusContribution),
   widgets: Schema.Array(ExtensionWidgetItem),
 })
 export type ExtensionUiProjection = typeof ExtensionUiProjection.Type
@@ -928,11 +929,6 @@ const MessagePayload = Schema.Struct({
 })
 
 const IdempotencyKey = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256))
-const CompanionControlResult = Schema.Struct({
-  tools: Schema.Array(ToolEntry),
-  extensionUi: ExtensionUiProjection,
-})
-
 const SessionActionsApi = HttpApiGroup.make("sessionActions").add(
   HttpApiEndpoint.post("prompt", "/api/sessions/:id/actions/prompt", {
     params: IdParam,
@@ -1069,33 +1065,37 @@ const SessionActionsApi = HttpApiGroup.make("sessionActions").add(
   HttpApiEndpoint.post("slashCommand", "/api/sessions/:id/actions/slash-command", {
     params: IdParam,
     payload: Schema.Struct({ name: Schema.NonEmptyString, args: Schema.String }),
-    success: CompanionControlResult,
+    success: Ok,
     error: CommonErrors,
   }),
   HttpApiEndpoint.post("loopControl", "/api/sessions/:id/companions/loop/control", {
     params: IdParam,
     payload: LoopControlRequest,
-    success: CompanionControlResult,
+    success: Ok,
     error: CommonErrors,
   }),
   HttpApiEndpoint.post("weixinControl", "/api/sessions/:id/companions/weixin/control", {
     params: IdParam,
     payload: WeixinControlRequest,
-    success: CompanionControlResult,
+    success: Ok,
     error: CommonErrors,
   }),
   HttpApiEndpoint.post("chromeControl", "/api/sessions/:id/companions/chrome/control", {
     params: IdParam,
     payload: ChromeControlRequest,
-    success: CompanionControlResult,
-    error: CommonErrors,
-  }),
-  HttpApiEndpoint.post("resolveInteraction", "/api/sessions/:id/interactions/:interactionId/resolve", {
-    params: Schema.Struct({ id: Schema.String, interactionId: Schema.String }),
-    payload: ExtensionInteractionResponse,
     success: Ok,
     error: CommonErrors,
   }),
+  HttpApiEndpoint.post(
+    "resolveInteraction",
+    "/api/sessions/:id/runtimes/:runtimeId/interactions/:interactionId/resolve",
+    {
+      params: Schema.Struct({ id: Schema.String, runtimeId: RuntimeId, interactionId: Schema.String }),
+      payload: ExtensionInteractionResponse,
+      success: Ok,
+      error: CommonErrors,
+    },
+  ),
 )
 
 const WorkspaceApi = HttpApiGroup.make("workspace").add(

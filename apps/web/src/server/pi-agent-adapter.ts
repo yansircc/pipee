@@ -48,6 +48,7 @@ import {
   ApiKeyStatus,
   CompletedBashExecution,
   ContextUsage,
+  ExtensionStatusContribution,
   ExtensionUiProjection,
   ExtensionWidgetItem,
   JsonValue,
@@ -116,6 +117,16 @@ export class PiPromptIdempotencyError extends Data.TaggedError("PiPromptIdempote
   readonly requestId: string
   readonly reason: "PayloadMismatch" | "InDoubt"
   readonly message: string
+}> {}
+
+export class PiInteractionConflictError extends Data.TaggedError("PiInteractionConflictError")<{
+  readonly interactionId: string
+}> {}
+
+export class PiInteractionResponseError extends Data.TaggedError("PiInteractionResponseError")<{
+  readonly interactionId: string
+  readonly method: ExtensionInteractionValue["method"]
+  readonly responseTag: ExtensionInteractionAnswerValue["_tag"]
 }> {}
 
 const adapterError = (operation: string) => (cause: unknown) =>
@@ -225,21 +236,16 @@ export interface PiRuntime {
   readonly tools: Effect.Effect<ReadonlyArray<typeof ToolEntry.Type>, PiAdapterError>
   readonly commands: Effect.Effect<ReadonlyArray<typeof SlashCommand.Type>, PiAdapterError>
   readonly setTools: (toolNames: ReadonlyArray<string>) => Effect.Effect<void, PiAdapterError>
-  readonly invokeSlashCommand: (name: string, args: string) => Effect.Effect<CompanionControlResult, PiAdapterError>
-  readonly controlLoop: (request: LoopControlRequestType) => Effect.Effect<CompanionControlResult, PiAdapterError>
-  readonly controlWeixin: (request: WeixinControlRequestType) => Effect.Effect<CompanionControlResult, PiAdapterError>
-  readonly controlChrome: (request: ChromeControlRequestType) => Effect.Effect<CompanionControlResult, PiAdapterError>
+  readonly invokeSlashCommand: (name: string, args: string) => Effect.Effect<void, PiAdapterError>
+  readonly controlLoop: (request: LoopControlRequestType) => Effect.Effect<void, PiAdapterError>
+  readonly controlWeixin: (request: WeixinControlRequestType) => Effect.Effect<void, PiAdapterError>
+  readonly controlChrome: (request: ChromeControlRequestType) => Effect.Effect<void, PiAdapterError>
   readonly resolveInteraction: (
     interactionId: string,
     response: ExtensionInteractionResponseValue,
-  ) => Effect.Effect<void, PiAdapterError>
+  ) => Effect.Effect<void, PiInteractionConflictError | PiInteractionResponseError>
   readonly reload: Effect.Effect<void, PiAdapterError>
   readonly dispose: Effect.Effect<void>
-}
-
-interface CompanionControlResult {
-  readonly tools: ReadonlyArray<typeof ToolEntry.Type>
-  readonly extensionUi: typeof ExtensionUiProjection.Type
 }
 
 export class PiAgentAdapter extends Context.Service<
@@ -817,8 +823,7 @@ const makeRuntime = (
     let extensionUi = ExtensionUiProjection.make({
       revision: 0,
       pendingInteraction: null,
-      textStatuses: [],
-      companionStatuses: [],
+      statuses: [],
       widgets: [],
     })
     let pendingUi: {
@@ -948,11 +953,10 @@ const makeRuntime = (
       setStatus: (key: string, text?: string) => {
         commitExtensionUi((current) => ({
           ...current,
-          textStatuses: [
-            ...current.textStatuses.filter((item) => item.key !== key),
-            ...(text === undefined ? [] : [{ key, text }]),
+          statuses: [
+            ...current.statuses.filter((item) => item.key !== key),
+            ...(text === undefined ? [] : [ExtensionStatusContribution.make({ _tag: "Text", key, text })]),
           ],
-          companionStatuses: current.companionStatuses.filter((item) => item.key !== key),
         }))
       },
       setStructuredStatus: (key: string, value?: unknown) => {
@@ -963,10 +967,9 @@ const makeRuntime = (
         }
         commitExtensionUi((current) => ({
           ...current,
-          textStatuses: current.textStatuses.filter((item) => item.key !== key),
-          companionStatuses: [
-            ...current.companionStatuses.filter((item) => item.key !== key),
-            ...(status === undefined ? [] : [{ key, status }]),
+          statuses: [
+            ...current.statuses.filter((item) => item.key !== key),
+            ...(status === undefined ? [] : [ExtensionStatusContribution.make({ _tag: "Structured", key, ...status })]),
           ],
         }))
       },
@@ -1214,11 +1217,7 @@ const makeRuntime = (
           try: () => command.handler(args, inner.extensionRunner.createCommandContext()),
           catch: adapterError(`runtime.companion.${name}`),
         })
-        const active = new Set(inner.getActiveToolNames())
-        return {
-          tools: inner.getAllTools().map((tool) => ToolEntry.make({ ...tool, active: active.has(tool.name) })),
-          extensionUi,
-        }
+        return undefined
       })
 
     const chromeControlArgument = (request: ChromeControlRequestType): string => {
@@ -1578,16 +1577,14 @@ const makeRuntime = (
         Effect.gen(function* () {
           const current = pendingUi
           if (current === null || current.interaction.interactionId !== interactionId) {
-            return yield* new PiAdapterError({
-              operation: "runtime.interaction.resolve",
-              message: "Extension interaction is no longer pending",
-            })
+            return yield* new PiInteractionConflictError({ interactionId })
           }
           const matched = matchExtensionInteractionResponse(current.interaction, response.answer)
           if (matched._tag === "Rejected") {
-            return yield* new PiAdapterError({
-              operation: "runtime.interaction.resolve",
-              message: `Response ${response.answer._tag} does not match ${current.interaction.method} interaction`,
+            return yield* new PiInteractionResponseError({
+              interactionId,
+              method: current.interaction.method,
+              responseTag: response.answer._tag,
             })
           }
           pendingUi = null

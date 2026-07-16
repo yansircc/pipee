@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import type { ExtensionStatusItem } from "@/api/contract"
+import type { ExtensionStatusContribution } from "@/api/contract"
 
 const RuntimeLeaseProjection = Schema.Struct({
   kind: Schema.Literal("pi/runtime-lease"),
@@ -10,5 +10,5 @@ const RuntimeLeaseProjection = Schema.Struct({
 
 const decodeLease = Schema.decodeUnknownOption(RuntimeLeaseProjection)
 
-export const hasRuntimeLease = (statuses: ReadonlyArray<ExtensionStatusItem>): boolean =>
-  statuses.some((item) => decodeLease(item.status)._tag === "Some")
+export const hasRuntimeLease = (statuses: ReadonlyArray<ExtensionStatusContribution>): boolean =>
+  statuses.some((item) => item._tag === "Structured" && decodeLease(item.value)._tag === "Some")

@@ -167,6 +167,26 @@ test("resolves a session-scoped extension interaction before any run exists", as
   }, sessionId)
 
   await expect(page.getByText("E2E interaction", { exact: true })).toBeVisible()
+  const pending = await page.evaluate(async (id) => {
+    const response = await fetch(`/api/sessions/${id}?deferThinking=1&deferMedia=1`)
+    const snapshot = await response.json()
+    return {
+      runtimeId: snapshot.runtime.identity.runtimeId as string,
+      interactionId: snapshot.runtime.extensionUi.pendingInteraction.interactionId as string,
+    }
+  }, sessionId)
+  const staleRuntime = await mutate(
+    page,
+    `/api/sessions/${sessionId}/runtimes/00000000-0000-4000-8000-000000000099/interactions/${pending.interactionId}/resolve`,
+    { answer: { _tag: "Value", value: "stale" } },
+  )
+  expect(staleRuntime.status).toBe(409)
+  const wrongKind = await mutate(
+    page,
+    `/api/sessions/${sessionId}/runtimes/${pending.runtimeId}/interactions/${pending.interactionId}/resolve`,
+    { answer: { _tag: "Confirmation", confirmed: true } },
+  )
+  expect(wrongKind.status).toBe(400)
   await page.getByPlaceholder("pairing code").fill("2468")
   await page.getByRole("button", { name: "Submit", exact: true }).click()
   await expect
@@ -175,19 +195,62 @@ test("resolves a session-scoped extension interaction before any run exists", as
     )
     .toMatchObject({
       status: 200,
-      body: {
-        extensionUi: {
-          pendingInteraction: null,
-          textStatuses: [{ key: "e2e-interaction", text: "resolved:2468" }],
-        },
-      },
+      body: { ok: true },
     })
 
-  const snapshot = await page.evaluate(async (id) => {
-    const response = await fetch(`/api/sessions/${id}?deferThinking=1&deferMedia=1`)
-    return response.json()
+  const snapshot = () =>
+    page.evaluate(async (id) => {
+      const response = await fetch(`/api/sessions/${id}?deferThinking=1&deferMedia=1`)
+      return response.json()
+    }, sessionId)
+  await expect.poll(snapshot).toMatchObject({
+    runtime: {
+      runId: null,
+      extensionUi: {
+        pendingInteraction: null,
+        statuses: [{ _tag: "Text", key: "e2e-interaction", text: "resolved:2468" }],
+      },
+    },
+  })
+  const duplicate = await mutate(
+    page,
+    `/api/sessions/${sessionId}/runtimes/${pending.runtimeId}/interactions/${pending.interactionId}/resolve`,
+    { answer: { _tag: "Value", value: "duplicate" } },
+  )
+  expect(duplicate.status).toBe(409)
+
+  await page.evaluate((id) => {
+    const state = window as typeof window & { interactionQueueResult?: unknown }
+    void fetch(`/api/sessions/${id}/actions/slash-command`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "interaction-queue-test", args: "" }),
+    })
+      .then(async (response) => ({ status: response.status, body: await response.json() }))
+      .then((result) => {
+        state.interactionQueueResult = result
+      })
   }, sessionId)
-  expect(snapshot.runtime).toMatchObject({ runId: null, extensionUi: { pendingInteraction: null } })
+  await expect(page.getByText("First interaction", { exact: true })).toBeVisible()
+  await page.getByPlaceholder("first value").fill("alpha")
+  await page.getByRole("button", { name: "Submit", exact: true }).click()
+  await expect(page.getByText("Second interaction", { exact: true })).toBeVisible()
+  await page.getByPlaceholder("second value").fill("beta")
+  await page.getByRole("button", { name: "Submit", exact: true }).click()
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as typeof window & { interactionQueueResult?: unknown }).interactionQueueResult ?? null,
+      ),
+    )
+    .toMatchObject({ status: 200, body: { ok: true } })
+  await expect.poll(snapshot).toMatchObject({
+    runtime: {
+      extensionUi: {
+        statuses: expect.arrayContaining([{ _tag: "Text", key: "e2e-interaction-queue", text: "alpha:beta" }]),
+      },
+    },
+  })
 
   const removed = await mutate(page, `/api/sessions/${sessionId}`, {}, "DELETE")
   expect(removed.status).toBe(200)

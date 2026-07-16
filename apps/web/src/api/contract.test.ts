@@ -50,7 +50,7 @@ test("models every session mutation as a dedicated action endpoint", () => {
         (fact) =>
           fact.path.includes("/api/sessions/:id/actions/") ||
           fact.path.includes("/api/sessions/:id/companions/") ||
-          fact.path.includes("/api/sessions/:id/interactions/") ||
+          fact.path.includes("/api/sessions/:id/runtimes/") ||
           fact.identifier === "tools" ||
           fact.identifier === "commands" ||
           fact.identifier === "stats" ||

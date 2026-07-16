@@ -7,7 +7,7 @@ import type {
   AssistantMessage,
   BashExecutionMessage,
   ExtensionInteraction,
-  ExtensionStatusItem,
+  ExtensionStatusContribution,
   ExtensionWidgetItem,
   SessionInfo,
   SessionStats,
@@ -32,14 +32,13 @@ import { useIsMobile } from "@/hooks/useIsMobile"
 import { useI18n } from "@/lib/i18n"
 import {
   getChromeStatusProjection,
-  getLoopStatusProjection,
   getWeixinStatusProjection,
   sameWeixinStatusProjection,
 } from "@/lib/extension-status"
 import { NOTICE_AUTO_DISMISS_MS, type NoticeItem, type NoticeType } from "@/lib/notices"
 import { copyText } from "@/lib/clipboard"
 import { runBrowser } from "@/browser/api-client"
-import { SessionAutomationBar } from "./SessionAutomationBar"
+import { CompanionRendererRegistry } from "@/features/companions/renderer-registry"
 
 interface Props {
   session: SessionInfo
@@ -288,6 +287,8 @@ export function ChatWindow({
     handleChromeControlChange,
     handleLoopControl,
     loopControlPending,
+    handleWeixinControl,
+    weixinControlPending,
     handleThinkingLevelChange,
     loadSlashCommands,
   } = useAgentSession({
@@ -393,8 +394,6 @@ export function ChatWindow({
     : null
 
   const chromeControlStatus = getChromeStatusProjection(extensionStatuses)
-  const loopStatus = getLoopStatusProjection(extensionStatuses)
-  const currentLoopStatus = loopStatus?.sessionId === session.id ? loopStatus : undefined
 
   const chatInputElement = (
     <ChatInput
@@ -628,14 +627,18 @@ export function ChatWindow({
             <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pt-4 [scrollbar-width:none]">
               <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
                 <div style={{ maxWidth: 820, margin: "0 auto" }}>
-                  {currentLoopStatus !== undefined && (
-                    <SessionAutomationBar
-                      status={currentLoopStatus}
-                      pending={loopControlPending}
-                      sessionBusy={sessionBusy}
-                      onControl={handleLoopControl}
-                    />
-                  )}
+                  <CompanionRendererRegistry
+                    statuses={extensionStatuses}
+                    sessionId={session.id}
+                    sessionBusy={sessionBusy}
+                    loopControlPending={loopControlPending}
+                    chromeControlPending={chromeControlPending}
+                    chromeControlEnabled={chromeControlEnabled}
+                    weixinControlPending={weixinControlPending}
+                    onLoopControl={handleLoopControl}
+                    onChromeControl={handleChromeControlChange}
+                    onWeixinControl={handleWeixinControl}
+                  />
                   <ExtensionStatusBar statuses={extensionStatuses} />
                   <ExtensionWidgets widgets={aboveEditorWidgets} />
 
@@ -938,8 +941,10 @@ export function ChatWindow({
   )
 }
 
-function ExtensionStatusBar({ statuses }: { statuses: ExtensionStatusItem[] }) {
-  const visibleStatuses = statuses.filter((status) => status.key !== "weixin" && status.key !== "chrome" && status.text)
+function ExtensionStatusBar({ statuses }: { statuses: ReadonlyArray<ExtensionStatusContribution> }) {
+  const visibleStatuses = statuses.filter(
+    (status) => status._tag === "Text" && status.key !== "weixin" && status.key !== "chrome",
+  )
   if (visibleStatuses.length === 0) return null
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
@@ -961,7 +966,7 @@ function ExtensionStatusBar({ statuses }: { statuses: ExtensionStatusItem[] }) {
         >
           <span style={{ color: "var(--accent)", fontFamily: "var(--font-mono)", fontSize: 11 }}>{status.key}</span>
           <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {status.text}
+            {status._tag === "Text" ? status.text : ""}
           </span>
         </div>
       ))}
