@@ -12,6 +12,26 @@ it("owns one Linux candidate and same-artifact macOS/Windows witnesses", () => {
   assert.match(workflow, /matrix:[\s\S]*os: \[macos-14, windows-2022\]/)
   assert.match(workflow, /platform-witness:[\s\S]*download-artifact/)
   assert.doesNotMatch(workflow.match(/platform-witness:[\s\S]*?\n  publish:/)?.[0] ?? "", /build-candidates|\bpack\b/)
+  assert.match(workflow, /suite-candidates-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}/)
+  assert.match(workflow, /artifact: \$\{\{ steps\.artifact\.outputs\.name \}\}/)
+  assert.match(workflow, /name: \$\{\{ needs\.candidate\.outputs\.artifact \}\}/)
+})
+
+it("restores an existing source and persists its exact candidate before npm publication", () => {
+  const materialize = workflow.match(/name: Materialize the one candidate[\s\S]*?\n      - run: pnpm verify:candidates/)?.[0] ?? ""
+  const publish = workflow.match(/\n  publish:[\s\S]*?\n  public-acceptance:/)?.[0] ?? ""
+  const existing = materialize.match(/else\n[\s\S]*?candidate-store\.mjs restore/)?.[0] ?? ""
+  assert.match(existing, /gh release download/)
+  assert.match(existing, /gh run download/)
+  assert.doesNotMatch(existing, /build-candidates|\bpack\b/)
+  assert.match(publish, /Persist the exact candidate before publication[\s\S]*gh release upload/)
+  assert.ok(
+    publish.indexOf("Persist the exact candidate before publication") <
+      publish.indexOf("pnpm publish:candidates"),
+    "durable candidate must exist before the first npm publish",
+  )
+  assert.doesNotMatch(workflow, /--existing-release/)
+  assert.doesNotMatch(workflow, /overwrite:\s*true|--clobber/)
 })
 
 it("keeps OIDC publish and public propagation in separate jobs", () => {
@@ -21,7 +41,7 @@ it("keeps OIDC publish and public propagation in separate jobs", () => {
   assert.match(publish, /npm 11\.5\.1 or newer/)
   assert.match(publish, /pnpm publish:candidates/)
   assert.doesNotMatch(publish, /verify:registry/)
-  assert.match(publicAcceptance, /needs: publish/)
+  assert.match(publicAcceptance, /needs: \[candidate, publish\]/)
   assert.match(publicAcceptance, /pnpm verify:registry/)
   assert.doesNotMatch(publicAcceptance, /publish:candidates/)
   assert.doesNotMatch(workflow, /registry-url:/)

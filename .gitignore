@@ -5,6 +5,7 @@ apps/web/.output/
 **/.effect-scan/
 release/candidates/
 release/candidate.json
+release/assets/
 playwright-report/
 test-results/
 .DS_Store

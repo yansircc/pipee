@@ -4,20 +4,34 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { extract } from "tar";
 import { root, run, sha512Integrity, suiteConfig } from "./lib.mjs";
+import { assertReleaseRecordCommit, parseReleaseRecord } from "./release-record.mjs";
 
 const manifestPath = resolve(root, "release/candidate.json");
 assert.equal(existsSync(manifestPath), true, "release/candidate.json is missing");
 const candidate = JSON.parse(readFileSync(manifestPath, "utf8"));
-assert.equal(candidate.schemaVersion, 2);
+assert.equal(candidate.schemaVersion, 3);
 assert.equal(typeof candidate.releasable, "boolean");
 if (candidate.sourceSha !== null) assert.match(candidate.sourceSha, /^[0-9a-f]{40}$/);
 if (candidate.releasable) {
-  assert.ok(
-    [candidate.sourceSha, candidate.releaseCommit].includes(
-      run("git", ["rev-parse", "HEAD"], { capture: true }).trim(),
-    ),
-    "candidate is not being verified from its source or release commit",
-  );
+  const head = run("git", ["rev-parse", "HEAD"], { capture: true }).trim();
+  if (head !== candidate.sourceSha) {
+    const record = parseReleaseRecord(
+      run("git", ["show", "-s", "--format=%B", head], { capture: true }),
+    );
+    assert.ok(record, "candidate is not being verified from its source or release commit");
+    assert.equal(record.source, candidate.sourceSha, "release record owns another candidate source");
+    assert.equal(record.version, candidate.projection?.version, "release and candidate versions differ");
+    assertReleaseRecordCommit({
+      record,
+      parents: run("git", ["show", "-s", "--format=%P", head], { capture: true })
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean),
+      manifestVersions: candidate.projection.files.map(
+        (path) => JSON.parse(run("git", ["show", `${head}:${path}`], { capture: true })).version,
+      ),
+    });
+  }
 }
 if (candidate.projection !== undefined) {
   assert.equal(candidate.projection.kind, "suite-version");

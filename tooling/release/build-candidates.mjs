@@ -6,18 +6,13 @@ import { root, run, sha512Integrity, suiteConfig } from "./lib.mjs";
 const development = process.argv.includes("--development");
 const preparedSourceIndex = process.argv.indexOf("--prepared-source");
 const preparedSource = preparedSourceIndex === -1 ? null : process.argv[preparedSourceIndex + 1];
-const existingSourceIndex = process.argv.indexOf("--existing-release");
-const existingSource = existingSourceIndex === -1 ? null : process.argv[existingSourceIndex + 1];
 if (preparedSourceIndex !== -1 && !preparedSource) {
   throw new Error("--prepared-source requires a source commit");
 }
-if (existingSourceIndex !== -1 && !existingSource) {
-  throw new Error("--existing-release requires a source commit");
-}
 assert.equal(
-  preparedSource === null || existingSource === null,
-  true,
-  "candidate has exactly one release projection mode",
+  process.argv.includes("--existing-release"),
+  false,
+  "an existing release must restore its witnessed candidate, never rebuild it",
 );
 const candidateDirectory = resolve(root, "release/candidates");
 const candidateManifestPath = resolve(root, "release/candidate.json");
@@ -44,18 +39,10 @@ if (preparedSource) {
     releaseFiles,
     "prepared candidate may change only Suite version manifests",
   );
-} else if (existingSource) {
-  assert.match(existingSource, /^[0-9a-f]{40}$/, "existing source must be a full commit SHA");
-  assert.deepEqual(dirtyFiles, [], "existing release candidate must use its clean release commit");
-  const message = run("git", ["show", "-s", "--format=%B", headSha], { capture: true });
-  assert.ok(
-    message.split(/\r?\n/).includes(`Release-Source: ${existingSource}`),
-    "existing release commit does not own the requested source",
-  );
 } else if ((!headSha || dirtyFiles.length > 0) && !development) {
   throw new Error("release candidates require a clean committed worktree");
 }
-const sourceSha = preparedSource ?? existingSource ?? headSha;
+const sourceSha = preparedSource ?? headSha;
 
 rmSync(candidateDirectory, { recursive: true, force: true });
 mkdirSync(candidateDirectory, { recursive: true });
@@ -101,14 +88,13 @@ writeFileSync(
   candidateManifestPath,
   `${JSON.stringify(
     {
-      schemaVersion: 2,
+      schemaVersion: 3,
       sourceSha,
       releasable:
         sourceSha !== null &&
-        (preparedSource !== null || existingSource !== null || dirtyFiles.length === 0),
-      releaseCommit: existingSource ? headSha : undefined,
+        (preparedSource !== null || dirtyFiles.length === 0),
       projection:
-        preparedSource || existingSource
+        preparedSource
           ? {
               kind: "suite-version",
               files: releaseFiles,

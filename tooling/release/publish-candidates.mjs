@@ -10,7 +10,7 @@ import {
 } from "./registry-state.mjs";
 
 const candidate = JSON.parse(readFileSync(resolve(root, "release/candidate.json"), "utf8"));
-assert.equal(candidate.schemaVersion, 2);
+assert.equal(candidate.schemaVersion, 3);
 assert.equal(candidate.releasable, true, "refusing to publish a development candidate");
 
 const registryIntegrity = (name, version) => {

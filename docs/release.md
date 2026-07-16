@@ -7,6 +7,7 @@ source SHA
 → Linux verifies source and packs four archives once
 → macOS and Windows download and consume those exact archives
 → release commit + suite-v<version> tag
+→ tag-owned durable candidate asset, created before any npm publication
 → npm Trusted Publishing through GitHub OIDC
 → positive registry integrity equality
 → fresh public npm and pnpm combined consumers
@@ -22,6 +23,8 @@ Environment:  none
 ```
 
 Do not change package versions, create release tags, publish archives, or add npm credentials manually. The workflow owns versions and publication. An ordinary source commit requests `patch`; exactly one `Release-Bump: minor` or `Release-Bump: major` trailer overrides it.
+
+The first Linux build is the only writer of candidate bytes. The workflow stores `candidate.json` and all four archives as one release asset named by the source SHA before calling `npm publish`. A same-source rerun restores that asset and fails closed if it is different; it never rebuilds or repacks an existing release. The only missing-asset recovery is the prior attempt's immutable Actions artifact in the same workflow run, which closes the failure window between pushing the tag and creating its release asset. Per-attempt Actions artifacts otherwise only transport the durable candidate between jobs.
 
 Local source and candidate gates:
 
