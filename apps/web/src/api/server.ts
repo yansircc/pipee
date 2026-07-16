@@ -373,7 +373,7 @@ const SessionActionsLive = HttpApiBuilder.group(PiWebApi, "sessionActions", (han
           Effect.flatMap((request) =>
             expose(registry.events(params.id)).pipe(
               Effect.map((events) => {
-                const tools: Stream.Stream<PromptProgressEvent> = events.pipe(
+                const tools: Stream.Stream<PromptProgressEvent, RuntimeRegistryError> = events.pipe(
                   Stream.filterMap((envelope) =>
                     envelope.event._tag === "ToolStarted" && envelope.event.runId === request.runId
                       ? Result.succeed({

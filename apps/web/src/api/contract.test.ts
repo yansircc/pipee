@@ -113,7 +113,7 @@ test("decodes structured conflict detail and rejects untagged failures", () => {
 test("requires runtime identity around every run event", () => {
   expect(
     Schema.decodeUnknownOption(RuntimeEnvelope)({
-      runtimeId: "runtime-1",
+      identity: { registryId: "registry-1", runtimeEpoch: 1, runtimeId: "runtime-1" },
       event: { _tag: "RunFinished", runId: "run-1" },
     })._tag,
   ).toBe("Some")

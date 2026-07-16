@@ -208,6 +208,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const noticeSequenceRef = useRef(0)
   const bashSequenceRef = useRef(0)
   const contextSequenceRef = useRef(0)
+  const snapshotSequenceRef = useRef(0)
   const chromeControlSequenceRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
@@ -230,9 +231,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const loadSnapshot = useCallback(
     (sessionId: string, showLoading = false) => {
       if (showLoading) setLoading(true)
+      snapshotSequenceRef.current += 1
+      const requestId = snapshotSequenceRef.current
       return runScoped(loadSessionSnapshot(sessionId), {
         onSuccess: (snapshot) => {
-          dispatch({ _tag: "Loaded", sessionId, snapshot })
+          dispatch({ _tag: "Loaded", sessionId, requestId, snapshot })
           setThinkingLevel(
             (snapshot.runtime?.thinkingLevel as ThinkingLevelOption | undefined) ??
               (snapshot.context.thinkingLevel as ThinkingLevelOption),
@@ -253,6 +256,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       observerRef.current?.()
       observerRef.current = runScoped(
         observeSession(sessionId, {
+          onSnapshotStarted: () => {
+            snapshotSequenceRef.current += 1
+            return snapshotSequenceRef.current
+          },
           onEvent: (envelope) => {
             const event = envelope.event
             if (event._tag === "ExtensionFailed") {
@@ -265,10 +272,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
                 source: "extension",
               })
             }
-            dispatch({ _tag: "RuntimeEvent", sessionId, runtimeId: envelope.runtimeId, event })
+            dispatch({ _tag: "RuntimeEvent", sessionId, identity: envelope.identity, event })
           },
-          onSnapshot: (snapshot) => {
-            dispatch({ _tag: "Loaded", sessionId, snapshot })
+          onSnapshot: (snapshot, requestId) => {
+            dispatch({ _tag: "Loaded", sessionId, requestId, snapshot })
             setThinkingLevel(
               (snapshot.runtime?.thinkingLevel as ThinkingLevelOption | undefined) ??
                 (snapshot.context.thinkingLevel as ThinkingLevelOption),
