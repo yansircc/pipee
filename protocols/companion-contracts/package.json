@@ -6,6 +6,7 @@
   "exports": {
     "./chrome": "./src/chrome.ts",
     "./loop": "./src/loop.ts",
+    "./runtime": "./src/runtime.ts",
     "./weixin": "./src/weixin.ts"
   },
   "dependencies": {

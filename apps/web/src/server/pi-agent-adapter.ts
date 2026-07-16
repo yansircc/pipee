@@ -19,6 +19,7 @@ import {
   type ResolvedResource,
 } from "@earendil-works/pi-coding-agent"
 import { completeSimple, getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat"
+import { ChromeExtensionExpectation } from "@pi-suite/companion-contracts/chrome"
 import {
   Context,
   Cause,
@@ -103,13 +104,13 @@ import {
   removeConfiguredPackage,
   setConfiguredPackageDisabled,
 } from "@/lib/plugin-package-settings"
+import { makeSessionOperationSlot, PiOperationBusyError, type OperationKind } from "./session-operation-slot"
+import { makeRuntimeRetention } from "./runtime-retention"
+
+export { PiOperationBusyError } from "./session-operation-slot"
 
 export class PiAdapterError extends Data.TaggedError("PiAdapterError")<{
   readonly operation: string
-  readonly message: string
-}> {}
-
-export class PiPromptBusyError extends Data.TaggedError("PiPromptBusyError")<{
   readonly message: string
 }> {}
 
@@ -192,6 +193,7 @@ export interface PiRuntime {
   readonly created: string
   readonly firstMessage: Effect.Effect<string | null>
   readonly isConversationEmpty: Effect.Effect<boolean>
+  readonly hasRetention: Effect.Effect<boolean>
   readonly events: PubSub.PubSub<RuntimeEnvelopeValue>
   readonly publishRunEvent: (event: typeof RunScopedEvent.Type) => void
   readonly snapshot: Effect.Effect<typeof RuntimeSnapshot.Type, PiAdapterError>
@@ -199,7 +201,7 @@ export interface PiRuntime {
     runId: RunId,
     requestId: string,
     input: PromptInput,
-  ) => Effect.Effect<PromptRequestHandle, PiAdapterError | PiPromptBusyError | PiPromptIdempotencyError>
+  ) => Effect.Effect<PromptRequestHandle, PiAdapterError | PiOperationBusyError | PiPromptIdempotencyError>
   readonly steer: (message: string, images?: PromptInput["images"]) => Effect.Effect<void, PiAdapterError>
   readonly followUp: (message: string, images?: PromptInput["images"]) => Effect.Effect<void, PiAdapterError>
   readonly abort: Effect.Effect<void, PiAdapterError>
@@ -208,7 +210,7 @@ export interface PiRuntime {
     id: string,
     command: string,
     excludeFromContext: boolean,
-  ) => Effect.Effect<typeof CompletedBashExecution.Type, PiAdapterError>
+  ) => Effect.Effect<typeof CompletedBashExecution.Type, PiAdapterError | PiOperationBusyError>
   readonly abortBash: Effect.Effect<void, PiAdapterError>
   readonly setModel: (
     provider: string,
@@ -224,7 +226,7 @@ export interface PiRuntime {
       readonly tokensBefore?: number
       readonly estimatedTokensAfter?: number
     },
-    PiAdapterError
+    PiAdapterError | PiOperationBusyError
   >
   readonly abortCompaction: Effect.Effect<void, PiAdapterError>
   readonly setSessionName: (name: string) => Effect.Effect<void, PiAdapterError>
@@ -236,10 +238,17 @@ export interface PiRuntime {
   readonly tools: Effect.Effect<ReadonlyArray<typeof ToolEntry.Type>, PiAdapterError>
   readonly commands: Effect.Effect<ReadonlyArray<typeof SlashCommand.Type>, PiAdapterError>
   readonly setTools: (toolNames: ReadonlyArray<string>) => Effect.Effect<void, PiAdapterError>
-  readonly invokeSlashCommand: (name: string, args: string) => Effect.Effect<void, PiAdapterError>
-  readonly controlLoop: (request: LoopControlRequestType) => Effect.Effect<void, PiAdapterError>
-  readonly controlWeixin: (request: WeixinControlRequestType) => Effect.Effect<void, PiAdapterError>
-  readonly controlChrome: (request: ChromeControlRequestType) => Effect.Effect<void, PiAdapterError>
+  readonly invokeSlashCommand: (
+    name: string,
+    args: string,
+  ) => Effect.Effect<void, PiAdapterError | PiOperationBusyError>
+  readonly controlLoop: (request: LoopControlRequestType) => Effect.Effect<void, PiAdapterError | PiOperationBusyError>
+  readonly controlWeixin: (
+    request: WeixinControlRequestType,
+  ) => Effect.Effect<void, PiAdapterError | PiOperationBusyError>
+  readonly controlChrome: (
+    request: ChromeControlRequestType,
+  ) => Effect.Effect<void, PiAdapterError | PiOperationBusyError>
   readonly resolveInteraction: (
     interactionId: string,
     response: ExtensionInteractionResponseValue,
@@ -817,7 +826,8 @@ const makeRuntime = (
     const events = yield* PubSub.sliding<RuntimeEnvelopeValue>({ capacity: 256, replay: 64 })
     const runIdRef = yield* Ref.make<RunId | null>(null)
     const firstMessageRef = yield* Ref.make<string | null>(null)
-    const promptRunning = yield* Ref.make(false)
+    const operationSlot = yield* makeSessionOperationSlot
+    const runtimeRetention = yield* makeRuntimeRetention
     const activeBash = yield* Ref.make<typeof ActiveBashExecution.Type | null>(null)
     const completedBash = yield* Ref.make<typeof CompletedBashExecution.Type | null>(null)
     let extensionUi = ExtensionUiProjection.make({
@@ -889,6 +899,12 @@ const makeRuntime = (
       extensionUi = ExtensionUiProjection.make({ ...update(extensionUi), revision: extensionUi.revision + 1 })
       publish(SessionScopedEvent.make({ _tag: "ExtensionUiChanged", projection: extensionUi }))
     }
+
+    const withGeneratedOperation = <A, E, R>(kind: OperationKind, effect: Effect.Effect<A, E, R>) =>
+      crypto.randomUUIDv4.pipe(
+        Effect.mapError(adapterError(`runtime.${kind}.operationId`)),
+        Effect.flatMap((operationId) => operationSlot.run(kind, operationId, effect)),
+      )
 
     const emitNotice = (message: string, notifyType: "info" | "warning" | "error" = "info") =>
       runCallback(
@@ -1010,6 +1026,13 @@ const makeRuntime = (
         }))
       },
       setStructuredStatus: (key: string, value?: unknown) => {
+        const retention = runtimeRetention.update(key, value)
+        if (retention._tag === "RetentionHandled") {
+          if (!retention.valid) {
+            runCallback(Effect.logWarning("Ignored invalid runtime lease projection", { key }))
+          }
+          return
+        }
         const status = value === undefined ? undefined : extensionStructuredStatusOrUndefined(value)
         if (value !== undefined && status === undefined) {
           runCallback(Effect.logWarning("Ignored non-JSON extension status projection", { key }))
@@ -1228,7 +1251,7 @@ const makeRuntime = (
 
     const snapshot = Effect.gen(function* () {
       const runId = yield* Ref.get(runIdRef)
-      const isPromptRunning = yield* Ref.get(promptRunning)
+      const operation = yield* operationSlot.snapshot
       const activeBashExecution = yield* Ref.get(activeBash)
       const completedBashExecution = yield* Ref.get(completedBash)
       const usage = inner.getContextUsage()
@@ -1237,10 +1260,7 @@ const makeRuntime = (
         runId,
         sessionId: inner.sessionId,
         sessionFile: inner.sessionFile ?? "",
-        isStreaming: inner.isStreaming,
-        isPromptRunning,
-        isCompacting: inner.isCompacting,
-        isBashRunning: activeBashExecution !== null,
+        operation,
         activeBashExecution,
         completedBashExecution,
         autoCompactionEnabled: inner.autoCompactionEnabled,
@@ -1296,6 +1316,7 @@ const makeRuntime = (
       isConversationEmpty: Effect.sync(
         () => !inner.sessionManager.getEntries().some((entry) => entry.type === "message"),
       ),
+      hasRetention: runtimeRetention.hasRetention,
       events,
       publishRunEvent: publish,
       snapshot,
@@ -1356,34 +1377,27 @@ const makeRuntime = (
                           : "Request may have executed before completion was recorded",
                     })
                   }
-                  if (
-                    promptRequests.size > 0 ||
-                    inner.isStreaming ||
-                    inner.isCompacting ||
-                    inner.isBashRunning ||
-                    Ref.getUnsafe(promptRunning)
-                  ) {
-                    return yield* new PiPromptBusyError({ message: "Session already has an active operation" })
-                  }
-
-                  const runId = proposedRunId
-                  const startedEntryId = yield* Effect.try({
-                    try: () =>
-                      inner.sessionManager.appendCustomEntry(PROMPT_REQUEST_ENTRY_TYPE, {
-                        version: 1,
-                        state: "Started",
-                        requestId,
-                        inputDigest: digest,
-                        runId,
-                      }),
-                    catch: adapterError("runtime.promptRequest.start"),
-                  })
-                  const deferred = yield* Deferred.make<
-                    PromptAndWaitResult,
-                    PiAdapterError | PiPromptIdempotencyError
-                  >()
-                  promptRequests.set(requestId, { inputDigest: digest, runId, deferred })
-                  return { _tag: "Execute", startedEntryId, runId, deferred } satisfies Decision
+                  yield* operationSlot.begin("prompt", requestId)
+                  return yield* Effect.gen(function* () {
+                    const runId = proposedRunId
+                    const startedEntryId = yield* Effect.try({
+                      try: () =>
+                        inner.sessionManager.appendCustomEntry(PROMPT_REQUEST_ENTRY_TYPE, {
+                          version: 1,
+                          state: "Started",
+                          requestId,
+                          inputDigest: digest,
+                          runId,
+                        }),
+                      catch: adapterError("runtime.promptRequest.start"),
+                    })
+                    const deferred = yield* Deferred.make<
+                      PromptAndWaitResult,
+                      PiAdapterError | PiPromptIdempotencyError
+                    >()
+                    promptRequests.set(requestId, { inputDigest: digest, runId, deferred })
+                    return { _tag: "Execute", startedEntryId, runId, deferred } satisfies Decision
+                  }).pipe(Effect.onError(() => operationSlot.release("prompt", requestId)))
                 }),
               )
 
@@ -1406,8 +1420,8 @@ const makeRuntime = (
                 message: "Prompt was rejected before execution",
               })
               const execution = Effect.gen(function* () {
+                yield* operationSlot.activate("prompt", requestId)
                 yield* Ref.set(runIdRef, decision.runId)
-                yield* Ref.set(promptRunning, true)
                 yield* Effect.tryPromise({
                   try: () =>
                     inner.prompt(input.message, {
@@ -1438,13 +1452,9 @@ const makeRuntime = (
                 return result
               }).pipe(
                 Effect.ensuring(
-                  Ref.set(promptRunning, false).pipe(
-                    Effect.andThen(
-                      Effect.sync(() => {
-                        Deferred.doneUnsafe(accepted, Effect.fail(rejected))
-                      }),
-                    ),
-                  ),
+                  operationSlot
+                    .release("prompt", requestId)
+                    .pipe(Effect.andThen(Effect.sync(() => Deferred.doneUnsafe(accepted, Effect.fail(rejected))))),
                 ),
               )
 
@@ -1478,64 +1488,68 @@ const makeRuntime = (
         }),
       abort: Effect.tryPromise({ try: () => inner.abort(), catch: adapterError("runtime.abort") }),
       executeBash: (runId, id, command, excludeFromContext) =>
-        Effect.gen(function* () {
-          yield* Ref.set(runIdRef, runId)
-          const startedAt = yield* Effect.clockWith((clock) => Effect.succeed(clock.currentTimeMillisUnsafe()))
-          const active = ActiveBashExecution.make({ id, command, output: "", excludeFromContext, startedAt })
-          yield* Ref.set(activeBash, active)
-          publish(RunScopedEvent.make({ _tag: "BashStarted", runId, execution: active }))
-          const extensionResult = yield* Effect.tryPromise({
-            try: () =>
-              inner.extensionRunner.emitUserBash({
-                type: "user_bash",
-                command,
-                excludeFromContext,
-                cwd: inner.sessionManager.getCwd(),
-              }),
-            catch: adapterError("runtime.userBash"),
-          })
-          const result =
-            extensionResult?.result === undefined
-              ? yield* Effect.tryPromise({
-                  try: () =>
-                    inner.executeBash(
-                      command,
-                      (chunk) => {
-                        const current = Ref.getUnsafe(activeBash)
-                        if (current?.id === id) {
-                          activeBash.ref.current = {
-                            ...current,
-                            output: appendLiveBashOutput(current.output, chunk),
+        operationSlot.run(
+          "bash",
+          id,
+          Effect.gen(function* () {
+            yield* Ref.set(runIdRef, runId)
+            const startedAt = yield* Effect.clockWith((clock) => Effect.succeed(clock.currentTimeMillisUnsafe()))
+            const active = ActiveBashExecution.make({ id, command, output: "", excludeFromContext, startedAt })
+            yield* Ref.set(activeBash, active)
+            publish(RunScopedEvent.make({ _tag: "BashStarted", runId, execution: active }))
+            const extensionResult = yield* Effect.tryPromise({
+              try: () =>
+                inner.extensionRunner.emitUserBash({
+                  type: "user_bash",
+                  command,
+                  excludeFromContext,
+                  cwd: inner.sessionManager.getCwd(),
+                }),
+              catch: adapterError("runtime.userBash"),
+            })
+            const result =
+              extensionResult?.result === undefined
+                ? yield* Effect.tryPromise({
+                    try: () =>
+                      inner.executeBash(
+                        command,
+                        (chunk) => {
+                          const current = Ref.getUnsafe(activeBash)
+                          if (current?.id === id) {
+                            activeBash.ref.current = {
+                              ...current,
+                              output: appendLiveBashOutput(current.output, chunk),
+                            }
                           }
-                        }
-                        publish(RunScopedEvent.make({ _tag: "BashOutput", runId, id, chunk }))
-                      },
-                      { excludeFromContext, operations: extensionResult?.operations },
-                    ),
-                  catch: adapterError("runtime.bash"),
-                })
-              : extensionResult.result
-          if (extensionResult?.result !== undefined) inner.recordBashResult(command, result, { excludeFromContext })
-          const timestamp = yield* Effect.clockWith((clock) => Effect.succeed(clock.currentTimeMillisUnsafe()))
-          const completed = yield* decode(CompletedBashExecution, "runtime.bashResult", {
-            id,
-            message: {
-              role: "bashExecution",
-              command,
-              output: result.output,
-              exitCode: result.exitCode,
-              cancelled: result.cancelled,
-              truncated: result.truncated,
-              ...(result.fullOutputPath === undefined ? {} : { fullOutputPath: result.fullOutputPath }),
-              timestamp,
-              excludeFromContext,
-            },
-          })
-          yield* Ref.set(completedBash, completed)
-          yield* Ref.set(activeBash, null)
-          publish(RunScopedEvent.make({ _tag: "BashFinished", runId, execution: completed }))
-          return completed
-        }).pipe(Effect.ensuring(Ref.set(activeBash, null))),
+                          publish(RunScopedEvent.make({ _tag: "BashOutput", runId, id, chunk }))
+                        },
+                        { excludeFromContext, operations: extensionResult?.operations },
+                      ),
+                    catch: adapterError("runtime.bash"),
+                  })
+                : extensionResult.result
+            if (extensionResult?.result !== undefined) inner.recordBashResult(command, result, { excludeFromContext })
+            const timestamp = yield* Effect.clockWith((clock) => Effect.succeed(clock.currentTimeMillisUnsafe()))
+            const completed = yield* decode(CompletedBashExecution, "runtime.bashResult", {
+              id,
+              message: {
+                role: "bashExecution",
+                command,
+                output: result.output,
+                exitCode: result.exitCode,
+                cancelled: result.cancelled,
+                truncated: result.truncated,
+                ...(result.fullOutputPath === undefined ? {} : { fullOutputPath: result.fullOutputPath }),
+                timestamp,
+                excludeFromContext,
+              },
+            })
+            yield* Ref.set(completedBash, completed)
+            yield* Ref.set(activeBash, null)
+            publish(RunScopedEvent.make({ _tag: "BashFinished", runId, execution: completed }))
+            return completed
+          }).pipe(Effect.ensuring(Ref.set(activeBash, null))),
+        ),
       abortBash: Effect.sync(() => inner.abortBash()),
       setModel: (provider, modelId) =>
         Effect.gen(function* () {
@@ -1561,21 +1575,25 @@ const makeRuntime = (
           }
         }),
       compact: (runId, instructions) =>
-        Effect.gen(function* () {
-          yield* Ref.set(runIdRef, runId)
-          const value = yield* Effect.tryPromise({
-            try: () => inner.compact(instructions),
-            catch: adapterError("runtime.compact"),
-          })
-          if (typeof value !== "object" || value === null) return {}
-          const result = value as Record<string, unknown>
-          return {
-            ...(typeof result.tokensBefore === "number" ? { tokensBefore: result.tokensBefore } : {}),
-            ...(typeof result.estimatedTokensAfter === "number"
-              ? { estimatedTokensAfter: result.estimatedTokensAfter }
-              : {}),
-          }
-        }),
+        operationSlot.run(
+          "compaction",
+          runId,
+          Effect.gen(function* () {
+            yield* Ref.set(runIdRef, runId)
+            const value = yield* Effect.tryPromise({
+              try: () => inner.compact(instructions),
+              catch: adapterError("runtime.compact"),
+            })
+            if (typeof value !== "object" || value === null) return {}
+            const result = value as Record<string, unknown>
+            return {
+              ...(typeof result.tokensBefore === "number" ? { tokensBefore: result.tokensBefore } : {}),
+              ...(typeof result.estimatedTokensAfter === "number"
+                ? { estimatedTokensAfter: result.estimatedTokensAfter }
+                : {}),
+            }
+          }),
+        ),
       abortCompaction: Effect.sync(() => inner.abortCompaction()),
       setSessionName: (name) => Effect.sync(() => inner.setSessionName(name)),
       stats: decode(SessionStats, "runtime.stats", {
@@ -1619,10 +1637,13 @@ const makeRuntime = (
           inner.setActiveToolsByName(active)
           if (active.length === 0 && inner.agent.state) inner.agent.state.systemPrompt = ""
         }),
-      invokeSlashCommand: invokeCompanionCommand,
-      controlLoop: (request) => invokeCompanionCommand("loop-control", JSON.stringify(request)),
-      controlWeixin: (request) => invokeCompanionCommand("weixin", weixinControlArgument(request)),
-      controlChrome: (request) => invokeCompanionCommand("chrome", chromeControlArgument(request)),
+      invokeSlashCommand: (name, args) => withGeneratedOperation("slash-command", invokeCompanionCommand(name, args)),
+      controlLoop: (request) =>
+        withGeneratedOperation("loop-control", invokeCompanionCommand("loop-control", JSON.stringify(request))),
+      controlWeixin: (request) =>
+        withGeneratedOperation("weixin-control", invokeCompanionCommand("weixin", weixinControlArgument(request))),
+      controlChrome: (request) =>
+        withGeneratedOperation("chrome-control", invokeCompanionCommand("chrome", chromeControlArgument(request))),
       resolveInteraction: (interactionId, response) =>
         Effect.gen(function* () {
           const current = pendingUi
@@ -2123,29 +2144,25 @@ const adapterLive = Effect.gen(function* () {
       const version = typeof parsed.value.version === "string" ? parsed.value.version : undefined
       let chromeExtensionId: string | undefined
       let chromeExtensionDirectory: string | undefined
+      let chromeExtensionDisplayVersion: string | undefined
+      let chromeProtocolFingerprint: string | undefined
       if (packageName === PI_COMPANION_PACKAGE_NAMES.chrome) {
         chromeExtensionDirectory = path.join(root, "dist", "browser-extension")
-        const manifest = yield* fs
-          .readFileString(path.join(chromeExtensionDirectory, "manifest.json"))
+        const evidence = yield* fs
+          .readFileString(path.join(chromeExtensionDirectory, "evidence.json"))
           .pipe(Effect.option)
-        if (Option.isSome(manifest)) {
-          const keyOption = yield* Effect.try({
-            try: () => (JSON.parse(manifest.value) as { readonly key?: unknown }).key,
-            catch: () => undefined,
+        if (Option.isSome(evidence)) {
+          const value = yield* Effect.try({
+            try: () => JSON.parse(evidence.value) as unknown,
+            catch: () => new PiAdapterError({ operation: "plugins.chromeEvidence", message: "Invalid evidence" }),
           }).pipe(Effect.option)
-          const key = Option.isSome(keyOption) ? keyOption.value : undefined
-          if (typeof key === "string") {
-            const decoded = Encoding.decodeBase64(key)
-            if (decoded._tag === "Success") {
-              const digest = yield* crypto.digest("SHA-256", decoded.success).pipe(Effect.option)
-              if (Option.isSome(digest)) {
-                const alphabet = "abcdefghijklmnop"
-                chromeExtensionId = Array.from(
-                  digest.value.slice(0, 16),
-                  (byte) => `${alphabet[byte >> 4]}${alphabet[byte & 0x0f]}`,
-                ).join("")
-              }
-            }
+          const decoded = Schema.decodeUnknownOption(ChromeExtensionExpectation, {
+            onExcessProperty: "error",
+          })(Option.getOrUndefined(value))
+          if (Option.isSome(decoded)) {
+            chromeExtensionId = decoded.value.extensionId
+            chromeExtensionDisplayVersion = decoded.value.displayVersion
+            chromeProtocolFingerprint = decoded.value.protocolFingerprint
           }
         }
       }
@@ -2154,6 +2171,8 @@ const adapterLive = Effect.gen(function* () {
         ...(version === undefined ? {} : { version }),
         ...(chromeExtensionId === undefined ? {} : { chromeExtensionId }),
         ...(chromeExtensionDirectory === undefined ? {} : { chromeExtensionDirectory }),
+        ...(chromeExtensionDisplayVersion === undefined ? {} : { chromeExtensionDisplayVersion }),
+        ...(chromeProtocolFingerprint === undefined ? {} : { chromeProtocolFingerprint }),
       }
     })
 

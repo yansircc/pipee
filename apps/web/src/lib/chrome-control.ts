@@ -1,6 +1,14 @@
 import { Clock, Data, Duration, Effect, Schema } from "effect"
 import { BrowserPlatform } from "@/browser/browser-platform"
 import type { ChromeControlRequestType, ChromeStatusProjection } from "@/api/contract"
+import {
+  ChromeExternalResponse,
+  classifyChromeCompatibility,
+  type ChromeCompatibility,
+  type ChromeExtensionEvidence,
+  type ChromeExtensionExpectation,
+  type ChromeExternalResponse as ChromeExternalResponseType,
+} from "@pi-suite/companion-contracts/chrome"
 import { PI_COMPANION_PACKAGE_NAMES } from "./plugin-package-settings"
 import type { ToolEntry } from "./tool-presets"
 
@@ -10,6 +18,8 @@ interface PluginsProjection {
     readonly status: "loaded" | "installed" | "missing" | "disabled"
     readonly chromeExtensionId?: string
     readonly chromeExtensionDirectory?: string
+    readonly chromeExtensionDisplayVersion?: string
+    readonly chromeProtocolFingerprint?: string
   }>
 }
 
@@ -35,6 +45,21 @@ export function getPiChromeExtensionDirectory(plugins: PluginsProjection): strin
   )
 }
 
+export function getPiChromeExtensionExpectation(plugins: PluginsProjection): ChromeExtensionExpectation | null {
+  const found = plugins.packages.find(
+    (pkg) => pkg.packageName === PI_COMPANION_PACKAGE_NAMES.chrome && pkg.status === "loaded",
+  )
+  return found?.chromeExtensionId === undefined ||
+    found.chromeExtensionDisplayVersion === undefined ||
+    found.chromeProtocolFingerprint === undefined
+    ? null
+    : {
+        extensionId: found.chromeExtensionId,
+        displayVersion: found.chromeExtensionDisplayVersion,
+        protocolFingerprint: found.chromeProtocolFingerprint,
+      }
+}
+
 export function getPiChromeToolState(tools: ReadonlyArray<ToolEntry>): boolean | null {
   const chromeTools = tools.filter((tool) => tool.name.startsWith("chrome_"))
   if (chromeTools.length === 0) return null
@@ -45,28 +70,6 @@ export function isPiChromeControlEnabled(authorized: boolean | null, toolsActive
   return authorized === true && toolsActive !== false
 }
 
-const PreparedWebRun = Schema.Struct({
-  pairingId: Schema.NonEmptyString,
-  offer: Schema.NonEmptyString,
-})
-type PreparedWebRun = typeof PreparedWebRun.Type
-
-const PreparedResponse = Schema.Struct({
-  ok: Schema.Literal(true),
-  pairingId: Schema.NonEmptyString,
-  offer: Schema.NonEmptyString,
-})
-
-const CompletedResponse = Schema.Struct({ ok: Schema.Literal(true) })
-
-const StatusResponse = Schema.Struct({
-  ok: Schema.Literal(true),
-  connectorId: Schema.NonEmptyString,
-  connectorLabel: Schema.NonEmptyString,
-})
-
-const ErrorResponse = Schema.Struct({ error: Schema.String })
-
 export class ChromeControlError extends Data.TaggedError("ChromeControlError")<{
   readonly operation: string
   readonly message: string
@@ -76,6 +79,8 @@ export type SameProfileChromeStatus = Readonly<{
   connected: true
   connectorId: string
   connectorLabel: string
+  evidence: ChromeExtensionEvidence
+  compatibility: ChromeCompatibility
 }>
 
 export type SameProfileChromeConnection = SameProfileChromeStatus | Readonly<{ connected: false }>
@@ -88,10 +93,10 @@ export type ChromeSessionBinding<T> = Readonly<{
 const minimumRouteLease = Duration.toMillis(Duration.minutes(1))
 
 const invalidResponse = (operation: string, fallback: string, response: unknown) => {
-  const decoded = Schema.decodeUnknownOption(ErrorResponse)(response)
+  const decoded = Schema.decodeUnknownOption(ChromeExternalResponse, { onExcessProperty: "error" })(response)
   return new ChromeControlError({
     operation,
-    message: decoded._tag === "Some" ? decoded.value.error : fallback,
+    message: decoded._tag === "Some" && !decoded.value.ok ? decoded.value.error.message : fallback,
   })
 }
 
@@ -107,63 +112,103 @@ const request = (extensionId: string, message: unknown) =>
     ),
   )
 
-export const getSameProfileChromeStatus = (extensionId: string) =>
+const decodeResponse = (operation: string, response: unknown) =>
+  Schema.decodeUnknownEffect(ChromeExternalResponse, { onExcessProperty: "error" })(response).pipe(
+    Effect.mapError(() => invalidResponse(operation, "The Pi Chrome Connector returned an invalid response", response)),
+    Effect.flatMap((decoded) =>
+      decoded.ok
+        ? Effect.succeed(decoded)
+        : Effect.fail(new ChromeControlError({ operation, message: decoded.error.message })),
+    ),
+  )
+
+type ChromeExternalSuccessResponse = Extract<ChromeExternalResponseType, { readonly ok: true }>
+
+const expectResponse = <Type extends ChromeExternalSuccessResponse["type"]>(
+  operation: string,
+  type: Type,
+  response: unknown,
+) =>
+  decodeResponse(operation, response).pipe(
+    Effect.flatMap((decoded) =>
+      decoded.type === type
+        ? Effect.succeed(decoded as Extract<ChromeExternalSuccessResponse, { readonly type: Type }>)
+        : Effect.fail(new ChromeControlError({ operation, message: `Expected Chrome ${type} response` })),
+    ),
+  )
+
+const requireVerified = (operation: string, expected: ChromeExtensionExpectation, actual: ChromeExtensionEvidence) => {
+  const compatibility = classifyChromeCompatibility(expected, actual)
+  return compatibility._tag === "Verified"
+    ? Effect.succeed(compatibility)
+    : Effect.fail(
+        new ChromeControlError({
+          operation,
+          message: `Chrome extension evidence is incompatible: ${compatibility._tag === "Incompatible" ? compatibility.mismatches.join(", ") : "unknown"}`,
+        }),
+      )
+}
+
+export const getSameProfileChromeStatus = (extensionId: string, expected: ChromeExtensionExpectation | null) =>
   request(extensionId, {
+    version: 1,
     type: "pi-chrome/web-run/status",
   }).pipe(
-    Effect.flatMap((response) =>
-      Schema.decodeUnknownEffect(StatusResponse)(response).pipe(
-        Effect.mapError(() =>
-          invalidResponse("status", "The Pi Chrome Connector returned an invalid profile status", response),
-        ),
-      ),
-    ),
+    Effect.flatMap((response) => expectResponse("status", "Status", response)),
     Effect.map(
       (response): SameProfileChromeStatus => ({
         connected: true,
-        connectorId: response.connectorId,
-        connectorLabel: response.connectorLabel,
+        connectorId: response.evidence.connectorIdentity.connectorId,
+        connectorLabel: response.evidence.connectorIdentity.connectorLabel,
+        evidence: response.evidence,
+        compatibility: classifyChromeCompatibility(expected, response.evidence),
       }),
     ),
   )
 
-export const prepareSameProfileWebRun = (
-  extensionId: string,
-): Effect.Effect<PreparedWebRun, ChromeControlError, BrowserPlatform> =>
-  request(extensionId, { type: "pi-chrome/web-run/prepare" }).pipe(
-    Effect.flatMap((response) =>
-      Schema.decodeUnknownEffect(PreparedResponse)(response).pipe(
-        Effect.mapError(() =>
-          invalidResponse("prepare", "The Pi Chrome Connector returned an invalid web run offer", response),
-        ),
-      ),
-    ),
-    Effect.map(({ pairingId, offer }) => PreparedWebRun.make({ pairingId, offer })),
+export const prepareSameProfileWebRun = (extensionId: string, expected: ChromeExtensionExpectation) =>
+  request(extensionId, { version: 1, type: "pi-chrome/web-run/prepare" }).pipe(
+    Effect.flatMap((response) => expectResponse("prepare", "Prepared", response)),
+    Effect.tap((response) => requireVerified("prepare.compatibility", expected, response.evidence)),
   )
 
-export const completeSameProfileWebRun = (extensionId: string, pairingId: string) =>
+export const completeSameProfileWebRun = (
+  extensionId: string,
+  pairingId: string,
+  expected: ChromeExtensionExpectation,
+  preparedEvidence?: ChromeExtensionEvidence,
+) =>
   request(extensionId, {
+    version: 1,
     type: "pi-chrome/web-run/complete",
     pairingId,
   }).pipe(
-    Effect.flatMap((response) =>
-      Schema.decodeUnknownEffect(CompletedResponse)(response).pipe(
-        Effect.mapError(() =>
-          invalidResponse("complete", "The Pi Chrome Connector could not confirm this web run", response),
-        ),
-      ),
+    Effect.flatMap((response) => expectResponse("complete", "Completed", response)),
+    Effect.tap((response) => requireVerified("complete.compatibility", expected, response.evidence)),
+    Effect.tap((response) =>
+      preparedEvidence === undefined ||
+      (preparedEvidence.connectorIdentity.connectorId === response.evidence.connectorIdentity.connectorId &&
+        preparedEvidence.extensionId === response.evidence.extensionId)
+        ? Effect.void
+        : Effect.fail(
+            new ChromeControlError({
+              operation: "complete.connector",
+              message: "Chrome completion came from a different connector",
+            }),
+          ),
     ),
     Effect.asVoid,
   )
 
 export const attachSameProfileChromeSession = <T, E, R>(
   extensionId: string,
+  expected: ChromeExtensionExpectation,
   invokeChromeControl: (request: ChromeControlRequestType) => Effect.Effect<T, E, R>,
 ): Effect.Effect<T, ChromeControlError | E, BrowserPlatform | R> =>
   Effect.gen(function* () {
-    const prepared = yield* prepareSameProfileWebRun(extensionId)
+    const prepared = yield* prepareSameProfileWebRun(extensionId, expected)
     yield* invokeChromeControl({ action: { _tag: "WebAttach", offer: prepared.offer } })
-    return yield* completeSameProfileWebRun(extensionId, prepared.pairingId).pipe(
+    return yield* completeSameProfileWebRun(extensionId, prepared.pairingId, expected, prepared.evidence).pipe(
       Effect.andThen(invokeChromeControl({ action: { _tag: "WebAssert", pairingId: prepared.pairingId } })),
       Effect.onError(() =>
         invokeChromeControl({ action: { _tag: "WebDetach", pairingId: prepared.pairingId } }).pipe(Effect.ignore),
@@ -173,11 +218,13 @@ export const attachSameProfileChromeSession = <T, E, R>(
 
 export const ensureChromeSessionBinding = <T, E, R>(
   extensionId: string,
+  expected: ChromeExtensionExpectation,
   sessionStatus: ChromeStatusProjection | undefined,
   invokeChromeControl: (request: ChromeControlRequestType) => Effect.Effect<T, E, R>,
 ): Effect.Effect<ChromeSessionBinding<T>, ChromeControlError | E, BrowserPlatform | R> =>
   Effect.gen(function* () {
-    const profile = yield* getSameProfileChromeStatus(extensionId)
+    const profile = yield* getSameProfileChromeStatus(extensionId, expected)
+    yield* requireVerified("binding.compatibility", expected, profile.evidence)
     const now = yield* Clock.currentTimeMillis
     const authorization = sessionStatus?.authorization
     if (authorization === "locked") {
@@ -201,6 +248,6 @@ export const ensureChromeSessionBinding = <T, E, R>(
       sessionStatus.connectorExpiresAt > now + minimumRouteLease
     if (routeReady) return { profile, commandResult: null }
 
-    const commandResult = yield* attachSameProfileChromeSession(extensionId, invokeChromeControl)
+    const commandResult = yield* attachSameProfileChromeSession(extensionId, expected, invokeChromeControl)
     return { profile, commandResult }
   })

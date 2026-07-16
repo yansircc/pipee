@@ -201,6 +201,7 @@ const applyRuntime = (state: SessionUiState, runtime: RuntimeSnapshotValue | nul
   }
   const expectedRunId = identified.pendingPrompt?.runId ?? identified.runId
   if (expectedRunId !== null && runtime.runId !== null && runtime.runId !== expectedRunId) return identified
+  const operationKind = runtime.operation._tag === "Idle" ? null : runtime.operation.kind
   return {
     ...identified,
     runId: runtime.runId,
@@ -209,21 +210,17 @@ const applyRuntime = (state: SessionUiState, runtime: RuntimeSnapshotValue | nul
         ? identified.pendingPrompt
         : { ...identified.pendingPrompt, runId: runtime.runId },
     terminalRunId:
-      runtime.runId !== null &&
-      !runtime.isStreaming &&
-      !runtime.isPromptRunning &&
-      !runtime.isBashRunning &&
-      !runtime.isCompacting
+      runtime.runId !== null && runtime.operation._tag === "Idle"
         ? runtime.runId
         : identified.terminalRunId === runtime.runId
           ? null
           : identified.terminalRunId,
     pendingOperation: null,
-    agentRunning: runtime.isStreaming || runtime.isPromptRunning || runtime.isBashRunning,
-    isStreaming: runtime.isStreaming,
+    agentRunning: operationKind !== null,
+    isStreaming: operationKind === "prompt",
     activeBashExecution: runtime.activeBashExecution,
     queuedMessages: runtime.queuedMessages,
-    isCompacting: runtime.isCompacting,
+    isCompacting: operationKind === "compaction",
   }
 }
 

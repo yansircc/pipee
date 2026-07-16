@@ -6,6 +6,7 @@ import type {
 import { layer as nodeServicesLayer, type NodeServices } from "@effect/platform-node/NodeServices";
 import { Type } from "@sinclair/typebox";
 import { Clock, Data, Effect, Exit, ManagedRuntime, Schema, Scope } from "effect";
+import { RuntimeLeaseProjection } from "@pi-suite/companion-contracts/runtime";
 import { loadLoopConfig } from "../application/config.js";
 import { makeLoopOperations, type LoopOperations } from "../application/operations.js";
 import { makeLoopRepository, type LoopRepository } from "../application/repository.js";
@@ -106,12 +107,12 @@ const refreshStatus = (active: Session) =>
         ui.setStructuredStatus?.(
           "pi-loop/runtime-lease",
           loops[0]
-            ? {
+            ? RuntimeLeaseProjection.make({
                 kind: "pi/runtime-lease",
                 version: 1,
                 owner: "pi-loop",
                 reason: "automation-present",
-              }
+              })
             : undefined,
         );
       }),

@@ -22,6 +22,7 @@ import {
   PiAdapterError,
   PiInteractionConflictError,
   PiInteractionResponseError,
+  PiOperationBusyError,
   PiPromptIdempotencyError,
   PiAgentAdapter,
   PiAgentAdapterLive,
@@ -109,6 +110,12 @@ export const toPublicError = (error: unknown): PublicError => {
         requestId: error.requestId,
         reason: error.reason,
       },
+    })
+  }
+  if (error instanceof PiOperationBusyError) {
+    return new Conflict({
+      message: "Session already has an active operation",
+      detail: { _tag: "AlreadyRunning", operation: error.kind },
     })
   }
   if (error instanceof PiInteractionConflictError) {

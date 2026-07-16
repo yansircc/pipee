@@ -32,7 +32,10 @@ const chromeMock = {
   },
 };
 
-Object.assign(globalThis, { chrome: chromeMock });
+Object.assign(globalThis, {
+  chrome: chromeMock,
+  __PI_CHROME_PROTOCOL_FINGERPRINT__: "b".repeat(64),
+});
 
 const clearStorage = Effect.sync(() => {
   for (const key of Object.keys(storage)) delete storage[key];

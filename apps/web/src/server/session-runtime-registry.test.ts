@@ -26,10 +26,7 @@ const runtimeSnapshot = (sessionId: string, sessionFile: string) =>
     runId: null,
     sessionId,
     sessionFile,
-    isStreaming: false,
-    isPromptRunning: false,
-    isCompacting: false,
-    isBashRunning: false,
+    operation: { _tag: "Idle" },
     activeBashExecution: null,
     completedBashExecution: null,
     autoCompactionEnabled: true,
@@ -63,6 +60,7 @@ const makeRuntime = (
       created: "2026-07-15T00:00:00.000Z",
       firstMessage: Ref.get(firstMessage),
       isConversationEmpty: Ref.get(firstMessage).pipe(Effect.map((message) => message === null)),
+      hasRetention: Effect.succeed(false),
       events,
       publishRunEvent: (event) => {
         PubSub.publishUnsafe(events, RuntimeEnvelope.make({ identity, event }))
@@ -254,7 +252,9 @@ it.effect("invalidates running sessions after prompt finalizers clear busy state
       snapshot: Ref.get(busy).pipe(
         Effect.map((isPromptRunning) => ({
           ...runtimeSnapshot(base.sessionId, base.sessionFile),
-          isPromptRunning,
+          operation: isPromptRunning
+            ? ({ _tag: "Active", kind: "prompt", operationId: "message-running" } as const)
+            : ({ _tag: "Idle" } as const),
         })),
       ),
       promptRequest: (runId) =>
@@ -416,27 +416,7 @@ it.effect("keeps a runtime alive while an extension owns a runtime lease", () =>
     const base = yield* makeRuntime("session-leased", disposeCount)
     const leased: PiRuntime = {
       ...base,
-      snapshot: Effect.succeed({
-        ...runtimeSnapshot(base.sessionId, base.sessionFile),
-        extensionUi: {
-          ...runtimeSnapshot(base.sessionId, base.sessionFile).extensionUi,
-          revision: 1,
-          statuses: [
-            {
-              _tag: "Structured",
-              key: "pi-loop/runtime-lease",
-              kind: "pi/runtime-lease",
-              version: 1,
-              value: {
-                kind: "pi/runtime-lease",
-                version: 1,
-                owner: "pi-loop",
-                reason: "automation-present",
-              },
-            },
-          ],
-        },
-      }),
+      hasRetention: Effect.succeed(true),
     }
     const adapter: SessionRuntimeAdapter = {
       createRuntime: () => Effect.succeed(leased),
@@ -452,12 +432,13 @@ it.effect("keeps a runtime alive while an extension owns a runtime lease", () =>
   }),
 )
 
-it.effect("closes an idle runtime when lease inspection fails", () =>
+it.effect("retention is independent from public snapshot availability", () =>
   Effect.gen(function* () {
     const disposeCount = yield* Ref.make(0)
     const base = yield* makeRuntime("session-lease-failure", disposeCount)
     const runtime: PiRuntime = {
       ...base,
+      hasRetention: Effect.succeed(true),
       snapshot: Effect.fail(new PiAdapterError({ operation: "runtime.snapshot", message: "unavailable" })),
     }
     const adapter: SessionRuntimeAdapter = {
@@ -468,8 +449,9 @@ it.effect("closes an idle runtime when lease inspection fails", () =>
     yield* registry.start(runtime.sessionId, { sessionFile: runtime.sessionFile, cwd: runtime.cwd })
     yield* Effect.yieldNow
     yield* TestClock.adjust("10 minutes")
-    expect(yield* registry.activeOption(runtime.sessionId)).toBeNull()
-    expect(yield* Ref.get(disposeCount)).toBe(1)
+    expect(yield* registry.activeOption(runtime.sessionId)).not.toBeNull()
+    expect(yield* Ref.get(disposeCount)).toBe(0)
+    yield* registry.close(runtime.sessionId)
   }),
 )
 

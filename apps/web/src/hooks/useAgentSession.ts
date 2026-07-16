@@ -18,6 +18,7 @@ import {
   ensureChromeSessionBinding,
   getPiChromeExtensionId,
   getPiChromeExtensionDirectory,
+  getPiChromeExtensionExpectation,
   getPiChromeToolState,
   getSameProfileChromeStatus,
   hasLoadedPiChrome,
@@ -136,6 +137,7 @@ type ChromeDetection =
       readonly cwd: string
       readonly extensionId: string | null
       readonly extensionDirectory: string | null
+      readonly expectation: ReturnType<typeof getPiChromeExtensionExpectation>
     }
 
 type ModelEntry = { id: string; name: string; provider: string }
@@ -346,6 +348,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
                 cwd: modelCwd,
                 extensionId: getPiChromeExtensionId(plugins),
                 extensionDirectory: getPiChromeExtensionDirectory(plugins),
+                expectation: getPiChromeExtensionExpectation(plugins),
               }
             : { _tag: "Absent", cwd: modelCwd },
         )
@@ -358,16 +361,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     chromeDetection.cwd === modelCwd && chromeDetection._tag === "Installed" ? chromeDetection.extensionId : null
   const chromeExtensionDirectory =
     chromeDetection.cwd === modelCwd && chromeDetection._tag === "Installed" ? chromeDetection.extensionDirectory : null
+  const chromeExtensionExpectation =
+    chromeDetection.cwd === modelCwd && chromeDetection._tag === "Installed" ? chromeDetection.expectation : null
   useEffect(() => {
     if (chromeExtensionId === null) {
       setChromeProfileConnection(null)
       return
     }
-    return runScoped(getSameProfileChromeStatus(chromeExtensionId), {
+    return runScoped(getSameProfileChromeStatus(chromeExtensionId, chromeExtensionExpectation), {
       onSuccess: setChromeProfileConnection,
       onFailure: () => setChromeProfileConnection({ connected: false }),
     })
-  }, [chromeExtensionId, runScoped])
+  }, [chromeExtensionExpectation, chromeExtensionId, runScoped])
 
   const snapshot = state.snapshot
   const data = useMemo<SessionData | null>(
@@ -410,6 +415,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         extensionReachable: chromeProfileConnection === null ? null : chromeProfileConnection.connected,
         extensionId: chromeExtensionId,
         extensionDirectory: chromeExtensionDirectory,
+        compatibility:
+          chromeProfileConnection?.connected === true ? chromeProfileConnection.compatibility : { _tag: "Unknown" },
         status: getChromeStatusProjection(extensionStatuses),
       }),
     [
@@ -495,7 +502,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         )
       }
       if (chromeDetection._tag === "Absent") return Effect.void
-      if (chromeDetection.extensionId === null) {
+      if (chromeDetection.extensionId === null || chromeDetection.expectation === null) {
         return Effect.fail(
           new ChromeControlError({
             operation: "binding.discovery",
@@ -507,6 +514,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         sessionController.chromeControl(sessionId, request)
       return ensureChromeSessionBinding(
         chromeDetection.extensionId,
+        chromeDetection.expectation,
         getChromeStatusProjection(extensionStatuses),
         control,
       ).pipe(
@@ -855,7 +863,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return
       }
       const extensionId = chromeExtensionId
-      if (enabled && extensionId === null) {
+      if (enabled && (extensionId === null || chromeExtensionExpectation === null)) {
         addNotice({ type: "error", message: "Pi Chrome Connector is unavailable in this browser profile" })
         return
       }
@@ -866,11 +874,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const control = (request: Parameters<typeof sessionController.chromeControl>[1]) =>
           sessionController.chromeControl(sessionId, request)
         const operation =
-          enabled && extensionId !== null
+          enabled && extensionId !== null && chromeExtensionExpectation !== null
             ? control({ action: { _tag: "Authorize" } }).pipe(
-                Effect.andThen(attachSameProfileChromeSession(extensionId, control)),
+                Effect.andThen(attachSameProfileChromeSession(extensionId, chromeExtensionExpectation, control)),
                 Effect.flatMap(() =>
-                  getSameProfileChromeStatus(extensionId).pipe(
+                  getSameProfileChromeStatus(extensionId, chromeExtensionExpectation).pipe(
                     Effect.map((profile) => ({ profile: asChromeConnection(profile) })),
                   ),
                 ),
@@ -898,7 +906,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         })
       })
     },
-    [addNotice, chromeControlPending, chromeExtensionId, currentChromeRequirement, loadTools, runScoped, withSession],
+    [
+      addNotice,
+      chromeControlPending,
+      chromeExtensionExpectation,
+      chromeExtensionId,
+      currentChromeRequirement,
+      loadTools,
+      runScoped,
+      withSession,
+    ],
   )
 
   const handleLoopControl = useCallback(

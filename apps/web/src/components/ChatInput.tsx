@@ -276,6 +276,7 @@ function BrowserControl({
     extensionReachable: profile === null ? null : profile.connected,
     extensionId,
     extensionDirectory,
+    compatibility: profile?.connected === true ? profile.compatibility : { _tag: "Unknown" },
     status,
   })
   const expiresAt = status && typeof status.authorization === "object" ? status.authorization.expiresAt : null

@@ -1,11 +1,13 @@
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { builtinModules } from "node:module";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { build } from "vite-plus";
+import * as Effect from "effect/Effect";
 import { BRIDGE_HOST, BRIDGE_ORIGIN } from "../src/protocol/bridge-contract.ts";
 import connectorAuth from "../src/protocol/connector-auth.json" with { type: "json" };
+import { extensionPackageIdFromPublicKey } from "../src/pi/extension-package.ts";
 import { replaceDirectoryWithRollback } from "./directory-replacement.ts";
 import {
   EXTENSION_BUILD_GRAPH,
@@ -78,9 +80,32 @@ if (
 const sourceManifest: unknown = JSON.parse(
   await readFile(join(root, EXTENSION_BUILD_GRAPH.manifest.source), "utf8"),
 );
+const fingerprintBuild = await mkdtemp(join(tmpdir(), "pi-chrome-fingerprint-"));
+let fingerprint: string;
+try {
+  await build({
+    configFile: false,
+    root,
+    ssr: { noExternal: true },
+    build: {
+      ssr: "src/protocol/protocol-fingerprint.ts",
+      target: "node22",
+      outDir: fingerprintBuild,
+      emptyOutDir: true,
+      rolldownOptions: { output: { entryFileNames: "fingerprint.mjs", format: "esm" } },
+    },
+  });
+  const built = (await import(pathToFileURL(join(fingerprintBuild, "fingerprint.mjs")).href)) as {
+    readonly protocolFingerprint: Effect.Effect<string>;
+  };
+  fingerprint = await Effect.runPromise(built.protocolFingerprint);
+} finally {
+  await rm(fingerprintBuild, { recursive: true, force: true });
+}
 const manifestInputs = {
   version: packageJson.version,
   publicKey: connectorAuth.extensionPublicKey,
+  protocolFingerprint: fingerprint,
 };
 validateBuildGraph();
 const builtManifest = renderExtensionManifest(sourceManifest, manifestInputs);
@@ -106,6 +131,7 @@ const prepareExtension = async (directory: string): Promise<void> => {
       root,
       define: {
         __PI_CHROME_BRIDGE_URL__: JSON.stringify(bridgeUrl.origin),
+        __PI_CHROME_PROTOCOL_FINGERPRINT__: JSON.stringify(fingerprint),
       },
       plugins: [browserOnly],
       build: {
@@ -130,6 +156,19 @@ const prepareExtension = async (directory: string): Promise<void> => {
   const manifestOutput = join(directory, EXTENSION_BUILD_GRAPH.manifest.output);
   await mkdir(dirname(manifestOutput), { recursive: true });
   await writeFile(manifestOutput, `${JSON.stringify(builtManifest, null, 2)}\n`);
+  const evidenceOutput = join(directory, EXTENSION_BUILD_GRAPH.artifacts.evidence.output);
+  await writeFile(
+    evidenceOutput,
+    `${JSON.stringify(
+      {
+        extensionId: extensionPackageIdFromPublicKey(connectorAuth.extensionPublicKey),
+        displayVersion: packageJson.version,
+        protocolFingerprint: fingerprint,
+      },
+      null,
+      2,
+    )}\n`,
+  );
   const documents = htmlDocumentIds();
   for (const [id, asset] of staticEntries()) {
     const output = join(directory, asset.output);

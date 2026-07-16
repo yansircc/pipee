@@ -4,7 +4,6 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import { CONNECTOR_STORAGE_KEY } from "../protocol/connector-auth.js";
-import { protocolFingerprint } from "../protocol/protocol-fingerprint.js";
 import {
   ConnectorIdentity as ConnectorIdentitySchema,
   ProfileConnector as ProfileConnectorSchema,
@@ -59,20 +58,12 @@ const makeIdentity = (): ConnectorIdentity => {
 const projectProfileConnector = (
   identity: ConnectorIdentity,
 ): Effect.Effect<ProfileConnector, ConnectorIdentityFailure> =>
-  protocolFingerprint.pipe(
-    Effect.mapError(
-      (cause) =>
-        new ConnectorIdentityFailure({
-          message: "Could not compute the live connector protocol fingerprint",
-          cause,
-        }),
-    ),
-    Effect.map((fingerprint) => ({
-      ...identity,
-      extensionId: chrome.runtime.id,
-      extensionDisplayVersion: chrome.runtime.getManifest().version,
-      protocolFingerprint: fingerprint,
-    })),
+  Effect.succeed({
+    ...identity,
+    extensionId: chrome.runtime.id,
+    extensionDisplayVersion: chrome.runtime.getManifest().version,
+    protocolFingerprint: __PI_CHROME_PROTOCOL_FINGERPRINT__,
+  }).pipe(
     Effect.flatMap(Schema.decodeUnknownEffect(ProfileConnectorSchema)),
     Effect.mapError((cause) =>
       cause instanceof ConnectorIdentityFailure
