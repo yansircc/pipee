@@ -26,9 +26,10 @@ const bridge = {
   url: BRIDGE_ORIGIN,
   mode: "server",
   sessionRoutes: [],
-  protocolCompatibility: {
-    compatible: true,
-    expectedExtensionDisplayVersion: "1.0.0",
+  extensionExpectation: {
+    extensionId: "a".repeat(32),
+    displayVersion: "1.0.0",
+    protocolFingerprint: "b".repeat(64),
   },
 } as const;
 

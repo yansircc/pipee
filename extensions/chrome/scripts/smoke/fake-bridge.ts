@@ -132,6 +132,7 @@ export class FakeBridge {
     this.expectedExtensionDisplayVersion = expectedExtensionDisplayVersion;
     this.expectedOrigin = `chrome-extension://${expectedExtensionId}`;
     this.scenario = new SmokeCommandScenario(
+      expectedExtensionId,
       expectedExtensionDisplayVersion,
       () => {
         assert(this.expectedProtocolFingerprint, "Smoke protocol fingerprint is not initialized");

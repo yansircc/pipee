@@ -91,28 +91,19 @@ export const sessionController = {
     const browser = yield* BrowserPlatform
     return yield* browser.randomUUID
   }),
-  create: (cwd: string, toolNames?: ReadonlyArray<string>) =>
+  create: (
+    cwd: string,
+    toolNames?: ReadonlyArray<string>,
+    model?: { readonly provider: string; readonly modelId: string } | null,
+  ) =>
     withApi((api) =>
       api.sessions.create({
-        payload: { cwd, ...(toolNames === undefined ? {} : { toolNames }) },
+        payload: {
+          cwd,
+          ...(toolNames === undefined ? {} : { toolNames }),
+          ...(model === undefined || model === null ? {} : { model }),
+        },
       }),
-    ),
-  createConfigured: (
-    cwd: string,
-    toolNames: ReadonlyArray<string>,
-    model: { readonly provider: string; readonly modelId: string } | null,
-  ) =>
-    withApi((api) => api.sessions.create({ payload: { cwd, toolNames } })).pipe(
-      Effect.flatMap((session) =>
-        model === null
-          ? Effect.succeed(session)
-          : withApi((api) =>
-              api.sessionActions.setModel({
-                params: { id: session.id },
-                payload: { provider: model.provider, modelId: model.modelId },
-              }),
-            ).pipe(Effect.as(session)),
-      ),
     ),
   rename: (sessionId: string, name: string) =>
     withApi((api) =>

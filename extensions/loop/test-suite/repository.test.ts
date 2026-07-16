@@ -51,8 +51,8 @@ it.effect("lets followers mutate session state but rejects durable mutations", (
     Effect.gen(function* () {
       const owner = yield* makeLoopRepository(directory, DEFAULT_CONFIG);
       const follower = yield* makeLoopRepository(directory, DEFAULT_CONFIG);
-      expect(owner.projectAccess).toBe("owner");
-      expect(follower.projectAccess).toBe("follower");
+      expect(yield* owner.projectAccess).toBe("owner");
+      expect(yield* follower.projectAccess).toBe("follower");
       yield* follower.add(
         createLoop({
           _tag: "Once",

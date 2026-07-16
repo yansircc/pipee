@@ -188,6 +188,7 @@ const SessionsLive = HttpApiBuilder.group(PiWebApi, "sessions", (handlers) =>
     const repository = yield* SessionRepository
     const registry = yield* SessionRuntimeRegistry
     const workspace = yield* WorkspaceService
+    const workspaceIo = yield* WorkspaceIo
     const createSessionLock = yield* Semaphore.make(1)
 
     const projectActiveSession = (session: Parameters<typeof activeSessionInfo>[0]) =>
@@ -229,21 +230,28 @@ const SessionsLive = HttpApiBuilder.group(PiWebApi, "sessions", (handlers) =>
       .handle("create", ({ payload }) =>
         createSessionLock.withPermits(1)(
           Effect.gen(function* () {
-            const reusable = (yield* registry.activeSessions)
-              .filter((session) => session.cwd === payload.cwd && session.isConversationEmpty)
-              .toSorted((left, right) => right.created.localeCompare(left.created))[0]
-            if (reusable !== undefined) return yield* projectActiveSession(reusable)
+            const cwd = yield* expose(workspaceIo.validateCwd(payload.cwd))
+            const configuration = {
+              ...(payload.toolNames === undefined ? {} : { toolNames: payload.toolNames }),
+              ...(payload.model === undefined ? {} : { model: payload.model }),
+            }
+            const candidates = (yield* registry.activeSessions)
+              .filter((session) => session.cwd === cwd && session.isConversationEmpty)
+              .toSorted((left, right) => right.created.localeCompare(left.created))
+            for (const candidate of candidates) {
+              const active = yield* registry.activeOption(candidate.sessionId)
+              if (active !== null && (yield* active.runtime.matchesConfiguration(configuration))) {
+                return yield* projectActiveSession(candidate)
+              }
+            }
             const requestId = yield* expose(registry.nextRunId)
             const handle = yield* expose(
               registry.start(`new:${requestId}`, {
                 sessionFile: null,
-                cwd: payload.cwd,
-                ...(payload.toolNames === undefined ? {} : { toolNames: payload.toolNames }),
+                cwd,
+                ...configuration,
               }),
             )
-            if (payload.provider !== undefined && payload.modelId !== undefined) {
-              yield* expose(handle.runtime.setModel(payload.provider, payload.modelId))
-            }
             return yield* projectActiveSession({
               sessionId: handle.sessionId,
               sessionFile: handle.runtime.sessionFile,

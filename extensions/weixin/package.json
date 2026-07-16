@@ -8,15 +8,16 @@
     "pi-package",
     "weixin"
   ],
-  "homepage": "https://github.com/yansircc/pi-weixin#readme",
+  "homepage": "https://github.com/yansircc/pi-suite/tree/main/extensions/weixin#readme",
   "bugs": {
-    "url": "https://github.com/yansircc/pi-weixin/issues"
+    "url": "https://github.com/yansircc/pi-suite/issues"
   },
   "license": "MIT",
   "author": "yansircc",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yansircc/pi-weixin.git"
+    "url": "git+https://github.com/yansircc/pi-suite.git",
+    "directory": "extensions/weixin"
   },
   "files": [
     "dist/pi"

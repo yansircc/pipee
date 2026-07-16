@@ -31,15 +31,16 @@
     "web-debugging",
     "web-scraping"
   ],
-  "homepage": "https://github.com/yansircc/pi-chrome#readme",
+  "homepage": "https://github.com/yansircc/pi-suite/tree/main/extensions/chrome#readme",
   "bugs": {
-    "url": "https://github.com/yansircc/pi-chrome/issues"
+    "url": "https://github.com/yansircc/pi-suite/issues"
   },
   "license": "MIT",
   "author": "yansircc",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yansircc/pi-chrome.git"
+    "url": "git+https://github.com/yansircc/pi-suite.git",
+    "directory": "extensions/chrome"
   },
   "files": [
     "dist/pi",

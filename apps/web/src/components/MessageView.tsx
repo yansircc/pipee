@@ -603,6 +603,12 @@ function AssistantMessageView({
     .filter((b): b is TextContent => b.type === "text")
     .map((b) => b.text)
     .join("\n")
+  const termination =
+    message.stopReason === "aborted"
+      ? { label: t("Cancelled"), message: undefined, error: false }
+      : message.errorMessage?.trim()
+        ? { label: t("Error"), message: message.errorMessage.trim(), error: true }
+        : undefined
 
   const copyContent = () => {
     runBrowser(
@@ -678,7 +684,7 @@ function AssistantMessageView({
     )
   }, [isStreaming])
 
-  if (blocks.length === 0 && !isStreaming) return null
+  if (blocks.length === 0 && termination === undefined && !isStreaming) return null
 
   return (
     <div style={{ marginBottom: 16 }} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
@@ -757,6 +763,25 @@ function AssistantMessageView({
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {termination !== undefined && (
+          <div
+            role={termination.error ? "alert" : "status"}
+            style={{
+              padding: "9px 11px",
+              border: termination.error ? "1px solid rgba(220, 38, 38, 0.35)" : "1px solid var(--border)",
+              borderRadius: 8,
+              background: termination.error ? "rgba(220, 38, 38, 0.08)" : "var(--bg-panel)",
+              color: termination.error ? "#dc2626" : "var(--text-muted)",
+              fontSize: 12,
+              lineHeight: 1.5,
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+            }}
+          >
+            {termination.label}
+            {termination.message === undefined ? "" : `: ${termination.message}`}
+          </div>
+        )}
         {blockItems.map(({ block, originalIndex }) => (
           <BlockView
             key={`${entryId ?? "stream"}-${originalIndex}`}

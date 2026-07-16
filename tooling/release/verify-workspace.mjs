@@ -24,6 +24,8 @@ assert.equal(
 );
 
 const names = new Set();
+const suiteRepository = "git+https://github.com/yansircc/pi-suite.git";
+const suiteIssues = "https://github.com/yansircc/pi-suite/issues";
 for (const entry of config.packages) {
   const directory = resolve(root, entry.path);
   const manifest = JSON.parse(readFileSync(join(directory, "package.json"), "utf8"));
@@ -35,6 +37,17 @@ for (const entry of config.packages) {
   );
   assert.equal(names.has(entry.name), false, `duplicate package ${entry.name}`);
   names.add(entry.name);
+  assert.deepEqual(
+    manifest.repository,
+    { type: "git", url: suiteRepository, directory: entry.path },
+    `${entry.id} package metadata does not point at its Suite directory`,
+  );
+  assert.equal(manifest.bugs?.url, suiteIssues, `${entry.id} package bugs URL drifted`);
+  assert.equal(
+    manifest.homepage,
+    `https://github.com/yansircc/pi-suite/tree/main/${entry.path}#readme`,
+    `${entry.id} package homepage drifted`,
+  );
   assert.equal(
     existsSync(join(directory, "pnpm-lock.yaml")),
     false,
@@ -83,6 +96,19 @@ for (const entry of config.packages) {
     undefined,
     `${entry.id} rebuilds during candidate packing`,
   );
+  assert.equal(
+    typeof entry.platformChecks?.default,
+    "string",
+    `${entry.id} must declare a default exact-candidate platform witness`,
+  );
+  for (const script of new Set(Object.values(entry.platformChecks ?? {}))) {
+    assert.equal(typeof manifest.scripts?.[script], "string", `${entry.id} is missing platform script ${script}`);
+    assert.doesNotMatch(
+      manifest.scripts[script],
+      /\b(?:build|pack|pi:build|pi:domain-check)\b/,
+      `${entry.id} platform witness ${script} rebuilds candidate facts`,
+    );
+  }
   assert.equal(
     manifest.devDependencies?.["@effect/tsgo"],
     undefined,
@@ -156,6 +182,14 @@ for (const [literal, owner] of schemaOwners) {
 }
 
 assert.equal(statSync(resolve(root, "pnpm-lock.yaml")).isFile(), true, "root lockfile is missing");
+const releaseWorkflow = readFileSync(resolve(root, ".github/workflows/release.yml"), "utf8");
+for (const forbidden of [
+  ["NPM", "TOKEN"].join("_"),
+  ["NODE", "AUTH", "TOKEN"].join("_"),
+  ["_auth", "Token"].join(""),
+]) {
+  assert.equal(releaseWorkflow.includes(forbidden), false, `release workflow contains token fallback ${forbidden}`);
+}
 process.stdout.write(
   `Verified ${config.packages.length} Suite packages and ${schemaOwners.length} shared contracts.\n`,
 );

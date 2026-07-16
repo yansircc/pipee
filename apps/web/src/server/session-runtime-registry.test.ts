@@ -12,7 +12,7 @@ import {
   RuntimeSnapshot,
 } from "@/api/contract"
 import { PiAdapterError } from "./pi-adapter-errors"
-import type { PiRuntime } from "./pi-agent-adapter"
+import { PiOperationBusyError, type PiRuntime } from "./pi-agent-adapter"
 import { makeSessionRuntimeRegistry, type SessionRuntimeAdapter } from "./session-runtime-registry"
 
 const identity = RuntimeIdentity.make({
@@ -62,6 +62,7 @@ const makeRuntime = (
       firstMessage: Ref.get(firstMessage),
       isConversationEmpty: Ref.get(firstMessage).pipe(Effect.map((message) => message === null)),
       hasRetention: Effect.succeed(false),
+      matchesConfiguration: () => Effect.succeed(true),
       events,
       publishRunEvent: (event) => {
         PubSub.publishUnsafe(events, RuntimeEnvelope.make({ identity, event }))
@@ -82,7 +83,7 @@ const makeRuntime = (
       setModel: (provider, id) => Effect.succeed({ provider, id }),
       navigate: () => Effect.succeed({ cancelled: false }),
       setThinkingLevel: () => Effect.void,
-      compact: () => Effect.succeed({}),
+      compact: () => Effect.succeed({ completion: Effect.succeed({}) }),
       abortCompaction: Effect.void,
       setSessionName: () => Effect.void,
       stats: Effect.die("unused stats"),
@@ -464,16 +465,18 @@ it.effect("returns bash run identity before completion and redacts background fa
     const runtime: PiRuntime = {
       ...base,
       executeBash: (_runId, _id, _command, _excludeFromContext) =>
-        Deferred.await(release).pipe(
-          Effect.andThen(
-            Effect.fail(
-              new PiAdapterError({
-                operation: "runtime.bash",
-                message: "secret-key-in-provider-error",
-              }),
+        Effect.succeed({
+          completion: Deferred.await(release).pipe(
+            Effect.andThen(
+              Effect.fail(
+                new PiAdapterError({
+                  operation: "runtime.bash",
+                  message: "secret-key-in-provider-error",
+                }),
+              ),
             ),
           ),
-        ),
+        }),
     }
     const adapter: SessionRuntimeAdapter = {
       createRuntime: () => Effect.succeed(runtime),
@@ -501,6 +504,38 @@ it.effect("returns bash run identity before completion and redacts background fa
       })
       expect(JSON.stringify(event.value)).not.toContain("secret-key-in-provider-error")
     }
+  }),
+)
+
+it.effect("rejects an unadmitted bash operation synchronously", () =>
+  Effect.gen(function* () {
+    const disposeCount = yield* Ref.make(0)
+    const base = yield* makeRuntime("session-busy", disposeCount)
+    const runtime: PiRuntime = {
+      ...base,
+      executeBash: () =>
+        Effect.fail(
+          new PiOperationBusyError({
+            kind: "prompt",
+            message: "prompt owns the operation slot",
+          }),
+        ),
+    }
+    const registry = yield* makeSessionRuntimeRegistry(
+      {
+        createRuntime: () => Effect.succeed(runtime),
+        createFork: () => Effect.succeed({ cancelled: true }),
+      },
+      runIds,
+    )
+    yield* registry.start(runtime.sessionId, { sessionFile: runtime.sessionFile, cwd: runtime.cwd })
+
+    const error = yield* registry.bash(runtime.sessionId, "bash-1", "true", false).pipe(Effect.flip)
+    expect(error).toMatchObject({
+      _tag: "RuntimeRegistryError",
+      operation: "runtime.bash",
+      conflictOperation: "prompt",
+    })
   }),
 )
 

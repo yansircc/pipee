@@ -22,9 +22,6 @@ export type Prompt = Schema.Schema.Type<typeof Prompt>;
 export const Retention = Schema.Literals(["session", "project"]);
 export type Retention = Schema.Schema.Type<typeof Retention>;
 
-export const StopReason = Schema.Literals(["completed", "cancelled", "expired"]);
-export type StopReason = Schema.Schema.Type<typeof StopReason>;
-
 export const CronSpec = Schema.Struct({
   expression: NonBlankString,
   timeZone: TimeZone,
@@ -52,12 +49,6 @@ export const AwaitingArm = Schema.TaggedStruct("AwaitingArm", {
 });
 export type AwaitingArm = Schema.Schema.Type<typeof AwaitingArm>;
 
-export const Stopped = Schema.TaggedStruct("Stopped", {
-  reason: StopReason,
-  cursor: NonNegativeInt,
-});
-export type Stopped = Schema.Schema.Type<typeof Stopped>;
-
 const BaseFields = {
   id: LoopId,
   prompt: Prompt,
@@ -70,7 +61,7 @@ const BaseFields = {
 export const OnceLoop = Schema.TaggedStruct("Once", {
   ...BaseFields,
   retention: Retention,
-  phase: Schema.Union([Waiting, Stopped]),
+  phase: Waiting,
 });
 export type OnceLoop = Schema.Schema.Type<typeof OnceLoop>;
 
@@ -79,7 +70,7 @@ export const CronLoop = Schema.TaggedStruct("Cron", {
   retention: Retention,
   spec: CronSpec,
   until: optional(NonNegativeInt),
-  phase: Schema.Union([Waiting, Stopped]),
+  phase: Waiting,
 });
 export type CronLoop = Schema.Schema.Type<typeof CronLoop>;
 
@@ -88,14 +79,14 @@ export const IntervalLoop = Schema.TaggedStruct("Interval", {
   retention: Retention,
   spec: IntervalSpec,
   until: optional(NonNegativeInt),
-  phase: Schema.Union([Waiting, Stopped]),
+  phase: Waiting,
 });
 export type IntervalLoop = Schema.Schema.Type<typeof IntervalLoop>;
 
 export const ManualLoop = Schema.TaggedStruct("Manual", {
   ...BaseFields,
   retention: Schema.Literal("session"),
-  phase: Schema.Union([Waiting, AwaitingArm, Stopped]),
+  phase: Schema.Union([Waiting, AwaitingArm]),
 });
 export type ManualLoop = Schema.Schema.Type<typeof ManualLoop>;
 

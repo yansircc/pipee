@@ -1,8 +1,8 @@
 import { acquireCrossProcessLease } from "@pi-suite/host-runtime/cross-process-lease";
-import { Data, Effect, Ref, Schema, Scope, Semaphore } from "effect";
+import { Data, Effect, Exit, Ref, Schema, Scope, Semaphore } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";
-import { arm as armTransition, cancel, tick, type Gate } from "../domain/transition.js";
+import { arm as armTransition, tick, type Gate } from "../domain/transition.js";
 import {
   DurableFile,
   occurrencePrompt,
@@ -43,7 +43,7 @@ export type MutationError =
   | LoopStateConflict;
 
 export type LoopRepository = {
-  readonly projectAccess: "owner" | "follower";
+  readonly projectAccess: Effect.Effect<"owner" | "follower">;
   readonly add: (loop: Loop) => Effect.Effect<void, MutationError>;
   readonly list: Effect.Effect<ReadonlyArray<Loop>>;
   readonly get: (id: LoopId) => Effect.Effect<Loop, LoopNotFound>;
@@ -88,6 +88,10 @@ const decodeDurableFile = (encoded: string, filePath: string) =>
     Effect.mapError(repositoryFailure("load", `Invalid durable file ${filePath}`)),
   );
 
+type RepositoryState =
+  | { readonly _tag: "Follower"; readonly loops: ReadonlyMap<LoopId, Loop> }
+  | { readonly _tag: "Owner"; readonly loops: ReadonlyMap<LoopId, Loop> };
+
 export const makeLoopRepository = (
   cwd: string,
   config: LoopConfig,
@@ -96,19 +100,13 @@ export const makeLoopRepository = (
   Effect.gen(function* () {
     const fs = yield* FileSystem;
     const path = yield* Path;
+    const repositoryScope = yield* Scope.Scope;
     const filePath = path.join(cwd, config.durableFilePath);
     const leasePath = `${filePath}.lease.sqlite`;
     const mutationLock = yield* Semaphore.make(1);
-    const projectAccess = yield* acquireCrossProcessLease(leasePath).pipe(
-      Effect.as("owner" as const),
-      Effect.catchTag("LeaseUnavailable", () => Effect.succeed("follower" as const)),
-      Effect.mapError((cause) =>
-        repositoryFailure("lease", `Could not acquire ${leasePath}`)(cause),
-      ),
-    );
 
-    const loaded = new Map<LoopId, Loop>();
-    if (projectAccess === "owner") {
+    const readDurable = Effect.gen(function* () {
+      const loaded = new Map<LoopId, Loop>();
       const durableExists = yield* fs
         .exists(filePath)
         .pipe(Effect.mapError(repositoryFailure("load", `Could not inspect ${filePath}`)));
@@ -121,17 +119,68 @@ export const makeLoopRepository = (
         });
         for (const loop of durable) loaded.set(loop.id, loop);
       }
-    }
+      return loaded;
+    });
+
+    const loaded = new Map<LoopId, Loop>();
     for (const loop of sessionPersistence?.initial ?? []) {
-      if (loaded.has(loop.id)) {
+      if (loop.retention !== "session") {
         return yield* new RepositoryFailure({
           operation: "load",
-          message: `Duplicate loop id ${loop.id}`,
+          message: `Session persistence contains project loop ${loop.id}`,
         });
       }
       loaded.set(loop.id, loop);
     }
-    const state = yield* Ref.make<ReadonlyMap<LoopId, Loop>>(loaded);
+    const state = yield* Ref.make<RepositoryState>({ _tag: "Follower", loops: loaded });
+
+    const attemptProjectOwnership = Effect.gen(function* () {
+      const current = yield* Ref.get(state);
+      if (current._tag === "Owner") return true;
+      const ownershipScope = yield* Scope.fork(repositoryScope, "sequential");
+      const acquired = yield* acquireCrossProcessLease(leasePath).pipe(
+        Effect.provideService(Scope.Scope, ownershipScope),
+        Effect.provideService(FileSystem, fs),
+        Effect.provideService(Path, path),
+        Effect.as(true as const),
+        Effect.catchTag("LeaseUnavailable", () =>
+          Scope.close(ownershipScope, Exit.succeed(undefined)).pipe(Effect.as(false as const)),
+        ),
+        Effect.mapError((cause) =>
+          repositoryFailure("lease", `Could not acquire ${leasePath}`)(cause),
+        ),
+        Effect.onError((cause) => Scope.close(ownershipScope, Exit.failCause(cause))),
+      );
+      if (!acquired) return false;
+      const durable = yield* readDurable.pipe(
+        Effect.onError((cause) => Scope.close(ownershipScope, Exit.failCause(cause))),
+      );
+      const merged = new Map(durable);
+      for (const loop of current.loops.values()) {
+        if (loop.retention === "project" || merged.has(loop.id)) {
+          yield* Scope.close(ownershipScope, Exit.succeed(undefined));
+          return yield* new RepositoryFailure({
+            operation: "load",
+            message: `Duplicate loop id ${loop.id}`,
+          });
+        }
+        merged.set(loop.id, loop);
+      }
+      yield* Ref.set(state, { _tag: "Owner", loops: merged });
+      return true;
+    });
+
+    yield* mutationLock.withPermits(1)(attemptProjectOwnership);
+
+    const stateForId = (id: LoopId) =>
+      Effect.gen(function* () {
+        let current = yield* Ref.get(state);
+        if (!current.loops.has(id) && current._tag === "Follower") {
+          yield* attemptProjectOwnership;
+          current = yield* Ref.get(state);
+        }
+        return current;
+      });
 
     const persist = (next: ReadonlyMap<LoopId, Loop>) =>
       Effect.gen(function* () {
@@ -153,13 +202,13 @@ export const makeLoopRepository = (
       });
 
     const commit = (
-      current: ReadonlyMap<LoopId, Loop>,
+      current: RepositoryState,
       next: ReadonlyMap<LoopId, Loop>,
       retention: Loop["retention"],
     ) =>
       Effect.gen(function* () {
         if (retention === "project") {
-          if (projectAccess === "follower") {
+          if (current._tag === "Follower") {
             return yield* new LeaseUnavailable({
               message: "Another Pi session owns project-retained loops",
             });
@@ -170,20 +219,25 @@ export const makeLoopRepository = (
             [...next.values()].filter((loop) => loop.retention === "session"),
           );
         }
-        if (current !== next) yield* Ref.set(state, next);
+        if (current.loops !== next) yield* Ref.set(state, { ...current, loops: next });
       });
 
     const add = (loop: Loop) =>
       mutationLock.withPermits(1)(
         Effect.gen(function* () {
+          if (loop.retention === "project" && !(yield* attemptProjectOwnership)) {
+            return yield* new LeaseUnavailable({
+              message: "Another Pi session owns project-retained loops",
+            });
+          }
           const current = yield* Ref.get(state);
-          if (current.size >= config.maxLoops) {
+          if (current.loops.size >= config.maxLoops) {
             return yield* new CapacityExceeded({ maximum: config.maxLoops });
           }
-          if (current.has(loop.id)) {
+          if (current.loops.has(loop.id)) {
             return yield* new LoopStateConflict({ id: loop.id, expected: "unused loop id" });
           }
-          const next = new Map(current);
+          const next = new Map(current.loops);
           next.set(loop.id, loop);
           yield* commit(current, next, loop.retention);
         }),
@@ -192,7 +246,7 @@ export const makeLoopRepository = (
     const get = (id: LoopId) =>
       Ref.get(state).pipe(
         Effect.flatMap((current) => {
-          const loop = current.get(id);
+          const loop = current.loops.get(id);
           return loop ? Effect.succeed(loop) : Effect.fail(new LoopNotFound({ id }));
         }),
       );
@@ -200,11 +254,10 @@ export const makeLoopRepository = (
     const remove = (id: LoopId) =>
       mutationLock.withPermits(1)(
         Effect.gen(function* () {
-          const current = yield* Ref.get(state);
-          const loop = current.get(id);
+          const current = yield* stateForId(id);
+          const loop = current.loops.get(id);
           if (!loop) return yield* new LoopNotFound({ id });
-          const next = new Map(current);
-          next.set(id, cancel(loop));
+          const next = new Map(current.loops);
           next.delete(id);
           yield* commit(current, next, loop.retention);
           return loop;
@@ -214,14 +267,14 @@ export const makeLoopRepository = (
     const armLoop = (id: LoopId, at: number) =>
       mutationLock.withPermits(1)(
         Effect.gen(function* () {
-          const current = yield* Ref.get(state);
-          const loop = current.get(id);
+          const current = yield* stateForId(id);
+          const loop = current.loops.get(id);
           if (!loop) return yield* new LoopNotFound({ id });
           const armed = armTransition(loop, at);
           if (!armed) {
             return yield* new LoopStateConflict({ id, expected: "manual loop awaiting arm" });
           }
-          const next = new Map(current);
+          const next = new Map(current.loops);
           next.set(id, armed);
           yield* commit(current, next, loop.retention);
           return armed;
@@ -231,8 +284,8 @@ export const makeLoopRepository = (
     const updateInterval = (id: LoopId, periodMs: number, prompt: string, now: number) =>
       mutationLock.withPermits(1)(
         Effect.gen(function* () {
-          const current = yield* Ref.get(state);
-          const loop = current.get(id);
+          const current = yield* stateForId(id);
+          const loop = current.loops.get(id);
           if (!loop) return yield* new LoopNotFound({ id });
           if (loop._tag !== "Interval") {
             return yield* new LoopStateConflict({ id, expected: "fixed-interval automation" });
@@ -244,7 +297,7 @@ export const makeLoopRepository = (
             phase:
               loop.phase._tag === "Waiting" ? { ...loop.phase, dueAt: now + periodMs } : loop.phase,
           };
-          const next = new Map(current);
+          const next = new Map(current.loops);
           next.set(id, updated);
           yield* commit(current, next, loop.retention);
           return updated;
@@ -254,11 +307,11 @@ export const makeLoopRepository = (
     const setEnabled = (id: LoopId, enabled: boolean) =>
       mutationLock.withPermits(1)(
         Effect.gen(function* () {
-          const current = yield* Ref.get(state);
-          const loop = current.get(id);
+          const current = yield* stateForId(id);
+          const loop = current.loops.get(id);
           if (!loop) return yield* new LoopNotFound({ id });
           const updated = { ...loop, enabled } as Loop;
-          const next = new Map(current);
+          const next = new Map(current.loops);
           next.set(id, updated);
           yield* commit(current, next, loop.retention);
           return updated;
@@ -270,14 +323,14 @@ export const makeLoopRepository = (
         Effect.gen(function* () {
           if (gate === "closed")
             return yield* new LoopStateConflict({ id, expected: "idle session" });
-          const current = yield* Ref.get(state);
-          const loop = current.get(id);
+          const current = yield* stateForId(id);
+          const loop = current.loops.get(id);
           if (!loop) return yield* new LoopNotFound({ id });
           if (!loop.enabled)
             return yield* new LoopStateConflict({ id, expected: "enabled automation" });
           const cursor = loop.manualCursor + 1;
           const updated = { ...loop, manualCursor: cursor } as Loop;
-          const next = new Map(current);
+          const next = new Map(current.loops);
           next.set(id, updated);
           yield* commit(current, next, loop.retention);
           return {
@@ -296,9 +349,16 @@ export const makeLoopRepository = (
       mutationLock
         .withPermits(1)(
           Effect.gen(function* () {
+            if (retention === "project" && !(yield* attemptProjectOwnership)) {
+              return yield* new LeaseUnavailable({
+                message: "Another Pi session owns project-retained loops",
+              });
+            }
             const current = yield* Ref.get(state);
-            const loops = [...current.values()].filter((loop) => loop.retention === retention);
-            const next = new Map(current);
+            const loops = [...current.loops.values()].filter(
+              (loop) => loop.retention === retention,
+            );
+            const next = new Map(current.loops);
             for (const loop of loops) next.delete(loop.id);
             yield* commit(current, next, retention);
             return loops;
@@ -321,17 +381,18 @@ export const makeLoopRepository = (
         .withPermits(1)(
           Effect.gen(function* () {
             if (gate === "closed") return [];
+            if (retention === "project" && !(yield* attemptProjectOwnership)) return [];
             const current = yield* Ref.get(state);
-            const next = new Map(current);
+            const next = new Map(current.loops);
             const occurrences: Array<Occurrence> = [];
             let touchesProject = false;
-            for (const loop of current.values()) {
+            for (const loop of current.loops.values()) {
               if (loop.retention !== retention) continue;
               const result = tick(loop, now, gate);
               if (!result.occurrence) continue;
               occurrences.push(result.occurrence);
               touchesProject = true;
-              if (result.loop.phase._tag === "Stopped") next.delete(loop.id);
+              if (result.loop === undefined) next.delete(loop.id);
               else next.set(loop.id, result.loop);
             }
             if (touchesProject) yield* commit(current, next, retention);
@@ -351,9 +412,11 @@ export const makeLoopRepository = (
         );
 
     return {
-      projectAccess,
+      projectAccess: Ref.get(state).pipe(
+        Effect.map((current) => (current._tag === "Owner" ? "owner" : "follower")),
+      ),
       add,
-      list: Ref.get(state).pipe(Effect.map((current) => [...current.values()])),
+      list: Ref.get(state).pipe(Effect.map((current) => [...current.loops.values()])),
       get,
       remove,
       removeAll,

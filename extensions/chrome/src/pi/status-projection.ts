@@ -1,6 +1,7 @@
-import type {
-  ChromeStatusProjection,
-  ChromeStatusRequirement as ChromeRequirement,
+import {
+  classifyChromeConnectorCompatibility,
+  type ChromeStatusProjection,
+  type ChromeStatusRequirement as ChromeRequirement,
 } from "@pi-suite/companion-contracts/chrome";
 import type { BridgeStatusResponse } from "../protocol/schema.js";
 import type { SessionAuthorizationSnapshot } from "./session-runtime-owner.js";
@@ -63,7 +64,34 @@ export const projectChromeStatus = (
       : status.connector.connected
         ? "connected"
         : "offline";
-  const selectedConnector = sessionRoute?.connector ?? status.binding;
+  const terminalConnector = status.binding
+    ? status.connector.extensionId === undefined
+      ? status.binding
+      : status.connector
+    : undefined;
+  const selectedConnector = sessionRoute?.connector ?? terminalConnector;
+  const compatibility = selectedConnector
+    ? classifyChromeConnectorCompatibility(status.extensionExpectation, selectedConnector)
+    : { _tag: "Unknown" as const };
+  const protocolRequirements: ReadonlyArray<ChromeRequirement> =
+    compatibility._tag === "Unknown"
+      ? []
+      : compatibility._tag === "Verified"
+        ? [{ requirement: "ProtocolCompatible", satisfied: true }]
+        : [
+            {
+              requirement: "ProtocolCompatible",
+              satisfied: false,
+              expectedVersion: compatibility.expected.displayVersion,
+              actualVersion: compatibility.actual.displayVersion,
+              mismatches: compatibility.mismatches,
+              remediation: {
+                type: "ReloadUnpackedExtension",
+                extensionId: compatibility.expected.extensionId,
+                directory: extensionDirectory,
+              },
+            },
+          ];
   const shared: Omit<ChromeStatusProjection, "readiness" | "errorMessage"> = {
     kind: "pi-chrome/status" as const,
     version: 2 as const,
@@ -71,20 +99,7 @@ export const projectChromeStatus = (
     connection,
     bridge: status.mode === "server" || status.mode === "client" ? "running" : "stopped",
     requirements: [
-      status.protocolCompatibility.compatible
-        ? { requirement: "ProtocolCompatible", satisfied: true }
-        : {
-            requirement: "ProtocolCompatible",
-            satisfied: false,
-            expectedVersion: status.protocolCompatibility.expectedExtensionDisplayVersion,
-            actualVersion: status.protocolCompatibility.actualExtensionDisplayVersion,
-            mismatches: ["ProtocolFingerprint"],
-            remediation: {
-              type: "ReloadUnpackedExtension",
-              extensionId: status.protocolCompatibility.extensionId,
-              directory: extensionDirectory,
-            },
-          },
+      ...protocolRequirements,
       connection === "connected"
         ? { requirement: "ConnectorLive", satisfied: true }
         : {
@@ -129,6 +144,13 @@ export const projectChromeStatus = (
       ...shared,
       readiness: "error",
       errorMessage: "Chrome authorization ledger is fail-closed",
+    };
+  }
+  if (compatibility._tag === "Incompatible") {
+    return {
+      ...shared,
+      readiness: "error",
+      errorMessage: `Chrome extension mismatch: ${compatibility.mismatches.join(", ")}`,
     };
   }
   if (authorization === "locked") return { ...shared, readiness: "locked" };

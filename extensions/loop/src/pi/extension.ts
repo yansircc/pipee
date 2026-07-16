@@ -57,9 +57,7 @@ const describeLoop = (loop: Loop): string => {
   const phase =
     loop.phase._tag === "Waiting"
       ? `due ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" }).format(loop.phase.dueAt)}`
-      : loop.phase._tag === "AwaitingArm"
-        ? "awaiting model arm"
-        : `stopped: ${loop.phase.reason}`;
+      : "awaiting model arm";
   const cadence =
     loop._tag === "Cron"
       ? cronToHuman(loop.spec.expression)
@@ -166,9 +164,9 @@ const startSession = (pi: ExtensionAPI, context: ExtensionContext) =>
       const active: Session = { context, config, repository, operations, scheduler, scope };
       yield* Effect.sync(() => sessions.set(pi as object, active));
       yield* refreshStatus(active);
-      if (context.hasUI && repository.projectAccess === "follower") {
+      if (context.hasUI && (yield* repository.projectAccess) === "follower") {
         context.ui.notify(
-          "Another Pi session owns project-retained loops; session loops remain available.",
+          "Another Pi session currently owns project-retained loops; this session will take over if that owner exits.",
           "warning",
         );
       }

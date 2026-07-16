@@ -3,6 +3,7 @@ name: Release Suite
 on:
   push:
     branches: [main]
+  pull_request:
 
 concurrency:
   group: pi-suite-release-main
@@ -12,19 +13,18 @@ jobs:
   classify:
     runs-on: ubuntu-latest
     outputs:
-      release_commit: ${{ steps.commit.outputs.release_commit }}
+      release_commit: ${{ steps.commit.outputs.release_commit || steps.pull-request.outputs.release_commit }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 2
       - id: commit
-        shell: bash
-        run: |
-          if git show -s --format=%B HEAD | grep -Eq '^Release-Source: [0-9a-f]{40}$'; then
-            echo "release_commit=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "release_commit=false" >> "$GITHUB_OUTPUT"
-          fi
+        if: github.event_name == 'push'
+        run: node tooling/release/classify.mjs "${{ github.sha }}"
+      - id: pull-request
+        if: github.event_name == 'pull_request'
+        run: echo "release_commit=false" >> "$GITHUB_OUTPUT"
 
   candidate:
     needs: classify
@@ -40,15 +40,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.19.0
+          node-version: 24.11.0
           cache: pnpm
-          registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
       - id: prepare
+        if: github.event_name == 'push'
         run: node tooling/release/prepare.mjs "${{ github.sha }}"
       - run: pnpm verify
       - name: Verify a real Chrome connector
@@ -56,7 +57,9 @@ jobs:
       - name: Build each immutable archive once
         shell: bash
         run: |
-          if [ "${{ steps.prepare.outputs.mode }}" = "existing" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            node tooling/release/build-candidates.mjs
+          elif [ "${{ steps.prepare.outputs.mode }}" = "existing" ]; then
             node tooling/release/build-candidates.mjs --existing-release "${{ github.sha }}"
           else
             node tooling/release/build-candidates.mjs --prepared-source "${{ github.sha }}"
@@ -89,7 +92,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.19.0
+          node-version: 24.11.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v4
@@ -100,6 +103,7 @@ jobs:
 
   publish:
     needs: [candidate, platform-witness]
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -108,14 +112,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.19.0
+          node-version: 24.11.0
           cache: pnpm
-          registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
+      - name: Require npm Trusted Publishing support
+        shell: bash
+        run: |
+          npm --version
+          node -e "const {execFileSync}=require('node:child_process');const [major,minor]=execFileSync('npm',['--version'],{encoding:'utf8'}).trim().split('.').map(Number);if(major<11||(major===11&&minor<5))throw new Error('npm 11.5.1 or newer is required for OIDC')"
       - uses: actions/download-artifact@v4
         with:
           name: suite-candidates
@@ -137,4 +146,27 @@ jobs:
           git tag "${{ steps.prepare.outputs.tag }}"
           git push --atomic origin HEAD:main "refs/tags/${{ steps.prepare.outputs.tag }}"
       - run: pnpm publish:candidates
+
+  public-acceptance:
+    needs: publish
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.11.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: suite-candidates
+          path: release
       - run: pnpm verify:registry

@@ -263,7 +263,7 @@ export function AppShell() {
       setActiveTopPanel(null)
       if (isMobile) setSidebarOpen(false)
       void navigate({ to: "/", search: {}, replace: true })
-      runApi(sessionController.createConfigured(cwd, getToolNamesForPreset(DEFAULT_TOOL_PRESET), null), {
+      runApi(sessionController.create(cwd, getToolNamesForPreset(DEFAULT_TOOL_PRESET), null), {
         onSuccess: (session) => {
           setCreatingSessionCwd(null)
           acceptCreatedSession({ ...session })

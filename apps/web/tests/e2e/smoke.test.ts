@@ -113,6 +113,11 @@ test("renders the root not-found boundary", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Pi Agent Web" })).toHaveAttribute("href", "/")
 })
 
+test("renders the provider failure owned by an empty assistant message", async ({ page }) => {
+  await page.goto("/?session=00000000-0000-4000-8000-000000000002")
+  await expect(page.getByRole("alert")).toContainText("Fixture provider timed out.")
+})
+
 test("projects an active session before Pi persists its first message", async ({ page }) => {
   await page.goto("/")
   await mutate(page, "/api/workspace/cwd/validate", { cwd: fixtureWorkspace })
@@ -142,6 +147,36 @@ test("projects an active session before Pi persists its first message", async ({
 
   const removed = await mutate(page, `/api/sessions/${sessionId}`, {}, "DELETE")
   expect(removed.status).toBe(200)
+})
+
+test("creates only from a canonical admitted cwd and cleans failed configuration", async ({ page }) => {
+  await page.goto("/")
+  const aliasedWorkspace = `${fixtureWorkspace}/../workspace`
+  const before = await page.evaluate(async () => (await fetch("/api/sessions")).json())
+
+  const failed = await mutate(page, "/api/sessions", {
+    cwd: aliasedWorkspace,
+    model: { provider: "missing-provider", modelId: "missing-model" },
+    toolNames: [],
+  })
+  expect(failed.status).toBe(500)
+
+  const afterFailure = await page.evaluate(async () => (await fetch("/api/sessions")).json())
+  expect(afterFailure.sessions).toEqual(before.sessions)
+
+  const created = await mutate(page, "/api/sessions", { cwd: aliasedWorkspace, toolNames: [] })
+  expect(created.status, JSON.stringify(created.body)).toBe(200)
+  expect(created.body).toMatchObject({ cwd: fixtureWorkspace })
+  const retried = await mutate(page, "/api/sessions", { cwd: fixtureWorkspace, toolNames: [] })
+  expect(retried.body.id).toBe(created.body.id)
+  const differentlyConfigured = await mutate(page, "/api/sessions", {
+    cwd: fixtureWorkspace,
+    toolNames: ["read"],
+  })
+  expect(differentlyConfigured.status, JSON.stringify(differentlyConfigured.body)).toBe(200)
+  expect(differentlyConfigured.body.id).not.toBe(created.body.id)
+  await mutate(page, `/api/sessions/${differentlyConfigured.body.id}`, {}, "DELETE")
+  await mutate(page, `/api/sessions/${created.body.id}`, {}, "DELETE")
 })
 
 test("resolves a session-scoped extension interaction before any run exists", async ({ page }) => {
@@ -570,6 +605,12 @@ test("runs and aborts Pi-native bash inside an isolated session", async ({ page 
   })
   expect(running.status).toBe(200)
   await waitForBashEvent(page, sessionId, "bash-abort", "BashStarted")
+  const rejected = await mutate(page, `/api/sessions/${sessionId}/actions/compact`, {})
+  expect(rejected.status, JSON.stringify(rejected.body)).toBe(409)
+  expect(rejected.body).toMatchObject({
+    _tag: "Conflict",
+    detail: { _tag: "AlreadyRunning", operation: "bash" },
+  })
   const aborted = await mutate(page, `/api/sessions/${sessionId}/actions/abort-bash`, {})
   expect(aborted.status).toBe(200)
   const abortedEvent = await waitForBashEvent(page, sessionId, "bash-abort", "BashFinished")

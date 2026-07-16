@@ -12,12 +12,32 @@ NodeRuntime.runMain(
     Effect.gen(function* () {
       const repository = yield* makeLoopRepository(cwd, DEFAULT_CONFIG);
       const occurrences = yield* repository.claimDue(10, "open", "project");
+      const access = yield* repository.projectAccess;
       yield* Effect.sync(() =>
         process.stdout.write(
-          `${JSON.stringify({ access: repository.projectAccess, ids: occurrences.map(({ id }) => id) })}\n`,
+          `${JSON.stringify({ access, ids: occurrences.map(({ id }) => id) })}\n`,
         ),
       );
-      return yield* Effect.never;
+      if (access === "owner") return yield* Effect.never;
+      const awaitTakeover = (): Effect.Effect<void, never> =>
+        Effect.sleep("20 millis").pipe(
+          Effect.andThen(repository.claimDue(20, "open", "project")),
+          Effect.flatMap((claimed) =>
+            repository.projectAccess.pipe(
+              Effect.flatMap((currentAccess) =>
+                currentAccess === "follower"
+                  ? Effect.suspend(awaitTakeover)
+                  : Effect.sync(() =>
+                      process.stdout.write(
+                        `${JSON.stringify({ access: currentAccess, ids: claimed.map(({ id }) => id) })}\n`,
+                      ),
+                    ),
+              ),
+            ),
+          ),
+          Effect.catch(() => Effect.suspend(awaitTakeover)),
+        );
+      return yield* awaitTakeover();
     }),
   ).pipe(Effect.provide(NodeServicesLayer)),
 );
