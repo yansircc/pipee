@@ -48,7 +48,7 @@ import {
   ApiKeyStatus,
   CompletedBashExecution,
   ContextUsage,
-  ExtensionStatusItem,
+  ExtensionUiProjection,
   ExtensionWidgetItem,
   JsonValue,
   ModelCatalog,
@@ -60,7 +60,10 @@ import {
   PluginsResponse,
   QueuedMessages,
   RunId,
-  RuntimeEvent,
+  RunScopedEvent,
+  RuntimeEnvelope,
+  RuntimeId,
+  SessionScopedEvent,
   RuntimeSnapshot,
   SessionEntry,
   SessionStats,
@@ -68,9 +71,14 @@ import {
   SkillsResponse,
   SlashCommand,
   ToolEntry,
-  type ExtensionUiRequest as ExtensionUiRequestValue,
+  type ChromeControlRequestType,
+  type ExtensionInteraction as ExtensionInteractionValue,
+  type ExtensionInteractionAnswer as ExtensionInteractionAnswerValue,
+  type ExtensionInteractionResponse as ExtensionInteractionResponseValue,
+  type LoopControlRequestType,
   type PluginsResponse as PluginsResponseValue,
-  type RuntimeEvent as RuntimeEventValue,
+  type RuntimeEnvelope as RuntimeEnvelopeValue,
+  type WeixinControlRequestType,
 } from "@/api/contract"
 import { appendLiveBashOutput } from "@/lib/bash-command"
 import { extensionStructuredStatusOrUndefined } from "@/lib/extension-status"
@@ -173,7 +181,8 @@ export interface PiRuntime {
   readonly created: string
   readonly firstMessage: Effect.Effect<string | null>
   readonly isConversationEmpty: Effect.Effect<boolean>
-  readonly events: PubSub.PubSub<RuntimeEventValue>
+  readonly events: PubSub.PubSub<RuntimeEnvelopeValue>
+  readonly publishRunEvent: (event: typeof RunScopedEvent.Type) => void
   readonly snapshot: Effect.Effect<typeof RuntimeSnapshot.Type, PiAdapterError>
   readonly promptRequest: (
     runId: RunId,
@@ -216,25 +225,21 @@ export interface PiRuntime {
   readonly tools: Effect.Effect<ReadonlyArray<typeof ToolEntry.Type>, PiAdapterError>
   readonly commands: Effect.Effect<ReadonlyArray<typeof SlashCommand.Type>, PiAdapterError>
   readonly setTools: (toolNames: ReadonlyArray<string>) => Effect.Effect<void, PiAdapterError>
-  readonly invokeExtensionCommand: (
-    name: string,
-    args: string,
-  ) => Effect.Effect<
-    {
-      readonly tools: ReadonlyArray<typeof ToolEntry.Type>
-      readonly extensionStatuses: ReadonlyArray<typeof ExtensionStatusItem.Type>
-    },
-    PiAdapterError
-  >
-  readonly resolveExtensionUi: (response: {
-    readonly id: string
-    readonly value?: string
-    readonly confirmed?: boolean
-    readonly cancelled?: true
-  }) => Effect.Effect<void>
-  readonly sendExtensionUiInput: (id: string, data: string) => Effect.Effect<void>
+  readonly invokeSlashCommand: (name: string, args: string) => Effect.Effect<CompanionControlResult, PiAdapterError>
+  readonly controlLoop: (request: LoopControlRequestType) => Effect.Effect<CompanionControlResult, PiAdapterError>
+  readonly controlWeixin: (request: WeixinControlRequestType) => Effect.Effect<CompanionControlResult, PiAdapterError>
+  readonly controlChrome: (request: ChromeControlRequestType) => Effect.Effect<CompanionControlResult, PiAdapterError>
+  readonly resolveInteraction: (
+    interactionId: string,
+    response: ExtensionInteractionResponseValue,
+  ) => Effect.Effect<void, PiAdapterError>
   readonly reload: Effect.Effect<void, PiAdapterError>
   readonly dispose: Effect.Effect<void>
+}
+
+interface CompanionControlResult {
+  readonly tools: ReadonlyArray<typeof ToolEntry.Type>
+  readonly extensionUi: typeof ExtensionUiProjection.Type
 }
 
 export class PiAgentAdapter extends Context.Service<
@@ -770,6 +775,24 @@ const withExtensionTools = (session: AgentSessionLike, toolNames: ReadonlyArray<
   return mergeBuiltinSelectionWithActiveExtensions(tools, [...toolNames])
 }
 
+export const matchExtensionInteractionResponse = (
+  interaction: ExtensionInteractionValue,
+  response: ExtensionInteractionAnswerValue,
+):
+  | {
+      readonly _tag: "Accepted"
+      readonly value: { readonly value?: string; readonly confirmed?: boolean; readonly cancelled?: true }
+    }
+  | { readonly _tag: "Rejected" } => {
+  if (response._tag === "Cancelled") return { _tag: "Accepted", value: { cancelled: true } }
+  if (interaction.method === "confirm") {
+    return response._tag === "Confirmation"
+      ? { _tag: "Accepted", value: { confirmed: response.confirmed } }
+      : { _tag: "Rejected" }
+  }
+  return response._tag === "Value" ? { _tag: "Accepted", value: { value: response.value } } : { _tag: "Rejected" }
+}
+
 const makeRuntime = (
   runtime: AgentSessionRuntime,
   crypto: Crypto.Crypto,
@@ -778,25 +801,35 @@ const makeRuntime = (
 ) =>
   Effect.gen(function* () {
     const inner = runtime.session as unknown as AgentSessionLike
+    const runtimeId = yield* crypto.randomUUIDv4.pipe(
+      Effect.mapError(adapterError("runtime.id")),
+      Effect.flatMap((id) => decode(RuntimeId, "runtime.id", id)),
+    )
     // Prompt returns before the browser can open SSE, so late subscribers need a
     // bounded replay window. Sliding capacity prevents a stalled tab from
     // retaining an unbounded stream of token updates.
-    const events = yield* PubSub.sliding<RuntimeEventValue>({ capacity: 256, replay: 64 })
+    const events = yield* PubSub.sliding<RuntimeEnvelopeValue>({ capacity: 256, replay: 64 })
     const runIdRef = yield* Ref.make<RunId | null>(null)
     const firstMessageRef = yield* Ref.make<string | null>(null)
     const promptRunning = yield* Ref.make(false)
     const activeBash = yield* Ref.make<typeof ActiveBashExecution.Type | null>(null)
     const completedBash = yield* Ref.make<typeof CompletedBashExecution.Type | null>(null)
-    const statuses = new Map<string, typeof ExtensionStatusItem.Type>()
-    const widgets = new Map<string, typeof ExtensionWidgetItem.Type>()
-    const pendingUi = new Map<
-      string,
-      Deferred.Deferred<{
+    let extensionUi = ExtensionUiProjection.make({
+      revision: 0,
+      pendingInteraction: null,
+      textStatuses: [],
+      companionStatuses: [],
+      widgets: [],
+    })
+    let pendingUi: {
+      readonly interaction: ExtensionInteractionValue
+      readonly deferred: Deferred.Deferred<{
         readonly value?: string
         readonly confirmed?: boolean
         readonly cancelled?: true
       }>
-    >()
+    } | null = null
+    const interactionLock = yield* Semaphore.make(1)
     const promptRequestLock = yield* Semaphore.make(1)
     const promptRequests = new Map<
       string,
@@ -826,48 +859,71 @@ const makeRuntime = (
       )
     }
 
-    const publish = (event: RuntimeEventValue) => {
-      PubSub.publishUnsafe(events, event)
+    const publish = (event: typeof RunScopedEvent.Type | typeof SessionScopedEvent.Type) => {
+      PubSub.publishUnsafe(events, RuntimeEnvelope.make({ runtimeId, event }))
     }
     const currentRunId = () => Ref.getUnsafe(runIdRef)
-    const publishForRun = (make: (runId: RunId) => RuntimeEventValue | null) => {
+    const publishForRun = (make: (runId: RunId) => typeof RunScopedEvent.Type | null) => {
       const runId = currentRunId()
       if (runId === null) return
       const event = make(runId)
       if (event !== null) publish(event)
     }
 
-    const emitExtensionRequest = (request: ExtensionUiRequestValue) =>
-      publishForRun((runId) => RuntimeEvent.make({ _tag: "ExtensionUiRequested", runId, request }))
+    const commitExtensionUi = (
+      update: (current: typeof ExtensionUiProjection.Type) => Omit<typeof ExtensionUiProjection.Type, "revision">,
+    ) => {
+      extensionUi = ExtensionUiProjection.make({ ...update(extensionUi), revision: extensionUi.revision + 1 })
+      publish(SessionScopedEvent.make({ _tag: "ExtensionUiChanged", projection: extensionUi }))
+    }
 
-    const emitExtensionCallback = (request: (id: string) => ExtensionUiRequestValue) =>
-      runCallback(crypto.randomUUIDv4.pipe(Effect.tap((id) => Effect.sync(() => emitExtensionRequest(request(id))))))
+    const emitNotice = (message: string, notifyType: "info" | "warning" | "error" = "info") =>
+      runCallback(
+        crypto.randomUUIDv4.pipe(
+          Effect.tap((noticeId) =>
+            Effect.sync(() =>
+              publish(SessionScopedEvent.make({ _tag: "ExtensionNotice", noticeId, message, notifyType })),
+            ),
+          ),
+        ),
+      )
 
-    type RequestInput = ExtensionUiRequestValue extends infer Request
-      ? Request extends { readonly id: string; readonly type: "extension_ui_request" }
-        ? Omit<Request, "id" | "type">
+    type InteractionInput = ExtensionInteractionValue extends infer Interaction
+      ? Interaction extends { readonly interactionId: string }
+        ? Omit<Interaction, "interactionId">
         : never
       : never
 
     const requestUi = <A>(
-      request: RequestInput,
+      request: InteractionInput,
       select: (response: { readonly value?: string; readonly confirmed?: boolean; readonly cancelled?: true }) => A,
     ): Promise<A> =>
       runPromise(
-        Effect.gen(function* () {
-          const id = yield* crypto.randomUUIDv4
-          const deferred = yield* Deferred.make<{
-            readonly value?: string
-            readonly confirmed?: boolean
-            readonly cancelled?: true
-          }>()
-          pendingUi.set(id, deferred)
-          emitExtensionRequest({ type: "extension_ui_request", id, ...request } as ExtensionUiRequestValue)
-          const response = yield* Deferred.await(deferred).pipe(
-            Effect.ensuring(Effect.sync(() => pendingUi.delete(id))),
-          )
-          return select(response)
-        }),
+        interactionLock.withPermits(1)(
+          Effect.gen(function* () {
+            const interactionId = yield* crypto.randomUUIDv4
+            const interaction = { interactionId, ...request } as ExtensionInteractionValue
+            const deferred = yield* Deferred.make<{
+              readonly value?: string
+              readonly confirmed?: boolean
+              readonly cancelled?: true
+            }>()
+            yield* Effect.sync(() => {
+              pendingUi = { interaction, deferred }
+              commitExtensionUi((current) => ({ ...current, pendingInteraction: interaction }))
+            })
+            const response = yield* Deferred.await(deferred).pipe(
+              Effect.ensuring(
+                Effect.sync(() => {
+                  if (pendingUi?.interaction.interactionId !== interactionId) return
+                  pendingUi = null
+                  commitExtensionUi((current) => ({ ...current, pendingInteraction: null }))
+                }),
+              ),
+            )
+            return select(response)
+          }),
+        ),
       )
 
     const uiContext = {
@@ -886,24 +942,17 @@ const makeRuntime = (
           (response) => response.value,
         ),
       notify: (message: string, notifyType?: "info" | "warning" | "error") => {
-        emitExtensionCallback((id) => ({
-          type: "extension_ui_request",
-          id,
-          method: "notify",
-          message,
-          ...(notifyType === undefined ? {} : { notifyType }),
-        }))
+        emitNotice(message, notifyType)
       },
       onTerminalInput: () => () => undefined,
       setStatus: (key: string, text?: string) => {
-        if (text === undefined) statuses.delete(key)
-        else statuses.set(key, { key, text })
-        emitExtensionCallback((id) => ({
-          type: "extension_ui_request",
-          id,
-          method: "setStatus",
-          statusKey: key,
-          ...(text === undefined ? {} : { statusText: text }),
+        commitExtensionUi((current) => ({
+          ...current,
+          textStatuses: [
+            ...current.textStatuses.filter((item) => item.key !== key),
+            ...(text === undefined ? [] : [{ key, text }]),
+          ],
+          companionStatuses: current.companionStatuses.filter((item) => item.key !== key),
         }))
       },
       setStructuredStatus: (key: string, value?: unknown) => {
@@ -912,14 +961,13 @@ const makeRuntime = (
           runCallback(Effect.logWarning("Ignored non-JSON extension status projection", { key }))
           return
         }
-        if (status === undefined) statuses.delete(key)
-        else statuses.set(key, { key, status })
-        emitExtensionCallback((id) => ({
-          type: "extension_ui_request",
-          id,
-          method: "setStructuredStatus",
-          statusKey: key,
-          ...(status === undefined ? {} : { status }),
+        commitExtensionUi((current) => ({
+          ...current,
+          textStatuses: current.textStatuses.filter((item) => item.key !== key),
+          companionStatuses: [
+            ...current.companionStatuses.filter((item) => item.key !== key),
+            ...(status === undefined ? [] : [{ key, status }]),
+          ],
         }))
       },
       setWorkingMessage: () => undefined,
@@ -931,20 +979,20 @@ const makeRuntime = (
         content?: ReadonlyArray<string>,
         options?: { readonly placement?: "aboveEditor" | "belowEditor" },
       ) => {
-        if (content === undefined) widgets.delete(key)
-        else
-          widgets.set(key, {
-            key,
-            content: { kind: "text", lines: [...content] },
-            placement: options?.placement ?? "aboveEditor",
-          })
-        emitExtensionCallback((id) => ({
-          type: "extension_ui_request",
-          id,
-          method: "setWidget",
-          widgetKey: key,
-          ...(content === undefined ? {} : { widgetContent: { kind: "text" as const, lines: [...content] } }),
-          ...(options?.placement === undefined ? {} : { widgetPlacement: options.placement }),
+        commitExtensionUi((current) => ({
+          ...current,
+          widgets: [
+            ...current.widgets.filter((item) => item.key !== key),
+            ...(content === undefined
+              ? []
+              : [
+                  ExtensionWidgetItem.make({
+                    key,
+                    content: { kind: "text", lines: [...content] },
+                    placement: options?.placement ?? "aboveEditor",
+                  }),
+                ]),
+          ],
         }))
       },
       setImageWidget: (
@@ -957,44 +1005,34 @@ const makeRuntime = (
           runCallback(Effect.logWarning("Ignored invalid extension image widget", { key }))
           return
         }
-        if (content === undefined) widgets.delete(key)
-        else widgets.set(key, { key, content, placement: options?.placement ?? "aboveEditor" })
-        emitExtensionCallback((id) => ({
-          type: "extension_ui_request",
-          id,
-          method: "setWidget",
-          widgetKey: key,
-          ...(content === undefined ? {} : { widgetContent: content }),
-          ...(options?.placement === undefined ? {} : { widgetPlacement: options.placement }),
+        commitExtensionUi((current) => ({
+          ...current,
+          widgets: [
+            ...current.widgets.filter((item) => item.key !== key),
+            ...(content === undefined
+              ? []
+              : [
+                  ExtensionWidgetItem.make({
+                    key,
+                    content,
+                    placement: options?.placement ?? "aboveEditor",
+                  }),
+                ]),
+          ],
         }))
       },
       setFooter: () => undefined,
       setHeader: () => undefined,
-      setTitle: (title: string) => {
-        emitExtensionCallback((id) => ({
-          type: "extension_ui_request",
-          id,
-          method: "setTitle",
-          title,
-        }))
-      },
-      custom: () => runPromise(Effect.succeed(undefined)),
-      pasteToEditor: (text: string) => {
-        emitExtensionCallback((id) => ({
-          type: "extension_ui_request",
-          id,
-          method: "set_editor_text",
-          text,
-        }))
-      },
-      setEditorText: (text: string) => {
-        emitExtensionCallback((id) => ({
-          type: "extension_ui_request",
-          id,
-          method: "set_editor_text",
-          text,
-        }))
-      },
+      setTitle: () => undefined,
+      custom: () =>
+        Promise.reject(
+          new PiAdapterError({
+            operation: "runtime.customUi",
+            message: "Custom terminal UI is unavailable in pi-web",
+          }),
+        ),
+      pasteToEditor: () => undefined,
+      setEditorText: () => undefined,
       getEditorText: () => "",
       addAutocompleteProvider: () => undefined,
       setEditorComponent: () => undefined,
@@ -1016,25 +1054,25 @@ const makeRuntime = (
       publishForRun((runId) => {
         switch (type) {
           case "agent_start":
-            return RuntimeEvent.make({ _tag: "RunStarted", runId })
+            return RunScopedEvent.make({ _tag: "RunStarted", runId })
           case "agent_end":
-            return RuntimeEvent.make({ _tag: "RunFinished", runId })
+            return RunScopedEvent.make({ _tag: "RunFinished", runId })
           case "message_start": {
             const message = Schema.decodeUnknownOption(AgentMessage)(normalizePiMessage(event.message))
             return Option.isSome(message)
-              ? RuntimeEvent.make({ _tag: "MessageStarted", runId, message: message.value })
+              ? RunScopedEvent.make({ _tag: "MessageStarted", runId, message: message.value })
               : null
           }
           case "message_update": {
             const message = Schema.decodeUnknownOption(AgentMessage)(normalizePiMessage(event.message))
             return Option.isSome(message)
-              ? RuntimeEvent.make({ _tag: "MessageUpdated", runId, message: message.value })
+              ? RunScopedEvent.make({ _tag: "MessageUpdated", runId, message: message.value })
               : null
           }
           case "message_end": {
             const message = Schema.decodeUnknownOption(AgentMessage)(normalizePiMessage(event.message))
             return Option.isSome(message)
-              ? RuntimeEvent.make({
+              ? RunScopedEvent.make({
                   _tag: "MessageFinished",
                   eventId: `${runId}:message:${messageEventSequence++}`,
                   runId,
@@ -1043,20 +1081,20 @@ const makeRuntime = (
               : null
           }
           case "tool_execution_start":
-            return RuntimeEvent.make({
+            return RunScopedEvent.make({
               _tag: "ToolStarted",
               runId,
               toolCallId: typeof event.toolCallId === "string" ? event.toolCallId : "",
               toolName: typeof event.toolName === "string" ? event.toolName : "",
             })
           case "tool_execution_end":
-            return RuntimeEvent.make({
+            return RunScopedEvent.make({
               _tag: "ToolFinished",
               runId,
               toolCallId: typeof event.toolCallId === "string" ? event.toolCallId : "",
             })
           case "queue_update":
-            return RuntimeEvent.make({
+            return RunScopedEvent.make({
               _tag: "QueueChanged",
               runId,
               queued: {
@@ -1065,7 +1103,7 @@ const makeRuntime = (
               },
             })
           case "auto_retry_start":
-            return RuntimeEvent.make({
+            return RunScopedEvent.make({
               _tag: "RetryStarted",
               runId,
               attempt: Number(event.attempt ?? 0),
@@ -1073,15 +1111,15 @@ const makeRuntime = (
               ...(typeof event.errorMessage === "string" ? { errorMessage: "Provider request failed; retrying" } : {}),
             })
           case "auto_retry_end":
-            return RuntimeEvent.make({ _tag: "RetryFinished", runId })
+            return RunScopedEvent.make({ _tag: "RetryFinished", runId })
           case "auto_compaction_start":
           case "compaction_start":
-            return RuntimeEvent.make({ _tag: "CompactionStarted", runId })
+            return RunScopedEvent.make({ _tag: "CompactionStarted", runId })
           case "auto_compaction_end":
           case "compaction_end": {
             const result =
               typeof event.result === "object" && event.result !== null ? (event.result as Record<string, unknown>) : {}
-            return RuntimeEvent.make({
+            return RunScopedEvent.make({
               _tag: "CompactionFinished",
               runId,
               aborted: event.aborted === true,
@@ -1118,10 +1156,9 @@ const makeRuntime = (
             shutdownHandler: () =>
               uiContext.notify("Extension requested shutdown, which is not available in pi-web.", "warning"),
             onError: () =>
-              publishForRun((runId) =>
-                RuntimeEvent.make({
+              publish(
+                SessionScopedEvent.make({
                   _tag: "ExtensionFailed",
-                  runId,
                   message: "Extension operation failed",
                 }),
               ),
@@ -1143,6 +1180,7 @@ const makeRuntime = (
       const completedBashExecution = yield* Ref.get(completedBash)
       const usage = inner.getContextUsage()
       return yield* decode(RuntimeSnapshot, "runtime.snapshot", {
+        runtimeId,
         runId,
         sessionId: inner.sessionId,
         sessionFile: inner.sessionFile ?? "",
@@ -1160,10 +1198,45 @@ const makeRuntime = (
         contextUsage: usage === undefined ? null : usage,
         systemPrompt: inner.agent.state?.systemPrompt ?? "",
         thinkingLevel: inner.agent.state?.thinkingLevel ?? "off",
-        extensionStatuses: [...statuses.values()],
-        extensionWidgets: [...widgets.values()],
+        extensionUi,
       })
     })
+
+    const invokeCompanionCommand = (name: string, args: string) =>
+      Effect.gen(function* () {
+        const command = inner.extensionRunner.getCommand(name)
+        if (command === undefined)
+          return yield* new PiAdapterError({
+            operation: `runtime.companion.${name}`,
+            message: `Companion command is unavailable: /${name}`,
+          })
+        yield* Effect.tryPromise({
+          try: () => command.handler(args, inner.extensionRunner.createCommandContext()),
+          catch: adapterError(`runtime.companion.${name}`),
+        })
+        const active = new Set(inner.getActiveToolNames())
+        return {
+          tools: inner.getAllTools().map((tool) => ToolEntry.make({ ...tool, active: active.has(tool.name) })),
+          extensionUi,
+        }
+      })
+
+    const chromeControlArgument = (request: ChromeControlRequestType): string => {
+      switch (request.action._tag) {
+        case "Authorize":
+          return "authorize"
+        case "Revoke":
+          return "revoke"
+        case "WebAttach":
+          return `web-attach ${request.action.offer}`
+        case "WebAssert":
+          return `web-assert ${request.action.pairingId}`
+        case "WebDetach":
+          return `web-detach ${request.action.pairingId}`
+      }
+    }
+
+    const weixinControlArgument = (request: WeixinControlRequestType): string => request.action._tag.toLowerCase()
 
     const piRuntime: PiRuntime = {
       sessionId: inner.sessionId,
@@ -1175,6 +1248,7 @@ const makeRuntime = (
         () => !inner.sessionManager.getEntries().some((entry) => entry.type === "message"),
       ),
       events,
+      publishRunEvent: publish,
       snapshot,
       promptRequest: (proposedRunId, requestId, input) =>
         Effect.gen(function* () {
@@ -1360,7 +1434,7 @@ const makeRuntime = (
           const startedAt = yield* Effect.clockWith((clock) => Effect.succeed(clock.currentTimeMillisUnsafe()))
           const active = ActiveBashExecution.make({ id, command, output: "", excludeFromContext, startedAt })
           yield* Ref.set(activeBash, active)
-          publish(RuntimeEvent.make({ _tag: "BashStarted", runId, execution: active }))
+          publish(RunScopedEvent.make({ _tag: "BashStarted", runId, execution: active }))
           const extensionResult = yield* Effect.tryPromise({
             try: () =>
               inner.extensionRunner.emitUserBash({
@@ -1385,7 +1459,7 @@ const makeRuntime = (
                             output: appendLiveBashOutput(current.output, chunk),
                           }
                         }
-                        publish(RuntimeEvent.make({ _tag: "BashOutput", runId, id, chunk }))
+                        publish(RunScopedEvent.make({ _tag: "BashOutput", runId, id, chunk }))
                       },
                       { excludeFromContext, operations: extensionResult?.operations },
                     ),
@@ -1409,7 +1483,8 @@ const makeRuntime = (
             },
           })
           yield* Ref.set(completedBash, completed)
-          publish(RuntimeEvent.make({ _tag: "BashFinished", runId, execution: completed }))
+          yield* Ref.set(activeBash, null)
+          publish(RunScopedEvent.make({ _tag: "BashFinished", runId, execution: completed }))
           return completed
         }).pipe(Effect.ensuring(Ref.set(activeBash, null))),
       abortBash: Effect.sync(() => inner.abortBash()),
@@ -1495,38 +1570,42 @@ const makeRuntime = (
           inner.setActiveToolsByName(active)
           if (active.length === 0 && inner.agent.state) inner.agent.state.systemPrompt = ""
         }),
-      invokeExtensionCommand: (name, args) =>
+      invokeSlashCommand: invokeCompanionCommand,
+      controlLoop: (request) => invokeCompanionCommand("loop-control", JSON.stringify(request)),
+      controlWeixin: (request) => invokeCompanionCommand("weixin", weixinControlArgument(request)),
+      controlChrome: (request) => invokeCompanionCommand("chrome", chromeControlArgument(request)),
+      resolveInteraction: (interactionId, response) =>
         Effect.gen(function* () {
-          const command = inner.extensionRunner.getCommand(name)
-          if (command === undefined)
+          const current = pendingUi
+          if (current === null || current.interaction.interactionId !== interactionId) {
             return yield* new PiAdapterError({
-              operation: "runtime.extensionCommand",
-              message: `Extension command not found: /${name}`,
+              operation: "runtime.interaction.resolve",
+              message: "Extension interaction is no longer pending",
             })
-          yield* Effect.tryPromise({
-            try: () => command.handler(args, inner.extensionRunner.createCommandContext()),
-            catch: adapterError("runtime.extensionCommand"),
-          })
-          const active = new Set(inner.getActiveToolNames())
-          return {
-            tools: inner.getAllTools().map((tool) => ToolEntry.make({ ...tool, active: active.has(tool.name) })),
-            extensionStatuses: [...statuses.values()],
           }
+          const matched = matchExtensionInteractionResponse(current.interaction, response.answer)
+          if (matched._tag === "Rejected") {
+            return yield* new PiAdapterError({
+              operation: "runtime.interaction.resolve",
+              message: `Response ${response.answer._tag} does not match ${current.interaction.method} interaction`,
+            })
+          }
+          pendingUi = null
+          commitExtensionUi((projection) => ({ ...projection, pendingInteraction: null }))
+          yield* Deferred.succeed(current.deferred, matched.value)
         }),
-      resolveExtensionUi: (response) =>
-        Effect.sync(() => {
-          const pending = pendingUi.get(response.id)
-          if (pending !== undefined) Deferred.doneUnsafe(pending, Effect.succeed(response))
-        }),
-      sendExtensionUiInput: () => Effect.void,
       reload: Effect.tryPromise({
         try: () => inner.reload({ beforeSessionStart: () => inner.extensionRunner.setUIContext?.(uiContext, "rpc") }),
         catch: adapterError("runtime.reload"),
       }),
       dispose: Effect.gen(function* () {
         unsubscribe()
-        for (const deferred of pendingUi.values()) Deferred.doneUnsafe(deferred, Effect.succeed({ cancelled: true }))
-        pendingUi.clear()
+        const current = pendingUi
+        if (current !== null) {
+          pendingUi = null
+          commitExtensionUi((projection) => ({ ...projection, pendingInteraction: null }))
+          yield* Deferred.succeed(current.deferred, { cancelled: true })
+        }
         yield* PubSub.shutdown(events)
         yield* Effect.tryPromise({ try: () => runtime.dispose(), catch: () => undefined }).pipe(Effect.ignore)
       }),

@@ -51,11 +51,14 @@ const waitForBashEvent = (page: Page, sessionId: string, executionId: string, ta
               ?.slice(5)
               .trim()
             if (!data) continue
-            const event = JSON.parse(data) as {
-              _tag: string
-              execution?: { id: string; message?: unknown }
-              id?: string
+            const envelope = JSON.parse(data) as {
+              event: {
+                _tag: string
+                execution?: { id: string; message?: unknown }
+                id?: string
+              }
             }
+            const event = envelope.event
             const id = event.execution?.id ?? event.id
             if (event._tag === tag && id === executionId) return event
           }
@@ -136,6 +139,55 @@ test("projects an active session before Pi persists its first message", async ({
     context: { messages: [], entryIds: [] },
     runtime: { sessionId },
   })
+
+  const removed = await mutate(page, `/api/sessions/${sessionId}`, {}, "DELETE")
+  expect(removed.status).toBe(200)
+})
+
+test("resolves a session-scoped extension interaction before any run exists", async ({ page }) => {
+  await page.goto("/")
+  await mutate(page, "/api/workspace/cwd/validate", { cwd: fixtureWorkspace })
+  const created = await mutate(page, "/api/sessions", { cwd: fixtureWorkspace, toolNames: [] })
+  expect(created.status).toBe(200)
+  const sessionId = (created.body as { id: string }).id
+  await page.goto(`/?session=${sessionId}`)
+  await expect(page.locator("textarea").first()).toBeVisible()
+
+  await page.evaluate((id) => {
+    const state = window as typeof window & { interactionResult?: unknown }
+    void fetch(`/api/sessions/${id}/actions/slash-command`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "interaction-test", args: "" }),
+    })
+      .then(async (response) => ({ status: response.status, body: await response.json() }))
+      .then((result) => {
+        state.interactionResult = result
+      })
+  }, sessionId)
+
+  await expect(page.getByText("E2E interaction", { exact: true })).toBeVisible()
+  await page.getByPlaceholder("pairing code").fill("2468")
+  await page.getByRole("button", { name: "Submit", exact: true }).click()
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as typeof window & { interactionResult?: unknown }).interactionResult ?? null),
+    )
+    .toMatchObject({
+      status: 200,
+      body: {
+        extensionUi: {
+          pendingInteraction: null,
+          textStatuses: [{ key: "e2e-interaction", text: "resolved:2468" }],
+        },
+      },
+    })
+
+  const snapshot = await page.evaluate(async (id) => {
+    const response = await fetch(`/api/sessions/${id}?deferThinking=1&deferMedia=1`)
+    return response.json()
+  }, sessionId)
+  expect(snapshot.runtime).toMatchObject({ runId: null, extensionUi: { pendingInteraction: null } })
 
   const removed = await mutate(page, `/api/sessions/${sessionId}`, {}, "DELETE")
   expect(removed.status).toBe(200)
@@ -427,8 +479,15 @@ test("runs and aborts a second shell operation through the React controller", as
   await waitForBashEvent(page, sessionId, "prior-api-run", "BashFinished")
 
   const input = page.locator("textarea").first()
+  await expect(input).toHaveAttribute("placeholder", "输入消息… 使用 / 调用命令，使用 @ 引用文件")
   await input.fill("!sleep 30")
+  const bashResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/sessions/${sessionId}/actions/bash`) && response.request().method() === "POST",
+  )
   await input.press("Enter")
+  const accepted = await bashResponse
+  expect(accepted.status(), await accepted.text()).toBe(200)
   await expect(input).toHaveAttribute("placeholder", "Shell 命令正在运行…")
   const stop = page.getByTitle("停止 Shell 命令")
   await expect(stop).toBeVisible()

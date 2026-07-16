@@ -2,12 +2,13 @@ import { it } from "@effect/vitest"
 import { Deferred, Effect, Exit, Fiber, PubSub, Ref, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import { expect } from "vite-plus/test"
-import { RunId, RuntimeEvent, RuntimeSnapshot } from "@/api/contract"
+import { RunId, RunScopedEvent, RuntimeEnvelope, RuntimeId, RuntimeSnapshot } from "@/api/contract"
 import { PiAdapterError, type PiRuntime } from "./pi-agent-adapter"
 import { makeSessionRuntimeRegistry, type SessionRuntimeAdapter } from "./session-runtime-registry"
 
 const runtimeSnapshot = (sessionId: string, sessionFile: string) =>
   RuntimeSnapshot.make({
+    runtimeId: RuntimeId.make(`runtime-${sessionId}`),
     runId: null,
     sessionId,
     sessionFile,
@@ -24,8 +25,13 @@ const runtimeSnapshot = (sessionId: string, sessionFile: string) =>
     contextUsage: null,
     systemPrompt: "",
     thinkingLevel: "off",
-    extensionStatuses: [],
-    extensionWidgets: [],
+    extensionUi: {
+      revision: 0,
+      pendingInteraction: null,
+      textStatuses: [],
+      companionStatuses: [],
+      widgets: [],
+    },
   })
 
 const makeRuntime = (
@@ -34,7 +40,8 @@ const makeRuntime = (
   promptEffect: Effect.Effect<void, PiAdapterError> = Effect.void,
 ) =>
   Effect.gen(function* () {
-    const events = yield* PubSub.sliding<RuntimeEvent>({ capacity: 256, replay: 64 })
+    const runtimeId = RuntimeId.make(`runtime-${sessionId}`)
+    const events = yield* PubSub.sliding<RuntimeEnvelope>({ capacity: 256, replay: 64 })
     const firstMessage = yield* Ref.make<string | null>(null)
     const sessionFile = `/sessions/${sessionId}.jsonl`
     const runtime: PiRuntime = {
@@ -45,6 +52,9 @@ const makeRuntime = (
       firstMessage: Ref.get(firstMessage),
       isConversationEmpty: Ref.get(firstMessage).pipe(Effect.map((message) => message === null)),
       events,
+      publishRunEvent: (event) => {
+        PubSub.publishUnsafe(events, RuntimeEnvelope.make({ runtimeId, event }))
+      },
       snapshot: Effect.succeed(runtimeSnapshot(sessionId, sessionFile)),
       promptRequest: (runId, _requestId, input) =>
         Ref.update(firstMessage, (current) => current ?? (input.message.trim() || null)).pipe(
@@ -72,9 +82,15 @@ const makeRuntime = (
       tools: Effect.succeed([]),
       commands: Effect.succeed([]),
       setTools: () => Effect.void,
-      invokeExtensionCommand: () => Effect.succeed({ tools: [], extensionStatuses: [] }),
-      resolveExtensionUi: () => Effect.void,
-      sendExtensionUiInput: () => Effect.void,
+      invokeSlashCommand: () =>
+        Effect.succeed({ tools: [], extensionUi: runtimeSnapshot(sessionId, sessionFile).extensionUi }),
+      controlLoop: () =>
+        Effect.succeed({ tools: [], extensionUi: runtimeSnapshot(sessionId, sessionFile).extensionUi }),
+      controlWeixin: () =>
+        Effect.succeed({ tools: [], extensionUi: runtimeSnapshot(sessionId, sessionFile).extensionUi }),
+      controlChrome: () =>
+        Effect.succeed({ tools: [], extensionUi: runtimeSnapshot(sessionId, sessionFile).extensionUi }),
+      resolveInteraction: () => Effect.void,
       reload: Effect.void,
       dispose: Ref.update(disposeCount, (count) => count + 1).pipe(Effect.andThen(PubSub.shutdown(events))),
     }
@@ -235,11 +251,13 @@ it.effect("invalidates running sessions after prompt finalizers clear busy state
       ),
       promptRequest: (runId) =>
         Ref.set(busy, true).pipe(
-          Effect.andThen(PubSub.publish(base.events, RuntimeEvent.make({ _tag: "RunStarted", runId }))),
+          Effect.andThen(Effect.sync(() => base.publishRunEvent(RunScopedEvent.make({ _tag: "RunStarted", runId })))),
           Effect.as({
             runId,
             completion: Deferred.await(release).pipe(
-              Effect.andThen(PubSub.publish(base.events, RuntimeEvent.make({ _tag: "RunFinished", runId }))),
+              Effect.andThen(
+                Effect.sync(() => base.publishRunEvent(RunScopedEvent.make({ _tag: "RunFinished", runId }))),
+              ),
               Effect.as({ runId, text: "done" }),
               Effect.ensuring(Ref.set(busy, false)),
             ),
@@ -392,17 +410,21 @@ it.effect("keeps a runtime alive while an extension owns a runtime lease", () =>
       ...base,
       snapshot: Effect.succeed({
         ...runtimeSnapshot(base.sessionId, base.sessionFile),
-        extensionStatuses: [
-          {
-            key: "pi-loop/runtime-lease",
-            status: {
-              kind: "pi/runtime-lease",
-              version: 1,
-              owner: "pi-loop",
-              reason: "automation-present",
+        extensionUi: {
+          ...runtimeSnapshot(base.sessionId, base.sessionFile).extensionUi,
+          revision: 1,
+          companionStatuses: [
+            {
+              key: "pi-loop/runtime-lease",
+              status: {
+                kind: "pi/runtime-lease",
+                version: 1,
+                owner: "pi-loop",
+                reason: "automation-present",
+              },
             },
-          },
-        ],
+          ],
+        },
       }),
     }
     const adapter: SessionRuntimeAdapter = {
@@ -473,10 +495,12 @@ it.effect("returns bash run identity before completion and redacts background fa
     expect(event._tag).toBe("Some")
     if (event._tag === "Some") {
       expect(event.value).toMatchObject({
-        _tag: "BashFailed",
-        runId,
-        id: "bash-1",
-        message: "Shell command failed",
+        event: {
+          _tag: "BashFailed",
+          runId,
+          id: "bash-1",
+          message: "Shell command failed",
+        },
       })
       expect(JSON.stringify(event.value)).not.toContain("secret-key-in-provider-error")
     }
@@ -493,18 +517,14 @@ it.effect("replays pre-SSE events and releases disconnected subscriptions", () =
     }
     const registry = yield* makeSessionRuntimeRegistry(adapter, runIds)
     yield* registry.start("session-6", { sessionFile: runtime.sessionFile, cwd: runtime.cwd })
-    yield* PubSub.publish(
-      runtime.events,
-      RuntimeEvent.make({
-        _tag: "RunStarted",
-        runId: RunId.make("run-before-sse"),
-      }),
-    )
+    runtime.publishRunEvent(RunScopedEvent.make({ _tag: "RunStarted", runId: RunId.make("run-before-sse") }))
 
     const stream = yield* registry.events("session-6")
     const first = yield* Stream.runHead(stream)
     expect(first._tag).toBe("Some")
-    if (first._tag === "Some") expect(first.value.runId).toBe("run-before-sse")
+    if (first._tag === "Some" && first.value.event._tag === "RunStarted") {
+      expect(first.value.event.runId).toBe("run-before-sse")
+    }
 
     yield* Effect.yieldNow
     const baseline = runtime.events.subscribers.size

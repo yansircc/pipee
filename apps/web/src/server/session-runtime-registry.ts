@@ -16,10 +16,10 @@ import {
 } from "effect"
 import {
   RunId,
+  RunScopedEvent,
   RunningSessionsEvent,
-  RuntimeEvent,
   RuntimeSnapshot,
-  type RuntimeEvent as RuntimeEventValue,
+  type RuntimeEnvelope as RuntimeEnvelopeValue,
 } from "@/api/contract"
 import {
   PiAgentAdapter,
@@ -118,7 +118,7 @@ export class SessionRuntimeRegistry extends Context.Service<
       },
       RuntimeRegistryError
     >
-    readonly events: (sessionId: string) => Effect.Effect<Stream.Stream<RuntimeEventValue>, RuntimeRegistryError>
+    readonly events: (sessionId: string) => Effect.Effect<Stream.Stream<RuntimeEnvelopeValue>, RuntimeRegistryError>
     readonly activeSessions: Effect.Effect<ReadonlyArray<ActiveRuntimeSession>>
     readonly runningIds: Effect.Effect<ReadonlyArray<string>>
     readonly runningEvents: Stream.Stream<typeof RunningSessionsEvent.Type>
@@ -202,7 +202,9 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
                   Effect.matchEffect({
                     onFailure: () => closeHandle(handle),
                     onSuccess: (snapshot) =>
-                      hasRuntimeLease(snapshot.extensionStatuses) ? idleLoop(handle) : closeHandle(handle),
+                      hasRuntimeLease([...snapshot.extensionUi.textStatuses, ...snapshot.extensionUi.companionStatuses])
+                        ? idleLoop(handle)
+                        : closeHandle(handle),
                   }),
                 )
               : idleLoop(handle),
@@ -387,9 +389,8 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
         yield* handle.runtime.compact(runId, instructions).pipe(
           Effect.tapError(() =>
             Effect.sync(() => {
-              PubSub.publishUnsafe(
-                handle.runtime.events,
-                RuntimeEvent.make({
+              handle.runtime.publishRunEvent(
+                RunScopedEvent.make({
                   _tag: "CompactionFinished",
                   runId,
                   aborted: false,
@@ -425,9 +426,8 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
         yield* handle.runtime.executeBash(runId, id, command, excludeFromContext).pipe(
           Effect.tapError(() =>
             Effect.sync(() => {
-              PubSub.publishUnsafe(
-                handle.runtime.events,
-                RuntimeEvent.make({
+              handle.runtime.publishRunEvent(
+                RunScopedEvent.make({
                   _tag: "BashFailed",
                   runId,
                   id,

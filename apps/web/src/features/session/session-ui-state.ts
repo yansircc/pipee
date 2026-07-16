@@ -1,14 +1,14 @@
-import { ActiveBashExecution, ExtensionStatusItem, ExtensionWidgetItem, RuntimeSnapshot } from "@/api/contract"
-import type { AgentMessage, ExtensionUiRequest, RuntimeEvent, SessionSnapshot, UserMessage } from "@/api/contract"
+import { ActiveBashExecution, ExtensionUiProjection, RuntimeSnapshot } from "@/api/contract"
+import type { AgentMessage, RunScopedEvent, SessionScopedEvent, SessionSnapshot, UserMessage } from "@/api/contract"
 
 type ActiveBashExecutionValue = typeof ActiveBashExecution.Type
-type ExtensionStatusItemValue = typeof ExtensionStatusItem.Type
-type ExtensionWidgetItemValue = typeof ExtensionWidgetItem.Type
+type ExtensionUiProjectionValue = typeof ExtensionUiProjection.Type
 type RuntimeSnapshotValue = typeof RuntimeSnapshot.Type
 export type OperationKind = "prompt" | "bash" | "compaction"
 
 export interface SessionUiState {
   readonly sessionId: string | null
+  readonly runtimeId: string | null
   readonly chromeControlOperation: {
     readonly requestId: string
     readonly enabled: boolean
@@ -37,13 +37,7 @@ export interface SessionUiState {
   readonly activeBashExecution: ActiveBashExecutionValue | null
   readonly retryInfo: { readonly attempt: number; readonly maxAttempts: number; readonly errorMessage?: string } | null
   readonly queuedMessages: { readonly steering: ReadonlyArray<string>; readonly followUp: ReadonlyArray<string> }
-  readonly extensionDialog: Extract<
-    ExtensionUiRequest,
-    { readonly method: "select" | "confirm" | "input" | "editor" }
-  > | null
-  readonly extensionCustomUi: Extract<ExtensionUiRequest, { readonly method: "custom" }> | null
-  readonly extensionStatuses: ReadonlyArray<ExtensionStatusItemValue>
-  readonly extensionWidgets: ReadonlyArray<ExtensionWidgetItemValue>
+  readonly extensionUi: ExtensionUiProjectionValue
   readonly isCompacting: boolean
   readonly compactResult: {
     readonly reason: string
@@ -55,6 +49,7 @@ export interface SessionUiState {
 
 export const initialSessionUiState: SessionUiState = {
   sessionId: null,
+  runtimeId: null,
   chromeControlOperation: null,
   contextRequestId: 0,
   snapshot: null,
@@ -72,10 +67,13 @@ export const initialSessionUiState: SessionUiState = {
   activeBashExecution: null,
   retryInfo: null,
   queuedMessages: { steering: [], followUp: [] },
-  extensionDialog: null,
-  extensionCustomUi: null,
-  extensionStatuses: [],
-  extensionWidgets: [],
+  extensionUi: ExtensionUiProjection.make({
+    revision: 0,
+    pendingInteraction: null,
+    textStatuses: [],
+    companionStatuses: [],
+    widgets: [],
+  }),
   isCompacting: false,
   compactResult: null,
   error: null,
@@ -107,15 +105,18 @@ export type SessionUiAction =
       readonly message: string
     }
   | { readonly _tag: "PromptSubmitted"; readonly requestId: string; readonly message: UserMessage }
-  | { readonly _tag: "ExtensionStatusesChanged"; readonly statuses: ReadonlyArray<ExtensionStatusItemValue> }
   | { readonly _tag: "ChromeControlRequested"; readonly requestId: string; readonly enabled: boolean }
   | {
       readonly _tag: "ChromeControlSucceeded"
       readonly requestId: string
-      readonly statuses: ReadonlyArray<ExtensionStatusItemValue>
     }
   | { readonly _tag: "ChromeControlFailed"; readonly requestId: string }
-  | { readonly _tag: "RuntimeEvent"; readonly sessionId: string; readonly event: RuntimeEvent }
+  | {
+      readonly _tag: "RuntimeEvent"
+      readonly sessionId: string
+      readonly runtimeId: string
+      readonly event: RunScopedEvent | SessionScopedEvent
+    }
   | { readonly _tag: "Reset"; readonly sessionId: string }
 
 const appendEphemeral = (
@@ -152,48 +153,63 @@ export const projectSessionEntryIds = (state: SessionUiState): ReadonlyArray<str
   ...state.ephemeralMessages.map(() => undefined),
 ]
 
-const applyRuntime = (state: SessionUiState, runtime: RuntimeSnapshotValue | null): SessionUiState =>
-  runtime === null
-    ? state
-    : state.pendingPrompt !== null && runtime.runId === null
-      ? {
+const applyRuntime = (state: SessionUiState, runtime: RuntimeSnapshotValue | null): SessionUiState => {
+  if (runtime === null) return state
+  const identified: SessionUiState =
+    state.runtimeId === runtime.runtimeId
+      ? runtime.extensionUi.revision > state.extensionUi.revision
+        ? { ...state, extensionUi: runtime.extensionUi }
+        : state
+      : {
           ...state,
-          extensionStatuses: runtime.extensionStatuses,
-          extensionWidgets: runtime.extensionWidgets,
-          queuedMessages: runtime.queuedMessages,
+          runtimeId: runtime.runtimeId,
+          extensionUi: runtime.extensionUi,
+          runId: null,
+          terminalRunId: null,
+          completionRunId: null,
+          pendingPrompt: null,
+          pendingOperation: null,
+          ephemeralMessages: [],
+          agentRunning: false,
+          isStreaming: false,
+          streamingMessage: null,
+          activeBashExecution: null,
+          retryInfo: null,
+          isCompacting: false,
         }
-      : runtime.runId !== null && runtime.runId === state.terminalRunId && state.pendingPrompt !== null
-        ? state
-        : (state.pendingPrompt?.runId ?? state.runId) !== null &&
-            runtime.runId !== null &&
-            runtime.runId !== (state.pendingPrompt?.runId ?? state.runId)
-          ? state
-          : {
-              ...state,
-              runId: runtime.runId,
-              pendingPrompt:
-                state.pendingPrompt === null || runtime.runId === null
-                  ? state.pendingPrompt
-                  : { ...state.pendingPrompt, runId: runtime.runId },
-              terminalRunId:
-                runtime.runId !== null &&
-                !runtime.isStreaming &&
-                !runtime.isPromptRunning &&
-                !runtime.isBashRunning &&
-                !runtime.isCompacting
-                  ? runtime.runId
-                  : state.terminalRunId === runtime.runId
-                    ? null
-                    : state.terminalRunId,
-              pendingOperation: null,
-              agentRunning: runtime.isStreaming || runtime.isPromptRunning || runtime.isBashRunning,
-              isStreaming: runtime.isStreaming,
-              activeBashExecution: runtime.activeBashExecution,
-              queuedMessages: runtime.queuedMessages,
-              extensionStatuses: runtime.extensionStatuses,
-              extensionWidgets: runtime.extensionWidgets,
-              isCompacting: runtime.isCompacting,
-            }
+  if (identified.pendingPrompt !== null && runtime.runId === null) {
+    return { ...identified, queuedMessages: runtime.queuedMessages }
+  }
+  if (runtime.runId !== null && runtime.runId === identified.terminalRunId && identified.pendingPrompt !== null) {
+    return identified
+  }
+  const expectedRunId = identified.pendingPrompt?.runId ?? identified.runId
+  if (expectedRunId !== null && runtime.runId !== null && runtime.runId !== expectedRunId) return identified
+  return {
+    ...identified,
+    runId: runtime.runId,
+    pendingPrompt:
+      identified.pendingPrompt === null || runtime.runId === null
+        ? identified.pendingPrompt
+        : { ...identified.pendingPrompt, runId: runtime.runId },
+    terminalRunId:
+      runtime.runId !== null &&
+      !runtime.isStreaming &&
+      !runtime.isPromptRunning &&
+      !runtime.isBashRunning &&
+      !runtime.isCompacting
+        ? runtime.runId
+        : identified.terminalRunId === runtime.runId
+          ? null
+          : identified.terminalRunId,
+    pendingOperation: null,
+    agentRunning: runtime.isStreaming || runtime.isPromptRunning || runtime.isBashRunning,
+    isStreaming: runtime.isStreaming,
+    activeBashExecution: runtime.activeBashExecution,
+    queuedMessages: runtime.queuedMessages,
+    isCompacting: runtime.isCompacting,
+  }
+}
 
 export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction): SessionUiState => {
   switch (action._tag) {
@@ -201,8 +217,6 @@ export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction)
       return action.sessionId === state.sessionId ? state : { ...initialSessionUiState, sessionId: action.sessionId }
     case "LoadFailed":
       return action.sessionId === state.sessionId ? { ...state, error: action.message } : state
-    case "ExtensionStatusesChanged":
-      return { ...state, extensionStatuses: action.statuses }
     case "ChromeControlRequested":
       return state.chromeControlOperation === null
         ? {
@@ -212,7 +226,7 @@ export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction)
         : state
     case "ChromeControlSucceeded":
       return state.chromeControlOperation?.requestId === action.requestId
-        ? { ...state, chromeControlOperation: null, extensionStatuses: action.statuses }
+        ? { ...state, chromeControlOperation: null }
         : state
     case "ChromeControlFailed":
       return state.chromeControlOperation?.requestId === action.requestId
@@ -229,13 +243,19 @@ export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction)
             : loadedReceipt.userEntryId === undefined
               ? { ...state.pendingPrompt, runId: loadedReceipt.runId }
               : null
+      const loadedRuntime = action.snapshot.runtime
+      const expectedRunId = loadedPending?.runId ?? state.runId
       if (
-        (loadedPending?.runId ?? state.runId) !== null &&
-        action.snapshot.runtime?.runId !== null &&
-        action.snapshot.runtime?.runId !== undefined &&
-        action.snapshot.runtime.runId !== (loadedPending?.runId ?? state.runId)
-      )
-        return state
+        loadedRuntime !== null &&
+        state.runtimeId === loadedRuntime.runtimeId &&
+        expectedRunId !== null &&
+        loadedRuntime.runId !== null &&
+        loadedRuntime.runId !== expectedRunId
+      ) {
+        return loadedRuntime.extensionUi.revision > state.extensionUi.revision
+          ? { ...state, extensionUi: loadedRuntime.extensionUi }
+          : state
+      }
       return applyRuntime(
         {
           ...state,
@@ -273,6 +293,7 @@ export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction)
       if (action.sessionId !== state.sessionId) return state
       return {
         ...state,
+        runId: null,
         pendingOperation: action.kind,
         completionRunId: null,
         agentRunning: action.kind === "prompt" || action.kind === "bash" ? true : state.agentRunning,
@@ -349,7 +370,15 @@ export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction)
         : state
     case "RuntimeEvent": {
       if (action.sessionId !== state.sessionId) return state
+      if (state.runtimeId === null) return sessionUiReducer({ ...state, runtimeId: action.runtimeId }, action)
+      if (action.runtimeId !== state.runtimeId) return state
       const event = action.event
+      if (event._tag === "ExtensionUiChanged") {
+        return event.projection.revision > state.extensionUi.revision
+          ? { ...state, extensionUi: event.projection }
+          : state
+      }
+      if (event._tag === "ExtensionNotice" || event._tag === "ExtensionFailed") return state
       if (state.terminalRunId === event.runId) return state
       const expectedRunId = activeRunId(state)
       if (expectedRunId !== null && event.runId !== expectedRunId) return state
@@ -420,7 +449,7 @@ export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction)
         case "RetryFinished":
           return { ...state, retryInfo: null }
         case "CompactionStarted":
-          return { ...state, pendingOperation: null, isCompacting: true, compactResult: null }
+          return { ...state, runId: event.runId, pendingOperation: null, isCompacting: true, compactResult: null }
         case "CompactionFinished":
           return {
             ...state,
@@ -438,7 +467,13 @@ export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction)
             ...(event.errorMessage === undefined ? {} : { error: event.errorMessage }),
           }
         case "BashStarted":
-          return { ...state, pendingOperation: null, agentRunning: true, activeBashExecution: event.execution }
+          return {
+            ...state,
+            runId: event.runId,
+            pendingOperation: null,
+            agentRunning: true,
+            activeBashExecution: event.execution,
+          }
         case "BashOutput":
           return state.activeBashExecution?.id === event.id
             ? {
@@ -472,58 +507,6 @@ export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction)
             activeBashExecution: null,
             error: event.message,
           }
-        case "ExtensionUiRequested": {
-          const request = event.request
-          if (
-            request.method === "select" ||
-            request.method === "confirm" ||
-            request.method === "input" ||
-            request.method === "editor"
-          ) {
-            return { ...state, extensionDialog: request }
-          }
-          if (request.method === "custom") return { ...state, extensionCustomUi: request.closed ? null : request }
-          if (request.method === "setStatus") {
-            const statuses = state.extensionStatuses.filter((item) => item.key !== request.statusKey)
-            return {
-              ...state,
-              extensionStatuses:
-                request.statusText === undefined
-                  ? statuses
-                  : [...statuses, { key: request.statusKey, text: request.statusText }],
-            }
-          }
-          if (request.method === "setStructuredStatus") {
-            const statuses = state.extensionStatuses.filter((item) => item.key !== request.statusKey)
-            return {
-              ...state,
-              extensionStatuses:
-                request.status === undefined
-                  ? statuses
-                  : [...statuses, { key: request.statusKey, status: request.status }],
-            }
-          }
-          if (request.method === "setWidget") {
-            const widgets = state.extensionWidgets.filter((item) => item.key !== request.widgetKey)
-            return {
-              ...state,
-              extensionWidgets:
-                request.widgetContent === undefined
-                  ? widgets
-                  : [
-                      ...widgets,
-                      {
-                        key: request.widgetKey,
-                        content: request.widgetContent,
-                        placement: request.widgetPlacement ?? "aboveEditor",
-                      },
-                    ],
-            }
-          }
-          return state
-        }
-        case "ExtensionFailed":
-          return state
       }
     }
   }

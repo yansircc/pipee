@@ -1,5 +1,5 @@
 import { expect, test } from "vite-plus/test"
-import { RunId, RuntimeSnapshot, SessionSnapshot } from "@/api/contract"
+import { RunId, RuntimeId, RuntimeSnapshot, SessionSnapshot } from "@/api/contract"
 import {
   initialSessionUiState,
   projectSessionEntryIds,
@@ -9,6 +9,7 @@ import {
 
 const runtime = (runId: string | null, streaming: boolean) =>
   RuntimeSnapshot.make({
+    runtimeId: RuntimeId.make("runtime-1"),
     runId: runId === null ? null : RunId.make(runId),
     sessionId: "session-1",
     sessionFile: "/sessions/session-1.jsonl",
@@ -25,15 +26,22 @@ const runtime = (runId: string | null, streaming: boolean) =>
     contextUsage: null,
     systemPrompt: "",
     thinkingLevel: "high",
-    extensionStatuses: [],
-    extensionWidgets: [],
+    extensionUi: {
+      revision: 0,
+      pendingInteraction: null,
+      textStatuses: [],
+      companionStatuses: [],
+      widgets: [],
+    },
   })
 
-const sessionState = () =>
-  sessionUiReducer(initialSessionUiState, {
+const sessionState = () => ({
+  ...sessionUiReducer(initialSessionUiState, {
     _tag: "Reset",
     sessionId: "session-1",
-  })
+  }),
+  runtimeId: RuntimeId.make("runtime-1"),
+})
 
 test("accepts events only for the current opaque run id", () => {
   const accepted = sessionUiReducer(sessionState(), {
@@ -45,6 +53,7 @@ test("accepts events only for the current opaque run id", () => {
   const stale = sessionUiReducer(accepted, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: { _tag: "RunFinished", runId: RunId.make("old-run") },
   })
   expect(stale).toBe(accepted)
@@ -52,6 +61,7 @@ test("accepts events only for the current opaque run id", () => {
   const finished = sessionUiReducer(accepted, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: { _tag: "RunFinished", runId: RunId.make("current-run") },
   })
   expect(finished.isStreaming).toBe(false)
@@ -62,9 +72,35 @@ test("accepts events only for the current opaque run id", () => {
   const duplicate = sessionUiReducer(finished, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: { _tag: "RunFinished", runId: RunId.make("current-run") },
   })
   expect(duplicate).toBe(finished)
+})
+
+test("installs the first live runtime identity from its event envelope", () => {
+  const browsing = sessionUiReducer(initialSessionUiState, { _tag: "Reset", sessionId: "session-1" })
+  const started = sessionUiReducer(browsing, {
+    _tag: "RuntimeEvent",
+    sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
+    event: {
+      _tag: "BashStarted",
+      runId: RunId.make("bash-run"),
+      execution: { id: "bash-1", command: "sleep 30", output: "", excludeFromContext: false, startedAt: 1 },
+    },
+  })
+  expect(started.runtimeId).toBe("runtime-1")
+  expect(started.runId).toBe("bash-run")
+  expect(started.activeBashExecution?.id).toBe("bash-1")
+
+  const stale = sessionUiReducer(started, {
+    _tag: "RuntimeEvent",
+    sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-old"),
+    event: { _tag: "BashOutput", runId: RunId.make("bash-run"), id: "bash-1", chunk: "stale" },
+  })
+  expect(stale).toBe(started)
 })
 
 test("adopts an external run while idle and projects its messages in real time", () => {
@@ -77,16 +113,19 @@ test("adopts an external run while idle and projects its messages in real time",
   const idle = sessionUiReducer(previous, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: { _tag: "RunFinished", runId: RunId.make("web-run") },
   })
   const started = sessionUiReducer(idle, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: { _tag: "RunStarted", runId: RunId.make("weixin-run") },
   })
   const foreign = sessionUiReducer(started, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: {
       _tag: "MessageFinished",
       eventId: "foreign-user",
@@ -97,6 +136,7 @@ test("adopts an external run while idle and projects its messages in real time",
   const withUser = sessionUiReducer(foreign, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: {
       _tag: "MessageFinished",
       eventId: "weixin-user",
@@ -107,6 +147,7 @@ test("adopts an external run while idle and projects its messages in real time",
   const withAssistant = sessionUiReducer(withUser, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: {
       _tag: "MessageFinished",
       eventId: "weixin-assistant",
@@ -122,6 +163,7 @@ test("adopts an external run while idle and projects its messages in real time",
   const finished = sessionUiReducer(withAssistant, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: { _tag: "RunFinished", runId: RunId.make("weixin-run") },
   })
 
@@ -163,11 +205,13 @@ test("replayed lifecycle events cannot complete a run restored as terminal", () 
   const replayedStart = sessionUiReducer(restored, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: { _tag: "RunStarted", runId: RunId.make("completed-run") },
   })
   const replayedFinish = sessionUiReducer(replayedStart, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: { _tag: "RunFinished", runId: RunId.make("completed-run") },
   })
   expect(replayedStart).toBe(restored)
@@ -251,10 +295,8 @@ test("owns Chrome control pending state by projection and request receipt", () =
   const succeeded = sessionUiReducer(pending, {
     _tag: "ChromeControlSucceeded",
     requestId: "chrome-1",
-    statuses: [{ key: "chrome", text: "ready" }],
   })
   expect(succeeded.chromeControlOperation).toBeNull()
-  expect(succeeded.extensionStatuses).toEqual([{ key: "chrome", text: "ready" }])
 
   const nextPending = sessionUiReducer(succeeded, {
     _tag: "ChromeControlRequested",
@@ -405,6 +447,7 @@ test("binds RunStarted that arrives before prompt acceptance and rejects the old
   const finished = sessionUiReducer(previous, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: { _tag: "RunFinished", runId: RunId.make("old-run") },
   })
   const submitted = sessionUiReducer(finished, {
@@ -415,11 +458,13 @@ test("binds RunStarted that arrives before prompt acceptance and rejects the old
   const stale = sessionUiReducer(submitted, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: { _tag: "RunStarted", runId: RunId.make("old-run") },
   })
   const started = sessionUiReducer(stale, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: { _tag: "RunStarted", runId: RunId.make("new-run") },
   })
   const accepted = sessionUiReducer(started, {
@@ -445,6 +490,7 @@ test("keeps ephemeral SSE messages outside persisted message-entry pairs", () =>
   const eventState = sessionUiReducer(started, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: {
       _tag: "MessageFinished",
       eventId: "event-1",
@@ -466,6 +512,7 @@ test("keeps ephemeral SSE messages outside persisted message-entry pairs", () =>
     sessionUiReducer(eventState, {
       _tag: "RuntimeEvent",
       sessionId: "session-1",
+      runtimeId: RuntimeId.make("runtime-1"),
       event: {
         _tag: "MessageFinished",
         eventId: "event-1",
@@ -491,9 +538,9 @@ test("does not promote a recoverable extension failure to the session fatal erro
   const afterFailure = sessionUiReducer(running, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: {
       _tag: "ExtensionFailed",
-      runId: RunId.make("run-1"),
       message: "Extension operation failed",
     },
   })
@@ -528,6 +575,7 @@ test("rejects snapshot and events from a previous session epoch", () => {
   const afterEvent = sessionUiReducer(afterSnapshot, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: { _tag: "RunStarted", runId: RunId.make("old-run") },
   })
   expect(afterSnapshot).toBe(state)
@@ -564,6 +612,7 @@ test("binds a new bash operation after an older run has finished", () => {
   const finished = sessionUiReducer(acceptedPrompt, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: { _tag: "RunFinished", runId: RunId.make("prompt-run") },
   })
   const bash = sessionUiReducer(finished, {
@@ -575,6 +624,7 @@ test("binds a new bash operation after an older run has finished", () => {
   const started = sessionUiReducer(bash, {
     _tag: "RuntimeEvent",
     sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
     event: {
       _tag: "BashStarted",
       runId: RunId.make("bash-run"),
@@ -584,4 +634,118 @@ test("binds a new bash operation after an older run has finished", () => {
   expect(started.activeBashExecution?.id).toBe("bash-1")
   expect(started.isStreaming).toBe(false)
   expect(started.agentRunning).toBe(true)
+})
+
+test("binds a bash event that arrives before its mutation response", () => {
+  const priorAccepted = sessionUiReducer(sessionState(), {
+    _tag: "OperationAccepted",
+    sessionId: "session-1",
+    kind: "bash",
+    runId: RunId.make("prior-run"),
+  })
+  const priorStarted = sessionUiReducer(priorAccepted, {
+    _tag: "RuntimeEvent",
+    sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
+    event: {
+      _tag: "BashStarted",
+      runId: RunId.make("prior-run"),
+      execution: { id: "prior", command: "true", output: "", excludeFromContext: false, startedAt: 1 },
+    },
+  })
+  const priorFinished = sessionUiReducer(priorStarted, {
+    _tag: "RuntimeEvent",
+    sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
+    event: {
+      _tag: "BashFinished",
+      runId: RunId.make("prior-run"),
+      execution: {
+        id: "prior",
+        message: {
+          role: "bashExecution",
+          command: "true",
+          output: "",
+          exitCode: 0,
+          cancelled: false,
+          truncated: false,
+          timestamp: 2,
+          excludeFromContext: false,
+        },
+      },
+    },
+  })
+  const pending = sessionUiReducer(priorFinished, {
+    _tag: "OperationPending",
+    sessionId: "session-1",
+    kind: "bash",
+  })
+  expect(pending.runId).toBeNull()
+  expect(pending.terminalRunId).toBe("prior-run")
+  const started = sessionUiReducer(pending, {
+    _tag: "RuntimeEvent",
+    sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
+    event: {
+      _tag: "BashStarted",
+      runId: RunId.make("next-run"),
+      execution: { id: "next", command: "sleep 30", output: "", excludeFromContext: false, startedAt: 3 },
+    },
+  })
+  expect(started.runId).toBe("next-run")
+  const accepted = sessionUiReducer(started, {
+    _tag: "OperationAccepted",
+    sessionId: "session-1",
+    kind: "bash",
+    runId: RunId.make("next-run"),
+  })
+  expect(accepted.activeBashExecution?.id).toBe("next")
+  expect(accepted.agentRunning).toBe(true)
+})
+
+test("projects extension interaction without a run and rejects stale projection replay", () => {
+  const idle = sessionState()
+  expect(idle.runId).toBeNull()
+  const projection = {
+    revision: 2,
+    pendingInteraction: {
+      interactionId: "weixin-code",
+      method: "input" as const,
+      title: "输入手机微信显示的配对码",
+      placeholder: "配对码",
+    },
+    textStatuses: [],
+    companionStatuses: [],
+    widgets: [],
+  }
+  const projected = sessionUiReducer(idle, {
+    _tag: "RuntimeEvent",
+    sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
+    event: { _tag: "ExtensionUiChanged", projection },
+  })
+  expect(projected.extensionUi).toEqual(projection)
+  expect(projected.runId).toBeNull()
+
+  const stale = sessionUiReducer(projected, {
+    _tag: "RuntimeEvent",
+    sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-1"),
+    event: {
+      _tag: "ExtensionUiChanged",
+      projection: { ...projection, revision: 1, pendingInteraction: null },
+    },
+  })
+  expect(stale).toBe(projected)
+
+  const wrongRuntime = sessionUiReducer(projected, {
+    _tag: "RuntimeEvent",
+    sessionId: "session-1",
+    runtimeId: RuntimeId.make("runtime-old"),
+    event: {
+      _tag: "ExtensionUiChanged",
+      projection: { ...projection, revision: 3, pendingInteraction: null },
+    },
+  })
+  expect(wrongRuntime).toBe(projected)
 })

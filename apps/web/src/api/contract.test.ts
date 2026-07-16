@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { HttpApi } from "effect/unstable/httpapi"
 import { expect, test } from "@effect/vitest"
-import { Conflict, OperationFailed, PiWebApi, PromptProgressEvent, RuntimeEvent } from "./contract"
+import { Conflict, OperationFailed, PiWebApi, PromptProgressEvent, RuntimeEnvelope } from "./contract"
 import { toPublicError } from "./server"
 import { PiAdapterError, PiPromptIdempotencyError } from "@/server/pi-agent-adapter"
 
@@ -49,6 +49,8 @@ test("models every session mutation as a dedicated action endpoint", () => {
       .every(
         (fact) =>
           fact.path.includes("/api/sessions/:id/actions/") ||
+          fact.path.includes("/api/sessions/:id/companions/") ||
+          fact.path.includes("/api/sessions/:id/interactions/") ||
           fact.identifier === "tools" ||
           fact.identifier === "commands" ||
           fact.identifier === "stats" ||
@@ -65,8 +67,15 @@ test("models every session mutation as a dedicated action endpoint", () => {
       "navigate",
       "compact",
       "bash",
-      "extensionCommand",
+      "slashCommand",
+      "loopControl",
+      "weixinControl",
+      "chromeControl",
+      "resolveInteraction",
     ]),
+  )
+  expect(actions.map((fact) => fact.identifier)).not.toEqual(
+    expect.arrayContaining(["extensionCommand", "extensionUiResponse", "extensionUiInput"]),
   )
 })
 
@@ -101,16 +110,16 @@ test("decodes structured conflict detail and rejects untagged failures", () => {
   expect(Schema.decodeUnknownOption(OperationFailed)({ message: "missing tag" })._tag).toBe("None")
 })
 
-test("requires opaque run ids on every runtime event", () => {
+test("requires runtime identity around every run event", () => {
   expect(
-    Schema.decodeUnknownOption(RuntimeEvent)({
-      _tag: "RunFinished",
-      runId: "run-1",
+    Schema.decodeUnknownOption(RuntimeEnvelope)({
+      runtimeId: "runtime-1",
+      event: { _tag: "RunFinished", runId: "run-1" },
     })._tag,
   ).toBe("Some")
   expect(
-    Schema.decodeUnknownOption(RuntimeEvent)({
-      _tag: "RunFinished",
+    Schema.decodeUnknownOption(RuntimeEnvelope)({
+      event: { _tag: "RunFinished", runId: "run-1" },
     })._tag,
   ).toBe("None")
 })

@@ -1,6 +1,6 @@
 import { expect, test } from "vite-plus/test"
 import { RunId, SessionEntry } from "@/api/contract"
-import { normalizePiMessage, normalizePiTree } from "./pi-agent-adapter"
+import { matchExtensionInteractionResponse, normalizePiMessage, normalizePiTree } from "./pi-agent-adapter"
 import { canonicalPromptInput, decidePromptRequest, projectPromptRequestReceipts } from "./prompt-request"
 
 test("normalizes Pi flat images and tool calls into the canonical API shape", () => {
@@ -158,4 +158,28 @@ test("canonicalizes equivalent prompt payloads identically", () => {
       message: "hello",
     }),
   )
+})
+
+test("accepts only responses belonging to the pending interaction kind", () => {
+  const confirm = { interactionId: "interaction-1", method: "confirm" as const, title: "Continue?", message: "go" }
+  expect(matchExtensionInteractionResponse(confirm, { _tag: "Confirmation", confirmed: true })).toEqual({
+    _tag: "Accepted",
+    value: { confirmed: true },
+  })
+  expect(matchExtensionInteractionResponse(confirm, { _tag: "Value", value: "yes" })).toEqual({
+    _tag: "Rejected",
+  })
+
+  const input = { interactionId: "interaction-2", method: "input" as const, title: "Code" }
+  expect(matchExtensionInteractionResponse(input, { _tag: "Value", value: "1234" })).toEqual({
+    _tag: "Accepted",
+    value: { value: "1234" },
+  })
+  expect(matchExtensionInteractionResponse(input, { _tag: "Confirmation", confirmed: true })).toEqual({
+    _tag: "Rejected",
+  })
+  expect(matchExtensionInteractionResponse(input, { _tag: "Cancelled" })).toEqual({
+    _tag: "Accepted",
+    value: { cancelled: true },
+  })
 })

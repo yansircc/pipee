@@ -1,5 +1,8 @@
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSchema } from "effect/unstable/httpapi"
+import { ChromeControlRequest } from "@pi-suite/companion-contracts/chrome"
+import { LoopControlRequest } from "@pi-suite/companion-contracts/loop"
+import { WeixinControlRequest } from "@pi-suite/companion-contracts/weixin"
 
 // -----------------------------------------------------------------------------
 // Wire primitives
@@ -27,6 +30,9 @@ export type JsonValue =
 
 export const RunId = Schema.String.pipe(Schema.brand("RunId"))
 export type RunId = typeof RunId.Type
+
+export const RuntimeId = Schema.String.pipe(Schema.brand("RuntimeId"))
+export type RuntimeId = typeof RuntimeId.Type
 
 export const SessionId = Schema.String.pipe(Schema.brand("SessionId"))
 export type SessionId = typeof SessionId.Type
@@ -241,13 +247,17 @@ export {
   ChromeStatusRequirement,
   type ChromeStatusProjection as ChromeStatusProjectionType,
   type ChromeStatusRequirement as ChromeStatusRequirementType,
+  type ChromeControlRequest as ChromeControlRequestType,
 } from "@pi-suite/companion-contracts/chrome"
 export {
   WeixinBindingStatus,
   WeixinStatusProjection,
   type WeixinBindingStatus as WeixinBindingStatusType,
   type WeixinStatusProjection as WeixinStatusProjectionType,
+  type WeixinControlRequest as WeixinControlRequestType,
 } from "@pi-suite/companion-contracts/weixin"
+export { ChromeControlRequest, LoopControlRequest, WeixinControlRequest }
+export type { LoopControlRequest as LoopControlRequestType } from "@pi-suite/companion-contracts/loop"
 export const ExtensionStatusItem = Schema.Struct({
   key: Schema.String,
   text: Schema.optionalKey(Schema.String),
@@ -272,100 +282,53 @@ export const ExtensionWidgetItem = Schema.Struct({
 })
 export type ExtensionWidgetItem = typeof ExtensionWidgetItem.Type
 
-export const ExtensionUiRequest = Schema.Union([
+export const ExtensionInteraction = Schema.Union([
   Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
+    interactionId: Schema.String,
     method: Schema.Literal("select"),
     title: Schema.String,
     options: Schema.Array(Schema.String),
-    timeout: Schema.optionalKey(Schema.Number),
-    expiresAt: Schema.optionalKey(Schema.Number),
   }),
   Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
+    interactionId: Schema.String,
     method: Schema.Literal("confirm"),
     title: Schema.String,
     message: Schema.String,
-    timeout: Schema.optionalKey(Schema.Number),
-    expiresAt: Schema.optionalKey(Schema.Number),
   }),
   Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
+    interactionId: Schema.String,
     method: Schema.Literal("input"),
     title: Schema.String,
     placeholder: Schema.optionalKey(Schema.String),
-    timeout: Schema.optionalKey(Schema.Number),
-    expiresAt: Schema.optionalKey(Schema.Number),
   }),
   Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
+    interactionId: Schema.String,
     method: Schema.Literal("editor"),
     title: Schema.String,
     prefill: Schema.optionalKey(Schema.String),
-    timeout: Schema.optionalKey(Schema.Number),
-    expiresAt: Schema.optionalKey(Schema.Number),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
-    method: Schema.Literal("notify"),
-    message: Schema.String,
-    notifyType: Schema.optionalKey(Schema.Literals(["info", "warning", "error"])),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
-    method: Schema.Literal("setStatus"),
-    statusKey: Schema.String,
-    statusText: Schema.optionalKey(Schema.String),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
-    method: Schema.Literal("setStructuredStatus"),
-    statusKey: Schema.String,
-    status: Schema.optionalKey(JsonValue),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
-    method: Schema.Literal("setWidget"),
-    widgetKey: Schema.String,
-    widgetContent: Schema.optionalKey(ExtensionWidgetContent),
-    widgetPlacement: Schema.optionalKey(Schema.Literals(["aboveEditor", "belowEditor"])),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
-    method: Schema.Literal("setTitle"),
-    title: Schema.String,
-  }),
-  Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
-    method: Schema.Literal("set_editor_text"),
-    text: Schema.String,
-  }),
-  Schema.Struct({
-    type: Schema.Literal("extension_ui_request"),
-    id: Schema.String,
-    method: Schema.Literal("custom"),
-    lines: Schema.Array(Schema.String),
-    closed: Schema.optionalKey(Schema.Boolean),
   }),
 ])
-export type ExtensionUiRequest = typeof ExtensionUiRequest.Type
+export type ExtensionInteraction = typeof ExtensionInteraction.Type
 
-export const ExtensionUiResponse = Schema.Union([
-  Schema.Struct({ id: Schema.String, value: Schema.String }),
-  Schema.Struct({ id: Schema.String, confirmed: Schema.Boolean }),
-  Schema.Struct({ id: Schema.String, cancelled: Schema.Literal(true) }),
+export const ExtensionInteractionAnswer = Schema.Union([
+  Schema.TaggedStruct("Value", { value: Schema.String }),
+  Schema.TaggedStruct("Confirmation", { confirmed: Schema.Boolean }),
+  Schema.TaggedStruct("Cancelled", {}),
 ])
-export type ExtensionUiResponse = typeof ExtensionUiResponse.Type
+export type ExtensionInteractionAnswer = typeof ExtensionInteractionAnswer.Type
+export const ExtensionInteractionResponse = Schema.Struct({ answer: ExtensionInteractionAnswer })
+export type ExtensionInteractionResponse = typeof ExtensionInteractionResponse.Type
+
+const ExtensionTextStatus = Schema.Struct({ key: Schema.String, text: Schema.String })
+const ExtensionCompanionStatus = Schema.Struct({ key: Schema.String, status: JsonValue })
+export const ExtensionUiProjection = Schema.Struct({
+  revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  pendingInteraction: Schema.NullOr(ExtensionInteraction),
+  textStatuses: Schema.Array(ExtensionTextStatus),
+  companionStatuses: Schema.Array(ExtensionCompanionStatus),
+  widgets: Schema.Array(ExtensionWidgetItem),
+})
+export type ExtensionUiProjection = typeof ExtensionUiProjection.Type
 
 export const SessionEntryBase = {
   id: Schema.String,
@@ -476,6 +439,7 @@ export const QueuedMessages = Schema.Struct({
   followUp: Schema.Array(Schema.String),
 })
 export const RuntimeSnapshot = Schema.Struct({
+  runtimeId: RuntimeId,
   runId: Schema.NullOr(RunId),
   sessionId: Schema.String,
   sessionFile: Schema.String,
@@ -493,8 +457,7 @@ export const RuntimeSnapshot = Schema.Struct({
   contextUsage: Schema.NullOr(ContextUsage),
   systemPrompt: Schema.String,
   thinkingLevel: Schema.String,
-  extensionStatuses: Schema.Array(ExtensionStatusItem),
-  extensionWidgets: Schema.Array(ExtensionWidgetItem),
+  extensionUi: ExtensionUiProjection,
 })
 
 export const SessionSnapshot = Schema.Struct({
@@ -513,7 +476,7 @@ export const SessionIndex = Schema.Struct({
   runningSessionIds: Schema.Array(Schema.String),
 })
 
-export const RuntimeEvent = Schema.Union([
+export const RunScopedEvent = Schema.Union([
   Schema.TaggedStruct("RunStarted", { runId: RunId }),
   Schema.TaggedStruct("RunFinished", { runId: RunId }),
   Schema.TaggedStruct("RunFailed", { runId: RunId, message: Schema.String }),
@@ -543,10 +506,25 @@ export const RuntimeEvent = Schema.Union([
   Schema.TaggedStruct("BashOutput", { runId: RunId, id: Schema.String, chunk: Schema.String }),
   Schema.TaggedStruct("BashFinished", { runId: RunId, execution: CompletedBashExecution }),
   Schema.TaggedStruct("BashFailed", { runId: RunId, id: Schema.String, message: Schema.String }),
-  Schema.TaggedStruct("ExtensionUiRequested", { runId: RunId, request: ExtensionUiRequest }),
-  Schema.TaggedStruct("ExtensionFailed", { runId: RunId, message: Schema.String }),
 ])
-export type RuntimeEvent = typeof RuntimeEvent.Type
+export type RunScopedEvent = typeof RunScopedEvent.Type
+
+export const SessionScopedEvent = Schema.Union([
+  Schema.TaggedStruct("ExtensionUiChanged", { projection: ExtensionUiProjection }),
+  Schema.TaggedStruct("ExtensionNotice", {
+    noticeId: Schema.String,
+    message: Schema.String,
+    notifyType: Schema.Literals(["info", "warning", "error"]),
+  }),
+  Schema.TaggedStruct("ExtensionFailed", { message: Schema.String }),
+])
+export type SessionScopedEvent = typeof SessionScopedEvent.Type
+
+export const RuntimeEnvelope = Schema.Struct({
+  runtimeId: RuntimeId,
+  event: Schema.Union([RunScopedEvent, SessionScopedEvent]),
+})
+export type RuntimeEnvelope = typeof RuntimeEnvelope.Type
 
 export const PromptProgressEvent = Schema.Union([
   Schema.TaggedStruct("ToolStarted", {
@@ -923,7 +901,7 @@ const SessionsApi = HttpApiGroup.make("sessions").add(
   }),
   HttpApiEndpoint.get("events", "/api/sessions/:id/events", {
     params: IdParam,
-    success: HttpApiSchema.StreamSse({ data: RuntimeEvent, error: OperationFailed }),
+    success: HttpApiSchema.StreamSse({ data: RuntimeEnvelope, error: OperationFailed }),
     error: CommonErrors,
   }),
   HttpApiEndpoint.get("runningEvents", "/api/sessions/running/events", {
@@ -939,6 +917,10 @@ const MessagePayload = Schema.Struct({
 })
 
 const IdempotencyKey = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256))
+const CompanionControlResult = Schema.Struct({
+  tools: Schema.Array(ToolEntry),
+  extensionUi: ExtensionUiProjection,
+})
 
 const SessionActionsApi = HttpApiGroup.make("sessionActions").add(
   HttpApiEndpoint.post("prompt", "/api/sessions/:id/actions/prompt", {
@@ -1073,21 +1055,33 @@ const SessionActionsApi = HttpApiGroup.make("sessionActions").add(
     success: Ok,
     error: CommonErrors,
   }),
-  HttpApiEndpoint.post("extensionCommand", "/api/sessions/:id/actions/extension-command", {
+  HttpApiEndpoint.post("slashCommand", "/api/sessions/:id/actions/slash-command", {
     params: IdParam,
-    payload: Schema.Struct({ name: Schema.String, args: Schema.String }),
-    success: Schema.Struct({ tools: Schema.Array(ToolEntry), extensionStatuses: Schema.Array(ExtensionStatusItem) }),
+    payload: Schema.Struct({ name: Schema.NonEmptyString, args: Schema.String }),
+    success: CompanionControlResult,
     error: CommonErrors,
   }),
-  HttpApiEndpoint.post("extensionUiResponse", "/api/sessions/:id/actions/extension-ui-response", {
+  HttpApiEndpoint.post("loopControl", "/api/sessions/:id/companions/loop/control", {
     params: IdParam,
-    payload: ExtensionUiResponse,
-    success: Ok,
+    payload: LoopControlRequest,
+    success: CompanionControlResult,
     error: CommonErrors,
   }),
-  HttpApiEndpoint.post("extensionUiInput", "/api/sessions/:id/actions/extension-ui-input", {
+  HttpApiEndpoint.post("weixinControl", "/api/sessions/:id/companions/weixin/control", {
     params: IdParam,
-    payload: Schema.Struct({ id: Schema.String, data: Schema.String }),
+    payload: WeixinControlRequest,
+    success: CompanionControlResult,
+    error: CommonErrors,
+  }),
+  HttpApiEndpoint.post("chromeControl", "/api/sessions/:id/companions/chrome/control", {
+    params: IdParam,
+    payload: ChromeControlRequest,
+    success: CompanionControlResult,
+    error: CommonErrors,
+  }),
+  HttpApiEndpoint.post("resolveInteraction", "/api/sessions/:id/interactions/:interactionId/resolve", {
+    params: Schema.Struct({ id: Schema.String, interactionId: Schema.String }),
+    payload: ExtensionInteractionResponse,
     success: Ok,
     error: CommonErrors,
   }),

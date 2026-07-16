@@ -61,3 +61,14 @@ export const ChromeStatusProjection = Schema.Struct({
   requirements: Schema.Array(ChromeStatusRequirement),
 })
 export type ChromeStatusProjection = typeof ChromeStatusProjection.Type
+
+export const ChromeControlRequest = Schema.Struct({
+  action: Schema.Union([
+    Schema.TaggedStruct("Authorize", {}),
+    Schema.TaggedStruct("Revoke", {}),
+    Schema.TaggedStruct("WebAttach", { offer: Schema.NonEmptyString }),
+    Schema.TaggedStruct("WebAssert", { pairingId: Schema.NonEmptyString }),
+    Schema.TaggedStruct("WebDetach", { pairingId: Schema.NonEmptyString }),
+  ]),
+})
+export type ChromeControlRequest = typeof ChromeControlRequest.Type
