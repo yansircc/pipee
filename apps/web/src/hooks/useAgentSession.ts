@@ -41,8 +41,6 @@ import type {
   ActiveBashExecution,
   AgentMessage,
   ExtensionInteraction,
-  ExtensionStatusItem,
-  ExtensionWidgetItem,
   SessionInfo,
   SessionTreeNode,
   SessionStats as SessionStatsInfo,
@@ -160,12 +158,6 @@ const cloneTree = (nodes: ReadonlyArray<SessionTreeNode>): SessionTreeNode[] =>
 const asUiMessages = (messages: ReadonlyArray<unknown>): AgentMessage[] =>
   messages.map((message) => message as AgentMessage)
 
-const asUiStatuses = (statuses: ReadonlyArray<unknown>): ExtensionStatusItem[] =>
-  statuses.map((status) => status as ExtensionStatusItem)
-
-const asUiWidgets = (widgets: ReadonlyArray<unknown>): ExtensionWidgetItem[] =>
-  widgets.map((widget) => widget as ExtensionWidgetItem)
-
 const asChromeConnection = (profile: SameProfileChromeConnection): SameProfileChromeConnection => profile
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
@@ -199,6 +191,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [chromeToolsActive, setChromeToolsActive] = useState<boolean | null>(null)
   const [chromeProfileConnection, setChromeProfileConnection] = useState<SameProfileChromeConnection | null>(null)
   const [loopControlPending, setLoopControlPending] = useState(false)
+  const [weixinControlPending, setWeixinControlPending] = useState(false)
   const [noticeState, dispatchNotice] = useReducer(noticeReducer, { visible: [], pending: [] } satisfies NoticeState)
   const effectScopeOwner = `session:${session.id}`
   const runScoped = useBrowserEffectScope(effectScopeOwner)
@@ -398,11 +391,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const activeLeafId = snapshot?.leafId ?? null
   const messages = useMemo(() => asUiMessages(projectSessionMessages(state)), [state])
   const entryIds = useMemo(() => [...projectSessionEntryIds(state)], [state])
-  const extensionStatuses = useMemo(
-    () => asUiStatuses([...state.extensionUi.textStatuses, ...state.extensionUi.companionStatuses]),
-    [state.extensionUi],
-  )
-  const extensionWidgets = useMemo(() => asUiWidgets(state.extensionUi.widgets), [state.extensionUi])
+  const extensionStatuses = state.extensionUi.statuses
+  const extensionWidgets = state.extensionUi.widgets
   const activeBashExecution = state.activeBashExecution as ActiveBashExecution | null
   const currentModel = snapshot?.context.model ?? null
   const displayModel = currentModel
@@ -519,14 +509,24 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         getChromeStatusProjection(extensionStatuses),
         control,
       ).pipe(
-        Effect.tap(({ profile, commandResult }) =>
-          Effect.sync(() => {
-            setChromeProfileConnection(profile)
-            if (commandResult === null) return
-            setChromeToolsActive(getPiChromeToolState(commandResult.tools.map((tool) => ({ ...tool }))))
-          }),
+        Effect.flatMap(({ profile, commandResult }) =>
+          Effect.sync(() => setChromeProfileConnection(profile)).pipe(
+            Effect.andThen(
+              commandResult === null
+                ? Effect.void
+                : sessionController
+                    .tools(sessionId)
+                    .pipe(
+                      Effect.tap(({ tools }) =>
+                        Effect.sync(() =>
+                          setChromeToolsActive(getPiChromeToolState(tools.map((tool) => ({ ...tool })))),
+                        ),
+                      ),
+                    ),
+            ),
+            Effect.asVoid,
+          ),
         ),
-        Effect.asVoid,
       )
     },
     [chromeControlEnabled, chromeDetection, currentChromeRequirement, extensionStatuses, modelCwd],
@@ -868,22 +868,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           enabled && extensionId !== null
             ? control({ action: { _tag: "Authorize" } }).pipe(
                 Effect.andThen(attachSameProfileChromeSession(extensionId, control)),
-                Effect.flatMap((result) =>
+                Effect.flatMap(() =>
                   getSameProfileChromeStatus(extensionId).pipe(
-                    Effect.map((profile) => ({ result, profile: asChromeConnection(profile) })),
+                    Effect.map((profile) => ({ profile: asChromeConnection(profile) })),
                   ),
                 ),
               )
             : control({ action: { _tag: "Revoke" } }).pipe(
-                Effect.map((result) => ({
-                  result,
+                Effect.map(() => ({
                   profile: asChromeConnection({ connected: false }),
                 })),
               )
         runScoped(operation, {
-          onSuccess: ({ result, profile }) => {
+          onSuccess: ({ profile }) => {
             setChromeProfileConnection(profile)
-            setChromeToolsActive(getPiChromeToolState(result.tools.map((tool) => ({ ...tool }))))
+            loadTools(sessionId)
             dispatch({
               _tag: "ChromeControlSucceeded",
               requestId,
@@ -898,7 +897,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         })
       })
     },
-    [addNotice, chromeControlPending, chromeExtensionId, currentChromeRequirement, runScoped, withSession],
+    [addNotice, chromeControlPending, chromeExtensionId, currentChromeRequirement, loadTools, runScoped, withSession],
   )
 
   const handleLoopControl = useCallback(
@@ -919,22 +918,42 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     [addNotice, loopControlPending, runScoped],
   )
 
+  const handleWeixinControl = useCallback(
+    (request: Parameters<typeof sessionController.weixinControl>[1]) => {
+      const sessionId = sessionIdRef.current
+      if (sessionId === null || weixinControlPending) return
+      setWeixinControlPending(true)
+      runScoped(sessionController.weixinControl(sessionId, request), {
+        onSuccess: () => setWeixinControlPending(false),
+        onFailure: (error) => {
+          setWeixinControlPending(false)
+          addNotice({ type: "error", message: messageFor(error) })
+        },
+      })
+    },
+    [addNotice, runScoped, weixinControlPending],
+  )
+
   const respondToExtensionUi = useCallback(
     (request: ExtensionDialog, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => {
       const sessionId = sessionIdRef.current
-      if (sessionId === null) return
+      const runtimeId = state.runtimeIdentity?.runtimeId
+      if (sessionId === null || runtimeId === undefined) return
       const payload =
         "cancelled" in response
           ? ({ _tag: "Cancelled" } as const)
           : "confirmed" in response
             ? ({ _tag: "Confirmation", confirmed: response.confirmed } as const)
             : ({ _tag: "Value", value: response.value } as const)
-      runScoped(sessionController.resolveInteraction(sessionId, request.interactionId, { answer: payload }), {
-        onSuccess: () => undefined,
-        onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
-      })
+      runScoped(
+        sessionController.resolveInteraction(sessionId, runtimeId, request.interactionId, { answer: payload }),
+        {
+          onSuccess: () => undefined,
+          onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+        },
+      )
     },
-    [addNotice, runScoped],
+    [addNotice, runScoped, state.runtimeIdentity],
   )
 
   const handleBuiltinSlashCommand = useCallback(
@@ -1009,9 +1028,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const sessionId = sessionIdRef.current
         if (sessionId === null) return { handled: true, error: "No active session" }
         runScoped(sessionController.slashCommand(sessionId, command, args), {
-          onSuccess: (result) => {
-            setChromeToolsActive(getPiChromeToolState(result.tools.map((tool) => ({ ...tool }))))
-          },
+          onSuccess: () => loadTools(sessionId),
           onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
         })
         return { handled: true }
@@ -1129,6 +1146,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleChromeControlChange,
     handleLoopControl,
     loopControlPending,
+    handleWeixinControl,
+    weixinControlPending,
     handleThinkingLevelChange,
     loadTools,
     loadSlashCommands,

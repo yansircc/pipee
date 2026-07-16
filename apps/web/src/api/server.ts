@@ -20,6 +20,8 @@ import { FileAccessError, FileAccessPolicy, FileAccessPolicyLive } from "@/serve
 import { PackageIo, PackageIoError, PackageIoLive } from "@/server/package-io"
 import {
   PiAdapterError,
+  PiInteractionConflictError,
+  PiInteractionResponseError,
   PiPromptIdempotencyError,
   PiAgentAdapter,
   PiAgentAdapterLive,
@@ -108,6 +110,15 @@ export const toPublicError = (error: unknown): PublicError => {
         reason: error.reason,
       },
     })
+  }
+  if (error instanceof PiInteractionConflictError) {
+    return new Conflict({
+      message: "Extension interaction is no longer pending",
+      detail: { _tag: "PendingInteraction", interactionId: error.interactionId },
+    })
+  }
+  if (error instanceof PiInteractionResponseError) {
+    return new InvalidInput({ field: "answer", message: "Response type does not match the pending interaction" })
   }
   if (error instanceof PiAdapterError) {
     return new OperationFailed({
@@ -518,20 +529,34 @@ const SessionActionsLive = HttpApiBuilder.group(PiWebApi, "sessionActions", (han
       .handle("slashCommand", ({ params, payload }) =>
         runtime(params.id).pipe(
           Effect.flatMap((handle) => expose(handle.runtime.invokeSlashCommand(payload.name, payload.args))),
+          Effect.as(ok),
         ),
       )
       .handle("loopControl", ({ params, payload }) =>
-        runtime(params.id).pipe(Effect.flatMap((handle) => expose(handle.runtime.controlLoop(payload)))),
+        runtime(params.id).pipe(
+          Effect.flatMap((handle) => expose(handle.runtime.controlLoop(payload))),
+          Effect.as(ok),
+        ),
       )
       .handle("weixinControl", ({ params, payload }) =>
-        runtime(params.id).pipe(Effect.flatMap((handle) => expose(handle.runtime.controlWeixin(payload)))),
+        runtime(params.id).pipe(
+          Effect.flatMap((handle) => expose(handle.runtime.controlWeixin(payload))),
+          Effect.as(ok),
+        ),
       )
       .handle("chromeControl", ({ params, payload }) =>
-        runtime(params.id).pipe(Effect.flatMap((handle) => expose(handle.runtime.controlChrome(payload)))),
+        runtime(params.id).pipe(
+          Effect.flatMap((handle) => expose(handle.runtime.controlChrome(payload))),
+          Effect.as(ok),
+        ),
       )
       .handle("resolveInteraction", ({ params, payload }) =>
         runtime(params.id).pipe(
-          Effect.flatMap((handle) => expose(handle.runtime.resolveInteraction(params.interactionId, payload))),
+          Effect.flatMap((handle) =>
+            handle.identity.runtimeId === params.runtimeId
+              ? expose(handle.runtime.resolveInteraction(params.interactionId, payload))
+              : Effect.fail(new Conflict({ message: "Session runtime changed before interaction resolution" })),
+          ),
           Effect.as(ok),
         ),
       )

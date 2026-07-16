@@ -5,6 +5,7 @@ import type {
   ChromeControlRequestType,
   ExtensionInteractionResponse,
   LoopControlRequestType,
+  RuntimeId,
   RuntimeEnvelope,
   SessionSnapshot,
   WeixinControlRequestType,
@@ -75,8 +76,15 @@ const weixinControl = (sessionId: string, payload: WeixinControlRequestType) =>
 const chromeControl = (sessionId: string, payload: ChromeControlRequestType) =>
   withApi((api) => api.sessionActions.chromeControl({ params: { id: sessionId }, payload }))
 
-const resolveInteraction = (sessionId: string, interactionId: string, payload: ExtensionInteractionResponse) =>
-  withApi((api) => api.sessionActions.resolveInteraction({ params: { id: sessionId, interactionId }, payload }))
+const resolveInteraction = (
+  sessionId: string,
+  runtimeId: RuntimeId,
+  interactionId: string,
+  payload: ExtensionInteractionResponse,
+) =>
+  withApi((api) =>
+    api.sessionActions.resolveInteraction({ params: { id: sessionId, runtimeId, interactionId }, payload }),
+  )
 
 export const sessionController = {
   nextPromptRequestId: Effect.gen(function* () {

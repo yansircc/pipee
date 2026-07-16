@@ -42,8 +42,7 @@ const runtimeSnapshot = (sessionId: string, sessionFile: string) =>
     extensionUi: {
       revision: 0,
       pendingInteraction: null,
-      textStatuses: [],
-      companionStatuses: [],
+      statuses: [],
       widgets: [],
     },
   })
@@ -95,14 +94,10 @@ const makeRuntime = (
       tools: Effect.succeed([]),
       commands: Effect.succeed([]),
       setTools: () => Effect.void,
-      invokeSlashCommand: () =>
-        Effect.succeed({ tools: [], extensionUi: runtimeSnapshot(sessionId, sessionFile).extensionUi }),
-      controlLoop: () =>
-        Effect.succeed({ tools: [], extensionUi: runtimeSnapshot(sessionId, sessionFile).extensionUi }),
-      controlWeixin: () =>
-        Effect.succeed({ tools: [], extensionUi: runtimeSnapshot(sessionId, sessionFile).extensionUi }),
-      controlChrome: () =>
-        Effect.succeed({ tools: [], extensionUi: runtimeSnapshot(sessionId, sessionFile).extensionUi }),
+      invokeSlashCommand: () => Effect.void,
+      controlLoop: () => Effect.void,
+      controlWeixin: () => Effect.void,
+      controlChrome: () => Effect.void,
       resolveInteraction: () => Effect.void,
       reload: Effect.void,
       dispose: Ref.update(disposeCount, (count) => count + 1).pipe(Effect.andThen(PubSub.shutdown(events))),
@@ -426,10 +421,13 @@ it.effect("keeps a runtime alive while an extension owns a runtime lease", () =>
         extensionUi: {
           ...runtimeSnapshot(base.sessionId, base.sessionFile).extensionUi,
           revision: 1,
-          companionStatuses: [
+          statuses: [
             {
+              _tag: "Structured",
               key: "pi-loop/runtime-lease",
-              status: {
+              kind: "pi/runtime-lease",
+              version: 1,
+              value: {
                 kind: "pi/runtime-lease",
                 version: 1,
                 owner: "pi-loop",

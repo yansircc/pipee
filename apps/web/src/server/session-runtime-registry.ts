@@ -216,9 +216,7 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
                   Effect.matchEffect({
                     onFailure: () => closeHandle(handle),
                     onSuccess: (snapshot) =>
-                      hasRuntimeLease([...snapshot.extensionUi.textStatuses, ...snapshot.extensionUi.companionStatuses])
-                        ? idleLoop(handle)
-                        : closeHandle(handle),
+                      hasRuntimeLease(snapshot.extensionUi.statuses) ? idleLoop(handle) : closeHandle(handle),
                   }),
                 )
               : idleLoop(handle),

@@ -73,8 +73,7 @@ export const initialSessionUiState: SessionUiState = {
   extensionUi: ExtensionUiProjection.make({
     revision: 0,
     pendingInteraction: null,
-    textStatuses: [],
-    companionStatuses: [],
+    statuses: [],
     widgets: [],
   }),
   isCompacting: false,

@@ -1,39 +1,64 @@
 import { Option, Schema } from "effect"
-import { ChromeStatusProjection, JsonValue, WeixinStatusProjection, type ExtensionStatusItem } from "@/api/contract"
+import {
+  ChromeStatusProjection,
+  JsonValue,
+  WeixinStatusProjection,
+  type ExtensionStatusContribution,
+} from "@/api/contract"
 import { LoopStatusProjection } from "@/features/session/session-automation"
 
 export const decodeChromeStatusProjection = Schema.decodeUnknownOption(ChromeStatusProjection)
 export const decodeWeixinStatusProjection = Schema.decodeUnknownOption(WeixinStatusProjection)
 export const decodeLoopStatusProjection = Schema.decodeUnknownOption(LoopStatusProjection)
 export const decodeExtensionStructuredStatus = Schema.decodeUnknownOption(JsonValue)
+const decodeStructuredStatusDiscriminator = Schema.decodeUnknownOption(
+  Schema.Struct({
+    kind: Schema.NonEmptyString,
+    version: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  }),
+)
 
-export const extensionStructuredStatusOrUndefined = (value: unknown): JsonValue | undefined =>
-  Option.getOrUndefined(decodeExtensionStructuredStatus(value))
+export const extensionStructuredStatusOrUndefined = (
+  value: unknown,
+): { readonly kind: string; readonly version: number; readonly value: JsonValue } | undefined => {
+  const json = Option.getOrUndefined(decodeExtensionStructuredStatus(value))
+  const discriminator = Option.getOrUndefined(decodeStructuredStatusDiscriminator(value))
+  return json === undefined || discriminator === undefined ? undefined : { ...discriminator, value: json }
+}
 
-export function isChromeAuthorized(statuses: ExtensionStatusItem[]): boolean {
+export function isChromeAuthorized(statuses: ReadonlyArray<ExtensionStatusContribution>): boolean {
   const chrome = getChromeStatusProjection(statuses)
   return chrome !== undefined && chrome.authorization !== "locked"
 }
 
-export function getChromeStatusProjection(statuses: ExtensionStatusItem[]): ChromeStatusProjection | undefined {
+export function getChromeStatusProjection(
+  statuses: ReadonlyArray<ExtensionStatusContribution>,
+): ChromeStatusProjection | undefined {
   for (const item of statuses) {
-    const status = chromeStatusOrUndefined(item.status)
+    if (item._tag !== "Structured") continue
+    const status = chromeStatusOrUndefined(item.value)
     if (status !== undefined) return status
   }
   return undefined
 }
 
-export function getWeixinStatusProjection(statuses: ExtensionStatusItem[]): WeixinStatusProjection | undefined {
+export function getWeixinStatusProjection(
+  statuses: ReadonlyArray<ExtensionStatusContribution>,
+): WeixinStatusProjection | undefined {
   for (const item of statuses) {
-    const status = Option.getOrUndefined(decodeWeixinStatusProjection(item.status))
+    if (item._tag !== "Structured") continue
+    const status = Option.getOrUndefined(decodeWeixinStatusProjection(item.value))
     if (status !== undefined) return status
   }
   return undefined
 }
 
-export function getLoopStatusProjection(statuses: ExtensionStatusItem[]): LoopStatusProjection | undefined {
+export function getLoopStatusProjection(
+  statuses: ReadonlyArray<ExtensionStatusContribution>,
+): LoopStatusProjection | undefined {
   for (const item of statuses) {
-    const status = Option.getOrUndefined(decodeLoopStatusProjection(item.status))
+    if (item._tag !== "Structured") continue
+    const status = Option.getOrUndefined(decodeLoopStatusProjection(item.value))
     if (status !== undefined) return status
   }
   return undefined
