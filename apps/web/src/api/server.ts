@@ -18,16 +18,9 @@ import {
 import { AppConfig, AppConfigLive } from "@/server/app-config"
 import { FileAccessError, FileAccessPolicy, FileAccessPolicyLive } from "@/server/file-access-policy"
 import { PackageIo, PackageIoError, PackageIoLive } from "@/server/package-io"
-import {
-  PiAdapterError,
-  PiInteractionConflictError,
-  PiInteractionResponseError,
-  PiOperationBusyError,
-  PiPromptIdempotencyError,
-  PiAgentAdapter,
-  PiAgentAdapterLive,
-  type PluginAction,
-} from "@/server/pi-agent-adapter"
+import { PiOperationBusyError, PiAgentAdapter, PiAgentAdapterLive, type PluginAction } from "@/server/pi-agent-adapter"
+import { PiAdapterError, PiPromptIdempotencyError } from "@/server/pi-adapter-errors"
+import { PiInteractionConflictError, PiInteractionResponseError } from "@/server/extension-ui-runtime"
 import {
   RuntimeRegistryError,
   SessionRuntimeRegistry,

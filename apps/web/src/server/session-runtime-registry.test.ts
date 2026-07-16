@@ -11,7 +11,8 @@ import {
   RuntimeIdentity,
   RuntimeSnapshot,
 } from "@/api/contract"
-import { PiAdapterError, type PiRuntime } from "./pi-agent-adapter"
+import { PiAdapterError } from "./pi-adapter-errors"
+import type { PiRuntime } from "./pi-agent-adapter"
 import { makeSessionRuntimeRegistry, type SessionRuntimeAdapter } from "./session-runtime-registry"
 
 const identity = RuntimeIdentity.make({

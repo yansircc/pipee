@@ -68,7 +68,11 @@ src/api/
   contract.ts                all DTO/error/SSE/endpoint schemas
   server.ts                  middleware, handlers, Layer composition
 src/server/
-  pi-agent-adapter.ts        Pi SDK callback/Promise conversion boundary
+  pi-agent-adapter.ts         only Pi SDK import and callback/Promise conversion boundary
+  extension-ui-runtime.ts     session-scoped UI projection and interaction ownership
+  companion-controller.ts    typed companion controls to fixed private Pi commands
+  session-operation-slot.ts  one-owner operation state algebra
+  pi-adapter-errors.ts        shared typed adapter failures
   session-repository.ts      read-only browsing + session persistence
   session-runtime-registry.ts Starting/Active state table and handle scopes
   file-access-policy.ts      allowed-root authorization

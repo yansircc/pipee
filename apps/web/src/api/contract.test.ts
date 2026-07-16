@@ -3,7 +3,7 @@ import { HttpApi } from "effect/unstable/httpapi"
 import { expect, test } from "@effect/vitest"
 import { Conflict, OperationFailed, PiWebApi, PromptProgressEvent, RuntimeEnvelope } from "./contract"
 import { toPublicError } from "./server"
-import { PiAdapterError, PiPromptIdempotencyError } from "@/server/pi-agent-adapter"
+import { PiAdapterError, PiPromptIdempotencyError } from "@/server/pi-adapter-errors"
 
 interface EndpointFact {
   readonly group: string
