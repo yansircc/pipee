@@ -43,6 +43,7 @@ const makeRuntime = (
       cwd: "/repo",
       created: "2026-07-15T00:00:00.000Z",
       firstMessage: Ref.get(firstMessage),
+      isConversationEmpty: Ref.get(firstMessage).pipe(Effect.map((message) => message === null)),
       events,
       snapshot: Effect.succeed(runtimeSnapshot(sessionId, sessionFile)),
       promptRequest: (runId, _requestId, input) =>
@@ -157,6 +158,7 @@ it.effect("projects active sessions before persistence", () =>
         cwd: "/repo",
         created: "2026-07-15T00:00:00.000Z",
         firstMessage: null,
+        isConversationEmpty: true,
       },
     ])
   }),
@@ -211,6 +213,70 @@ it.effect("returns prompt request identity before its completion", () =>
     expect(request.runId).toBe("00000000-0000-4000-8000-000000000001")
     yield* Deferred.succeed(completion, "done")
     expect(yield* request.completion).toEqual({ runId: request.runId, text: "done" })
+  }),
+)
+
+it.effect("invalidates running sessions after prompt finalizers clear busy state", () =>
+  Effect.gen(function* () {
+    const disposeCount = yield* Ref.make(0)
+    const busy = yield* Ref.make(false)
+    const release = yield* Deferred.make<void>()
+    const busyObserved = yield* Deferred.make<void>()
+    const idleObserved = yield* Deferred.make<void>()
+    const observedBusy = yield* Ref.make(false)
+    const base = yield* makeRuntime("session-running", disposeCount)
+    const runtime: PiRuntime = {
+      ...base,
+      snapshot: Ref.get(busy).pipe(
+        Effect.map((isPromptRunning) => ({
+          ...runtimeSnapshot(base.sessionId, base.sessionFile),
+          isPromptRunning,
+        })),
+      ),
+      promptRequest: (runId) =>
+        Ref.set(busy, true).pipe(
+          Effect.andThen(PubSub.publish(base.events, RuntimeEvent.make({ _tag: "RunStarted", runId }))),
+          Effect.as({
+            runId,
+            completion: Deferred.await(release).pipe(
+              Effect.andThen(PubSub.publish(base.events, RuntimeEvent.make({ _tag: "RunFinished", runId }))),
+              Effect.as({ runId, text: "done" }),
+              Effect.ensuring(Ref.set(busy, false)),
+            ),
+          }),
+        ),
+    }
+    const registry = yield* makeSessionRuntimeRegistry(
+      {
+        createRuntime: () => Effect.succeed(runtime),
+        createFork: () => Effect.succeed({ cancelled: true }),
+      },
+      runIds,
+    )
+    yield* registry.start(runtime.sessionId, { sessionFile: runtime.sessionFile, cwd: runtime.cwd })
+    const observer = yield* registry.runningEvents.pipe(
+      Stream.runForEach((event) =>
+        Effect.gen(function* () {
+          if (event.sessionIds.includes(runtime.sessionId)) {
+            yield* Ref.set(observedBusy, true)
+            yield* Deferred.succeed(busyObserved, undefined)
+          } else if (yield* Ref.get(observedBusy)) {
+            yield* Deferred.succeed(idleObserved, undefined)
+          }
+        }),
+      ),
+      Effect.forkChild,
+    )
+    yield* Effect.yieldNow
+
+    const request = yield* registry.promptRequest(runtime.sessionId, "message-running", { message: "hello" })
+    yield* Deferred.await(busyObserved)
+    yield* Deferred.succeed(release, undefined)
+    yield* Deferred.await(idleObserved)
+
+    expect(yield* registry.runningIds).toEqual([])
+    expect(yield* request.completion).toEqual({ runId: request.runId, text: "done" })
+    yield* Fiber.interrupt(observer)
   }),
 )
 

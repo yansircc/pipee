@@ -43,13 +43,11 @@ import { runBrowser } from "@/browser/api-client"
 import { SessionAutomationBar } from "./SessionAutomationBar"
 
 interface Props {
-  session: SessionInfo | null
-  newSessionCwd: string | null
-  draftEpoch: number
+  session: SessionInfo
   sessionRefreshKey: number
+  inputFocusEpoch?: number
   onAgentEnd?: () => void
   onSessionIndexChanged?: () => void
-  onSessionCreated?: (session: SessionInfo) => void
   onSessionForked?: (newSessionId: string) => void
   modelsRefreshKey?: number
   chatInputRef?: React.RefObject<ChatInputHandle | null>
@@ -197,12 +195,10 @@ function ProcessDetailsGroup({
 
 export function ChatWindow({
   session,
-  newSessionCwd,
-  draftEpoch,
   sessionRefreshKey,
+  inputFocusEpoch = 0,
   onAgentEnd,
   onSessionIndexChanged,
-  onSessionCreated,
   onSessionForked,
   modelsRefreshKey,
   chatInputRef,
@@ -275,8 +271,6 @@ export function ChatWindow({
     chromeExtensionDirectory,
     isAutoModelSelection,
     agentPhase,
-    isNew,
-    sessionIdRef,
     messagesEndRef,
     scrollContainerRef,
     lastUserMsgRef,
@@ -301,12 +295,9 @@ export function ChatWindow({
     loadSlashCommands,
   } = useAgentSession({
     session,
-    newSessionCwd,
-    draftEpoch,
     sessionRefreshKey,
     onAgentEnd: wrappedOnAgentEnd,
     onSessionIndexChanged,
-    onSessionCreated,
     onSessionForked,
     modelsRefreshKey,
     chatInputRef,
@@ -317,6 +308,10 @@ export function ChatWindow({
 
   const sessionBusy = agentRunning || activeBashExecution !== null
   const activeBashOutputLength = activeBashExecution?.output.length
+
+  useEffect(() => {
+    if (!loading && inputFocusEpoch > 0) chatInputRef?.current?.focus()
+  }, [chatInputRef, inputFocusEpoch, loading])
 
   useEffect(() => {
     if (activeBashOutputLength === undefined) return
@@ -389,8 +384,8 @@ export function ChatWindow({
   const liveUserIndex = runInProgress ? messages.findLastIndex((message) => message.role === "user") : -1
   const liveTurnUsage = liveUserIndex >= 0 ? summarizeTurnUsage(messages, liveUserIndex, messages.length) : null
 
-  const isEmptyNew = isNew && messages.length === 0 && !streamState.isStreaming && !sessionBusy
-  const messageCwd = session?.cwd ?? newSessionCwd ?? undefined
+  const isEmptySession = messages.length === 0 && !streamState.isStreaming && !sessionBusy
+  const messageCwd = session.cwd
 
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
@@ -402,7 +397,7 @@ export function ChatWindow({
 
   const chromeControlStatus = getChromeStatusProjection(extensionStatuses)
   const loopStatus = getLoopStatusProjection(extensionStatuses)
-  const currentLoopStatus = loopStatus?.sessionId === session?.id ? loopStatus : undefined
+  const currentLoopStatus = loopStatus?.sessionId === session.id ? loopStatus : undefined
 
   const chatInputElement = (
     <ChatInput
@@ -420,13 +415,13 @@ export function ChatWindow({
       modelNames={modelNames}
       modelList={modelList}
       onModelChange={handleModelChange}
-      onCompact={session || isNew ? handleCompact : undefined}
+      onCompact={handleCompact}
       onAbortCompaction={handleAbortCompaction}
       isCompacting={isCompacting}
       compactError={compactError}
       compactResult={compactResult}
       toolPreset={toolPreset}
-      onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
+      onToolPresetChange={handleToolPresetChange}
       browserControlEnabled={chromeControlEnabled}
       browserControlPending={chromeControlPending}
       browserControlStatus={chromeControlStatus}
@@ -434,9 +429,9 @@ export function ChatWindow({
       browserControlPackageLoaded={chromePackageLoaded}
       browserControlExtensionId={chromeExtensionId}
       browserControlExtensionDirectory={chromeExtensionDirectory}
-      onBrowserControlChange={session || isNew ? handleChromeControlChange : undefined}
+      onBrowserControlChange={handleChromeControlChange}
       thinkingLevel={thinkingLevel}
-      onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
+      onThinkingLevelChange={handleThinkingLevelChange}
       availableThinkingLevels={availableThinkingLevels}
       thinkingLevelMap={currentThinkingLevelMap}
       retryInfo={retryInfo}
@@ -449,8 +444,8 @@ export function ChatWindow({
       soundEnabled={soundEnabled}
       onSoundToggle={onSoundToggle}
       onAudioUnlock={unlockAudio}
-      draftKey={session?.id ?? (newSessionCwd ? `new:${newSessionCwd}` : undefined)}
-      cwd={session?.cwd ?? newSessionCwd}
+      draftKey={session.id}
+      cwd={session.cwd}
     />
   )
 
@@ -542,7 +537,7 @@ export function ChatWindow({
 
       {extensionCustomUi && <ExtensionCustomPanel request={extensionCustomUi} onInput={sendExtensionCustomInput} />}
 
-      {isEmptyNew ? (
+      {isEmptySession ? (
         <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
           <div className="w-full max-w-[820px]">
             <div
@@ -725,7 +720,7 @@ export function ChatWindow({
                           cwd={messageCwd}
                           onOpenFile={onOpenFile}
                           entryId={entryIds[idx]}
-                          onFork={sessionBusy || isNew || (idx === 0 && msg.role === "user") ? undefined : handleFork}
+                          onFork={sessionBusy || (idx === 0 && msg.role === "user") ? undefined : handleFork}
                           forking={forkingEntryId === entryIds[idx]}
                           onNavigate={sessionBusy ? undefined : handleNavigate}
                           prevAssistantEntryId={sessionBusy ? undefined : prevAssistantEntryId}
@@ -734,7 +729,7 @@ export function ChatWindow({
                           prevTimestamp={
                             idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined
                           }
-                          sessionId={session?.id ?? sessionIdRef.current ?? undefined}
+                          sessionId={session.id}
                           turnUsage={options.turnUsage}
                           hideUsage={options.hideUsage}
                         />

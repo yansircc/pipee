@@ -1,5 +1,5 @@
 import { NodeHttpClient, NodeHttpServer, NodeServices } from "@effect/platform-node"
-import { Effect, Layer, Path, Result, Stream } from "effect"
+import { Effect, Layer, Path, Result, Semaphore, Stream } from "effect"
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiMiddleware } from "effect/unstable/httpapi"
 import {
@@ -177,6 +177,7 @@ const SessionsLive = HttpApiBuilder.group(PiWebApi, "sessions", (handlers) =>
     const repository = yield* SessionRepository
     const registry = yield* SessionRuntimeRegistry
     const workspace = yield* WorkspaceService
+    const createSessionLock = yield* Semaphore.make(1)
 
     const projectActiveSession = (session: Parameters<typeof activeSessionInfo>[0]) =>
       workspace.resolveProject(session.cwd).pipe(
@@ -215,26 +216,33 @@ const SessionsLive = HttpApiBuilder.group(PiWebApi, "sessions", (handlers) =>
         }),
       )
       .handle("create", ({ payload }) =>
-        Effect.gen(function* () {
-          const requestId = yield* expose(registry.nextRunId)
-          const handle = yield* expose(
-            registry.start(`new:${requestId}`, {
-              sessionFile: null,
-              cwd: payload.cwd,
-              ...(payload.toolNames === undefined ? {} : { toolNames: payload.toolNames }),
-            }),
-          )
-          if (payload.provider !== undefined && payload.modelId !== undefined) {
-            yield* expose(handle.runtime.setModel(payload.provider, payload.modelId))
-          }
-          return yield* projectActiveSession({
-            sessionId: handle.sessionId,
-            sessionFile: handle.runtime.sessionFile,
-            cwd: handle.runtime.cwd,
-            created: handle.runtime.created,
-            firstMessage: yield* handle.runtime.firstMessage,
-          })
-        }),
+        createSessionLock.withPermits(1)(
+          Effect.gen(function* () {
+            const reusable = (yield* registry.activeSessions)
+              .filter((session) => session.cwd === payload.cwd && session.isConversationEmpty)
+              .toSorted((left, right) => right.created.localeCompare(left.created))[0]
+            if (reusable !== undefined) return yield* projectActiveSession(reusable)
+            const requestId = yield* expose(registry.nextRunId)
+            const handle = yield* expose(
+              registry.start(`new:${requestId}`, {
+                sessionFile: null,
+                cwd: payload.cwd,
+                ...(payload.toolNames === undefined ? {} : { toolNames: payload.toolNames }),
+              }),
+            )
+            if (payload.provider !== undefined && payload.modelId !== undefined) {
+              yield* expose(handle.runtime.setModel(payload.provider, payload.modelId))
+            }
+            return yield* projectActiveSession({
+              sessionId: handle.sessionId,
+              sessionFile: handle.runtime.sessionFile,
+              cwd: handle.runtime.cwd,
+              created: handle.runtime.created,
+              firstMessage: yield* handle.runtime.firstMessage,
+              isConversationEmpty: yield* handle.runtime.isConversationEmpty,
+            })
+          }),
+        ),
       )
       .handle("snapshot", ({ params, query }) =>
         Effect.gen(function* () {
@@ -260,6 +268,7 @@ const SessionsLive = HttpApiBuilder.group(PiWebApi, "sessions", (handlers) =>
             cwd: active.runtime.cwd,
             created: active.runtime.created,
             firstMessage: yield* active.runtime.firstMessage,
+            isConversationEmpty: yield* active.runtime.isConversationEmpty,
           })
 
           return {

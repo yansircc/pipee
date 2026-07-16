@@ -2,7 +2,6 @@ import { expect, test } from "vite-plus/test"
 import { RunId, RuntimeSnapshot, SessionSnapshot } from "@/api/contract"
 import {
   initialSessionUiState,
-  projectSessionEffectOwner,
   projectSessionEntryIds,
   projectSessionMessages,
   sessionUiReducer,
@@ -239,81 +238,17 @@ test("keeps optimistic messages idempotent", () => {
   expect(projectSessionMessages(twice)).toEqual([{ role: "user", content: "hello" }])
 })
 
-test("keeps a submitted prompt visible across session binding and empty snapshots", () => {
-  const submitted = sessionUiReducer(initialSessionUiState, {
-    _tag: "PromptSubmitted",
-    requestId: "request-1",
-    message: { role: "user", content: "hello" },
-  })
-  const bound = sessionUiReducer(submitted, { _tag: "BindSession", sessionId: "session-1" })
-  const reset = sessionUiReducer(bound, { _tag: "Reset", sessionId: "session-1" })
-  const emptySnapshot = SessionSnapshot.make({
-    sessionId: "session-1",
-    filePath: "/sessions/session-1.jsonl",
-    info: null,
-    leafId: null,
-    tree: [],
-    context: { messages: [], entryIds: [], promptRequests: [], thinkingLevel: "high", model: null },
-    runtime: runtime(null, true),
-  })
-  const reconciled = sessionUiReducer(reset, {
-    _tag: "Loaded",
-    sessionId: "session-1",
-    snapshot: emptySnapshot,
-  })
-  expect(reset).toBe(bound)
-  expect(reconciled.messages).toEqual([])
-  expect(projectSessionMessages(reconciled)).toEqual([{ role: "user", content: "hello" }])
-})
-
-test("uses the draft epoch only to replace consecutive unpersisted conversations", () => {
-  const firstDraft = sessionUiReducer(initialSessionUiState, { _tag: "Reset", sessionId: null, draftEpoch: 1 })
-  const submitted = sessionUiReducer(firstDraft, {
-    _tag: "PromptSubmitted",
-    requestId: "request-1",
-    message: { role: "user", content: "hello" },
-  })
-  const sameDraft = sessionUiReducer(submitted, { _tag: "Reset", sessionId: null, draftEpoch: 1 })
-  const nextDraft = sessionUiReducer(submitted, { _tag: "Reset", sessionId: null, draftEpoch: 2 })
-
-  expect(sameDraft).toBe(submitted)
-  expect(projectSessionMessages(sameDraft)).toEqual([{ role: "user", content: "hello" }])
-  expect(nextDraft.sessionId).toBeNull()
-  expect(nextDraft.draftEpoch).toBe(2)
-  expect(projectSessionMessages(nextDraft)).toEqual([])
-})
-
-test("keeps one effect owner while a draft materializes into its persisted session", () => {
-  const draft = sessionUiReducer(initialSessionUiState, { _tag: "Reset", sessionId: null, draftEpoch: 7 })
-  expect(projectSessionEffectOwner(draft, { sessionId: null, draftEpoch: 7 })).toBe("draft:7")
-
-  const bound = sessionUiReducer(draft, { _tag: "BindSession", sessionId: "session-created" })
-  expect(projectSessionEffectOwner(bound, { sessionId: null, draftEpoch: 7 })).toBe("draft:7")
-
-  const materialized = sessionUiReducer(bound, { _tag: "Reset", sessionId: "session-created" })
-  expect(materialized).toBe(bound)
-  expect(projectSessionEffectOwner(materialized, { sessionId: "session-created", draftEpoch: 7 })).toBe("draft:7")
-
-  expect(projectSessionEffectOwner(materialized, { sessionId: "session-other", draftEpoch: 7 })).toBe(
-    "session:session-other",
-  )
-})
-
 test("owns Chrome control pending state by projection and request receipt", () => {
-  const draft = sessionUiReducer(initialSessionUiState, { _tag: "Reset", sessionId: null, draftEpoch: 3 })
-  const pending = sessionUiReducer(draft, {
+  const active = sessionState()
+  const pending = sessionUiReducer(active, {
     _tag: "ChromeControlRequested",
     requestId: "chrome-1",
     enabled: true,
   })
-  const bound = sessionUiReducer(pending, { _tag: "BindSession", sessionId: "session-created" })
-  const materialized = sessionUiReducer(bound, { _tag: "Reset", sessionId: "session-created" })
+  expect(pending.chromeControlOperation).toEqual({ requestId: "chrome-1", enabled: true })
+  expect(sessionUiReducer(pending, { _tag: "ChromeControlFailed", requestId: "chrome-stale" })).toBe(pending)
 
-  expect(materialized).toBe(bound)
-  expect(materialized.chromeControlOperation).toEqual({ requestId: "chrome-1", enabled: true })
-  expect(sessionUiReducer(materialized, { _tag: "ChromeControlFailed", requestId: "chrome-stale" })).toBe(materialized)
-
-  const succeeded = sessionUiReducer(materialized, {
+  const succeeded = sessionUiReducer(pending, {
     _tag: "ChromeControlSucceeded",
     requestId: "chrome-1",
     statuses: [{ key: "chrome", text: "ready" }],

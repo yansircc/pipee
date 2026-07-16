@@ -44,6 +44,20 @@ export const observeSession = (
   )
 }
 
+export const observeRunningSessions = (callbacks: {
+  readonly onSnapshot: (sessionIds: ReadonlyArray<string>) => void
+  readonly onTransientError: (message: string) => void
+}) => {
+  const publish = (sessionIds: ReadonlyArray<string>) => Effect.sync(() => callbacks.onSnapshot(sessionIds))
+  const events = Effect.suspend(() => withApi((api) => api.sessions.runningEvents({}))).pipe(
+    Effect.flatMap((stream) => stream.pipe(Stream.runForEach((event) => publish(event.sessionIds)))),
+    Effect.catch((error) => Effect.sync(() => callbacks.onTransientError(errorMessage(error)))),
+    Effect.andThen(Effect.sleep("1 second")),
+    Effect.forever,
+  )
+  return events
+}
+
 export const sessionController = {
   nextPromptRequestId: Effect.gen(function* () {
     const browser = yield* BrowserPlatform
