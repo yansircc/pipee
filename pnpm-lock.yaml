@@ -24,12 +24,18 @@ catalogs:
     '@effect/vitest':
       specifier: 4.0.0-beta.98
       version: 4.0.0-beta.98
+    '@types/cross-spawn':
+      specifier: 6.0.6
+      version: 6.0.6
     '@yansircc/effect-scan':
       specifier: 0.1.3
       version: 0.1.3
     effect:
       specifier: 4.0.0-beta.98
       version: 4.0.0-beta.98
+    jiti:
+      specifier: 2.7.0
+      version: 2.7.0
     typescript:
       specifier: 7.0.2
       version: 7.0.2
@@ -200,7 +206,7 @@ importers:
         specifier: 0.1.36
         version: 0.1.36
       '@types/cross-spawn':
-        specifier: 6.0.6
+        specifier: 'catalog:'
         version: 6.0.6
       '@types/node':
         specifier: 22.20.1
@@ -250,6 +256,9 @@ importers:
       '@sinclair/typebox':
         specifier: 0.34.41
         version: 0.34.41
+      '@types/cross-spawn':
+        specifier: 'catalog:'
+        version: 6.0.6
       '@types/node':
         specifier: 22.20.1
         version: 22.20.1
@@ -262,6 +271,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.98
+      jiti:
+        specifier: 'catalog:'
+        version: 2.7.0
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.2.4
         version: '@voidzero-dev/vite-plus-core@0.2.4(@types/node@22.20.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)'
@@ -289,6 +301,9 @@ importers:
       '@pi-suite/host-runtime':
         specifier: workspace:*
         version: link:../../packages/host-runtime
+      '@types/cross-spawn':
+        specifier: 'catalog:'
+        version: 6.0.6
       '@types/node':
         specifier: ^25.0.0
         version: 25.0.0
@@ -304,6 +319,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.98
+      jiti:
+        specifier: 'catalog:'
+        version: 2.7.0
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4

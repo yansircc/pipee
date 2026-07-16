@@ -33,7 +33,12 @@ Local source and candidate gates:
 ```bash
 pnpm verify
 pnpm release:verify
+pnpm release:preflight
 git diff --check
 ```
+
+`release:preflight` requires a clean committed HEAD and Apple `container`. It mounts the repository read-only, clones only committed Git state into a fresh Linux workspace, installs with the frozen lockfile, and invokes `candidate-pipeline.mjs full`. The Actions candidate job invokes the same pipeline in phases so exact-candidate restoration can remain between source verification and candidate verification. `PI_SUITE_PREFLIGHT_PLATFORM=linux/amd64` opts into Rosetta-backed amd64 execution; the default is native `linux/arm64`.
+
+`pnpm push:release` adds no release behavior: it requires `main`, runs `release:preflight`, proves HEAD and the worktree are unchanged, and pushes that verified commit.
 
 Release evidence must include the source SHA, release commit, tag, workflow run, four archive integrities, Chrome extension version, public registry equality, and successful npm/pnpm public consumer installs.

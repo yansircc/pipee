@@ -1,24 +1,28 @@
 import { expect, it } from "@effect/vitest";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import crossSpawn from "cross-spawn";
 import { createLoop, DEFAULT_CONFIG } from "../src/domain/model.js";
 
 const worker = fileURLToPath(new URL("./repository-process-worker.ts", import.meta.url));
 
-const firstLine = (child: ChildProcessWithoutNullStreams): Promise<string> =>
-  new Promise((resolve, reject) => {
+const firstLine = (child: ChildProcess): Promise<string> => {
+  if (child.stdout === null || child.stderr === null)
+    return Promise.reject(new Error("repository worker must own piped output"));
+  const { stdout, stderr } = child;
+  return new Promise((resolve, reject) => {
     let output = "";
     let errorOutput = "";
-    child.stdout.on("data", (chunk: Buffer) => {
+    stdout.on("data", (chunk: Buffer) => {
       output += chunk.toString("utf8");
       const end = output.indexOf("\n");
       if (end >= 0) resolve(output.slice(0, end));
     });
     child.once("error", reject);
-    child.stderr.on("data", (chunk: Buffer) => {
+    stderr.on("data", (chunk: Buffer) => {
       errorOutput += chunk.toString("utf8");
     });
     child.once("exit", (code) => {
@@ -26,6 +30,7 @@ const firstLine = (child: ChildProcessWithoutNullStreams): Promise<string> =>
         reject(new Error(`repository worker exited ${String(code)}: ${errorOutput}`));
     });
   });
+};
 
 it("persists each occurrence once and lets a live follower take over after owner exit", async () => {
   const directory = mkdtempSync(join(tmpdir(), "pi-loop-process-"));
@@ -52,24 +57,25 @@ it("persists each occurrence once and lets a live follower take over after owner
   };
   writeFileSync(join(directory, DEFAULT_CONFIG.durableFilePath), JSON.stringify(durable));
   const start = () =>
-    spawn(resolve("node_modules", ".bin", "jiti"), [worker, directory], {
+    crossSpawn("jiti", [worker, directory], {
       stdio: ["pipe", "pipe", "pipe"],
     });
   const owner = start();
-  let follower: ChildProcessWithoutNullStreams | undefined;
+  let follower: ChildProcess | undefined;
   try {
     const ownerResult = JSON.parse(await firstLine(owner)) as {
       access: "owner" | "follower";
       ids: ReadonlyArray<string>;
     };
-    follower = start();
-    const followerResult = JSON.parse(await firstLine(follower)) as {
+    const startedFollower = start();
+    follower = startedFollower;
+    const followerResult = JSON.parse(await firstLine(startedFollower)) as {
       access: "owner" | "follower";
       ids: ReadonlyArray<string>;
     };
     expect(ownerResult).toEqual({ access: "owner", ids: ["cross-process-once:0"] });
     expect(followerResult).toEqual({ access: "follower", ids: [] });
-    const followerTakeover = firstLine(follower);
+    const followerTakeover = firstLine(startedFollower);
     const ownerExit = new Promise<void>((resolve) => owner.once("exit", () => resolve()));
     owner.kill();
     await ownerExit;
@@ -79,8 +85,7 @@ it("persists each occurrence once and lets a live follower take over after owner
     });
   } finally {
     const running = [owner, follower].filter(
-      (child): child is ChildProcessWithoutNullStreams =>
-        child !== undefined && child.exitCode === null,
+      (child): child is ChildProcess => child !== undefined && child.exitCode === null,
     );
     const exits = running.map(
       (child) => new Promise<void>((resolve) => child.once("exit", () => resolve())),

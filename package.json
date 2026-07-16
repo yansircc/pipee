@@ -2,20 +2,21 @@
   "name": "@yansircc/pi-suite-workspace",
   "version": "0.5.7",
   "private": true,
-  "type": "module",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/yansircc/pi-suite.git"
-  },
   "homepage": "https://github.com/yansircc/pi-suite#readme",
   "bugs": {
     "url": "https://github.com/yansircc/pi-suite/issues"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yansircc/pi-suite.git"
+  },
+  "type": "module",
   "scripts": {
     "prepare": "effect-tsgo patch --typescript-package typescript",
     "check:workspace": "node tooling/release/verify-workspace.mjs",
     "test:release": "node --test tooling/release/*.test.mjs",
-    "build:candidates": "node tooling/release/build-candidates.mjs",
+    "release:build-candidates": "node tooling/release/build-candidates.mjs",
+    "release:verify-source": "pnpm run check:workspace",
     "verify:candidates": "node tooling/release/verify-candidates.mjs",
     "verify:consumers": "node tooling/release/verify-consumers.mjs",
     "verify:platform": "node tooling/release/verify-platform.mjs",
@@ -24,7 +25,9 @@
     "verify:registry": "node tooling/release/verify-registry.mjs",
     "verify:packages": "pnpm -r --if-present run verify",
     "verify": "pnpm run check:workspace && pnpm run test:release && pnpm run verify:packages",
-    "release:verify": "pnpm run build:candidates && pnpm run verify:candidates && pnpm run verify:consumers && pnpm run verify:chrome-candidate && pnpm run verify:platform"
+    "release:preflight": "node tooling/release/container-preflight.mjs",
+    "push:release": "node tooling/release/push-release.mjs",
+    "release:verify": "pnpm run release:build-candidates && pnpm run verify:candidates && pnpm run verify:consumers && pnpm run verify:chrome-candidate && pnpm run verify:platform"
   },
   "devDependencies": {
     "@effect/tsgo": "catalog:",

@@ -45,10 +45,12 @@
     "@pi-suite/companion-contracts": "workspace:*",
     "@pi-suite/host-runtime": "workspace:*",
     "@sinclair/typebox": "0.34.41",
+    "@types/cross-spawn": "catalog:",
     "@types/node": "22.20.1",
     "@yansircc/effect-scan": "catalog:",
     "cross-spawn": "7.0.6",
     "effect": "catalog:",
+    "jiti": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"

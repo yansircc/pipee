@@ -1,29 +1,33 @@
 import { expect, it } from "@effect/vitest";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import crossSpawn from "cross-spawn";
 
 const worker = fileURLToPath(new URL("./account-owner-worker.ts", import.meta.url));
 
 const start = (home: string, statePath: string) =>
-  spawn(resolve("node_modules", ".bin", "jiti"), [worker, home, statePath], {
+  crossSpawn("jiti", [worker, home, statePath], {
     stdio: ["pipe", "pipe", "pipe"],
   });
 
-const firstLine = (child: ChildProcessWithoutNullStreams): Promise<string> =>
-  new Promise((resolveLine, reject) => {
+const firstLine = (child: ChildProcess): Promise<string> => {
+  if (child.stdout === null || child.stderr === null)
+    return Promise.reject(new Error("account worker must own piped output"));
+  const { stdout, stderr } = child;
+  return new Promise((resolveLine, reject) => {
     let output = "";
     let errorOutput = "";
-    child.stdout.on("data", (chunk: Buffer) => {
+    stdout.on("data", (chunk: Buffer) => {
       output += chunk.toString("utf8");
       const result = output
         .split(/\r?\n/)
         .find((line) => line === "acquired" || line === "unavailable");
       if (result !== undefined) resolveLine(result);
     });
-    child.stderr.on("data", (chunk: Buffer) => {
+    stderr.on("data", (chunk: Buffer) => {
       errorOutput += chunk.toString("utf8");
     });
     child.once("error", reject);
@@ -32,8 +36,9 @@ const firstLine = (child: ChildProcessWithoutNullStreams): Promise<string> =>
         reject(new Error(`account worker exited ${String(code)}: ${output}${errorOutput}`));
     });
   });
+};
 
-const exited = (child: ChildProcessWithoutNullStreams): Promise<void> =>
+const exited = (child: ChildProcess): Promise<void> =>
   new Promise((resolveExit) => child.once("exit", () => resolveExit()));
 
 it("admits one account poller across processes and releases it on owner exit", async () => {
@@ -58,23 +63,24 @@ it("admits one account poller across processes and releases it on owner exit", a
   writeFileSync(stateA, JSON.stringify(state));
   writeFileSync(stateB, JSON.stringify(state));
   const owner = start(home, stateA);
-  let contender: ChildProcessWithoutNullStreams | undefined;
-  let successor: ChildProcessWithoutNullStreams | undefined;
+  let contender: ChildProcess | undefined;
+  let successor: ChildProcess | undefined;
   try {
     expect(await firstLine(owner)).toBe("acquired");
-    contender = start(home, stateB);
-    expect(await firstLine(contender)).toBe("unavailable");
-    await exited(contender);
+    const startedContender = start(home, stateB);
+    contender = startedContender;
+    expect(await firstLine(startedContender)).toBe("unavailable");
+    await exited(startedContender);
 
     const ownerExit = exited(owner);
     owner.kill();
     await ownerExit;
-    successor = start(home, stateB);
-    expect(await firstLine(successor)).toBe("acquired");
+    const startedSuccessor = start(home, stateB);
+    successor = startedSuccessor;
+    expect(await firstLine(startedSuccessor)).toBe("acquired");
   } finally {
     const running = [owner, contender, successor].filter(
-      (child): child is ChildProcessWithoutNullStreams =>
-        child !== undefined && child.exitCode === null,
+      (child): child is ChildProcess => child !== undefined && child.exitCode === null,
     );
     const exits = running.map(exited);
     for (const child of running) child.kill();
