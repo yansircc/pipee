@@ -84,15 +84,8 @@ if (!existing) {
 }
 
 const tag = `suite-v${version}`;
-if (!existing) {
-  try {
-    git(["rev-parse", "--verify", `refs/tags/${tag}`]);
-    throw new Error(`release tag already exists: ${tag}`);
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith("release tag already exists"))
-      throw error;
-  }
-}
+if (!existing && git(["tag", "--list", tag]) === tag)
+  throw new Error(`release tag already exists: ${tag}`);
 
 const result = {
   mode: existing ? "existing" : "new",

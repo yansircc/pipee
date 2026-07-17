@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { root, run } from "./lib.mjs";
 
 assert.equal(process.platform, "darwin", "release:preflight requires Apple container on macOS");
@@ -13,6 +14,10 @@ assert.match(sourceSha, /^[0-9a-f]{40}$/);
 
 const platform = process.env.PI_SUITE_PREFLIGHT_PLATFORM ?? "linux/arm64";
 assert.match(platform, /^linux\/(?:arm64|amd64)$/, "unsupported preflight platform");
+const architecture = platform.slice("linux/".length);
+const storeVolume = `pi-suite-pnpm-store-${architecture}`;
+if (spawnSync("container", ["volume", "inspect", storeVolume]).status !== 0)
+  run("container", ["volume", "create", storeVolume]);
 
 const containerScript = `
 git clone --no-local --quiet /source /work/pi-suite
@@ -22,6 +27,7 @@ test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
 test -z "$(git status --porcelain)"
 corepack enable
 corepack prepare pnpm@11.13.1 --activate
+pnpm config set store-dir /pnpm-store
 pnpm install --frozen-lockfile
 node tooling/release/candidate-pipeline.mjs full "$SOURCE_SHA"
 `;
@@ -34,6 +40,8 @@ const args = [
   ...(platform === "linux/amd64" ? ["--rosetta"] : []),
   "--mount",
   `type=bind,source=${root},target=/source,readonly`,
+  "--mount",
+  `type=volume,source=${storeVolume},target=/pnpm-store`,
   "--env",
   `SOURCE_SHA=${sourceSha}`,
   "node:24-bookworm",

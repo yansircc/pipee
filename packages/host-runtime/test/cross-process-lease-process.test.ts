@@ -1,5 +1,5 @@
 import { expect, it } from "@effect/vitest";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,15 +7,45 @@ import { fileURLToPath } from "node:url";
 
 const worker = fileURLToPath(new URL("./lease-worker.ts", import.meta.url));
 
-const start = (path: string, mode: "hold" | "try") =>
+const start = (path: string, mode: "hold" | "try" | "contend") =>
   spawn(process.execPath, ["--experimental-strip-types", worker, path, mode], {
-    stdio: ["pipe", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe", "ipc"],
   });
 
-const firstLine = (child: ChildProcessWithoutNullStreams): Promise<string> =>
+const ready = (child: ChildProcess): Promise<void> =>
   new Promise((resolve, reject) => {
+    child.once("message", (message) => {
+      if (message === "ready") resolve();
+      else reject(new Error("unexpected lease worker message"));
+    });
+    child.once("error", reject);
+    child.once("exit", (code) => reject(new Error(`lease worker exited ${String(code)}`)));
+  });
+
+const within = <A>(promise: Promise<A>, milliseconds: number): Promise<A> =>
+  new Promise((resolve, reject) => {
+    const timeout = setTimeout(
+      () => reject(new Error(`lease contention exceeded ${milliseconds}ms`)),
+      milliseconds,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (cause: unknown) => {
+        clearTimeout(timeout);
+        reject(cause instanceof Error ? cause : new Error("lease contention failed"));
+      },
+    );
+  });
+
+const firstLine = (child: ChildProcess): Promise<string> => {
+  if (child.stdout === null) return Promise.reject(new Error("lease worker must own piped output"));
+  const { stdout } = child;
+  return new Promise((resolve, reject) => {
     let output = "";
-    child.stdout.on("data", (chunk: Buffer) => {
+    stdout.on("data", (chunk: Buffer) => {
       output += chunk.toString("utf8");
       const lineEnd = output.indexOf("\n");
       if (lineEnd >= 0) resolve(output.slice(0, lineEnd));
@@ -25,8 +55,9 @@ const firstLine = (child: ChildProcessWithoutNullStreams): Promise<string> =>
       if (!output.includes("\n")) reject(new Error(`lease worker exited ${String(code)}`));
     });
   });
+};
 
-const exited = (child: ChildProcessWithoutNullStreams): Promise<void> =>
+const exited = (child: ChildProcess): Promise<void> =>
   new Promise((resolve) => child.once("exit", () => resolve()));
 
 it("releases the lease when an owner process is terminated", async () => {
@@ -55,9 +86,12 @@ it("releases the lease when an owner process is terminated", async () => {
 it("admits exactly one owner across eight independent processes", async () => {
   const directory = mkdtempSync(join(tmpdir(), "pi-suite-lease-eight-processes-"));
   const path = join(directory, "contended.lease.sqlite");
-  const contenders = Array.from({ length: 8 }, () => start(path, "hold"));
+  const contenders = Array.from({ length: 8 }, () => start(path, "contend"));
   try {
-    const results = await Promise.all(contenders.map(firstLine));
+    await Promise.all(contenders.map(ready));
+    const resultsPromise = Promise.all(contenders.map(firstLine));
+    for (const contender of contenders) contender.send("acquire");
+    const results = await within(resultsPromise, 5_000);
     expect(results.filter((result) => result === "acquired")).toHaveLength(1);
     expect(results.filter((result) => result === "unavailable")).toHaveLength(7);
   } finally {
@@ -67,4 +101,4 @@ it("admits exactly one owner across eight independent processes", async () => {
     await Promise.all(exits);
     rmSync(directory, { recursive: true, force: true });
   }
-}, 10_000);
+}, 30_000);
