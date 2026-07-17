@@ -6,9 +6,15 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const worker = fileURLToPath(new URL("./lease-worker.ts", import.meta.url));
+const contenderWorker = fileURLToPath(new URL("./lease-contender-worker.ts", import.meta.url));
 
-const start = (path: string, mode: "hold" | "try" | "contend") =>
+const start = (path: string, mode: "hold" | "try") =>
   spawn(process.execPath, ["--experimental-strip-types", worker, path, mode], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+const startContender = (path: string) =>
+  spawn(process.execPath, ["--experimental-strip-types", contenderWorker, path], {
     stdio: ["pipe", "pipe", "pipe", "ipc"],
   });
 
@@ -86,7 +92,7 @@ it("releases the lease when an owner process is terminated", async () => {
 it("admits exactly one owner across eight independent processes", async () => {
   const directory = mkdtempSync(join(tmpdir(), "pi-suite-lease-eight-processes-"));
   const path = join(directory, "contended.lease.sqlite");
-  const contenders = Array.from({ length: 8 }, () => start(path, "contend"));
+  const contenders = Array.from({ length: 8 }, () => startContender(path));
   try {
     await Promise.all(contenders.map(ready));
     const resultsPromise = Promise.all(contenders.map(firstLine));
