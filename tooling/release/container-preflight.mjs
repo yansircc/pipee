@@ -29,6 +29,7 @@ cd /work/pi-suite
 git checkout --detach --quiet "$SOURCE_SHA"
 test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
 test -z "$(git status --porcelain)"
+export COREPACK_HOME=/pnpm-store/corepack
 corepack enable
 corepack prepare pnpm@11.13.1 --activate
 pnpm config set store-dir /pnpm-store
