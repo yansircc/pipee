@@ -15,6 +15,11 @@ assert.equal(
 
 const sourceSha = run("git", ["rev-parse", "HEAD"], { capture: true }).trim();
 assert.match(sourceSha, /^[0-9a-f]{40}$/);
+const mainSha = run("git", ["rev-parse", "refs/remotes/origin/main"], {
+  capture: true,
+}).trim();
+assert.match(mainSha, /^[0-9a-f]{40}$/);
+run("git", ["merge-base", "--is-ancestor", mainSha, sourceSha]);
 run("pnpm", ["--filter", "@yansircc/pi-chrome", "run", "release:check"]);
 assert.equal(
   run("git", ["status", "--porcelain"], { capture: true }),
@@ -71,8 +76,10 @@ if (spawnSync("container", ["volume", "inspect", storeVolume]).status !== 0)
 const containerScript = `
 git clone --quiet /input/source.bundle /work/pi-suite
 cd /work/pi-suite
+git fetch --quiet /input/source.bundle refs/remotes/origin/main:refs/remotes/origin/main
 git checkout --detach --quiet "$SOURCE_SHA"
 test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+test "$(git rev-parse refs/remotes/origin/main)" = "$MAIN_SHA"
 test -z "$(git status --porcelain)"
 test "$(node --version | cut -d. -f1)" = "v24"
 test "$(pnpm --version)" = "11.13.1"
@@ -82,12 +89,12 @@ if test ! -f /pnpm-store/.fetch-complete; then
   touch /pnpm-store/.fetch-complete
 fi
 pnpm install --offline --frozen-lockfile
-node tooling/release/candidate-pipeline.mjs full "$SOURCE_SHA"
+PI_SUITE_RELEASE_PREVIEW=1 node tooling/release/candidate-pipeline.mjs full "$SOURCE_SHA"
 `;
 
 const bundleDirectory = mkdtempSync(join(tmpdir(), "pi-suite-preflight-source-"));
 const bundlePath = join(bundleDirectory, "source.bundle");
-run("git", ["bundle", "create", bundlePath, "HEAD"]);
+run("git", ["bundle", "create", bundlePath, "HEAD", "refs/remotes/origin/main"]);
 run("git", ["bundle", "verify", bundlePath], { capture: true });
 
 const args = [
@@ -106,6 +113,8 @@ const args = [
   `type=volume,source=${storeVolume},target=/pnpm-store`,
   "--env",
   `SOURCE_SHA=${sourceSha}`,
+  "--env",
+  `MAIN_SHA=${mainSha}`,
   image,
   "sh",
   "-euc",

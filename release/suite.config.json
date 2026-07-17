@@ -1,5 +1,14 @@
 {
   "schemaVersion": 1,
+  "versioning": "independent",
+  "releaseScripts": {
+    "verify": "verify",
+    "build": "release:build-candidates",
+    "candidate": "verify:candidates",
+    "platform": "verify:platform",
+    "publish": "publish:candidates",
+    "public": "verify:registry"
+  },
   "packages": [
     {
       "id": "web",
