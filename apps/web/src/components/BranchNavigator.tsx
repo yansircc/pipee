@@ -1,12 +1,12 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react"
 import { Effect } from "effect"
-import type { SessionEntry, SessionTreeNode } from "@/api/contract"
+import type { SessionBranchNode } from "@/api/contract"
 import { useI18n } from "@/lib/i18n"
 import { BrowserPlatform } from "@/browser/browser-platform"
 import { runBrowser } from "@/browser/api-client"
 
 interface Props {
-  tree: ReadonlyArray<SessionTreeNode>
+  branchNodes: ReadonlyArray<SessionBranchNode>
   activeLeafId: string | null
   onLeafChange: (leafId: string | null) => void
   /** When true, renders as a compact inline button for embedding in a top bar */
@@ -23,85 +23,84 @@ interface Props {
   compact?: boolean
 }
 
-// Find the visible entry IDs on the path from root to activeLeafId.
-function buildActivePath(nodes: ReadonlyArray<SessionTreeNode>, targetId: string | null): Set<string> {
-  if (!targetId) return new Set()
-  const target = targetId
-  function search(nodes: ReadonlyArray<SessionTreeNode>, path: string[]): string[] | null {
-    for (const node of nodes) {
-      const next = [...path, node.entry.id]
-      if (node.entry.id === target || node.compressedEntryIds?.includes(target)) {
-        return next
-      }
-      const found = search(node.children, next)
-      if (found) return found
-    }
-    return null
-  }
-  return new Set(search(nodes, []) ?? [])
+interface BranchRow {
+  readonly node: SessionBranchNode
+  readonly isLast: boolean
+  readonly parentLines: ReadonlyArray<boolean>
 }
 
-// Compress a visible linear chain into the first branching/leaf node.
-// Server-side compressed IDs also count as skipped nodes.
-function compress(node: SessionTreeNode): { node: SessionTreeNode; skipped: number } {
-  let current = node
-  let skipped = current.compressedEntryIds?.length ?? 0
-  while (current.children.length === 1) {
-    current = current.children[0]
-    skipped += 1 + (current.compressedEntryIds?.length ?? 0)
-  }
-  return { node: current, skipped }
-}
-
-function getLabel(entry: SessionEntry): string {
-  if (entry.type === "message" && "message" in entry) {
-    const msg = entry.message as { role: string; content: unknown }
-    const content = msg.content
-    let text = ""
-    if (typeof content === "string") {
-      text = content
-    } else if (Array.isArray(content)) {
-      text = content
-        .filter((b): b is { type: "text"; text: string } => b.type === "text")
-        .map((b) => b.text)
-        .join(" ")
-    }
-    if (text.length > 40) text = text.slice(0, 40) + "…"
-    if (text) return text
-    if (msg.role === "assistant") return "[assistant]"
-  }
-  return entry.type
-}
-
-// Does the tree have any branching at all?
-function hasBranch(nodes: ReadonlyArray<SessionTreeNode>): boolean {
+const branchView = (nodes: ReadonlyArray<SessionBranchNode>) => {
+  const byId = new Map(nodes.map((node) => [node.entryId, node]))
+  const children = new Map<string | null, Array<SessionBranchNode>>()
   for (const node of nodes) {
-    if (node.children.length > 1) return true
-    if (hasBranch(node.children)) return true
+    const parentId = node.parentNodeId !== null && byId.has(node.parentNodeId) ? node.parentNodeId : null
+    const siblings = children.get(parentId) ?? []
+    siblings.push(node)
+    children.set(parentId, siblings)
   }
-  return false
+  const hasBranch = [...children.values()].some((siblings) => siblings.length > 1)
+  let frontier = children.get(null) ?? []
+  while (frontier.length === 1) {
+    const next = children.get(frontier[0]?.entryId ?? "") ?? []
+    if (next.length !== 1) break
+    frontier = next
+  }
+  const rows: Array<BranchRow> = []
+  const seen = new Set<string>()
+  const pending = frontier
+    .map((node, index) => ({
+      node,
+      isLast: index === frontier.length - 1,
+      parentLines: [] as ReadonlyArray<boolean>,
+    }))
+    .reverse()
+  while (pending.length > 0) {
+    const row = pending.pop()
+    if (row === undefined || seen.has(row.node.entryId)) continue
+    seen.add(row.node.entryId)
+    rows.push(row)
+    const descendants = children.get(row.node.entryId) ?? []
+    pending.push(
+      ...descendants.toReversed().map((node, reverseIndex) => ({
+        node,
+        isLast: reverseIndex === 0,
+        parentLines: [...row.parentLines, !row.isLast],
+      })),
+    )
+  }
+  return { byId, hasBranch, rows }
 }
 
-interface TreeNodeProps {
-  node: SessionTreeNode
+const activePath = (
+  nodes: ReadonlyArray<SessionBranchNode>,
+  byId: ReadonlyMap<string, SessionBranchNode>,
+  targetId: string | null,
+): Set<string> => {
+  if (targetId === null) return new Set()
+  let node = nodes.find((candidate) => candidate.entryId === targetId) ?? nodes.find((candidate) => candidate.active)
+  const path = new Set<string>()
+  while (node !== undefined && !path.has(node.entryId)) {
+    path.add(node.entryId)
+    node = node.parentNodeId === null ? undefined : byId.get(node.parentNodeId)
+  }
+  return path
+}
+
+interface BranchNodeProps {
+  row: BranchRow
   activePathIds: Set<string>
-  depth: number
-  isLast: boolean
-  parentLines: boolean[] // whether ancestor at each depth has more siblings after
   onSelect: (id: string) => void
 }
 
-function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelect }: TreeNodeProps) {
-  const { node: rep, skipped } = compress(node)
-  const isActive = activePathIds.has(rep.entry.id)
-  const isOnPath = activePathIds.has(node.entry.id) || activePathIds.has(rep.entry.id)
-  const label = getLabel(rep.entry)
-  const role =
-    rep.entry.type === "message" && "message" in rep.entry ? (rep.entry.message as { role: string }).role : null
+function BranchNodeView({ row, activePathIds, onSelect }: BranchNodeProps) {
+  const { node, isLast, parentLines } = row
+  const isActive = activePathIds.has(node.entryId)
+  const isOnPath = isActive
+  const skipped = node.compressedCount
+  const role = node.role ?? null
 
   return (
     <div>
-      {/* This node row */}
       <div
         style={{
           display: "flex",
@@ -109,9 +108,8 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
           height: 24,
           cursor: "pointer",
         }}
-        onClick={() => onSelect(rep.entry.id)}
+        onClick={() => onSelect(node.entryId)}
       >
-        {/* Indent guide lines */}
         {parentLines.map((hasLine, i) => (
           <div key={i} style={{ width: 16, flexShrink: 0, position: "relative", height: "100%", alignSelf: "stretch" }}>
             {hasLine && (
@@ -129,9 +127,7 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
           </div>
         ))}
 
-        {/* Branch connector */}
         <div style={{ width: 16, flexShrink: 0, position: "relative", height: "100%", alignSelf: "stretch" }}>
-          {/* vertical line up (to parent) */}
           <div
             style={{
               position: "absolute",
@@ -142,7 +138,6 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
               background: "var(--border)",
             }}
           />
-          {/* horizontal line to node */}
           <div
             style={{
               position: "absolute",
@@ -155,7 +150,6 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
           />
         </div>
 
-        {/* Node dot */}
         <div
           style={{
             width: 7,
@@ -169,7 +163,6 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
           }}
         />
 
-        {/* Role badge */}
         {role && (
           <span
             style={{
@@ -189,12 +182,10 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
           </span>
         )}
 
-        {/* Skipped indicator */}
         {skipped > 0 && (
           <span style={{ fontSize: 10, color: "var(--text-dim)", marginRight: 5, flexShrink: 0 }}>+{skipped}</span>
         )}
 
-        {/* Label */}
         <span
           style={{
             fontSize: 11,
@@ -207,28 +198,15 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
             minWidth: 0,
           }}
         >
-          {label}
+          {node.label}
         </span>
       </div>
-
-      {/* Children */}
-      {rep.children.map((child, idx) => (
-        <TreeNodeView
-          key={child.entry.id}
-          node={child}
-          activePathIds={activePathIds}
-          depth={depth + 1}
-          isLast={idx === rep.children.length - 1}
-          parentLines={[...parentLines, !isLast]}
-          onSelect={onSelect}
-        />
-      ))}
     </div>
   )
 }
 
 export function BranchNavigator({
-  tree,
+  branchNodes,
   activeLeafId,
   onLeafChange,
   inline,
@@ -257,7 +235,11 @@ export function BranchNavigator({
     })
   }, [open, inline, containerRef])
 
-  const activePathIds = useMemo(() => buildActivePath(tree, activeLeafId), [tree, activeLeafId])
+  const view = useMemo(() => branchView(branchNodes), [branchNodes])
+  const activePathIds = useMemo(
+    () => activePath(branchNodes, view.byId, activeLeafId),
+    [activeLeafId, branchNodes, view.byId],
+  )
 
   const handleSelect = useCallback(
     (id: string) => {
@@ -268,14 +250,10 @@ export function BranchNavigator({
 
   const noBranchReason = !hasSession
     ? t("No active session")
-    : !hasBranch(tree)
+    : !view.hasBranch
       ? t("This session has no branches")
       : null
-
-  // Find first meaningful node (skip pure linear prefix)
-  const compressed = tree.length > 0 ? compress(tree[0]) : null
-  const firstNode = compressed?.node ?? null
-  const hasContent = !noBranchReason && firstNode && firstNode.children.length > 1
+  const hasContent = !noBranchReason && view.rows.length > 0
 
   const branchIcon = (
     <svg
@@ -359,16 +337,13 @@ export function BranchNavigator({
               zIndex: 500,
             }}
           >
-            {hasContent && firstNode ? (
+            {hasContent ? (
               <div style={{ padding: "4px 12px 8px 12px", maxHeight: 260, overflowY: "auto" }}>
-                {firstNode.children.map((child, idx) => (
-                  <TreeNodeView
-                    key={child.entry.id}
-                    node={child}
+                {view.rows.map((row) => (
+                  <BranchNodeView
+                    key={row.node.entryId}
+                    row={row}
                     activePathIds={activePathIds}
-                    depth={0}
-                    isLast={idx === firstNode.children.length - 1}
-                    parentLines={[]}
                     onSelect={handleSelect}
                   />
                 ))}
@@ -424,16 +399,13 @@ export function BranchNavigator({
             zIndex: 100,
           }}
         >
-          {hasContent && firstNode ? (
+          {hasContent ? (
             <div style={{ padding: "4px 12px 8px 12px", maxHeight: 260, overflowY: "auto" }}>
-              {firstNode.children.map((child, idx) => (
-                <TreeNodeView
-                  key={child.entry.id}
-                  node={child}
+              {view.rows.map((row) => (
+                <BranchNodeView
+                  key={row.node.entryId}
+                  row={row}
                   activePathIds={activePathIds}
-                  depth={0}
-                  isLast={idx === firstNode.children.length - 1}
-                  parentLines={[]}
                   onSelect={handleSelect}
                 />
               ))}

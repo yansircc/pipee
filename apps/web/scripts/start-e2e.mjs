@@ -203,6 +203,29 @@ await writeFile(
 process.env.HOME = home
 process.env.USERPROFILE = home
 const { SessionManager } = await import("@earendil-works/pi-coding-agent")
+const deepSession = SessionManager.create(workspace, undefined, {
+  id: "00000000-0000-4000-8000-000000000004",
+})
+for (let index = 0; index < 5_000; index += 1) {
+  deepSession.appendMessage({ role: "user", content: `deep fixture ${index}`, timestamp: 1_600_000_000_000 + index })
+}
+deepSession.appendMessage({
+  role: "assistant",
+  content: [{ type: "text", text: "deep fixture tail" }],
+  api: "anthropic-messages",
+  provider: "fixture",
+  model: "fixture",
+  usage: {
+    input: 1,
+    output: 1,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 2,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  },
+  stopReason: "stop",
+  timestamp: 1_600_000_005_000,
+})
 const seededSession = SessionManager.create(workspace, undefined, {
   id: "00000000-0000-4000-8000-000000000001",
 })
@@ -246,6 +269,33 @@ failedSession.appendMessage({
   errorMessage: "Fixture provider timed out.",
   timestamp: 1_700_000_000_003,
 })
+const longSession = SessionManager.create(workspace, undefined, {
+  id: "00000000-0000-4000-8000-000000000003",
+})
+for (let index = 0; index < 30; index += 1) {
+  longSession.appendMessage({
+    role: "user",
+    content: `scroll fixture message ${index + 1}: ${"content ".repeat(18)}`,
+    timestamp: 1_700_000_001_000 + index,
+  })
+}
+longSession.appendMessage({
+  role: "assistant",
+  content: [{ type: "text", text: "scroll fixture tail" }],
+  api: "anthropic-messages",
+  provider: "fixture",
+  model: "fixture",
+  usage: {
+    input: 1,
+    output: 1,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 2,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  },
+  stopReason: "stop",
+  timestamp: 1_700_000_001_030,
+})
 await run("git", ["init", "--initial-branch=main"])
 await run("git", ["add", "hello.txt"])
 await run("git", [
@@ -271,6 +321,23 @@ const baseURL = await waitForServerUrl(server).catch((error) => {
   throw error
 })
 await waitForHealth(baseURL)
+const deepSessionResponse = await fetch(
+  `${baseURL}/api/sessions/00000000-0000-4000-8000-000000000004?deferThinking=1&deferMedia=1`,
+)
+if (!deepSessionResponse.ok) {
+  throw new Error(`Deep session projection returned HTTP ${deepSessionResponse.status}`)
+}
+const deepSessionSnapshot = await deepSessionResponse.json()
+if (
+  deepSessionSnapshot.branchNodes?.length !== 2 ||
+  JSON.stringify(deepSessionSnapshot.branchNodes).length > 1_000 ||
+  deepSessionSnapshot.context?.messages?.length !== 200 ||
+  deepSessionSnapshot.info?.messageCount !== 5_001 ||
+  deepSessionSnapshot.info?.firstMessage !== "deep fixture 0" ||
+  deepSessionSnapshot.contextPage?.hasMoreBefore !== true
+) {
+  throw new Error("Deep session projection was not flat and bounded")
+}
 const playwrightEnv = {
   ...process.env,
   ...(operatorHome === undefined ? {} : { HOME: operatorHome }),

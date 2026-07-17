@@ -1,7 +1,7 @@
 import { expect, test } from "vite-plus/test"
-import type { SessionEntry, SessionTreeNode, UserMessage } from "@/api/contract"
+import type { SessionEntry, UserMessage } from "@/api/contract"
 import type { PiSessionDocument } from "./pi-agent-adapter"
-import { buildSessionContext, projectSessionTree } from "./session-repository"
+import { buildSessionContext, buildSessionContextPage, projectSessionBranches } from "./session-repository"
 
 const userEntry = (
   id: string,
@@ -41,7 +41,6 @@ const documentWith = (entries: ReadonlyArray<SessionEntry>): PiSessionDocument =
   created: "2026-01-01T00:00:00.000Z",
   leafId: entries.at(-1)?.id ?? null,
   entries,
-  tree: [],
   thinkingLevel: "high",
   model: { provider: "test", modelId: "test-model" },
 })
@@ -210,13 +209,53 @@ test("selects only the requested in-session branch", () => {
   expect(buildSessionContext(documentWith(entries), { leafId: null }).entryIds).toEqual([])
 })
 
-test("projects deep linear trees iteratively with bounded UI depth", () => {
-  let node: SessionTreeNode = { entry: userEntry("leaf", null, "leaf"), children: [] }
-  for (let index = 0; index < 1_000; index += 1) {
-    node = { entry: userEntry(`entry-${index}`, null, `${index}`), children: [node] }
+test("projects deep linear histories without recursive trees", () => {
+  const entries: Array<SessionEntry> = []
+  for (let index = 0; index < 5_000; index += 1) {
+    entries.push(userEntry(`entry-${index}`, index === 0 ? null : `entry-${index - 1}`, `${index}`))
   }
-  const projected = projectSessionTree([node])
-  expect(projected).toHaveLength(1)
-  expect(projected[0]?.children).toHaveLength(1)
-  expect(projected[0]?.children[0]?.compressedEntryIds?.length).toBeGreaterThan(0)
+  const projected = projectSessionBranches(entries)
+  expect(projected).toHaveLength(2)
+  expect(projected[0]).toMatchObject({ entryId: "entry-0", parentNodeId: null, compressedCount: 0 })
+  expect(projected[1]).toMatchObject({ entryId: "entry-4999", parentNodeId: "entry-0" })
+  expect(projected[1]).toMatchObject({ compressedCount: 4_998, active: true })
+  expect(projectSessionBranches(entries, "entry-2500")[1]).toMatchObject({
+    entryId: "entry-4999",
+    active: true,
+  })
+})
+
+test("projects branch points and leaves with derived labels", () => {
+  const entries = [
+    userEntry("root", null, "root"),
+    assistantEntry("branch", "root", "branch"),
+    userEntry("left", "branch", "left path"),
+    userEntry("right", "branch", "right path"),
+  ]
+  expect(projectSessionBranches(entries)).toEqual([
+    expect.objectContaining({ entryId: "root", parentNodeId: null, label: "root" }),
+    expect.objectContaining({ entryId: "branch", parentNodeId: "root", label: "branch" }),
+    expect.objectContaining({ entryId: "left", parentNodeId: "branch", label: "left path" }),
+    expect.objectContaining({ entryId: "right", parentNodeId: "branch", label: "right path" }),
+  ])
+})
+
+test("pages long contexts by stable entry cursor", () => {
+  const entries: Array<SessionEntry> = []
+  for (let index = 0; index < 300; index += 1) {
+    entries.push(userEntry(`entry-${index}`, index === 0 ? null : `entry-${index - 1}`, `${index}`))
+  }
+  const document = documentWith(entries)
+  const latest = buildSessionContextPage(document, {})
+  expect(latest.context.entryIds).toHaveLength(200)
+  expect(latest.context.entryIds[0]).toBe("entry-100")
+  expect(latest.beforeEntryId).toBe("entry-100")
+  expect(latest.hasMoreBefore).toBe(true)
+
+  const earlier = buildSessionContextPage(document, { beforeEntryId: latest.beforeEntryId ?? undefined })
+  expect(earlier.context.entryIds).toHaveLength(100)
+  expect(earlier.context.entryIds[0]).toBe("entry-0")
+  expect(earlier.context.entryIds.at(-1)).toBe("entry-99")
+  expect(earlier.beforeEntryId).toBeNull()
+  expect(earlier.hasMoreBefore).toBe(false)
 })

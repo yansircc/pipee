@@ -49,6 +49,16 @@ export class BrowserPlatform extends Context.Service<
     readonly onDocumentMouseDown: (listener: (event: MouseEvent) => void) => Effect.Effect<never>
     readonly observeResize: (elements: ReadonlyArray<Element>, listener: () => void) => Effect.Effect<never>
     readonly onElementScroll: (element: Element, listener: () => void) => Effect.Effect<never>
+    readonly watchElementNearViewportEnd: (
+      container: Element,
+      target: Element,
+      tolerance: number,
+      listener: (nearEnd: boolean) => void,
+    ) => Effect.Effect<never>
+    readonly scrollElementIntoView: (
+      element: Element,
+      behavior: ScrollBehavior,
+    ) => Effect.Effect<void, BrowserPlatformError>
     readonly onWindowMouseDrag: (onMove: (event: MouseEvent) => void, onEnd: () => void) => Effect.Effect<void>
     readonly watchMediaQuery: (query: string, onChange: (matches: boolean) => void) => Effect.Effect<never>
     readonly navigate: (url: string) => Effect.Effect<void>
@@ -185,6 +195,26 @@ export const BrowserPlatformLive = Layer.succeed(BrowserPlatform, {
         () => Effect.sync(() => element.removeEventListener("scroll", listener)),
       ).pipe(Effect.andThen(Effect.never)),
     ),
+  watchElementNearViewportEnd: (container, target, tolerance, listener) =>
+    Effect.scoped(
+      Effect.acquireRelease(
+        Effect.sync(() => {
+          const update = () => {
+            const viewport = container.getBoundingClientRect()
+            const latest = target.getBoundingClientRect()
+            listener(latest.bottom <= viewport.bottom + tolerance)
+          }
+          container.addEventListener("scroll", update, { passive: true })
+          return update
+        }),
+        (update) => Effect.sync(() => container.removeEventListener("scroll", update)),
+      ).pipe(Effect.andThen(Effect.never)),
+    ),
+  scrollElementIntoView: (element, behavior) =>
+    Effect.try({
+      try: () => element.scrollIntoView({ behavior, block: "end" }),
+      catch: failure("element.scroll-into-view"),
+    }),
   onWindowMouseDrag: (onMove, onEnd) =>
     Effect.callback<void>((resume) => {
       const end = () => {

@@ -38,6 +38,7 @@ import {
   type SessionIdentity,
   type SessionScope,
 } from "./session-runtime-owner.js";
+import { projectSessionGroupTitle } from "./session-group-title.js";
 import { executeChromeTool } from "./tool-execution.js";
 import {
   RunConnectorOwner,
@@ -49,6 +50,7 @@ import {
   projectChromeStatus,
   type BridgeStatusSnapshot,
   type ChromeStatusProjection,
+  type ChromeStatusTarget,
 } from "./status-projection.js";
 import { decodeWebRunOfferToken } from "./web-run-offer.js";
 import {
@@ -97,7 +99,7 @@ const resolveSessionIdentity = (
     const name = context.sessionManager.getSessionName?.()?.trim();
     return Effect.succeed({
       key: `session:${id}`,
-      groupTitle: `Pi Session: ${name || id}`.slice(0, 80),
+      groupTitle: projectSessionGroupTitle(id, name, context.sessionManager.getBranch()),
     });
   });
 
@@ -349,9 +351,7 @@ export default function piChrome(pi: ExtensionAPI): void {
       }
       return poisoned;
     }).pipe(
-      Effect.flatMap((poisoned) =>
-        poisoned ? refreshStatus(scope.context, scope.epoch) : Effect.void,
-      ),
+      Effect.flatMap((poisoned) => (poisoned ? refreshStatus(scope) : Effect.void)),
       Effect.andThen(cleanupSessionTarget(scope)),
     );
 
@@ -393,7 +393,7 @@ export default function piChrome(pi: ExtensionAPI): void {
         Effect.sync(() => {
           cancelExpiry();
           deactivateTools();
-        }).pipe(Effect.andThen(refreshStatus(scope.context, scope.epoch))),
+        }).pipe(Effect.andThen(refreshStatus(scope))),
       ),
       Effect.flatMap(() => (cleanupTarget ? cleanupSessionTarget(scope) : Effect.void)),
     );
@@ -440,7 +440,7 @@ export default function piChrome(pi: ExtensionAPI): void {
               sessions.publishRepaired(scope, owner);
               cancelExpiry();
               deactivateTools();
-            }).pipe(Effect.andThen(refreshStatus(scope.context, scope.epoch))),
+            }).pipe(Effect.andThen(refreshStatus(scope))),
           ),
           Effect.tapError(() => poisonAuthorization(scope, background)),
           Effect.flatMap(() => cleanupSessionTarget(scope)),
@@ -473,7 +473,7 @@ export default function piChrome(pi: ExtensionAPI): void {
                 Effect.tap((expired) =>
                   expired
                     ? Effect.sync(() => deactivateTools()).pipe(
-                        Effect.andThen(refreshStatus(scope.context, scope.epoch)),
+                        Effect.andThen(refreshStatus(scope)),
                       )
                     : Effect.void,
                 ),
@@ -488,7 +488,7 @@ export default function piChrome(pi: ExtensionAPI): void {
           Effect.catch((error) =>
             sessions.matches(scope)
               ? Effect.sync(() => deactivateTools()).pipe(
-                  Effect.andThen(refreshStatus(scope.context, scope.epoch)),
+                  Effect.andThen(refreshStatus(scope)),
                   Effect.andThen(
                     Effect.sync(() => scope.context.ui.notify(error.message, "error")),
                   ),
@@ -639,10 +639,12 @@ export default function piChrome(pi: ExtensionAPI): void {
     ctx.ui.setStatus("chrome", undefined);
   };
 
-  const refreshStatus = (
-    ctx: ExtensionContext,
-    epoch: number,
-  ): Effect.Effect<void, never, NodeServices> =>
+  const statusTarget = (scope: SessionScope): ChromeStatusTarget =>
+    scope.context.mode === "rpc"
+      ? { _tag: "Web", sessionKey: scope.identity.key }
+      : { _tag: "Terminal" };
+
+  const refreshStatus = (scope: SessionScope): Effect.Effect<void, never, NodeServices> =>
     Effect.gen(function* () {
       const bridgeSnapshot = yield* bridge.status.pipe(
         Effect.map((status): BridgeStatusSnapshot => ({ _tag: "Available", status })),
@@ -652,16 +654,15 @@ export default function piChrome(pi: ExtensionAPI): void {
       );
       const currentTime = yield* Clock.currentTimeMillis;
       const session = sessions.snapshot(currentTime);
-      if (session.epoch !== epoch) return;
-      const id = ctx.sessionManager.getSessionId?.()?.trim();
+      if (session.epoch !== scope.epoch) return;
       const status = projectChromeStatus(
         session,
         bridgeSnapshot,
         currentTime,
         EXTENSION_PATH,
-        id ? `session:${id}` : undefined,
+        statusTarget(scope),
       );
-      yield* Effect.sync(() => publishStatus(ctx, status, currentTime));
+      yield* Effect.sync(() => publishStatus(scope.context, status, currentTime));
     });
 
   const startStatusRefresh = (scope: SessionScope): void => {
@@ -669,23 +670,18 @@ export default function piChrome(pi: ExtensionAPI): void {
     if (typeof (scope.context.ui as StructuredStatusUi).setStructuredStatus !== "function") return;
     statusFiber = effectRuntime.runFork(
       provideNode(
-        refreshStatus(scope.context, scope.epoch).pipe(
-          Effect.repeat({ schedule: Schedule.spaced("5 seconds") }),
-        ),
+        refreshStatus(scope).pipe(Effect.repeat({ schedule: Schedule.spaced("5 seconds") })),
       ),
     );
   };
 
-  const restoreAuthorizationProjection = (
-    epoch: number,
-    ctx: ExtensionContext,
+  const restoreAdmittedAuthorizationProjection = (
+    scope: SessionScope,
+    retained: SessionScope | undefined,
     retiredConnectors: ReadonlyArray<RunConnectorSelection>,
   ) =>
     Effect.gen(function* () {
-      const identity = yield* resolveSessionIdentity(ctx);
-      const admission = yield* Effect.sync(() => sessions.admit(epoch, ctx, identity));
-      if (!admission) return;
-      const { scope } = admission;
+      const { context: ctx, identity } = scope;
       if (!runConnectors.admit(scope)) {
         return yield* new AuthorizationFailure({
           message: `Pi session ${identity.key} could not acquire Chrome run connector ownership`,
@@ -710,13 +706,13 @@ export default function piChrome(pi: ExtensionAPI): void {
           });
         }
       }
-      if (admission.retained && admission.retained.identity.key !== identity.key) {
-        yield* cleanupSessionTarget(admission.retained, retiredConnectors[0]);
+      if (retained && retained.identity.key !== identity.key) {
+        yield* cleanupSessionTarget(retained, retiredConnectors[0]);
       }
       if (!sessions.matches(scope)) return;
       const poisoned = yield* Effect.sync(() => sessions.projectPoison(scope));
       if (poisoned) {
-        yield* refreshStatus(ctx, scope.epoch);
+        yield* refreshStatus(scope);
         yield* Effect.sync(() => {
           ctx.ui.notify(
             "Chrome authorization remains fail-closed after a partial ledger append. Run /chrome revoke to repair a durable lock.",
@@ -755,18 +751,34 @@ export default function piChrome(pi: ExtensionAPI): void {
       } else {
         deactivateTools();
       }
-      yield* refreshStatus(ctx, scope.epoch);
+      yield* refreshStatus(scope);
       yield* Effect.sync(() => startStatusRefresh(scope));
     }).pipe(
       Effect.tapError((error) =>
-        sessions.snapshot(now()).epoch === epoch
+        sessions.matches(scope)
           ? Effect.sync(() => deactivateTools()).pipe(
-              Effect.andThen(refreshStatus(ctx, epoch)),
-              Effect.andThen(Effect.sync(() => ctx.ui.notify(error.message, "error"))),
+              Effect.andThen(refreshStatus(scope)),
+              Effect.andThen(Effect.sync(() => scope.context.ui.notify(error.message, "error"))),
             )
           : Effect.void,
       ),
     );
+
+  const restoreAuthorizationProjection = (
+    epoch: number,
+    ctx: ExtensionContext,
+    retiredConnectors: ReadonlyArray<RunConnectorSelection>,
+  ) =>
+    Effect.gen(function* () {
+      const identity = yield* resolveSessionIdentity(ctx);
+      const admission = yield* Effect.sync(() => sessions.admit(epoch, ctx, identity));
+      if (!admission) return;
+      yield* restoreAdmittedAuthorizationProjection(
+        admission.scope,
+        admission.retained,
+        retiredConnectors,
+      );
+    });
 
   const activateSession = (
     epoch: number,
@@ -906,7 +918,7 @@ With no explicit target, work stays in this Pi session's owned automation tab. T
                 },
                 { triggerTurn: false },
               );
-            }).pipe(Effect.andThen(refreshStatus(scope.context, scope.epoch))),
+            }).pipe(Effect.andThen(refreshStatus(scope))),
           ),
         ),
       );
@@ -1101,7 +1113,7 @@ With no explicit target, work stays in this Pi session's owned automation tab. T
             message: `Pi session changed before Chrome connector route ${pairingId} was committed`,
           });
         }
-        yield* refreshStatus(scope.context, scope.epoch);
+        yield* refreshStatus(scope);
       }),
     );
 

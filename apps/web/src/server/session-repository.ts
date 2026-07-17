@@ -1,10 +1,11 @@
 import { Context, Data, Effect, FileSystem, Layer, Option, Path, Schema, Stream } from "effect"
 import {
   AgentMessage,
+  SessionBranchNode,
   SessionContext,
+  SessionContextPage,
   SessionInfo,
   SessionSnapshot,
-  SessionTreeNode,
   type SessionEntry,
   type SessionInfo as SessionInfoValue,
 } from "@/api/contract"
@@ -20,6 +21,8 @@ export class SessionRepositoryError extends Data.TaggedError("SessionRepositoryE
 
 export interface SessionReadOptions {
   readonly leafId?: string | null
+  readonly beforeEntryId?: string
+  readonly limit?: number
   readonly deferThinking?: boolean
   readonly deferMedia?: boolean
 }
@@ -36,7 +39,7 @@ export class SessionRepository extends Context.Service<
     readonly context: (
       sessionId: string,
       options?: SessionReadOptions,
-    ) => Effect.Effect<typeof SessionContext.Type, SessionRepositoryError>
+    ) => Effect.Effect<typeof SessionContextPage.Type, SessionRepositoryError>
     readonly thinking: (
       sessionId: string,
       entryId: string,
@@ -48,66 +51,66 @@ export class SessionRepository extends Context.Service<
   }
 >()("pi-web/server/SessionRepository") {}
 
-const MAX_PROJECTED_TREE_DEPTH = 200
-type MutableTreeNode = Omit<SessionTreeNode, "children"> & { children: Array<MutableTreeNode> }
+const branchLabel = (entry: SessionEntry): string => {
+  if (entry.type !== "message") return entry.type
+  const message = entry.message
+  const content: unknown = "content" in message ? message.content : ""
+  const text =
+    typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content
+            .flatMap((block) =>
+              typeof block === "object" && block !== null && "type" in block && block.type === "text" && "text" in block
+                ? [String(block.text)]
+                : [],
+            )
+            .join(" ")
+        : ""
+  if (text) return text.length > 40 ? `${text.slice(0, 40)}…` : text
+  return message.role === "assistant" ? "[assistant]" : entry.type
+}
 
-export const projectSessionTree = (nodes: ReadonlyArray<SessionTreeNode>): ReadonlyArray<SessionTreeNode> => {
-  const keep = new Set<SessionTreeNode>()
-  const roots = new Set(nodes)
-  const seen = new Set<SessionTreeNode>()
-  const stack = [...nodes]
-  while (stack.length > 0) {
-    const node = stack.pop()
-    if (node === undefined || seen.has(node)) continue
-    seen.add(node)
-    if (roots.has(node) || node.children.length !== 1) keep.add(node)
-    stack.push(...node.children)
+export const projectSessionBranches = (
+  entries: ReadonlyArray<SessionEntry>,
+  activeLeafId: string | null = entries.at(-1)?.id ?? null,
+): ReadonlyArray<typeof SessionBranchNode.Type> => {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]))
+  const childCounts = new Map<string, number>()
+  for (const entry of entries) {
+    if (entry.parentId !== null) childCounts.set(entry.parentId, (childCounts.get(entry.parentId) ?? 0) + 1)
   }
-
-  const clone = (node: SessionTreeNode, compressedEntryIds?: ReadonlyArray<string>): MutableTreeNode => ({
-    ...node,
-    children: [],
-    ...(compressedEntryIds?.length ? { compressedEntryIds } : {}),
-  })
-  const projected = nodes.map((node) => clone(node))
-  const tasks = nodes.map((source, index) => ({ source, projected: projected[index], depth: 1 }))
-  while (tasks.length > 0) {
-    const task = tasks.pop()
-    if (task === undefined || task.projected === undefined) continue
-    for (const sourceChild of task.source.children) {
-      if (task.depth >= MAX_PROJECTED_TREE_DEPTH) {
-        const pending: Array<{ node: SessionTreeNode; compressed: ReadonlyArray<string> }> = [
-          { node: sourceChild, compressed: [] },
-        ]
-        while (pending.length > 0) {
-          const current = pending.pop()
-          if (current === undefined) continue
-          if (keep.has(current.node)) task.projected.children.push(clone(current.node, current.compressed))
-          for (let index = current.node.children.length - 1; index >= 0; index--) {
-            const child = current.node.children[index]
-            if (child !== undefined) {
-              pending.push({
-                node: child,
-                compressed: keep.has(current.node) ? [] : [...current.compressed, current.node.entry.id],
-              })
-            }
-          }
-        }
-        continue
-      }
-      let child = sourceChild
-      const compressed: Array<string> = []
-      while (!keep.has(child) && child.children.length === 1 && child.children[0] !== undefined) {
-        compressed.push(child.entry.id)
-        child = child.children[0]
-      }
-      if (!keep.has(child)) continue
-      const next = clone(child, compressed)
-      task.projected.children.push(next)
-      tasks.push({ source: child, projected: next, depth: task.depth + 1 })
+  const kept = new Set(
+    entries
+      .filter((entry) => entry.parentId === null || (childCounts.get(entry.id) ?? 0) !== 1)
+      .map((entry) => entry.id),
+  )
+  return entries.flatMap((entry) => {
+    if (!kept.has(entry.id)) return []
+    let compressedCount = 0
+    let active = entry.id === activeLeafId
+    const visited = new Set<string>([entry.id])
+    let parentId = entry.parentId
+    while (parentId !== null && !kept.has(parentId) && !visited.has(parentId)) {
+      visited.add(parentId)
+      compressedCount += 1
+      active ||= parentId === activeLeafId
+      parentId = byId.get(parentId)?.parentId ?? null
     }
-  }
-  return projected
+    if (parentId !== null && visited.has(parentId)) parentId = null
+    return [
+      SessionBranchNode.make({
+        entryId: entry.id,
+        parentNodeId: parentId,
+        timestamp: entry.timestamp,
+        kind: entry.type,
+        ...(entry.type === "message" ? { role: entry.message.role } : {}),
+        label: branchLabel(entry),
+        compressedCount,
+        active,
+      }),
+    ]
+  })
 }
 
 const parseTimestamp = (value: string): number | undefined => {
@@ -219,52 +222,80 @@ const entryMessage = (entry: SessionEntry, options: SessionReadOptions): typeof 
 export const buildSessionContext = (
   document: PiSessionDocument,
   options: SessionReadOptions,
-): typeof SessionContext.Type => {
-  if (options.leafId === null) {
-    return {
-      messages: [],
-      entryIds: [],
-      promptRequests: [],
-      thinkingLevel: document.thinkingLevel,
-      model: document.model,
-    }
-  }
+): typeof SessionContext.Type => buildSessionContextPage(document, options).context
+
+const sessionPath = (document: PiSessionDocument, leafId: string | null | undefined): ReadonlyArray<SessionEntry> => {
+  if (leafId === null) return []
   const byId = new Map(document.entries.map((entry) => [entry.id, entry]))
-  let leaf = options.leafId === undefined ? undefined : byId.get(options.leafId)
+  let leaf = leafId === undefined ? undefined : byId.get(leafId)
   if (leaf === undefined) leaf = document.entries[document.entries.length - 1]
   const path: Array<SessionEntry> = []
   const visited = new Set<string>()
   while (leaf !== undefined && !visited.has(leaf.id)) {
     visited.add(leaf.id)
-    path.unshift(leaf)
+    path.push(leaf)
     leaf = leaf.parentId === null ? undefined : byId.get(leaf.parentId)
   }
-  const messages: Array<typeof AgentMessage.Type> = []
-  const entryIds: Array<string> = []
-  for (const entry of path) {
-    const message = entryMessage(entry, options)
-    if (message !== null) {
-      messages.push(message)
-      entryIds.push(entry.id)
-    }
-  }
-  return {
-    messages,
-    entryIds,
-    promptRequests: projectPromptRequestReceipts(path),
-    thinkingLevel: document.thinkingLevel,
-    model: document.model,
-  }
+  path.reverse()
+  return path
 }
 
-const firstMessage = (context: typeof SessionContext.Type): string => {
-  for (const message of context.messages) {
-    if (message.role !== "user") continue
-    if (typeof message.content === "string") return message.content || "(no messages)"
-    const text = message.content.find((block) => block.type === "text")
-    return text?.type === "text" ? text.text || "(no messages)" : "(no messages)"
+export const buildSessionContextPage = (
+  document: PiSessionDocument,
+  options: SessionReadOptions,
+): typeof SessionContextPage.Type => {
+  if (options.leafId === null) {
+    return {
+      context: {
+        messages: [],
+        entryIds: [],
+        promptRequests: [],
+        thinkingLevel: document.thinkingLevel,
+        model: document.model,
+      },
+      beforeEntryId: null,
+      hasMoreBefore: false,
+    }
   }
-  return "(no messages)"
+  return buildContextPage(sessionPath(document, options.leafId), document, options)
+}
+
+const DEFAULT_CONTEXT_PAGE_SIZE = 200
+
+const buildContextPage = (
+  path: ReadonlyArray<SessionEntry>,
+  document: PiSessionDocument,
+  options: SessionReadOptions,
+): typeof SessionContextPage.Type => {
+  const visible = path.flatMap((entry) => {
+    const message = entryMessage(entry, options)
+    return message === null ? [] : [{ entry, message }]
+  })
+  const cursorIndex =
+    options.beforeEntryId === undefined
+      ? visible.length
+      : visible.findIndex(({ entry }) => entry.id === options.beforeEntryId)
+  const end = cursorIndex < 0 ? visible.length : cursorIndex
+  const limit = Math.max(1, Math.min(options.limit ?? DEFAULT_CONTEXT_PAGE_SIZE, DEFAULT_CONTEXT_PAGE_SIZE))
+  const start = Math.max(0, end - limit)
+  const page = visible.slice(start, end)
+  const messages: Array<typeof AgentMessage.Type> = []
+  const entryIds: Array<string> = []
+  for (const { entry, message } of page) {
+    messages.push(message)
+    entryIds.push(entry.id)
+  }
+  return {
+    context: {
+      messages,
+      entryIds,
+      promptRequests: projectPromptRequestReceipts(path),
+      thinkingLevel: document.thinkingLevel,
+      model: document.model,
+    },
+    beforeEntryId: start > 0 ? (page[0]?.entry.id ?? null) : null,
+    hasMoreBefore: start > 0,
+  }
 }
 
 const layerEffect = Effect.gen(function* () {
@@ -321,7 +352,7 @@ const layerEffect = Effect.gen(function* () {
     })
   })
 
-  const resolvePath = (sessionId: string) =>
+  const resolveSession = (sessionId: string) =>
     Effect.gen(function* () {
       const sessions = yield* list
       const session = sessions.find((candidate) => candidate.id === sessionId)
@@ -332,48 +363,36 @@ const layerEffect = Effect.gen(function* () {
           notFoundId: sessionId,
         })
       }
-      return session.path
+      return session
     })
 
-  const loadDocument = (sessionId: string) =>
-    Effect.flatMap(resolvePath(sessionId), (filePath) => fromAdapter("session.read", adapter.readSession(filePath)))
+  const resolvePath = (sessionId: string) => Effect.map(resolveSession(sessionId), (session) => session.path)
+
+  const loadSession = (sessionId: string) =>
+    Effect.gen(function* () {
+      const info = yield* resolveSession(sessionId)
+      const document = yield* fromAdapter("session.read", adapter.readSession(info.path))
+      return { document, info } as const
+    })
+
+  const loadDocument = (sessionId: string) => Effect.map(loadSession(sessionId), ({ document }) => document)
 
   const context = (sessionId: string, options: SessionReadOptions = {}) =>
-    Effect.map(loadDocument(sessionId), (document) => buildSessionContext(document, options))
+    Effect.map(loadDocument(sessionId), (document) => buildSessionContextPage(document, options))
 
   const snapshot = (sessionId: string, options: SessionReadOptions = {}) =>
     Effect.gen(function* () {
-      const document = yield* loadDocument(sessionId)
-      const sessionContext = buildSessionContext(document, { ...options, leafId: options.leafId ?? document.leafId })
-      const stats = yield* fromFileSystem("session.stat", fs.stat(document.filePath)).pipe(Effect.option)
-      const modified = Option.flatMap(stats, (info) => info.mtime).pipe(
-        Option.map((date) => date.toISOString()),
-        Option.getOrElse(() => document.created),
-      )
-      const parentSessionId =
-        document.parentSessionPath === undefined
-          ? undefined
-          : (yield* list).find(
-              (session) => path.normalize(session.path) === path.normalize(document.parentSessionPath!),
-            )?.id
-      const info = SessionInfo.make({
-        path: document.filePath,
-        id: document.id,
-        cwd: document.cwd,
-        ...(document.name === undefined ? {} : { name: document.name }),
-        created: document.created,
-        modified,
-        messageCount: sessionContext.messages.length,
-        firstMessage: firstMessage(sessionContext),
-        ...(parentSessionId === undefined ? {} : { parentSessionId }),
-      })
+      const { document, info } = yield* loadSession(sessionId)
+      const page = buildSessionContextPage(document, { ...options, leafId: options.leafId ?? document.leafId })
+      const sessionContext = page.context
       return SessionSnapshot.make({
         sessionId,
         filePath: document.filePath,
         info,
         leafId: document.leafId,
-        tree: projectSessionTree(document.tree),
+        branchNodes: projectSessionBranches(document.entries, document.leafId),
         context: sessionContext,
+        contextPage: { beforeEntryId: page.beforeEntryId, hasMoreBefore: page.hasMoreBefore },
         runtime: null,
       })
     })

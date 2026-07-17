@@ -10,7 +10,7 @@ import { useIsMobile } from "@/hooks/useIsMobile"
 import { copyText } from "@/lib/clipboard"
 import { getFileName } from "@/lib/file-paths"
 import { buildAtMentionText } from "@/lib/file-fuzzy"
-import type { SessionInfo, SessionStats, SessionTreeNode, WeixinStatusProjection } from "@/api/contract"
+import type { SessionBranchNode, SessionInfo, SessionStats, WeixinStatusProjection } from "@/api/contract"
 import { ChatInput, type ChatInputHandle } from "./ChatInput"
 import { useI18n } from "@/lib/i18n"
 import { withApi, apiUrls, runApi, runBrowser, type Cancel } from "@/browser/api-client"
@@ -62,13 +62,13 @@ export function AppShell() {
   const topBarRef = useRef<HTMLDivElement>(null)
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
-  const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([])
+  const [branchNodes, setBranchNodes] = useState<SessionBranchNode[]>([])
   const [branchActiveLeafId, setBranchActiveLeafId] = useState<string | null>(null)
   const branchLeafChangeFnRef = useRef<((leafId: string | null) => void) | null>(null)
 
   const handleBranchDataChange = useCallback(
-    (tree: SessionTreeNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => {
-      setBranchTree(tree)
+    (nodes: SessionBranchNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => {
+      setBranchNodes(nodes)
       setBranchActiveLeafId(activeLeafId)
       branchLeafChangeFnRef.current = onLeafChange
     },
@@ -204,7 +204,7 @@ export function AppShell() {
       // Close any session that belongs to a different project — it no longer
       // matches the selected project directory.
       setCreateSessionError(null)
-      setBranchTree([])
+      setBranchNodes([])
       setBranchActiveLeafId(null)
       setSystemPrompt(null)
       setActiveTopPanel(null)
@@ -257,7 +257,7 @@ export function AppShell() {
       setInputFocusEpoch((epoch) => epoch + 1)
       setCreatingSessionCwd(cwd)
       setCreateSessionError(null)
-      setBranchTree([])
+      setBranchNodes([])
       setBranchActiveLeafId(null)
       setSystemPrompt(null)
       setActiveTopPanel(null)
@@ -326,7 +326,7 @@ export function AppShell() {
       setSessionCollection((current) => current.filter((session) => session.id !== sessionId))
       setRefreshKey((k) => k + 1)
       if (selectedSession?.id === sessionId) {
-        setBranchTree([])
+        setBranchNodes([])
         setBranchActiveLeafId(null)
         setSystemPrompt(null)
         setActiveTopPanel(null)
@@ -862,7 +862,7 @@ export function AppShell() {
                   {!isMobile && <span>{tr("Export")}</span>}
                 </button>
                 <BranchNavigator
-                  tree={branchTree}
+                  branchNodes={branchNodes}
                   activeLeafId={branchActiveLeafId}
                   onLeafChange={handleBranchLeafChange}
                   inline

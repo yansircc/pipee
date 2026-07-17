@@ -509,7 +509,16 @@ async function getOrCreateAutomationTarget(sessionKey: string, groupTitle: strin
     if (current.length > 1) throw ambiguousAutomationTarget(sessionKey, current);
     const resolution =
       current.length === 0 ? undefined : (await resolveAutomationTargets(sessionKey))[0];
-    if (resolution?.state === "owned") return resolution.tab;
+    if (resolution?.state === "owned") {
+      const groupId = resolution.tab.groupId;
+      if (typeof groupId === "number" && groupId >= 0 && chrome.tabGroups) {
+        const group = await chrome.tabGroups.get(groupId).catch(() => null);
+        if (group && cleanGroupTitle(group.title || "") !== label) {
+          await chrome.tabGroups.update(groupId, { title: label });
+        }
+      }
+      return resolution.tab;
+    }
     if (resolution?.state === "stale")
       throw ownershipLost(sessionKey, resolution.target, resolution.reason);
     const normalWindows = await regularNormalWindows();

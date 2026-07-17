@@ -42,8 +42,8 @@ import type {
   ActiveBashExecution,
   AgentMessage,
   ExtensionInteraction,
+  SessionBranchNode,
   SessionInfo,
-  SessionTreeNode,
   SessionStats as SessionStatsInfo,
   UserMessage,
 } from "@/api/contract"
@@ -51,7 +51,7 @@ import type {
 export interface SessionData {
   sessionId: string
   filePath: string
-  tree: SessionTreeNode[]
+  branchNodes: SessionBranchNode[]
   leafId: string | null
   context: {
     messages: AgentMessage[]
@@ -111,7 +111,7 @@ export interface UseAgentSessionOptions {
   modelsRefreshKey?: number
   chatInputRef?: React.RefObject<ChatInputHandle | null>
   onBranchDataChange?: (
-    tree: SessionTreeNode[],
+    branchNodes: SessionBranchNode[],
     activeLeafId: string | null,
     onLeafChange: (leafId: string | null) => void,
   ) => void
@@ -150,12 +150,8 @@ const messageFor = (error: unknown): string => {
   return String(error)
 }
 
-const cloneTree = (nodes: ReadonlyArray<SessionTreeNode>): SessionTreeNode[] =>
-  nodes.map((node) => ({
-    ...node,
-    children: cloneTree(node.children),
-    ...(node.compressedEntryIds === undefined ? {} : { compressedEntryIds: [...node.compressedEntryIds] }),
-  }))
+const cloneBranchNodes = (nodes: ReadonlyArray<SessionBranchNode>): SessionBranchNode[] =>
+  nodes.map((node) => ({ ...node }))
 
 const asUiMessages = (messages: ReadonlyArray<unknown>): AgentMessage[] =>
   messages.map((message) => message as AgentMessage)
@@ -177,6 +173,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   } = opts
   const [state, dispatch] = useReducer(sessionUiReducer, initialSessionUiState)
   const [loading, setLoading] = useState(true)
+  const [loadingEarlier, setLoadingEarlier] = useState(false)
   const [modelNames, setModelNames] = useState<Record<string, string>>({})
   const [modelList, setModelList] = useState<ModelEntry[]>([])
   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({})
@@ -375,6 +372,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [chromeExtensionExpectation, chromeExtensionId, runScoped])
 
   const snapshot = state.snapshot
+  useEffect(() => {
+    setSessionStatsOverride(null)
+    if (snapshot?.contextPage.hasMoreBefore !== true) return
+    return runScoped(sessionController.stats(session.id), {
+      onSuccess: setSessionStatsOverride,
+      onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+    })
+  }, [addNotice, runScoped, session.id, snapshot?.contextPage.hasMoreBefore, snapshot?.leafId])
+
   const data = useMemo<SessionData | null>(
     () =>
       snapshot === null
@@ -382,7 +388,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         : {
             sessionId: snapshot.sessionId,
             filePath: snapshot.filePath,
-            tree: cloneTree(snapshot.tree as ReadonlyArray<SessionTreeNode>),
+            branchNodes: cloneBranchNodes(snapshot.branchNodes as ReadonlyArray<SessionBranchNode>),
             leafId: snapshot.leafId,
             context: {
               messages: asUiMessages(snapshot.context.messages),
@@ -415,6 +421,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         extensionReachable: chromeProfileConnection === null ? null : chromeProfileConnection.connected,
         extensionId: chromeExtensionId,
         extensionDirectory: chromeExtensionDirectory,
+        currentProfile:
+          chromeProfileConnection?.connected === true
+            ? {
+                connectorId: chromeProfileConnection.connectorId,
+                connectorLabel: chromeProfileConnection.connectorLabel,
+              }
+            : null,
         compatibility:
           chromeProfileConnection?.connected === true ? chromeProfileConnection.compatibility : { _tag: "Unknown" },
         status: getChromeStatusProjection(extensionStatuses),
@@ -653,12 +666,40 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const requestId = contextSequenceRef.current
       dispatch({ _tag: "ContextRequested", sessionId, requestId })
       runScoped(sessionController.context(sessionId, leafId ?? undefined), {
-        onSuccess: ({ context }) => dispatch({ _tag: "ContextLoaded", sessionId, requestId, context, leafId }),
+        onSuccess: ({ context, beforeEntryId, hasMoreBefore }) =>
+          dispatch({
+            _tag: "ContextLoaded",
+            sessionId,
+            requestId,
+            context,
+            leafId,
+            page: { beforeEntryId, hasMoreBefore },
+          }),
         onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
       })
     },
     [addNotice, runScoped],
   )
+
+  const loadEarlier = useCallback(() => {
+    const sessionId = sessionIdRef.current
+    const beforeEntryId = state.snapshot?.contextPage.beforeEntryId
+    if (sessionId === null || beforeEntryId === null || beforeEntryId === undefined || loadingEarlier) return
+    contextSequenceRef.current += 1
+    const requestId = contextSequenceRef.current
+    setLoadingEarlier(true)
+    dispatch({ _tag: "ContextRequested", sessionId, requestId })
+    runScoped(sessionController.context(sessionId, activeLeafId ?? undefined, beforeEntryId), {
+      onSuccess: (page) => {
+        setLoadingEarlier(false)
+        dispatch({ _tag: "ContextPrepended", sessionId, requestId, page })
+      },
+      onFailure: (error) => {
+        setLoadingEarlier(false)
+        addNotice({ type: "error", message: messageFor(error) })
+      },
+    })
+  }, [activeLeafId, addNotice, loadingEarlier, runScoped, state.snapshot?.contextPage.beforeEntryId])
 
   const handleNavigate = useCallback(
     (entryId: string) => {
@@ -684,8 +725,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   )
 
   useEffect(() => {
-    onBranchDataChange?.(data?.tree ?? [], activeLeafId, handleLeafChange)
-  }, [activeLeafId, data?.tree, handleLeafChange, onBranchDataChange])
+    onBranchDataChange?.(data?.branchNodes ?? [], activeLeafId, handleLeafChange)
+  }, [activeLeafId, data?.branchNodes, handleLeafChange, onBranchDataChange])
 
   useEffect(() => {
     onSystemPromptChange?.(snapshot?.runtime?.systemPrompt ?? null)
@@ -1095,6 +1136,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     data,
     loading,
+    loadingEarlier,
+    hasMoreBefore: snapshot?.contextPage.hasMoreBefore ?? false,
     error: state.error,
     activeLeafId,
     messages,
@@ -1152,6 +1195,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleAbort,
     handleFork,
     handleNavigate,
+    loadEarlier,
     handleModelChange,
     handleCompact,
     handleSteer,

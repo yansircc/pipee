@@ -12,6 +12,10 @@ export type BridgeStatusSnapshot =
   | Readonly<{ _tag: "Available"; status: BridgeStatusResponse }>
   | Readonly<{ _tag: "Error"; message: string }>;
 
+export type ChromeStatusTarget =
+  | Readonly<{ _tag: "Terminal" }>
+  | Readonly<{ _tag: "Web"; sessionKey: string }>;
+
 const authorizationProjection = (
   session: SessionAuthorizationSnapshot,
   now: number,
@@ -28,7 +32,7 @@ export const projectChromeStatus = (
   bridgeSnapshot: BridgeStatusSnapshot,
   now: number,
   extensionDirectory: string,
-  sessionKey?: string,
+  target: ChromeStatusTarget,
 ): ChromeStatusProjection => {
   const authorization = authorizationProjection(session, now);
   if (bridgeSnapshot._tag === "Error") {
@@ -50,26 +54,30 @@ export const projectChromeStatus = (
   }
 
   const { status } = bridgeSnapshot;
-  const sessionRoute = sessionKey
-    ? status.sessionRoutes.find((route) => route.sessionKey === sessionKey)
-    : undefined;
-  const connection: ChromeStatusProjection["connection"] = sessionRoute
-    ? sessionRoute.availability === "expired"
-      ? "unavailable"
-      : sessionRoute.connected
-        ? "connected"
-        : "offline"
-    : !status.binding
-      ? "unpaired"
-      : status.connector.connected
-        ? "connected"
-        : "offline";
+  const sessionRoute =
+    target._tag === "Web"
+      ? status.sessionRoutes.find((route) => route.sessionKey === target.sessionKey)
+      : undefined;
+  const connection: ChromeStatusProjection["connection"] =
+    target._tag === "Web"
+      ? sessionRoute === undefined
+        ? "unpaired"
+        : sessionRoute.availability === "expired"
+          ? "unavailable"
+          : sessionRoute.connected
+            ? "connected"
+            : "offline"
+      : !status.binding
+        ? "unpaired"
+        : status.connector.connected
+          ? "connected"
+          : "offline";
   const terminalConnector = status.binding
     ? status.connector.extensionId === undefined
       ? status.binding
       : status.connector
     : undefined;
-  const selectedConnector = sessionRoute?.connector ?? terminalConnector;
+  const selectedConnector = target._tag === "Web" ? sessionRoute?.connector : terminalConnector;
   const compatibility = selectedConnector
     ? classifyChromeConnectorCompatibility(status.extensionExpectation, selectedConnector)
     : { _tag: "Unknown" as const };
@@ -123,7 +131,7 @@ export const projectChromeStatus = (
           }
         : { requirement: "Authorized", satisfied: true },
     ],
-    ...(sessionRoute
+    ...(target._tag === "Web" && sessionRoute
       ? {
           connectorId: sessionRoute.connector.connectorId,
           connectorLabel: sessionRoute.connector.label,
@@ -131,7 +139,7 @@ export const projectChromeStatus = (
             ? { connectorExpiresAt: sessionRoute.expiresAt }
             : {}),
         }
-      : status.binding
+      : target._tag === "Terminal" && status.binding
         ? {
             connectorId: status.binding.connectorId,
             connectorLabel: status.binding.label,
@@ -150,7 +158,6 @@ export const projectChromeStatus = (
     return {
       ...shared,
       readiness: "error",
-      errorMessage: `Chrome extension mismatch: ${compatibility.mismatches.join(", ")}`,
     };
   }
   if (authorization === "locked") return { ...shared, readiness: "locked" };

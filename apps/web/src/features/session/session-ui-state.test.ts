@@ -7,6 +7,8 @@ import {
   sessionUiReducer,
 } from "./session-ui-state"
 
+const completeContextPage = { beforeEntryId: null, hasMoreBefore: false } as const
+
 const runtimeIdentity = (runtimeId = "runtime-1", runtimeEpoch = 1, registryId = "registry-1") =>
   RuntimeIdentity.make({
     registryId: RegistryId.make(registryId),
@@ -149,7 +151,8 @@ test("changes registry identity only through an authoritative snapshot", () => {
     filePath: "/sessions/session-1.jsonl",
     info: null,
     leafId: null,
-    tree: [],
+    contextPage: completeContextPage,
+    branchNodes: [],
     context: { messages: [], entryIds: [], promptRequests: [], thinkingLevel: "high", model: null },
     runtime: runtime(null, false, restarted),
   })
@@ -249,7 +252,8 @@ test("replayed lifecycle events cannot complete a run restored as terminal", () 
     filePath: "/sessions/session-1.jsonl",
     info: null,
     leafId: null,
-    tree: [],
+    contextPage: completeContextPage,
+    branchNodes: [],
     context: { messages: [], entryIds: [], promptRequests: [], thinkingLevel: "high", model: null },
     runtime: runtime("completed-run", false),
   })
@@ -296,7 +300,8 @@ test("reconciliation cannot replace a newer run with an older snapshot", () => {
     filePath: "/sessions/session-1.jsonl",
     info: null,
     leafId: null,
-    tree: [],
+    contextPage: completeContextPage,
+    branchNodes: [],
     context: { messages: [], entryIds: [], promptRequests: [], thinkingLevel: "high", model: null },
     runtime: runtime("old-run", true),
   })
@@ -313,7 +318,8 @@ test("hydrates streaming state from the authoritative session snapshot", () => {
     filePath: "/sessions/session-1.jsonl",
     info: null,
     leafId: null,
-    tree: [],
+    contextPage: completeContextPage,
+    branchNodes: [],
     context: {
       messages: [{ role: "user", content: "hello" }],
       entryIds: ["entry-1"],
@@ -373,7 +379,8 @@ test("only a new authoritative entry confirms a submitted prompt", () => {
     filePath: "/sessions/session-1.jsonl",
     info: null,
     leafId: "entry-old",
-    tree: [],
+    contextPage: completeContextPage,
+    branchNodes: [],
     context: {
       messages: [{ role: "user", content: "hello" }],
       entryIds: ["entry-old"],
@@ -436,7 +443,8 @@ test("confirms a prompt by request identity across Pi content representations", 
     filePath: "/sessions/session-1.jsonl",
     info: null,
     leafId: "assistant-entry",
-    tree: [],
+    contextPage: completeContextPage,
+    branchNodes: [],
     context: {
       messages: [
         { role: "user", content: [{ type: "text", text: "什么模型" }] },
@@ -484,7 +492,8 @@ test("distinguishes consecutive identical prompts by request id", () => {
     filePath: "/sessions/session-1.jsonl",
     info: null,
     leafId: "entry-1",
-    tree: [],
+    contextPage: completeContextPage,
+    branchNodes: [],
     context: {
       messages: [{ role: "user", content: [{ type: "text", text: "repeat" }] }],
       entryIds: ["entry-1"],
@@ -630,7 +639,8 @@ test("rejects snapshot and events from a previous session epoch", () => {
     filePath: "/sessions/session-1.jsonl",
     info: null,
     leafId: null,
-    tree: [],
+    contextPage: completeContextPage,
+    branchNodes: [],
     context: {
       messages: [{ role: "user", content: "stale" }],
       entryIds: ["old"],
@@ -665,6 +675,7 @@ test("accepts only the latest branch context request", () => {
     sessionId: "session-1",
     requestId: 1,
     leafId: "leaf-1",
+    page: completeContextPage,
     context: {
       messages: [{ role: "user", content: "old" }],
       entryIds: ["leaf-1"],
@@ -674,6 +685,61 @@ test("accepts only the latest branch context request", () => {
     },
   })
   expect(stale).toBe(second)
+})
+
+test("prepends earlier context pages without duplicating entry ids", () => {
+  const snapshot = SessionSnapshot.make({
+    sessionId: "session-1",
+    filePath: "/sessions/session-1.jsonl",
+    info: null,
+    leafId: "entry-3",
+    contextPage: { beforeEntryId: "entry-2", hasMoreBefore: true },
+    branchNodes: [],
+    context: {
+      messages: [
+        { role: "user", content: "two" },
+        { role: "user", content: "three" },
+      ],
+      entryIds: ["entry-2", "entry-3"],
+      promptRequests: [],
+      thinkingLevel: "high",
+      model: null,
+    },
+    runtime: null,
+  })
+  const loaded = sessionUiReducer(sessionState(), {
+    _tag: "Loaded",
+    sessionId: "session-1",
+    requestId: 1,
+    snapshot,
+  })
+  const requested = sessionUiReducer(loaded, { _tag: "ContextRequested", sessionId: "session-1", requestId: 2 })
+  const prepended = sessionUiReducer(requested, {
+    _tag: "ContextPrepended",
+    sessionId: "session-1",
+    requestId: 2,
+    page: {
+      context: {
+        messages: [
+          { role: "user", content: "one" },
+          { role: "user", content: "two duplicate" },
+        ],
+        entryIds: ["entry-1", "entry-2"],
+        promptRequests: [],
+        thinkingLevel: "high",
+        model: null,
+      },
+      beforeEntryId: null,
+      hasMoreBefore: false,
+    },
+  })
+  expect(prepended.entryIds).toEqual(["entry-1", "entry-2", "entry-3"])
+  expect(projectSessionMessages(prepended).map((message) => ("content" in message ? message.content : null))).toEqual([
+    "one",
+    "two",
+    "three",
+  ])
+  expect(prepended.snapshot?.contextPage).toEqual({ beforeEntryId: null, hasMoreBefore: false })
 })
 
 test("binds a new bash operation after an older run has finished", () => {

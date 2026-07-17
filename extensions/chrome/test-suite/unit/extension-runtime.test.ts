@@ -182,6 +182,7 @@ const authorizedEntry: SessionEntry = {
 const extensionFixture = (mode: ExtensionContext["mode"] = "tui") => {
   const handlers = new Map<string, EventHandler>();
   const messages: Array<unknown> = [];
+  const structuredStatuses: Array<unknown> = [];
   let activeTools = ["read"];
   let chromeCommand: ((args: string, context: ExtensionContext) => Promise<unknown>) | undefined;
   let sessionId = "runtime-session";
@@ -216,6 +217,13 @@ const extensionFixture = (mode: ExtensionContext["mode"] = "tui") => {
     },
     ui: {
       setStatus: () => undefined,
+      ...(mode === "rpc"
+        ? {
+            setStructuredStatus: (_key: string, status: unknown) => {
+              structuredStatuses.push(status);
+            },
+          }
+        : {}),
       notify: () => undefined,
       confirm: () => Promise.resolve(true),
       theme: { fg: (_color: string, text: string) => text },
@@ -226,6 +234,7 @@ const extensionFixture = (mode: ExtensionContext["mode"] = "tui") => {
     pi,
     context,
     messages,
+    structuredStatuses,
     chromeCommand: () => chromeCommand!,
     activeTools: () => activeTools,
     setSession: (nextId: string, nextBranch: ReadonlyArray<SessionEntry>) => {
@@ -249,6 +258,12 @@ it("leaves a locked RPC session out of Chrome run admission", async () => {
   piChrome(fixture.pi);
 
   await handler(fixture.handlers, "session_start")({}, fixture.context);
+  expect(fixture.structuredStatuses.at(-1)).toMatchObject({
+    readiness: "locked",
+    authorization: "locked",
+    connection: "unpaired",
+  });
+  expect(fixture.structuredStatuses.at(-1)).not.toHaveProperty("connectorId");
   await expect(
     handler(fixture.handlers, "before_agent_start")(
       { systemPrompt: "base prompt" },

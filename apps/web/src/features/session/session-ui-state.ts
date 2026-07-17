@@ -1,5 +1,12 @@
 import { ActiveBashExecution, ExtensionUiProjection, RuntimeIdentity, RuntimeSnapshot } from "@/api/contract"
-import type { AgentMessage, RunScopedEvent, SessionScopedEvent, SessionSnapshot, UserMessage } from "@/api/contract"
+import type {
+  AgentMessage,
+  RunScopedEvent,
+  SessionContextPage,
+  SessionScopedEvent,
+  SessionSnapshot,
+  UserMessage,
+} from "@/api/contract"
 
 type ActiveBashExecutionValue = typeof ActiveBashExecution.Type
 type ExtensionUiProjectionValue = typeof ExtensionUiProjection.Type
@@ -95,6 +102,13 @@ export type SessionUiAction =
       readonly requestId: number
       readonly context: SessionSnapshot["context"]
       readonly leafId: string | null
+      readonly page: Pick<SessionContextPage, "beforeEntryId" | "hasMoreBefore">
+    }
+  | {
+      readonly _tag: "ContextPrepended"
+      readonly sessionId: string
+      readonly requestId: number
+      readonly page: SessionContextPage
     }
   | { readonly _tag: "LoadFailed"; readonly sessionId: string; readonly message: string }
   | { readonly _tag: "OperationPending"; readonly sessionId: string | null; readonly kind: OperationKind }
@@ -296,7 +310,9 @@ export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction)
       return {
         ...state,
         snapshot:
-          state.snapshot === null ? null : { ...state.snapshot, context: action.context, leafId: action.leafId },
+          state.snapshot === null
+            ? null
+            : { ...state.snapshot, context: action.context, contextPage: action.page, leafId: action.leafId },
         messages: action.context.messages,
         entryIds: action.context.entryIds,
         pendingPrompt:
@@ -309,6 +325,41 @@ export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction)
                 : { ...state.pendingPrompt, runId: contextReceipt.runId },
         ephemeralMessages: [],
       }
+    case "ContextPrepended": {
+      if (action.sessionId !== state.sessionId || action.requestId !== state.contextRequestId) return state
+      const existingIds = new Set(state.entryIds)
+      const messages: Array<AgentMessage> = []
+      const entryIds: Array<string> = []
+      for (let index = 0; index < action.page.context.entryIds.length; index += 1) {
+        const entryId = action.page.context.entryIds[index]
+        const message = action.page.context.messages[index]
+        if (entryId === undefined || message === undefined || existingIds.has(entryId)) continue
+        entryIds.push(entryId)
+        messages.push(message)
+      }
+      const nextMessages = [...messages, ...state.messages]
+      const nextEntryIds = [...entryIds, ...state.entryIds]
+      return {
+        ...state,
+        snapshot:
+          state.snapshot === null
+            ? null
+            : {
+                ...state.snapshot,
+                context: {
+                  ...action.page.context,
+                  messages: nextMessages,
+                  entryIds: nextEntryIds,
+                },
+                contextPage: {
+                  beforeEntryId: action.page.beforeEntryId,
+                  hasMoreBefore: action.page.hasMoreBefore,
+                },
+              },
+        messages: nextMessages,
+        entryIds: nextEntryIds,
+      }
+    }
     case "OperationPending":
       if (action.sessionId !== state.sessionId) return state
       return {

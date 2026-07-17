@@ -11,7 +11,7 @@ import type {
   ExtensionWidgetItem,
   SessionInfo,
   SessionStats,
-  SessionTreeNode,
+  SessionBranchNode,
   ToolResultMessage,
   WeixinStatusProjection,
 } from "@/api/contract"
@@ -38,6 +38,7 @@ import {
 import { NOTICE_AUTO_DISMISS_MS, type NoticeItem, type NoticeType } from "@/lib/notices"
 import { copyText } from "@/lib/clipboard"
 import { runBrowser } from "@/browser/api-client"
+import { BrowserPlatform } from "@/browser/browser-platform"
 import { CompanionRendererRegistry } from "@/features/companions/renderer-registry"
 
 interface Props {
@@ -50,7 +51,7 @@ interface Props {
   modelsRefreshKey?: number
   chatInputRef?: React.RefObject<ChatInputHandle | null>
   onBranchDataChange?: (
-    tree: SessionTreeNode[],
+    branchNodes: SessionBranchNode[],
     activeLeafId: string | null,
     onLeafChange: (leafId: string | null) => void,
   ) => void
@@ -229,6 +230,8 @@ export function ChatWindow({
 
   const {
     loading,
+    loadingEarlier,
+    hasMoreBefore,
     error,
     messages,
     entryIds,
@@ -275,6 +278,7 @@ export function ChatWindow({
     handleAbort,
     handleFork,
     handleNavigate,
+    loadEarlier,
     handleModelChange,
     handleCompact,
     handleSteer,
@@ -306,15 +310,52 @@ export function ChatWindow({
 
   const sessionBusy = agentRunning || activeBashExecution !== null
   const activeBashOutputLength = activeBashExecution?.output.length
+  const [followingLatest, setFollowingLatestState] = useState(true)
+  const followingLatestRef = useRef(true)
+
+  const setFollowingLatest = useCallback((following: boolean) => {
+    followingLatestRef.current = following
+    setFollowingLatestState(following)
+  }, [])
+
+  const scrollToLatest = useCallback(
+    (behavior: ScrollBehavior) => {
+      const target = messagesEndRef.current
+      if (target === null) return
+      setFollowingLatest(true)
+      runBrowser(BrowserPlatform.pipe(Effect.flatMap((browser) => browser.scrollElementIntoView(target, behavior))), {
+        onSuccess: () => undefined,
+      })
+    },
+    [messagesEndRef, setFollowingLatest],
+  )
 
   useEffect(() => {
     if (!loading && inputFocusEpoch > 0) chatInputRef?.current?.focus()
   }, [chatInputRef, inputFocusEpoch, loading])
 
   useEffect(() => {
-    if (activeBashOutputLength === undefined) return
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [activeBashOutputLength, messagesEndRef])
+    setFollowingLatest(true)
+  }, [session.id, setFollowingLatest])
+
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    const target = messagesEndRef.current
+    if (container === null || target === null) return
+    return runBrowser(
+      BrowserPlatform.pipe(
+        Effect.flatMap((browser) =>
+          browser.watchElementNearViewportEnd(container, target, 48, (nearEnd) => setFollowingLatest(nearEnd)),
+        ),
+      ),
+      { onSuccess: () => undefined },
+    )
+  }, [messages.length, messagesEndRef, scrollContainerRef, session.id, setFollowingLatest])
+
+  useEffect(() => {
+    if (!followingLatestRef.current) return
+    scrollToLatest("auto")
+  }, [activeBashOutputLength, agentPhase, messages, scrollToLatest, streamState.streamingMessage])
 
   // Push session stats up to AppShell for the top bar.
   // Compare scalar fields to avoid loops from new object identity each render.
@@ -624,7 +665,11 @@ export function ChatWindow({
                 />
               </div>
             </div>
-            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pt-4 [scrollbar-width:none]">
+            <div
+              ref={scrollContainerRef}
+              data-testid="chat-scroll-container"
+              className="flex-1 overflow-y-auto pt-4 [scrollbar-width:none]"
+            >
               <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
                 <div style={{ maxWidth: 820, margin: "0 auto" }}>
                   <CompanionRendererRegistry
@@ -641,6 +686,28 @@ export function ChatWindow({
                   />
                   <ExtensionStatusBar statuses={extensionStatuses} />
                   <ExtensionWidgets widgets={aboveEditorWidgets} />
+
+                  {hasMoreBefore && (
+                    <div style={{ display: "flex", justifyContent: "center", padding: "4px 0 12px" }}>
+                      <button
+                        type="button"
+                        disabled={loadingEarlier}
+                        onClick={loadEarlier}
+                        style={{
+                          border: "1px solid var(--border)",
+                          borderRadius: 6,
+                          background: "var(--bg-panel)",
+                          color: "var(--text-muted)",
+                          padding: "5px 10px",
+                          cursor: loadingEarlier ? "default" : "pointer",
+                          opacity: loadingEarlier ? 0.6 : 1,
+                          fontSize: 11,
+                        }}
+                      >
+                        {t(loadingEarlier ? "Loading..." : "Load earlier messages")}
+                      </button>
+                    </div>
+                  )}
 
                   {(() => {
                     const toolResultsMap = new Map<string, ToolResultMessage>()
@@ -904,16 +971,44 @@ export function ChatWindow({
                     </div>
                   )}
 
+                  <div ref={messagesEndRef} />
+
                   {agentRunning && (
                     <div
                       style={{ height: scrollContainerRef.current ? scrollContainerRef.current.clientHeight : "80vh" }}
                     />
                   )}
-
-                  <div ref={messagesEndRef} />
                 </div>
               </div>
             </div>
+            {!followingLatest && (
+              <button
+                type="button"
+                onClick={() => scrollToLatest("smooth")}
+                title={t("Scroll to latest")}
+                style={{
+                  position: "absolute",
+                  right: isMobile ? 16 : CHAT_MINIMAP_WIDTH + 16,
+                  bottom: 14,
+                  zIndex: 45,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  minHeight: 32,
+                  padding: "6px 11px",
+                  border: "1px solid var(--border)",
+                  borderRadius: 999,
+                  background: "var(--bg)",
+                  color: "var(--text)",
+                  boxShadow: "0 6px 18px rgba(0,0,0,0.14)",
+                  cursor: "pointer",
+                  fontSize: 12,
+                }}
+              >
+                <span aria-hidden="true">↓</span>
+                <span>{t("Scroll to latest")}</span>
+              </button>
+            )}
             {isMobile ? null : (
               <ChatMinimap
                 messages={messages}

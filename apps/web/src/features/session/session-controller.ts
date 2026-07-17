@@ -174,12 +174,13 @@ export const sessionController = {
         payload: { targetId },
       }),
     ),
-  context: (sessionId: string, leafId: string | undefined) =>
+  context: (sessionId: string, leafId: string | undefined, beforeEntryId?: string) =>
     withApi((api) =>
       api.sessions.context({
         params: { id: sessionId },
         query: {
           ...(leafId === undefined ? {} : { leafId }),
+          ...(beforeEntryId === undefined ? {} : { beforeEntryId }),
           deferThinking: "1",
           deferMedia: "1",
         },
