@@ -27,7 +27,6 @@ import { encodeJsonTransport } from "../protocol/json-transport.js";
 import type { JsonValue } from "../protocol/json-value.js";
 import { WireCommand as WireCommandSchema } from "../protocol/schema.js";
 import type {
-  ConnectorStatus,
   PublicConnector,
   SessionContext,
   WireCommand,
@@ -75,7 +74,17 @@ type BrokerState =
     }
   | { readonly _tag: "Stopped" };
 
-export type BrokerStatus = ConnectorStatus;
+export type BrokerStatus = {
+  readonly connectorId: string;
+  readonly connected: boolean;
+  readonly queuedCommands: number;
+  readonly pendingCommands: number;
+  readonly lastSeenAt?: number;
+  readonly label?: string;
+  readonly extensionId?: string;
+  readonly extensionDisplayVersion?: string;
+  readonly protocolFingerprint?: string;
+};
 
 export class CommandBroker {
   private constructor(private readonly state: SynchronizedRef.SynchronizedRef<BrokerState>) {}

@@ -8,7 +8,6 @@ import * as Schedule from "effect/Schedule";
 import { createServer } from "node:http";
 import { decodePollResponseJson } from "../../src/protocol/codec.js";
 import type { ProfileConnector } from "../../src/protocol/schema.js";
-import { makeConnectorBindingStore } from "../../src/pi/connector-binding.js";
 import { EXTENSION_PACKAGE_ID } from "../../src/pi/extension-package.js";
 import { NodeBridge } from "../../src/pi/node-bridge.js";
 import { nodeProtocolFingerprint } from "../../src/pi/node-protocol-fingerprint.js";
@@ -44,17 +43,7 @@ const connectorRequest = (
   routeName: "poll" | "result",
   connector: ProfileConnector,
   body = "",
-) =>
-  authenticatedBridgeRequest(
-    baseUrl,
-    "connectorHandshake",
-    routeName,
-    "connectorServerProof",
-    "connectorRequestProof",
-    connector.secret,
-    connector,
-    body,
-  );
+) => authenticatedBridgeRequest(baseUrl, routeName, connector, body);
 
 const waitUntilConnected = (bridge: NodeBridge) =>
   bridge.status.pipe(
@@ -72,8 +61,7 @@ const withBridge = <A, E>(use: (bridge: NodeBridge) => Effect.Effect<A, E>) =>
       const fs = yield* FileSystem.FileSystem;
       const agentDir = yield* fs.makeTempDirectoryScoped({ prefix: "pi-chrome-bridge-" });
       const port = yield* freePort;
-      const store = yield* makeConnectorBindingStore(agentDir);
-      const bridge = yield* NodeBridge.make("127.0.0.1", port, () => "0.16.0", store);
+      const bridge = yield* NodeBridge.make("127.0.0.1", port, () => "0.16.0", agentDir);
       yield* Effect.addFinalizer(() => bridge.stop);
       yield* bridge.start;
       return yield* use(bridge);
@@ -100,10 +88,7 @@ const session = {
 } as const;
 
 it.effect("constructs the bridge synchronously at the Pi extension boundary", () =>
-  Effect.gen(function* () {
-    const store = yield* makeConnectorBindingStore("/tmp/pi-chrome-sync-construction");
-    yield* NodeBridge.make("127.0.0.1", 17318, () => "0.16.0", store);
-  }),
+  NodeBridge.make("127.0.0.1", 17318, () => "0.16.0", "/tmp/pi-chrome-sync-construction"),
 );
 
 it.live("auto-registers the first compatible connector and delivers commands", () =>
@@ -128,7 +113,6 @@ it.live("auto-registers the first compatible connector and delivers commands", (
       expect(accepted.status).toBe(200);
       expect(yield* Fiber.join(sender)).toEqual([]);
       expect(yield* bridge.status).toMatchObject({
-        binding: { connectorId: connector.connectorId },
         connector: { connected: true },
       });
     }),

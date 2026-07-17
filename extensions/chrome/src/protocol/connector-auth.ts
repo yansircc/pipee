@@ -11,7 +11,6 @@ export const CONNECTOR_BODY_SHA256_HEADER = auth.headers.bodySha256;
 export const CONNECTOR_PROOF_HEADER = auth.headers.proof;
 export const CONNECTOR_DISPLAY_VERSION_METADATA_HEADER = auth.metadataHeaders.displayVersion;
 export const CONNECTOR_PROTOCOL_FINGERPRINT_HEADER = auth.metadataHeaders.protocolFingerprint;
-export const PAIRING_ID_HEADER = auth.headers.pairingId;
 
 export const CONNECTOR_REQUEST_HEADERS = [
   "content-type",
@@ -24,7 +23,6 @@ export const CONNECTOR_REQUEST_HEADERS = [
   CONNECTOR_PROOF_HEADER,
   CONNECTOR_DISPLAY_VERSION_METADATA_HEADER,
   CONNECTOR_PROTOCOL_FINGERPRINT_HEADER,
-  PAIRING_ID_HEADER,
 ].join(",");
 
 export const CONNECTOR_STORAGE_KEY = auth.storageKey;

@@ -37,7 +37,7 @@ export const projectChromeStatus = (
       errorMessage: "Chrome bridge is stopped",
     };
   }
-  if (!status.binding) {
+  if (!status.connector) {
     return {
       kind: "pi-chrome/status",
       version: 3,
@@ -47,14 +47,13 @@ export const projectChromeStatus = (
     };
   }
 
-  const connector = status.connector.extensionId === undefined ? status.binding : status.connector;
   const compatibility = classifyChromeConnectorCompatibility(
     status.extensionExpectation,
-    connector,
+    status.connector,
   );
   const projectedConnector = {
-    id: status.binding.connectorId,
-    label: status.binding.label,
+    id: status.connector.connectorId,
+    label: status.connector.label,
     connected: status.connector.connected,
     ...(status.connector.lastSeenAt === undefined
       ? {}

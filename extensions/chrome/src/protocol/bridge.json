@@ -10,9 +10,7 @@
       "ownerServerProof": "pi-chrome/bridge-owner/server-proof/v1",
       "ownerRequestProof": "pi-chrome/bridge-owner/request-proof/v1",
       "connectorServerProof": "pi-chrome/connector/server-proof/v1",
-      "connectorRequestProof": "pi-chrome/connector/request-proof/v1",
-      "pairingServerProof": "pi-chrome/pairing/server-proof/v1",
-      "pairingRequestProof": "pi-chrome/pairing/request-proof/v1"
+      "connectorRequestProof": "pi-chrome/connector/request-proof/v1"
     }
   },
   "headers": {
@@ -37,48 +35,6 @@
         "bodyLimit": "none",
         "responseLimit": "controlBody"
       },
-      "pairingStart": {
-        "method": "POST",
-        "path": "/pairing/start",
-        "bodyLimit": "none",
-        "responseLimit": "controlBody"
-      },
-      "webLeaseAcquire": {
-        "method": "POST",
-        "path": "/web-lease/acquire",
-        "bodyLimit": "controlBody",
-        "responseLimit": "controlBody"
-      },
-      "webLeaseRelease": {
-        "method": "POST",
-        "path": "/web-lease/release",
-        "bodyLimit": "controlBody",
-        "responseLimit": "controlBody"
-      },
-      "webLeaseAssert": {
-        "method": "POST",
-        "path": "/web-lease/assert",
-        "bodyLimit": "controlBody",
-        "responseLimit": "controlBody"
-      },
-      "webRouteDetach": {
-        "method": "POST",
-        "path": "/web-route/detach",
-        "bodyLimit": "controlBody",
-        "responseLimit": "controlBody"
-      },
-      "unpair": {
-        "method": "POST",
-        "path": "/unpair",
-        "bodyLimit": "controlBody",
-        "responseLimit": "controlBody"
-      },
-      "forget": {
-        "method": "POST",
-        "path": "/forget",
-        "bodyLimit": "controlBody",
-        "responseLimit": "controlBody"
-      },
       "command": {
         "method": "POST",
         "path": "/command",
@@ -91,18 +47,6 @@
         "method": "OPTIONS",
         "path": "*",
         "bodyLimit": "none",
-        "responseLimit": "controlBody"
-      },
-      "pairingHandshake": {
-        "method": "GET",
-        "path": "/pairing/handshake",
-        "bodyLimit": "none",
-        "responseLimit": "controlBody"
-      },
-      "pairingConfirm": {
-        "method": "POST",
-        "path": "/pairing/confirm",
-        "bodyLimit": "controlBody",
         "responseLimit": "controlBody"
       }
     },
@@ -137,11 +81,6 @@
     "incomingHeaders": 10000,
     "authenticationChallenge": 5000,
     "authenticationHandshake": 3000
-  },
-  "webRun": {
-    "offerLifetimeMs": 120000,
-    "leaseLifetimeMs": 43200000,
-    "maxPendingOffers": 128
   },
   "transportLimitsBytes": {
     "none": 0,

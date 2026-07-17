@@ -75,7 +75,7 @@ it("keeps every transport deadline positive and the connector beyond the poll wa
   expect(INCOMING_CONNECTION_LIMIT).toBeGreaterThan(0);
   expect(PENDING_CHALLENGE_LIMIT).toBeGreaterThan(0);
   expect(REQUEST_BODY_BYTE_LIMIT).toBeGreaterThan(SCREENSHOT_PAYLOAD_BYTE_LIMIT);
-  expect(requestBodyLimitForRoute("pairingConfirm")).toBeLessThan(REQUEST_BODY_BYTE_LIMIT);
+  expect(requestBodyLimitForRoute("connectorHandshake")).toBeLessThan(REQUEST_BODY_BYTE_LIMIT);
   expect(responseBodyLimitForRoute("ownerHandshake")).toBeLessThan(
     responseBodyLimitForRoute("command"),
   );

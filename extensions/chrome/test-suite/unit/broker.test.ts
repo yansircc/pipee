@@ -540,7 +540,7 @@ it.effect("drop marks a delivered command outcome unknown and stops current and 
   }),
 );
 
-it.effect("makes broker stop terminal even when a binding republishes afterward", () =>
+it.effect("makes broker stop terminal even when a connector republishes afterward", () =>
   Effect.gen(function* () {
     const broker = yield* CommandBroker.make;
     yield* broker.register(primary.connectorId);

@@ -200,7 +200,7 @@ it.effect("changes the fingerprint when any authentication message leaf changes"
     expect(baseline).toBe(yield* protocolFingerprint);
 
     const paths = leafPaths(contract.authenticationMessages);
-    expect(paths.length).toBe(6);
+    expect(paths.length).toBe(4);
     for (const path of paths) {
       const mutated = {
         ...contract,

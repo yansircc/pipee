@@ -4,8 +4,6 @@ import {
   connectorRequestProofMessage,
   connectorServerProofMessage,
   type BridgeRequestChallenge,
-  type ConnectorRequestProofDomain,
-  type ConnectorServerProofDomain,
 } from "../../src/protocol/bridge-authentication.js";
 import { BRIDGE_ROUTES, type BridgeRouteName } from "../../src/protocol/bridge-contract.js";
 import {
@@ -18,7 +16,6 @@ import {
   CONNECTOR_PROOF_HEADER,
   CONNECTOR_PROTOCOL_FINGERPRINT_HEADER,
   CONNECTOR_REQUEST_NONCE_HEADER,
-  PAIRING_ID_HEADER,
 } from "../../src/protocol/connector-auth.js";
 import { decodeBridgeAuthenticationHandshakeJson } from "../../src/protocol/codec.js";
 import type { ProfileConnector } from "../../src/protocol/schema.js";
@@ -50,26 +47,18 @@ const httpRequest = (url: string, init?: RequestInit) =>
     catch: (cause) => new BridgeAuthFixtureFailure({ message: `request failed: ${url}`, cause }),
   });
 
-const issueBridgeChallenge = (
-  baseUrl: string,
-  handshakeRoute: "connectorHandshake" | "pairingHandshake",
-  serverDomain: ConnectorServerProofDomain,
-  secret: string,
-  connector: ProfileConnector,
-  pairingId?: string,
-) =>
+const issueBridgeChallenge = (baseUrl: string, connector: ProfileConnector) =>
   Effect.gen(function* () {
     const clientNonce = freshAuthenticationToken();
-    const route = BRIDGE_ROUTES[handshakeRoute];
+    const route = BRIDGE_ROUTES.connectorHandshake;
     const response = yield* httpRequest(`${baseUrl}${route.path}`, {
       method: route.method,
       headers: {
         ...extensionIdentityHeaders(connector),
         [CONNECTOR_CLIENT_NONCE_HEADER]: clientNonce,
-        ...(handshakeRoute === "connectorHandshake" ? { "content-type": "application/json" } : {}),
-        ...(pairingId ? { [PAIRING_ID_HEADER]: pairingId } : {}),
+        "content-type": "application/json",
       },
-      ...(handshakeRoute === "connectorHandshake" ? { body: JSON.stringify(connector) } : {}),
+      body: JSON.stringify(connector),
     });
     if (response.status !== 200) {
       return yield* new BridgeAuthFixtureFailure({
@@ -82,14 +71,13 @@ const issueBridgeChallenge = (
       requestNonce: handshake.requestNonce,
     } satisfies BridgeRequestChallenge;
     const message = connectorServerProofMessage(
-      serverDomain,
+      "connectorServerProof",
       connector,
       clientNonce,
       challenge,
       handshake.protocolFingerprint,
-      pairingId,
     );
-    if (!hasValidNodeHmacProof(secret, message, handshake.proof)) {
+    if (!hasValidNodeHmacProof(connector.secret, message, handshake.proof)) {
       return yield* new BridgeAuthFixtureFailure({ message: "bridge handshake proof is invalid" });
     }
     return { challenge, handshake } as const;
@@ -97,12 +85,9 @@ const issueBridgeChallenge = (
 
 const bridgeRequestProofHeaders = (
   routeName: BridgeRouteName,
-  requestDomain: ConnectorRequestProofDomain,
-  secret: string,
   connector: ProfileConnector,
   challenge: BridgeRequestChallenge,
   body: string,
-  pairingId?: string,
 ): Record<string, string> => {
   const route = BRIDGE_ROUTES[routeName];
   const bodyHash = hashBridgeRequestBody(body);
@@ -112,74 +97,34 @@ const bridgeRequestProofHeaders = (
     [CONNECTOR_REQUEST_NONCE_HEADER]: challenge.requestNonce,
     [CONNECTOR_BODY_SHA256_HEADER]: bodyHash,
     [CONNECTOR_PROOF_HEADER]: nodeHmacProof(
-      secret,
+      connector.secret,
       connectorRequestProofMessage(
-        requestDomain,
+        "connectorRequestProof",
         connector,
         challenge,
         route.method,
         route.path,
         bodyHash,
-        pairingId,
       ),
     ),
-    ...(pairingId ? { [PAIRING_ID_HEADER]: pairingId } : {}),
   };
 };
 
 export const authenticatedBridgeRequest = (
   baseUrl: string,
-  handshakeRoute: "connectorHandshake" | "pairingHandshake",
-  routeName: "poll" | "result" | "pairingConfirm",
-  serverDomain: ConnectorServerProofDomain,
-  requestDomain: ConnectorRequestProofDomain,
-  secret: string,
+  routeName: "poll" | "result",
   connector: ProfileConnector,
   body: string = "",
-  pairingId?: string,
 ) =>
   Effect.gen(function* () {
-    const { challenge } = yield* issueBridgeChallenge(
-      baseUrl,
-      handshakeRoute,
-      serverDomain,
-      secret,
-      connector,
-      pairingId,
-    );
+    const { challenge } = yield* issueBridgeChallenge(baseUrl, connector);
     const route = BRIDGE_ROUTES[routeName];
     return yield* httpRequest(`${baseUrl}${route.path}`, {
       method: route.method,
       headers: {
-        ...bridgeRequestProofHeaders(
-          routeName,
-          requestDomain,
-          secret,
-          connector,
-          challenge,
-          body,
-          pairingId,
-        ),
+        ...bridgeRequestProofHeaders(routeName, connector, challenge, body),
         ...(body ? { "content-type": "application/json" } : {}),
       },
       ...(body ? { body } : {}),
     });
   });
-
-export const pairingRequest = (
-  baseUrl: string,
-  capability: string,
-  connector: ProfileConnector,
-  pairingId?: string,
-) =>
-  authenticatedBridgeRequest(
-    baseUrl,
-    "pairingHandshake",
-    "pairingConfirm",
-    "pairingServerProof",
-    "pairingRequestProof",
-    capability,
-    connector,
-    JSON.stringify({ connector }),
-    pairingId,
-  );

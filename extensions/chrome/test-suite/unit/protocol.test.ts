@@ -6,8 +6,6 @@ import {
   CommandOutcomeUnknown,
   CommandRejected,
   CommandTimeout,
-  ConnectorAlreadyBound,
-  ConnectorBindingMismatch,
   ConnectorNotBound,
   ConnectorOffline,
   ProtocolFailure,
@@ -368,23 +366,25 @@ it("emits JSON Schema directly from the protocol owner", () => {
   }
 });
 
-it.effect("requires the expected connector on owner-forwarded commands", () =>
+it.effect("forwards session ownership without a connector binding", () =>
   Effect.gen(function* () {
-    const connectorId = "11111111-1111-4111-8111-111111111111";
     const valid = yield* decodeForwardRequestJson(
       JSON.stringify({
-        connector: { source: "terminal", expectedConnectorId: connectorId },
         domain: "tab",
         call: { op: "list" },
         session: { key: "session", groupTitle: "Session", foreground: false },
         timeoutMs: 1_000,
       }),
     );
-    expect(valid.connector).toEqual({ source: "terminal", expectedConnectorId: connectorId });
+    expect(valid.session.key).toBe("session");
 
-    const missing = yield* Effect.exit(
+    const unexpectedBinding = yield* Effect.exit(
       decodeForwardRequestJson(
         JSON.stringify({
+          connector: {
+            source: "terminal",
+            expectedConnectorId: "11111111-1111-4111-8111-111111111111",
+          },
           domain: "tab",
           call: { op: "list" },
           session: { key: "session", groupTitle: "Session", foreground: false },
@@ -392,18 +392,16 @@ it.effect("requires the expected connector on owner-forwarded commands", () =>
         }),
       ),
     );
-    expect(missing._tag).toBe("Failure");
+    expect(unexpectedBinding._tag).toBe("Failure");
 
     for (const impossible of [
       {
-        expectedConnectorId: connectorId,
         domain: "page",
         call: { op: "list" },
         session: { key: "session", groupTitle: "Session", foreground: false },
         timeoutMs: 1_000,
       },
       {
-        expectedConnectorId: connectorId,
         domain: "tab",
         call: { operation: { kind: "snapshot" } },
         session: { key: "session", groupTitle: "Session", foreground: false },
@@ -500,15 +498,6 @@ it("round-trips every bridge failure tag through the owner wire protocol", () =>
     new ConnectorOffline({
       connectorId: "11111111-1111-4111-8111-111111111111",
       message: "offline",
-    }),
-    new ConnectorBindingMismatch({
-      expectedConnectorId: "22222222-2222-4222-8222-222222222222",
-      actualConnectorId: "11111111-1111-4111-8111-111111111111",
-      message: "mismatch",
-    }),
-    new ConnectorAlreadyBound({
-      actualConnectorId: "11111111-1111-4111-8111-111111111111",
-      message: "expected no binding",
     }),
     new CommandTimeout({ timeoutMs: 500, message: "timeout" }),
     new CommandOutcomeUnknown({ message: "unknown", cause: { message: "reset" } }),
