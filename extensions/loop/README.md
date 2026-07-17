@@ -75,13 +75,7 @@ dependencies, and loads it through Pi's real extension loader.
 
 ## Releases
 
-Every push to `main` publishes the next patch version after verification. Add one commit trailer to
-select a larger SemVer increment:
-
-```text
-Release-Bump: minor
-Release-Bump: major
-```
-
-CI owns the version commit and tag. Without a trailer, `0.4.1` becomes `0.4.2`; `minor` produces
-`0.5.0`, and `major` produces `1.0.0`.
+A Loop release is declared by a tracked JSON changeset under `release/changes/`. The entry names
+`@yansircc/pi-loop` and a `patch`, `minor`, or `major` bump. A push without a Loop changeset does not
+change or publish its version. CI owns the version commit, exact archive, package tag, and registry
+integrity proof.

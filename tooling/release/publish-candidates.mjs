@@ -7,23 +7,27 @@ import { publishCandidateSet } from "./publication-orchestrator.mjs";
 import { classifyRegistryLookup } from "./registry-state.mjs";
 
 const candidate = JSON.parse(readFileSync(resolve(root, "release/candidate.json"), "utf8"));
-assert.equal(candidate.schemaVersion, 3);
+assert.equal(candidate.schemaVersion, 4);
 assert.equal(candidate.releasable, true, "refusing to publish a development candidate");
 
 const registryIntegrity = (artifact) => {
-  const result = spawnSync("npm", ["view", `${artifact.name}@${artifact.version}`, "dist.integrity", "--json"], {
-    cwd: root,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const result = spawnSync(
+    "npm",
+    ["view", `${artifact.name}@${artifact.version}`, "dist.integrity", "--json"],
+    {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   return classifyRegistryLookup(result);
 };
 
-const artifacts = suiteConfig().packages.map((entry) => {
+const artifacts = suiteConfig().packages.flatMap((entry) => {
   const artifact = candidate.artifacts[entry.id];
-  assert.ok(artifact, `candidate is missing ${entry.id}`);
-  return artifact;
+  return artifact ? [artifact] : [];
 });
+assert.ok(artifacts.length > 0, "candidate has no packages to publish");
 
 publishCandidateSet({
   artifacts,
@@ -37,4 +41,4 @@ publishCandidateSet({
       "--provenance",
     ]),
 });
-process.stdout.write("Published or exactly reused all Suite archives.\n");
+process.stdout.write("Published or exactly reused every selected archive.\n");

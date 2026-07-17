@@ -1,12 +1,13 @@
 # Suite release
 
-`main` is the only release source. `.github/workflows/release.yml` maps one source SHA to one Suite version and four immutable npm archives. The Chrome extension embedded in `@yansircc/pi-chrome` has that same version and source SHA.
+`main` is the only release source. `.github/workflows/release.yml` maps one source SHA to the explicit package release set declared by JSON changesets under `release/changes/`. Each selected package receives its own next version and one immutable npm archive; unselected packages keep their versions and are not published. The Chrome extension embedded in `@yansircc/pi-chrome` is part of that package's release unit and has its exact version and source SHA.
 
 ```text
-source SHA
-→ Linux verifies source and packs four archives once
+source SHA + tracked changesets
+→ selected package versions
+→ Linux verifies source and packs selected archives once
 → macOS and Windows download and consume those exact archives
-→ release commit + suite-v<version> tag
+→ release commit + source tag + per-package version tags
 → tag-owned durable candidate asset, created before any npm publication
 → npm Trusted Publishing through GitHub OIDC
 → positive registry integrity equality
@@ -22,9 +23,19 @@ Workflow:     release.yml
 Environment:  none
 ```
 
-Do not change package versions, create release tags, publish archives, or add npm credentials manually. The workflow owns versions and publication. An ordinary source commit requests `patch`; exactly one `Release-Bump: minor` or `Release-Bump: major` trailer overrides it.
+Do not change package versions, create release tags, publish archives, or add npm credentials manually. The workflow owns versions and publication. A source commit publishes nothing unless it includes a changeset. Each changeset contains one or more `{ "package", "bump" }` entries, where `bump` is `patch`, `minor`, or `major`; repeated entries for one package collapse to the largest requested bump.
 
-The first Linux build is the only writer of candidate bytes. The workflow stores `candidate.json` and all four archives as one release asset named by the source SHA before calling `npm publish`. Any same-source rerun first restores a prior attempt artifact, even when the release record does not exist yet; after the tag exists it prefers the durable release asset. It fails closed if stored bytes differ and never rebuilds or repacks a witnessed candidate. The prior attempt artifact also closes the failure window between pushing the tag and creating its release asset. Per-attempt Actions artifacts otherwise only transport the durable candidate between jobs.
+```json
+{
+  "schemaVersion": 1,
+  "changes": [
+    { "package": "@yansircc/pi-web", "bump": "minor" },
+    { "package": "@yansircc/pi-chrome", "bump": "patch" }
+  ]
+}
+```
+
+The first Linux build is the only writer of candidate bytes. The workflow stores `candidate.json` and every selected archive as one release asset named by the source SHA before calling `npm publish`. Any same-source rerun first restores a prior attempt artifact, even when the release record does not exist yet; after the source tag exists it prefers the durable release asset. It fails closed if stored bytes differ and never rebuilds or repacks a witnessed candidate. The prior attempt artifact also closes the failure window between pushing the tags and creating the release asset. Per-attempt Actions artifacts otherwise only transport the durable candidate between jobs.
 
 Main releases use GitHub Actions' maximal concurrency queue and are isolated from pull-request groups, so pending runs are not silently replaced. The release commit is still an atomic child of its source and must advance `main` directly. Therefore, do not push another main source until the preceding release finishes. Preparation rejects a source that is no longer `origin/main` before building any candidate. If accepting overlapping main pushes while publishing every source becomes a requirement, replace this boundary with a serialized release-ledger worker; retries against a moving branch are not valid.
 
@@ -41,4 +52,4 @@ git diff --check
 
 `pnpm push:release` adds no release behavior: it requires `main`, runs `release:preflight`, proves HEAD and the worktree are unchanged, and pushes that verified commit.
 
-Release evidence must include the source SHA, release commit, tag, workflow run, four archive integrities, Chrome extension version, public registry equality, and successful npm/pnpm public consumer installs.
+Release evidence must include the source SHA, release commit, source tag, per-package tags, workflow run, selected archive integrities, Chrome extension version when selected, public registry equality, and successful npm/pnpm public consumer installs.

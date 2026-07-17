@@ -9,7 +9,10 @@ run("node", ["tooling/release/verify-candidates.mjs"]);
 const candidate = JSON.parse(readFileSync(resolve(root, "release/candidate.json"), "utf8"));
 assert.equal(candidate.releasable, true, "Chrome candidate E2E requires a clean exact candidate");
 const artifact = candidate.artifacts.chrome;
-assert.ok(artifact, "candidate is missing pi-chrome");
+if (!artifact) {
+  process.stdout.write("Chrome is not in this release set; exact-candidate smoke skipped.\n");
+  process.exit(0);
+}
 const temporary = mkdtempSync(join(tmpdir(), "pi-suite-chrome-candidate-"));
 try {
   await extract({

@@ -41,18 +41,55 @@ export const verifyStoredCandidate = (candidateRoot, expectedSource) => {
   const manifestPath = resolve(candidateRoot, "candidate.json");
   assert.equal(existsSync(manifestPath), true, "stored candidate manifest is missing");
   const candidate = JSON.parse(readFileSync(manifestPath, "utf8"));
-  assert.equal(candidate.schemaVersion, 3, "stored candidate schema is unsupported");
+  assert.equal(candidate.schemaVersion, 4, "stored candidate schema is unsupported");
   assert.equal(candidate.sourceSha, expectedSource, "stored candidate belongs to another source");
   assert.equal(candidate.releasable, true, "stored candidate is not releasable");
-  assert.ok(candidate.projection, "stored candidate has no Suite version projection");
+  assert.equal(
+    candidate.projection?.kind,
+    "package-versions",
+    "stored candidate has no package projection",
+  );
+  assert.equal(
+    candidate.projection.releaseTag,
+    `release-${expectedSource.slice(0, 12)}`,
+    "stored candidate release tag drifted",
+  );
 
-  const expectedIds = suiteConfig().packages.map(({ id }) => id).sort();
-  assert.deepEqual(Object.keys(candidate.artifacts).sort(), expectedIds, "stored candidate package set drifted");
-  for (const entry of suiteConfig().packages) {
+  const expectedIds = candidate.projection.packages.map(({ id }) => id).sort();
+  assert.deepEqual(
+    Object.keys(candidate.artifacts).sort(),
+    expectedIds,
+    "stored candidate package set drifted",
+  );
+  const expectedFiles = [
+    ...candidate.projection.packages.map(({ id }) => {
+      const entry = suiteConfig().packages.find((candidateEntry) => candidateEntry.id === id);
+      assert.ok(entry, `stored candidate names unknown package ${id}`);
+      return `${entry.path}/package.json`;
+    }),
+    ...candidate.projection.changeFiles,
+  ].sort();
+  assert.deepEqual(
+    [...candidate.projection.files].sort(),
+    expectedFiles,
+    "stored candidate release files drifted",
+  );
+  for (const entry of suiteConfig().packages.filter(({ id }) => expectedIds.includes(id))) {
     const artifact = candidate.artifacts[entry.id];
     assert.equal(artifact.name, entry.name, `${entry.id} package name drifted`);
-    assert.equal(artifact.version, candidate.projection.version, `${entry.id} version drifted`);
-    assert.equal(basename(artifact.archive), artifact.archive, `${entry.id} archive name is not flat`);
+    const projected = candidate.projection.packages.find(({ id }) => id === entry.id);
+    assert.equal(artifact.version, projected.toVersion, `${entry.id} version drifted`);
+    assert.equal(projected.name, entry.name, `${entry.id} projected name drifted`);
+    assert.equal(
+      projected.tag,
+      `${entry.name.split("/").at(-1)}-v${artifact.version}`,
+      `${entry.id} package tag drifted`,
+    );
+    assert.equal(
+      basename(artifact.archive),
+      artifact.archive,
+      `${entry.id} archive name is not flat`,
+    );
     const archive = resolve(candidateRoot, "candidates", artifact.archive);
     assert.equal(existsSync(archive), true, `${entry.id} archive is missing`);
     assert.equal(

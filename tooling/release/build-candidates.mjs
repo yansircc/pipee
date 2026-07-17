@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { root, run, sha512Integrity, suiteConfig } from "./lib.mjs";
+import { readReleasePlan } from "./release-plan.mjs";
+import { bumpVersion } from "./version.mjs";
 
 const development = process.argv.includes("--development");
 const preparedSourceIndex = process.argv.indexOf("--prepared-source");
@@ -27,17 +29,16 @@ const dirtyFiles = run("git", ["status", "--porcelain"], { capture: true })
   .filter(Boolean)
   .map((line) => line.slice(3))
   .sort();
-const releaseFiles = [
-  "package.json",
-  ...suiteConfig().packages.map(({ path }) => `${path}/package.json`),
-].sort();
+const plan = readReleasePlan();
+const selectedEntries = preparedSource ? plan.packages : suiteConfig().packages;
+const changedManifestFiles = selectedEntries.map(({ path }) => `${path}/package.json`).sort();
 if (preparedSource) {
   assert.match(preparedSource, /^[0-9a-f]{40}$/, "prepared source must be a full commit SHA");
   assert.equal(headSha, preparedSource, "prepared candidate must remain on its source commit");
   assert.deepEqual(
     dirtyFiles,
-    releaseFiles,
-    "prepared candidate may change only Suite version manifests",
+    changedManifestFiles,
+    "prepared candidate may change only selected package version manifests",
   );
 } else if ((!headSha || dirtyFiles.length > 0) && !development) {
   throw new Error("release candidates require a clean committed worktree");
@@ -48,7 +49,7 @@ rmSync(candidateDirectory, { recursive: true, force: true });
 mkdirSync(candidateDirectory, { recursive: true });
 
 const artifacts = {};
-for (const entry of suiteConfig().packages) {
+for (const entry of selectedEntries) {
   const packageDirectory = resolve(root, entry.path);
   if (entry.prepareScript) run("pnpm", ["run", entry.prepareScript], { cwd: packageDirectory });
   const before = new Set(readdirSync(candidateDirectory));
@@ -77,30 +78,45 @@ for (const entry of suiteConfig().packages) {
   };
 }
 
-const versions = Object.values(artifacts).map(({ version }) => version);
-assert.ok(versions.length > 0);
-assert.ok(
-  versions.every((version) => version === versions[0]),
-  "candidate archives must share one Suite version",
-);
+assert.ok(Object.keys(artifacts).length > 0, "candidate requires at least one selected package");
+
+const projection = preparedSource
+  ? {
+      kind: "package-versions",
+      releaseTag: `release-${preparedSource.slice(0, 12)}`,
+      changeFiles: plan.files,
+      files: [...changedManifestFiles, ...plan.files].sort(),
+      packages: selectedEntries.map((entry) => {
+        const path = `${entry.path}/package.json`;
+        const fromVersion = JSON.parse(
+          run("git", ["show", `${preparedSource}:${path}`], { capture: true }),
+        ).version;
+        const toVersion = artifacts[entry.id].version;
+        assert.equal(
+          toVersion,
+          bumpVersion(fromVersion, entry.bump),
+          `${entry.id} candidate version does not match its requested bump`,
+        );
+        return {
+          id: entry.id,
+          name: entry.name,
+          bump: entry.bump,
+          fromVersion,
+          toVersion,
+          tag: `${entry.name.split("/").at(-1)}-v${toVersion}`,
+        };
+      }),
+    }
+  : undefined;
 
 writeFileSync(
   candidateManifestPath,
   `${JSON.stringify(
     {
-      schemaVersion: 3,
+      schemaVersion: 4,
       sourceSha,
-      releasable:
-        sourceSha !== null &&
-        (preparedSource !== null || dirtyFiles.length === 0),
-      projection:
-        preparedSource
-          ? {
-              kind: "suite-version",
-              files: releaseFiles,
-              version: versions[0],
-            }
-          : undefined,
+      releasable: sourceSha !== null && (preparedSource !== null || dirtyFiles.length === 0),
+      projection,
       artifacts,
     },
     null,

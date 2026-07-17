@@ -17,13 +17,15 @@ const makeCandidate = (directory) => {
   const archives = join(directory, "candidates");
   mkdirSync(archives, { recursive: true });
   const artifacts = {};
-  for (const entry of suiteConfig().packages) {
-    const archive = `${entry.id}-0.6.0.tgz`;
+  const selected = suiteConfig().packages.filter(({ id }) => id === "web" || id === "chrome");
+  for (const [index, entry] of selected.entries()) {
+    const version = index === 0 ? "0.2.0" : "0.1.7";
+    const archive = `${entry.id}-${version}.tgz`;
     const bytes = Buffer.from(`first witnessed bytes for ${entry.id}`);
     writeFileSync(join(archives, archive), bytes);
     artifacts[entry.id] = {
       name: entry.name,
-      version: "0.6.0",
+      version,
       archive,
       integrity: sha512Integrity(bytes),
     };
@@ -31,10 +33,23 @@ const makeCandidate = (directory) => {
   writeFileSync(
     join(directory, "candidate.json"),
     `${JSON.stringify({
-      schemaVersion: 3,
+      schemaVersion: 4,
       sourceSha: source,
       releasable: true,
-      projection: { kind: "suite-version", files: [], version: "0.6.0" },
+      projection: {
+        kind: "package-versions",
+        releaseTag: `release-${source.slice(0, 12)}`,
+        files: selected.map(({ path }) => `${path}/package.json`).sort(),
+        changeFiles: [],
+        packages: selected.map((entry, index) => ({
+          id: entry.id,
+          name: entry.name,
+          bump: index === 0 ? "minor" : "patch",
+          fromVersion: index === 0 ? "0.1.8" : "0.1.6",
+          toVersion: index === 0 ? "0.2.0" : "0.1.7",
+          tag: `${entry.name.split("/").at(-1)}-v${index === 0 ? "0.2.0" : "0.1.7"}`,
+        })),
+      },
       artifacts,
     })}\n`,
   );

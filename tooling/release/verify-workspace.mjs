@@ -6,7 +6,7 @@ import { root, readJson, suiteConfig } from "./lib.mjs";
 const config = suiteConfig();
 const rootManifest = readJson("package.json");
 assert.equal(config.schemaVersion, 1);
-assert.match(rootManifest.version, /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/);
+assert.equal(rootManifest.version, "0.0.0", "private workspace root must not own a public version");
 assert.equal(
   rootManifest.devDependencies?.typescript,
   "catalog:",
@@ -30,10 +30,10 @@ for (const entry of config.packages) {
   const directory = resolve(root, entry.path);
   const manifest = JSON.parse(readFileSync(join(directory, "package.json"), "utf8"));
   assert.equal(manifest.name, entry.name, `${entry.id} package name drifted`);
-  assert.equal(
+  assert.match(
     manifest.version,
-    rootManifest.version,
-    `${entry.id} diverges from the Suite version`,
+    /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/,
+    `${entry.id} version is not strict SemVer`,
   );
   assert.equal(names.has(entry.name), false, `duplicate package ${entry.name}`);
   names.add(entry.name);
