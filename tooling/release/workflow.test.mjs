@@ -26,6 +26,19 @@ const candidateBuilder = readFileSync(
 );
 const publisher = readFileSync(resolve(root, "tooling/release/publish-candidates.mjs"), "utf8");
 
+it("runs every JavaScript action on the verified Node 24 major", () => {
+  const actions = [
+    ...new Set([...workflow.matchAll(/uses:\s+([^\s#]+)/g)].map((match) => match[1])),
+  ].sort();
+  assert.deepEqual(actions, [
+    "actions/checkout@v5",
+    "actions/download-artifact@v7",
+    "actions/setup-node@v5",
+    "actions/upload-artifact@v6",
+    "pnpm/action-setup@v5",
+  ]);
+});
+
 it("publishes only the explicit independent package release set", () => {
   assert.match(workflow, /source_release: \$\{\{ steps\.commit\.outputs\.source_release \}\}/);
   assert.match(
