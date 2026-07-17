@@ -5,8 +5,6 @@ import {
   connectorRequestProofMessage,
   connectorServerProofMessage,
   type BridgeRequestChallenge,
-  type ConnectorRequestProofDomain,
-  type ConnectorServerProofDomain,
 } from "../protocol/bridge-authentication.js";
 import {
   AUTHENTICATION_HANDSHAKE_DEADLINE_MS,
@@ -26,7 +24,6 @@ import {
   CONNECTOR_PROOF_HEADER,
   CONNECTOR_PROTOCOL_FINGERPRINT_HEADER,
   CONNECTOR_REQUEST_NONCE_HEADER,
-  PAIRING_ID_HEADER,
 } from "../protocol/connector-auth.js";
 import type { ProfileConnector } from "../protocol/schema.js";
 import {
@@ -74,8 +71,6 @@ const requestHeaders = (
 type ConnectorRequestInit = Omit<RequestInit, "method" | "body"> & {
   readonly body?: string;
 };
-
-type AuthenticatedBrowserRouteName = ConnectorAuthenticatedRouteName | "pairingConfirm";
 
 const responseTooLarge = (limitBytes: number) =>
   new ConnectorHttpFailure({
@@ -229,32 +224,21 @@ const authenticationFailure = (cause: unknown) =>
       });
 
 const authenticatedRequest = (
-  handshakeRoute: "connectorHandshake" | "pairingHandshake",
-  routeName: AuthenticatedBrowserRouteName,
-  serverDomain: ConnectorServerProofDomain,
-  requestDomain: ConnectorRequestProofDomain,
-  secret: string,
+  routeName: ConnectorAuthenticatedRouteName,
   connector: ProfileConnector,
   init: ConnectorRequestInit,
   timeoutMs: number,
-  requireProtocolMatch: boolean,
-  pairingId?: string,
 ): Effect.Effect<ConnectorHttpResponse, ConnectorHttpFailure> =>
   Effect.gen(function* () {
     const clientNonce = freshBridgeClientNonce();
     const handshakeResponse = yield* bridgeRequest(
-      handshakeRoute,
-      handshakeRoute === "connectorHandshake"
-        ? {
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(connector),
-          }
-        : {},
-      connector,
+      "connectorHandshake",
       {
-        [CONNECTOR_CLIENT_NONCE_HEADER]: clientNonce,
-        ...(pairingId ? { [PAIRING_ID_HEADER]: pairingId } : {}),
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(connector),
       },
+      connector,
+      { [CONNECTOR_CLIENT_NONCE_HEADER]: clientNonce },
       AUTHENTICATION_HANDSHAKE_DEADLINE_MS,
     );
     const handshakeText = yield* requireConnectorSuccess(handshakeResponse);
@@ -264,38 +248,30 @@ const authenticatedRequest = (
       requestNonce: handshake.requestNonce,
     } satisfies BridgeRequestChallenge;
     const serverMessage = connectorServerProofMessage(
-      serverDomain,
+      "connectorServerProof",
       connector,
       clientNonce,
       challenge,
       handshake.protocolFingerprint,
-      pairingId,
     );
-    if (!(yield* hasValidBrowserHmacProof(secret, serverMessage, handshake.proof))) {
+    if (!(yield* hasValidBrowserHmacProof(connector.secret, serverMessage, handshake.proof))) {
       return yield* new ConnectorHttpFailure({
         code: "bridge-listener-authentication",
         message: "Local bridge listener did not prove connector credential possession",
-      });
-    }
-    if (requireProtocolMatch && handshake.protocolFingerprint !== connector.protocolFingerprint) {
-      return yield* new ConnectorHttpFailure({
-        code: "bridge-protocol-mismatch",
-        message: `Bridge protocol ${handshake.protocolFingerprint} does not match ${connector.protocolFingerprint}`,
       });
     }
     const body = init.body ?? "";
     const bodyHash = yield* hashBrowserRequestBody(body);
     const route = BRIDGE_ROUTES[routeName];
     const proof = yield* browserHmacProof(
-      secret,
+      connector.secret,
       connectorRequestProofMessage(
-        requestDomain,
+        "connectorRequestProof",
         connector,
         challenge,
         route.method,
         route.path,
         bodyHash,
-        pairingId,
       ),
     );
     return yield* bridgeRequest(
@@ -307,7 +283,6 @@ const authenticatedRequest = (
         [CONNECTOR_REQUEST_NONCE_HEADER]: challenge.requestNonce,
         [CONNECTOR_BODY_SHA256_HEADER]: bodyHash,
         [CONNECTOR_PROOF_HEADER]: proof,
-        ...(pairingId ? { [PAIRING_ID_HEADER]: pairingId } : {}),
       },
       timeoutMs,
     );
@@ -331,18 +306,7 @@ export const connectorRequest = (
   connector: ProfileConnector,
   timeoutMs: number = CONNECTOR_REQUEST_DEADLINE_MS,
 ): Effect.Effect<ConnectorHttpResponse, ConnectorHttpFailure> =>
-  authenticatedRequest(
-    "connectorHandshake",
-    routeName,
-    "connectorServerProof",
-    "connectorRequestProof",
-    connector.secret,
-    connector,
-    init,
-    timeoutMs,
-    false,
-    undefined,
-  );
+  authenticatedRequest(routeName, connector, init, timeoutMs);
 
 export const requireConnectorSuccess = (
   response: ConnectorHttpResponse,

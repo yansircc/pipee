@@ -6,11 +6,8 @@ import {
   CommandOutcomeUnknown,
   CommandRejected,
   CommandTimeout,
-  ConnectorAlreadyBound,
-  ConnectorBindingMismatch,
   ConnectorNotBound,
   ConnectorOffline,
-  WebConnectorLeaseUnavailable,
   ProtocolFailure,
   messageOf,
   type BridgeFailure,
@@ -18,23 +15,15 @@ import {
 import {
   BridgeAuthenticationHandshake,
   BridgeStatusResponse,
-  ForgetRequest,
-  BindingMutationResponse,
   ForwardRequest,
   ForwardResponse,
   InputCall,
   PageCall,
-  PairingConfirmRequest,
-  PairingState,
   PollResponse,
   SystemCall,
-  SessionWebRouteDetachRequest,
   TabCall,
-  UnpairRequest,
   WireDomainRequest,
   WireResult,
-  WebRunLeaseAcquireRequest,
-  WebRunLeaseReleaseRequest,
   type SessionContext,
   type WireBridgeFailure,
   type WireCommand,
@@ -55,37 +44,17 @@ const invalidToolCall = (domain: "tab" | "page" | "input") => (cause: unknown) =
 };
 
 const decodeJson = <S extends Schema.Constraint>(label: string, schema: S, text: string) =>
-  Schema.decodeUnknownEffect(Schema.fromJsonString(schema))(text).pipe(
-    Effect.mapError(failDecode(label)),
-  );
+  Schema.decodeUnknownEffect(Schema.fromJsonString(schema), { onExcessProperty: "error" })(
+    text,
+  ).pipe(Effect.mapError(failDecode(label)));
 
 export const decodeWireResultJson = (text: string) => decodeJson("wire result", WireResult, text);
 export const decodeForwardRequestJson = (text: string) =>
   decodeJson("forward request", ForwardRequest, text);
 export const decodeForwardResponseJson = (text: string) =>
   decodeJson("forward response", ForwardResponse, text);
-export const decodeUnpairRequestJson = (text: string) =>
-  decodeJson("unpair request", UnpairRequest, text);
-export const decodeUnpairResponseJson = (text: string) =>
-  decodeJson("unpair response", BindingMutationResponse, text);
-export const decodeForgetRequestJson = (text: string) =>
-  decodeJson("forget request", ForgetRequest, text);
-export const decodeForgetResponseJson = (text: string) =>
-  decodeJson("forget response", BindingMutationResponse, text);
-export const decodeWebRunLeaseAcquireRequestJson = (text: string) =>
-  decodeJson("web run lease acquisition", WebRunLeaseAcquireRequest, text);
-export const decodeWebRunLeaseReleaseRequestJson = (text: string) =>
-  decodeJson("web run lease release", WebRunLeaseReleaseRequest, text);
-export const decodeSessionWebRouteDetachRequestJson = (text: string) =>
-  decodeJson("session web route detach", SessionWebRouteDetachRequest, text);
-export const decodeWebRunLeaseMutationResponseJson = (text: string) =>
-  decodeJson("web run lease mutation response", BindingMutationResponse, text);
 export const decodePollResponseJson = (text: string) =>
   decodeJson("poll response", PollResponse, text);
-export const decodePairingStateJson = (text: string) =>
-  decodeJson("pairing state", PairingState, text);
-export const decodePairingConfirmRequestJson = (text: string) =>
-  decodeJson("pairing confirmation", PairingConfirmRequest, text);
 export const decodeBridgeStatusJson = (text: string) =>
   decodeJson("bridge status", BridgeStatusResponse, text);
 export const decodeBridgeAuthenticationHandshakeJson = (text: string) =>
@@ -135,33 +104,12 @@ export const toWireBridgeFailure = (error: BridgeFailure): WireBridgeFailure => 
     case "BridgeStopped":
     case "ConnectorNotBound":
       return { _tag: error._tag, message: error.message };
-    case "WebConnectorLeaseUnavailable":
-      return { _tag: error._tag, pairingId: error.pairingId, message: error.message };
     case "BridgeUnavailable":
       return error.cause === undefined
         ? { _tag: error._tag, message: error.message }
         : { _tag: error._tag, message: error.message, cause: messageOf(error.cause) };
     case "ConnectorOffline":
       return { _tag: error._tag, connectorId: error.connectorId, message: error.message };
-    case "ConnectorBindingMismatch":
-      return error.actualConnectorId === undefined
-        ? {
-            _tag: error._tag,
-            expectedConnectorId: error.expectedConnectorId,
-            message: error.message,
-          }
-        : {
-            _tag: error._tag,
-            expectedConnectorId: error.expectedConnectorId,
-            actualConnectorId: error.actualConnectorId,
-            message: error.message,
-          };
-    case "ConnectorAlreadyBound":
-      return {
-        _tag: error._tag,
-        actualConnectorId: error.actualConnectorId,
-        message: error.message,
-      };
     case "CommandTimeout":
       return { _tag: error._tag, message: error.message, timeoutMs: error.timeoutMs };
     case "CommandOutcomeUnknown":
@@ -180,14 +128,8 @@ export const fromWireBridgeFailure = (error: WireBridgeFailure): BridgeFailure =
       return new BridgeUnavailable(error);
     case "ConnectorNotBound":
       return new ConnectorNotBound(error);
-    case "WebConnectorLeaseUnavailable":
-      return new WebConnectorLeaseUnavailable(error);
     case "ConnectorOffline":
       return new ConnectorOffline(error);
-    case "ConnectorBindingMismatch":
-      return new ConnectorBindingMismatch(error);
-    case "ConnectorAlreadyBound":
-      return new ConnectorAlreadyBound(error);
     case "CommandTimeout":
       return new CommandTimeout(error);
     case "CommandOutcomeUnknown":

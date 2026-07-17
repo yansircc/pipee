@@ -11,7 +11,6 @@ import packageJson from "../../package.json" with { type: "json" };
 import { ChromeUnavailable, messageOf } from "../core/errors.js";
 import { BRIDGE_HOST, BRIDGE_PORT } from "../protocol/bridge-contract.js";
 import type { SessionContext } from "../protocol/schema.js";
-import { makeConnectorBindingStore } from "./connector-binding.js";
 import { NodeBridge } from "./node-bridge.js";
 import { projectSessionGroupTitle } from "./session-group-title.js";
 import { executeChromeTool, type ChromeToolScope } from "./tool-execution.js";
@@ -40,9 +39,8 @@ const provideNode = <A, E>(effect: Effect.Effect<A, E, NodeServices>) =>
   effect.pipe(Effect.provide(nodeServicesLayer));
 
 const makeBridge = (): NodeBridge => {
-  const bindingStore = effectRuntime.runSync(makeConnectorBindingStore());
   return effectRuntime.runSync(
-    NodeBridge.make(BRIDGE_HOST, BRIDGE_PORT, () => packageJson.version, bindingStore),
+    NodeBridge.make(BRIDGE_HOST, BRIDGE_PORT, () => packageJson.version),
   );
 };
 
@@ -89,7 +87,7 @@ export default function piChrome(pi: ExtensionAPI): void {
       Effect.flatMap((identity) =>
         Effect.suspend(() => {
           const scope = activeScope;
-          return scope && scope.context === context && scope.identity.key === identity.key
+          return scope && scope.identity.key === identity.key
             ? Effect.succeed(scope)
             : Effect.fail(
                 new ChromeUnavailable({
@@ -153,14 +151,14 @@ export default function piChrome(pi: ExtensionAPI): void {
     Effect.gen(function* () {
       const scope = yield* requireScope(context);
       const snapshot = yield* bridge.status;
-      if (!snapshot.binding) {
+      if (!snapshot.connector) {
         return yield* new ChromeUnavailable({
           message: `Chrome extension is not connected. Load the unpacked extension from ${EXTENSION_PATH}`,
         });
       }
       if (!snapshot.connector.connected) {
         return yield* new ChromeUnavailable({
-          message: `Chrome profile ${snapshot.binding.label} is offline. Open that profile and retry.`,
+          message: `Chrome profile ${snapshot.connector.label} is offline. Open that profile and retry.`,
         });
       }
       return { scope, claim: { background: false } };

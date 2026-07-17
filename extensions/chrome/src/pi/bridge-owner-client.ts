@@ -9,11 +9,7 @@ import {
 import {
   decodeBridgeAuthenticationHandshakeJson,
   decodeBridgeStatusJson,
-  decodeForgetResponseJson,
   decodeForwardResponseJson,
-  decodePairingStateJson,
-  decodeUnpairResponseJson,
-  decodeWebRunLeaseMutationResponseJson,
   fromWireBridgeFailure,
 } from "../protocol/codec.js";
 import {
@@ -32,21 +28,10 @@ import {
   type BridgeOwnerIdentity,
 } from "../protocol/bridge-owner.js";
 import { encodeJsonTransport } from "../protocol/json-transport.js";
-import {
-  ForwardRequest as ForwardRequestSchema,
-  SessionWebRouteDetachRequest as SessionWebRouteDetachRequestSchema,
-  WebRunLeaseAcquireRequest as WebRunLeaseAcquireRequestSchema,
-  WebRunLeaseReleaseRequest as WebRunLeaseReleaseRequestSchema,
-} from "../protocol/schema.js";
+import { ForwardRequest as ForwardRequestSchema } from "../protocol/schema.js";
 import type {
   BridgeStatusResponse,
-  ConnectorSelection,
-  PairingState,
-  SessionWebRouteDetachRequest,
   SessionContext,
-  UnpairRequest,
-  WebRunLeaseAcquireRequest,
-  WebRunLeaseReleaseRequest,
   WireDomainRequest,
 } from "../protocol/schema.js";
 import {
@@ -184,180 +169,9 @@ export const statusFromOwner = (
     Effect.map((status) => ({ ...status, mode: "client" as const })),
   );
 
-export const beginPairingViaOwner = (
-  url: string,
-  identity: BridgeOwnerIdentity,
-): Effect.Effect<PairingState, BridgeUnavailable | BridgeOwnerUnreachable | ProtocolFailure> =>
-  authenticatedOwnerRequest(url, "pairingStart", identity).pipe(
-    Effect.flatMap(requireOwnerSuccess),
-    Effect.flatMap(decodePairingStateJson),
-  );
-
-export const unpairViaOwner = (
-  url: string,
-  identity: BridgeOwnerIdentity,
-  request: UnpairRequest,
-): Effect.Effect<void, BridgeFailure> => {
-  const outcomeUnknown = (cause: unknown) =>
-    new CommandOutcomeUnknown({
-      message: "Bridge owner response did not establish the unpair outcome",
-      cause,
-    });
-  const timeoutMs = request.state === "bound" ? request.timeoutMs : 0;
-  return authenticatedOwnerRequest(
-    url,
-    "unpair",
-    identity,
-    {
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(request),
-    },
-    timeoutMs + OWNER_COMMAND_HTTP_RESPONSE_GRACE_MS,
-  ).pipe(
-    Effect.mapError(outcomeUnknown),
-    Effect.flatMap((response) =>
-      decodeUnpairResponseJson(response.text).pipe(Effect.mapError(outcomeUnknown)),
-    ),
-    Effect.flatMap((response) =>
-      response.ok ? Effect.void : Effect.fail(fromWireBridgeFailure(response.error)),
-    ),
-  );
-};
-
-export const forgetViaOwner = (
-  url: string,
-  identity: BridgeOwnerIdentity,
-  expectedConnectorId: string,
-): Effect.Effect<void, BridgeFailure> => {
-  const outcomeUnknown = (cause: unknown) =>
-    new CommandOutcomeUnknown({
-      message: "Bridge owner response did not establish the connector-forget outcome",
-      cause,
-    });
-  return authenticatedOwnerRequest(url, "forget", identity, {
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ expectedConnectorId }),
-  }).pipe(
-    Effect.mapError(outcomeUnknown),
-    Effect.flatMap((response) =>
-      decodeForgetResponseJson(response.text).pipe(Effect.mapError(outcomeUnknown)),
-    ),
-    Effect.flatMap((response) =>
-      response.ok ? Effect.void : Effect.fail(fromWireBridgeFailure(response.error)),
-    ),
-  );
-};
-
-const mutateWebRunLeaseViaOwner = (
-  url: string,
-  identity: BridgeOwnerIdentity,
-  routeName: "webLeaseAcquire" | "webLeaseRelease" | "webLeaseAssert" | "webRouteDetach",
-  label: string,
-  body: string,
-): Effect.Effect<void, BridgeFailure> => {
-  const outcomeUnknown = (cause: unknown) =>
-    new CommandOutcomeUnknown({
-      message: `Bridge owner response did not establish the ${label} outcome`,
-      cause,
-    });
-  return authenticatedOwnerRequest(url, routeName, identity, {
-    headers: { "content-type": "application/json" },
-    body,
-  }).pipe(
-    Effect.mapError(outcomeUnknown),
-    Effect.flatMap((response) =>
-      decodeWebRunLeaseMutationResponseJson(response.text).pipe(Effect.mapError(outcomeUnknown)),
-    ),
-    Effect.flatMap((response) =>
-      response.ok ? Effect.void : Effect.fail(fromWireBridgeFailure(response.error)),
-    ),
-  );
-};
-
-export const acquireWebRunLeaseViaOwner = (
-  url: string,
-  identity: BridgeOwnerIdentity,
-  request: WebRunLeaseAcquireRequest,
-): Effect.Effect<void, BridgeFailure> =>
-  encodeJsonTransport(
-    "Bridge owner web run lease acquisition request",
-    WebRunLeaseAcquireRequestSchema,
-    request,
-  ).pipe(
-    Effect.mapError(
-      (cause) =>
-        new ProtocolFailure({ message: "Invalid web run lease acquisition request", cause }),
-    ),
-    Effect.flatMap(({ json }) =>
-      mutateWebRunLeaseViaOwner(
-        url,
-        identity,
-        "webLeaseAcquire",
-        "web run lease acquisition",
-        json,
-      ),
-    ),
-  );
-
-export const releaseWebRunLeaseViaOwner = (
-  url: string,
-  identity: BridgeOwnerIdentity,
-  request: WebRunLeaseReleaseRequest,
-): Effect.Effect<void, BridgeFailure> =>
-  encodeJsonTransport(
-    "Bridge owner web run lease release request",
-    WebRunLeaseReleaseRequestSchema,
-    request,
-  ).pipe(
-    Effect.mapError(
-      (cause) => new ProtocolFailure({ message: "Invalid web run lease release request", cause }),
-    ),
-    Effect.flatMap(({ json }) =>
-      mutateWebRunLeaseViaOwner(url, identity, "webLeaseRelease", "web run lease release", json),
-    ),
-  );
-
-export const assertWebRunLeaseViaOwner = (
-  url: string,
-  identity: BridgeOwnerIdentity,
-  request: WebRunLeaseReleaseRequest,
-): Effect.Effect<void, BridgeFailure> =>
-  encodeJsonTransport(
-    "Bridge owner web run lease assertion request",
-    WebRunLeaseReleaseRequestSchema,
-    request,
-  ).pipe(
-    Effect.mapError(
-      (cause) => new ProtocolFailure({ message: "Invalid web run lease assertion request", cause }),
-    ),
-    Effect.flatMap(({ json }) =>
-      mutateWebRunLeaseViaOwner(url, identity, "webLeaseAssert", "web run lease assertion", json),
-    ),
-  );
-
-export const detachSessionWebRouteViaOwner = (
-  url: string,
-  identity: BridgeOwnerIdentity,
-  request: SessionWebRouteDetachRequest,
-): Effect.Effect<void, BridgeFailure> =>
-  encodeJsonTransport(
-    "Bridge owner session web route detach request",
-    SessionWebRouteDetachRequestSchema,
-    request,
-  ).pipe(
-    Effect.mapError(
-      (cause) =>
-        new ProtocolFailure({ message: "Invalid session web route detach request", cause }),
-    ),
-    Effect.flatMap(({ json }) =>
-      mutateWebRunLeaseViaOwner(url, identity, "webRouteDetach", "session web route detach", json),
-    ),
-  );
-
 export const forwardCommandToOwner = <AdmissionError, AdmissionRequirements>(
   url: string,
   identity: BridgeOwnerIdentity,
-  connector: ConnectorSelection,
   request: WireDomainRequest,
   session: SessionContext,
   timeoutMs: number,
@@ -368,7 +182,7 @@ export const forwardCommandToOwner = <AdmissionError, AdmissionRequirements>(
       message: "Bridge owner response did not establish a command outcome",
       cause,
     });
-  const envelope = { connector, ...request, session, timeoutMs };
+  const envelope = { ...request, session, timeoutMs };
   return encodeJsonTransport("Bridge owner forward request", ForwardRequestSchema, envelope).pipe(
     Effect.mapError(
       (cause) =>

@@ -108,8 +108,6 @@ const authenticatedOwnerHandler = (
 
 const request = { domain: "tab", call: { op: "list" } } as const;
 const session = { key: "session", groupTitle: "Session", foreground: false } as const;
-const connectorId = "11111111-1111-4111-8111-111111111111";
-
 it.live("gates owner compatibility by fingerprint, not display version", () =>
   Effect.gen(function* () {
     yield* withOwner(
@@ -190,7 +188,6 @@ it.live("reconstructs a typed owner failure", () =>
         const failure = yield* forwardCommandToOwner(
           url,
           identity,
-          { source: "terminal", expectedConnectorId: connectorId },
           request,
           session,
           500,
@@ -216,7 +213,6 @@ it.live("treats every untyped owner response as an unknown command outcome", () 
         const failure = yield* forwardCommandToOwner(
           url,
           identity,
-          { source: "terminal", expectedConnectorId: connectorId },
           request,
           session,
           500,
@@ -244,7 +240,6 @@ it.live("revalidates guarded client submissions after the owner handshake and be
         const failure = yield* forwardCommandToOwner(
           url,
           identity,
-          { source: "terminal", expectedConnectorId: connectorId },
           request,
           session,
           500,
@@ -293,7 +288,6 @@ it.live("sends only the projected wire request to the owner", () => {
         yield* forwardCommandToOwner(
           url,
           identity,
-          { source: "terminal", expectedConnectorId: connectorId },
           projectDomainRequest(toolRequest),
           session,
           500,
@@ -320,7 +314,6 @@ it.live("rejects an oversized owner request before network dispatch", () =>
     const failure = yield* forwardCommandToOwner(
       "http://127.0.0.1:1",
       identity,
-      { source: "terminal", expectedConnectorId: connectorId },
       {
         domain: "page",
         call: {

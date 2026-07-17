@@ -8,8 +8,7 @@
     "bridgeEpoch": "x-pi-chrome-connector-bridge-epoch",
     "requestNonce": "x-pi-chrome-connector-request-nonce",
     "bodySha256": "x-pi-chrome-connector-body-sha256",
-    "proof": "x-pi-chrome-connector-proof",
-    "pairingId": "x-pi-chrome-pairing-id"
+    "proof": "x-pi-chrome-connector-proof"
   },
   "metadataHeaders": {
     "displayVersion": "x-pi-chrome-extension-version",

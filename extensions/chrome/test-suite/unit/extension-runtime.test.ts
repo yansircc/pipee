@@ -43,18 +43,9 @@ vi.mock("../../src/pi/node-bridge.js", async () => {
             status: Effect.succeed({
               url: BRIDGE_ORIGIN,
               mode: "server",
-              sessionRoutes: [],
               extensionExpectation: {
                 extensionId: "abcdefghijklmnopabcdefghijklmnop",
                 displayVersion: "1.0.0",
-                protocolFingerprint: "a".repeat(64),
-              },
-              binding: {
-                connectorId: "00000000-0000-4000-8000-000000000001",
-                label: "Runtime connector",
-                pairedAt: 1,
-                extensionId: "abcdefghijklmnopabcdefghijklmnop",
-                extensionDisplayVersion: "1.0.0",
                 protocolFingerprint: "a".repeat(64),
               },
               connector: {
@@ -132,7 +123,7 @@ const handler = (handlers: ReadonlyMap<string, EventHandler>, event: string): Ev
   return registered;
 };
 
-it("exposes Agent Chrome tools immediately and publishes read-only readiness", async () => {
+it("admits same-session Agent Chrome tools across lifecycle context wrappers", async () => {
   bridgeState.instances.length = 0;
   const test = fixture();
   piChrome(test.pi);
@@ -145,16 +136,17 @@ it("exposes Agent Chrome tools immediately and publishes read-only readiness", a
   expect(test.activeTools()).toEqual(["read", ...CHROME_DEFAULT_TOOL_NAMES]);
   expect(test.statuses.at(-1)).toMatchObject({ version: 3, state: "ready" });
 
+  const callbackContext = { ...test.context } as ExtensionContext;
   const start = await handler(test.handlers, "before_agent_start")(
     { systemPrompt: "base" },
-    test.context,
+    callbackContext,
   );
   expect(start).toMatchObject({
     systemPrompt: expect.stringContaining("operate the single compatible local Chrome connector"),
   });
 
   const status = test.tools.get("chrome_status")!;
-  const result = await status.execute("status", {}, undefined, undefined, test.context);
+  const result = await status.execute("status", {}, undefined, undefined, callbackContext);
   expect(result).toMatchObject({ details: { status: { state: "ready" } } });
 });
 

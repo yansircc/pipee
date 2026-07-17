@@ -218,7 +218,7 @@ async function appendAutomationTarget(sessionKey: string, target: AutomationTarg
   if (profileCount >= MAX_AUTOMATION_TARGETS_PER_PROFILE) {
     throw rejected(
       "automation-target-limit",
-      `The paired Chrome profile already stores ${profileCount} automation targets; maximum is ${MAX_AUTOMATION_TARGETS_PER_PROFILE}. Run /chrome unpair to clean every session target before pairing again.`,
+      `The active Chrome profile already stores ${profileCount} automation targets; maximum is ${MAX_AUTOMATION_TARGETS_PER_PROFILE}. Close obsolete automation tabs before retrying.`,
       {
         scope: "profile",
         limit: MAX_AUTOMATION_TARGETS_PER_PROFILE,
@@ -317,7 +317,7 @@ const ownershipLost = (
       : reason === "tab-missing"
         ? `Pi session ${sessionKey} lost its exact automation tab. ` +
           "Run /chrome cleanup before creating a replacement; no other tab was adopted or closed."
-        : `Pi session ${sessionKey}'s automation tab left the paired profile's regular windows. ` +
+        : `Pi session ${sessionKey}'s automation tab left the active profile's regular windows. ` +
           "Run /chrome cleanup before creating a replacement; no other tab was adopted or closed.",
     reason,
     target.state === "owned" ? target.tabId : null,

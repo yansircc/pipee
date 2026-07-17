@@ -28,16 +28,16 @@ when identity changes. Scope replacement and shutdown are serialized. The status
 bridge are stopped on shutdown.
 
 All atomic tools, `chrome_enable`, and `chrome_status` are registered at extension load. Core tools
-are activated immediately. Tool admission checks only two runtime facts: the invoking SDK context is
-the active session, and the compatible connector is live. It never consults permission or approval
+are activated immediately. Tool admission checks only two runtime facts: the invoking Pi session
+identity is active, and the compatible connector is live. It never consults permission or approval
 state.
 
 ## Bridge and browser runtime
 
 The first Pi process owns the fixed loopback bridge; later Pi processes forward through that owner.
-The bridge owns connector registration, one mailbox per connector, bounded JSON transport, and
-single-flight result delivery. Connector metadata from the extension replaces the stored connector
-automatically, so installation does not require a pairing gesture.
+The bridge owns the current live connector, its mailbox, bounded JSON transport, and single-flight
+result delivery. Connector state is process-local and is re-established by the extension handshake,
+so installation and bridge restart do not require a pairing gesture or persisted binding.
 
 `src/browser/service-worker.ts` owns the MV3 Effect runtime. It polls the bridge, journals a command
 before execution, dispatches the typed operation, and does not poll another command until the result

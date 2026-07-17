@@ -18,7 +18,6 @@ import {
   type BridgeRequestChallenge,
   connectorRequestProofMessage,
   connectorServerProofMessage,
-  decodePairingConnector,
   decodeProfileConnector,
   hashBridgeRequestBody,
   hmacProof,
@@ -49,7 +48,6 @@ export type BoundSmokeConnector = ProfileConnector & {
 };
 
 type PendingChallenge = {
-  readonly kind: "connector" | "pairing";
   readonly identity: ConnectorRouteIdentity;
 };
 
@@ -100,11 +98,8 @@ const sameIdentity = (left: ConnectorRouteIdentity, right: ConnectorRouteIdentit
   left.protocolFingerprint === right.protocolFingerprint;
 
 export class FakeBridge {
-  readonly pairingCapability = randomBytes(16).toString("hex").toUpperCase();
   readonly identityReady: Deferred<BoundSmokeConnector> = deferred();
   readonly restartIdentityReady: Deferred<ConnectorRouteIdentity> = deferred();
-  readonly unpairedReady: Deferred<ObservedConnector> = deferred();
-  readonly pairingReady = deferred();
   readonly invalidServerProofRejected = deferred();
   readonly failure: Deferred<never> = deferred();
   readonly expectedExtensionId: string;
@@ -122,8 +117,6 @@ export class FakeBridge {
   private readonly sockets = new Set<Socket>();
   private readonly server: Server;
   private readonly scenario: SmokeCommandScenario;
-  private unpairedIdentity: ObservedConnector | undefined;
-  private unpairedAttempts = 0;
   private awaitingRestartIdentity = false;
   private invalidServerProofArmed = false;
   private invalidServerProofNonce: string | undefined;
@@ -296,34 +289,20 @@ export class FakeBridge {
     }
   }
 
-  private observeUnpairedIdentity(identity: ObservedConnector): void {
-    this.assertExpectedPackage(identity);
-    if (this.unpairedIdentity === undefined) this.unpairedIdentity = Object.freeze(identity);
-    else
-      assert(sameIdentity(identity, this.unpairedIdentity), "Unpaired connector identity changed");
-    this.unpairedAttempts += 1;
-    if (this.unpairedAttempts >= 2) this.unpairedReady.resolve(this.unpairedIdentity);
-  }
-
-  private issueChallenge(
-    kind: PendingChallenge["kind"],
-    identity: ConnectorRouteIdentity,
-  ): BridgeRequestChallenge {
+  private issueChallenge(identity: ConnectorRouteIdentity): BridgeRequestChallenge {
     let requestNonce = hexToken(32);
     while (this.pendingChallenges.has(requestNonce)) requestNonce = hexToken(32);
-    this.pendingChallenges.set(requestNonce, { kind, identity });
+    this.pendingChallenges.set(requestNonce, { identity });
     return { bridgeEpoch: this.bridgeEpoch, requestNonce };
   }
 
   private handleHandshake(
     request: IncomingMessage,
     response: ServerResponse,
-    kind: PendingChallenge["kind"],
     cors: Readonly<Record<string, string>>,
   ): void {
     const identity = this.readIdentity(request);
-    if (kind === "pairing") assertNotTransmitted(request, this.pairingCapability);
-    else if (this.identity) assertNotTransmitted(request, this.identity.secret);
+    if (this.identity) assertNotTransmitted(request, this.identity.secret);
     if (
       identity.transportOrigin !== undefined &&
       identity.transportOrigin !== this.expectedOrigin
@@ -331,14 +310,9 @@ export class FakeBridge {
       writeJson(response, 403, { ok: false, error: "origin" }, cors);
       return;
     }
-    if (kind === "connector" && this.identity === undefined) {
-      this.observeUnpairedIdentity(identity);
-      writeJson(response, 401, { ok: false, error: "unpaired" }, cors);
-      return;
-    }
     this.assertExpectedPackage(identity);
     const boundIdentity = this.identity;
-    if (kind === "connector" && (!boundIdentity || !sameIdentity(identity, boundIdentity))) {
+    if (!boundIdentity || !sameIdentity(identity, boundIdentity)) {
       this.rejections.add("handshake:identity");
       writeJson(response, 401, { ok: false, error: "connector" }, cors);
       return;
@@ -353,18 +327,16 @@ export class FakeBridge {
       this.invalidServerProofNonce = undefined;
       this.invalidServerProofRejected.resolve();
     }
-    const challenge = this.issueChallenge(kind, identity);
-    const serverDomain = kind === "connector" ? "connectorServerProof" : "pairingServerProof";
-    const secret = kind === "connector" ? boundIdentity!.secret : this.pairingCapability;
+    const challenge = this.issueChallenge(identity);
     const message = connectorServerProofMessage(
-      serverDomain,
+      "connectorServerProof",
       identity,
       clientNonce,
       challenge,
       this.expectedProtocolFingerprint!,
     );
-    let proof = hmacProof(secret, message);
-    if (kind === "connector" && this.invalidServerProofArmed) {
+    let proof = hmacProof(boundIdentity.secret, message);
+    if (this.invalidServerProofArmed) {
       this.invalidServerProofArmed = false;
       this.invalidServerProofNonce = challenge.requestNonce;
       proof = "0".repeat(64);
@@ -384,8 +356,7 @@ export class FakeBridge {
 
   private authenticateRequest(
     request: IncomingMessage,
-    routeName: "pairingConfirm" | "poll" | "result",
-    kind: PendingChallenge["kind"],
+    routeName: "poll" | "result",
     secret: string,
     body: string,
   ):
@@ -411,7 +382,7 @@ export class FakeBridge {
     };
     const route = SMOKE_ROUTES[routeName];
     const message = connectorRequestProofMessage(
-      kind === "connector" ? "connectorRequestProof" : "pairingRequestProof",
+      "connectorRequestProof",
       identity,
       challenge,
       route.method,
@@ -419,11 +390,10 @@ export class FakeBridge {
       bodyHash,
     );
     const proof = header(request, CONNECTOR_PROOF_HEADER);
-    if (kind === "pairing") assertNotTransmitted(request, this.pairingCapability, body);
-    else assertNotTransmitted(request, secret, body);
+    assertNotTransmitted(request, secret, body);
     if (
       challenge.bridgeEpoch !== this.bridgeEpoch ||
-      pending?.kind !== kind ||
+      pending === undefined ||
       !sameIdentity(identity, pending.identity) ||
       !proofMatches(secret, message, proof)
     ) {
@@ -485,67 +455,15 @@ export class FakeBridge {
         });
         this.identityReady.resolve(this.identity);
       }
-      this.handleHandshake(request, response, "connector", cors);
-      return;
-    }
-
-    if (matchesRoute("pairingHandshake", request.method, url.pathname)) {
-      await readBody(request);
-      this.handleHandshake(request, response, "pairing", cors);
-      return;
-    }
-
-    if (matchesRoute("pairingConfirm", request.method, url.pathname)) {
-      const body = await readBody(request);
-      assert.equal(body.includes(this.pairingCapability), false, "Pairing token crossed HTTP");
-      const authentication = this.authenticateRequest(
-        request,
-        "pairingConfirm",
-        "pairing",
-        this.pairingCapability,
-        body,
-      );
-      if (!authentication.ok) {
-        writeJson(
-          response,
-          authentication.status,
-          { ok: false, error: authentication.error },
-          cors,
-        );
-        return;
-      }
-      const connector = decodePairingConnector(body);
-      assert(
-        sameIdentity(connector, authentication.identity),
-        "Pairing body identity differs from signed headers",
-      );
-      assert.equal(connector.label, "日常 Chrome Smoke");
-      assert.match(connector.secret, /^[0-9a-f]{64}$/i);
-      this.identity = Object.freeze({
-        ...connector,
-        runtimeOrigin: this.expectedOrigin,
-        ...(authentication.identity.transportOrigin === undefined
-          ? {}
-          : { transportOrigin: authentication.identity.transportOrigin }),
-      });
-      this.identityReady.resolve(this.identity);
-      this.pairingReady.resolve();
-      const publicConnector = {
-        connectorId: this.identity.connectorId,
-        label: this.identity.label,
-        extensionId: this.identity.extensionId,
-        extensionDisplayVersion: this.identity.extensionDisplayVersion,
-        protocolFingerprint: this.identity.protocolFingerprint,
-      };
-      writeJson(response, 200, { ok: true, connector: publicConnector }, cors);
+      this.handleHandshake(request, response, cors);
       return;
     }
 
     if (matchesRoute("poll", request.method, url.pathname)) {
       const body = await readBody(request);
       const authentication = this.identity
-        ? this.authenticateRequest(request, "poll", "connector", this.identity.secret, body)
-        : { ok: false as const, status: 401, error: "unpaired" };
+        ? this.authenticateRequest(request, "poll", this.identity.secret, body)
+        : { ok: false as const, status: 401, error: "not connected" };
       if (!authentication.ok) {
         writeJson(
           response,
@@ -566,8 +484,8 @@ export class FakeBridge {
     if (matchesRoute("result", request.method, url.pathname)) {
       const body = await readBody(request);
       const authentication = this.identity
-        ? this.authenticateRequest(request, "result", "connector", this.identity.secret, body)
-        : { ok: false as const, status: 401, error: "unpaired" };
+        ? this.authenticateRequest(request, "result", this.identity.secret, body)
+        : { ok: false as const, status: 401, error: "not connected" };
       if (!authentication.ok) {
         writeJson(
           response,

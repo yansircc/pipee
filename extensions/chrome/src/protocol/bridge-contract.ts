@@ -70,9 +70,6 @@ export const AUTHENTICATION_CHALLENGE_DEADLINE_MS =
   bridge.transportDeadlinesMs.authenticationChallenge;
 export const AUTHENTICATION_HANDSHAKE_DEADLINE_MS =
   bridge.transportDeadlinesMs.authenticationHandshake;
-export const WEB_RUN_OFFER_LIFETIME_MS = bridge.webRun.offerLifetimeMs;
-export const WEB_RUN_LEASE_LIFETIME_MS = bridge.webRun.leaseLifetimeMs;
-export const MAX_PENDING_WEB_RUN_OFFERS = bridge.webRun.maxPendingOffers;
 export const SCREENSHOT_PAYLOAD_BYTE_LIMIT = bridge.transportLimitsBytes.screenshotPayload;
 export const SCREENSHOT_LIMITS = bridge.screenshotLimits;
 export const SCREENSHOT_MAX_TILE_COUNT = SCREENSHOT_LIMITS.maxTiles;

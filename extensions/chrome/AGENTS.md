@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This is a strict TypeScript ESM package. `src/protocol/` owns wire contracts and operation descriptors. `src/browser/` implements the Chrome extension and adapters; `src/pi/` integrates with Pi; `src/core/` contains broker and pairing logic. Tooling lives in `scripts/`. Unit tests are under `test-suite/unit/`; browser benchmarks and fixtures live elsewhere in `test-suite/`. Treat `dist/browser-extension/` as generated output.
+This is a strict TypeScript ESM package. `src/protocol/` owns wire contracts and operation descriptors. `src/browser/` implements the Chrome extension and adapters; `src/pi/` integrates with Pi; `src/core/` contains broker logic. Tooling lives in `scripts/`. Unit tests are under `test-suite/unit/`; browser benchmarks and fixtures live elsewhere in `test-suite/`. Treat `dist/browser-extension/` as generated output.
 
 ## Build, Test, and Development Commands
 

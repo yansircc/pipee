@@ -24,8 +24,6 @@ export const CONNECTOR_REQUEST_HEADERS = [
 ].join(",");
 
 export const SMOKE_ROUTES = {
-  pairingHandshake: bridge.routes.extension.pairingHandshake,
-  pairingConfirm: bridge.routes.extension.pairingConfirm,
   connectorHandshake: bridge.routes.connector.connectorHandshake,
   poll: bridge.routes.connector.poll,
   result: bridge.routes.connector.result,
@@ -95,45 +93,39 @@ const requestProofMessage = (
     bodyHash,
   ]);
 
-const connectorProofIdentity = (
-  identity: ConnectorProofIdentity,
-  pairingId?: string,
-): ReadonlyArray<string> => [
+const connectorProofIdentity = (identity: ConnectorProofIdentity): ReadonlyArray<string> => [
   identity.connectorId,
   identity.extensionId,
   identity.extensionDisplayVersion,
   identity.protocolFingerprint,
-  pairingId ?? "",
 ];
 
 export const connectorServerProofMessage = (
-  domain: "connectorServerProof" | "pairingServerProof",
+  domain: "connectorServerProof",
   identity: ConnectorProofIdentity,
   clientNonce: string,
   challenge: BridgeRequestChallenge,
   serverProtocolFingerprint: string,
-  pairingId?: string,
 ): string =>
   serverProofMessage(
     domain,
-    connectorProofIdentity(identity, pairingId),
+    connectorProofIdentity(identity),
     clientNonce,
     challenge,
     serverProtocolFingerprint,
   );
 
 export const connectorRequestProofMessage = (
-  domain: "connectorRequestProof" | "pairingRequestProof",
+  domain: "connectorRequestProof",
   identity: ConnectorProofIdentity,
   challenge: BridgeRequestChallenge,
   method: string,
   path: string,
   bodyHash: string,
-  pairingId?: string,
 ): string =>
   requestProofMessage(
     domain,
-    connectorProofIdentity(identity, pairingId),
+    connectorProofIdentity(identity),
     challenge,
     identity.protocolFingerprint,
     method,
@@ -206,11 +198,6 @@ export const decodeProfileConnector = (value: unknown): ProfileConnector => {
     extensionDisplayVersion: stringField(connector, "extensionDisplayVersion", "profile connector"),
     protocolFingerprint: stringField(connector, "protocolFingerprint", "profile connector"),
   };
-};
-
-export const decodePairingConnector = (text: string): ProfileConnector => {
-  const body = asObject(JSON.parse(text) as unknown, "pairing confirmation");
-  return decodeProfileConnector(body.connector);
 };
 
 export const decodeHandshake = (text: string): BridgeAuthenticationHandshake => {

@@ -6,13 +6,10 @@ export type BridgeRequestChallenge = {
 };
 
 export type HmacAuthenticationDomain = keyof typeof HMAC_AUTHENTICATION.domains;
-export type ConnectorServerProofDomain = Extract<
-  HmacAuthenticationDomain,
-  "connectorServerProof" | "pairingServerProof"
->;
+export type ConnectorServerProofDomain = Extract<HmacAuthenticationDomain, "connectorServerProof">;
 export type ConnectorRequestProofDomain = Extract<
   HmacAuthenticationDomain,
-  "connectorRequestProof" | "pairingRequestProof"
+  "connectorRequestProof"
 >;
 
 export type ConnectorProofIdentity = {
@@ -62,25 +59,12 @@ export const requestProofMessage = (
     bodyHash,
   ]);
 
-const connectorProofIdentity = (
-  identity: ConnectorProofIdentity,
-  pairingId?: string,
-): ReadonlyArray<string> => [
+const connectorProofIdentity = (identity: ConnectorProofIdentity): ReadonlyArray<string> => [
   identity.connectorId,
   identity.extensionId,
   identity.extensionDisplayVersion,
   identity.protocolFingerprint,
-  pairingId ?? "",
 ];
-
-export const hasSameConnectorProofIdentity = (
-  left: ConnectorProofIdentity,
-  right: ConnectorProofIdentity,
-): boolean => {
-  const leftParts = connectorProofIdentity(left);
-  const rightParts = connectorProofIdentity(right);
-  return leftParts.every((part, index) => part === rightParts[index]);
-};
 
 export const connectorServerProofMessage = (
   domain: ConnectorServerProofDomain,
@@ -88,11 +72,10 @@ export const connectorServerProofMessage = (
   clientNonce: string,
   challenge: BridgeRequestChallenge,
   serverProtocolFingerprint: string,
-  pairingId?: string,
 ): string =>
   serverProofMessage(
     domain,
-    connectorProofIdentity(identity, pairingId),
+    connectorProofIdentity(identity),
     clientNonce,
     challenge,
     serverProtocolFingerprint,
@@ -105,11 +88,10 @@ export const connectorRequestProofMessage = (
   method: string,
   path: string,
   bodyHash: string,
-  pairingId?: string,
 ): string =>
   requestProofMessage(
     domain,
-    connectorProofIdentity(identity, pairingId),
+    connectorProofIdentity(identity),
     challenge,
     identity.protocolFingerprint,
     method,
@@ -159,23 +141,6 @@ export const authenticationMessageProtocolContract = {
     "METHOD",
     "/path",
     "body-hash",
-  ),
-  pairingServerProof: connectorServerProofMessage(
-    "pairingServerProof",
-    protocolContractConnector,
-    "client-nonce",
-    protocolContractChallenge,
-    "server-protocol-fingerprint",
-    "pairing-id",
-  ),
-  pairingRequestProof: connectorRequestProofMessage(
-    "pairingRequestProof",
-    protocolContractConnector,
-    protocolContractChallenge,
-    "METHOD",
-    "/path",
-    "body-hash",
-    "pairing-id",
   ),
 } as const;
 

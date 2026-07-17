@@ -89,12 +89,11 @@ export const hasValidOwnerRequestProof = (
   proof: string,
 ): boolean => proofMatches(proof, ownerRequestProof(identity, input));
 
-export type BridgeChallengeScope = "owner" | "connector" | "pairing";
+export type BridgeChallengeScope = "owner" | "connector";
 
 const BRIDGE_CHALLENGE_SCOPES = [
   "owner",
   "connector",
-  "pairing",
 ] as const satisfies ReadonlyArray<BridgeChallengeScope>;
 
 export type BridgeRequestProofHeaders = BridgeRequestChallenge & {

@@ -24,19 +24,8 @@ export class ConnectorNotBound extends Data.TaggedError("ConnectorNotBound")<{
   readonly message: string;
 }> {}
 
-export class WebConnectorLeaseUnavailable extends Data.TaggedError("WebConnectorLeaseUnavailable")<{
-  readonly pairingId: string;
-  readonly message: string;
-}> {}
-
 export class ConnectorOffline extends Data.TaggedError("ConnectorOffline")<{
   readonly connectorId: string;
-  readonly message: string;
-}> {}
-
-export class ConnectorBindingMismatch extends Data.TaggedError("ConnectorBindingMismatch")<{
-  readonly expectedConnectorId: string;
-  readonly actualConnectorId?: string;
   readonly message: string;
 }> {}
 
@@ -48,10 +37,6 @@ export class ConnectorAlreadyBound extends Data.TaggedError("ConnectorAlreadyBou
 export class ConnectorAuthenticationFailed extends Data.TaggedError(
   "ConnectorAuthenticationFailed",
 )<{
-  readonly message: string;
-}> {}
-
-export class PairingUnavailable extends Data.TaggedError("PairingUnavailable")<{
   readonly message: string;
 }> {}
 
@@ -89,10 +74,7 @@ export type BridgeFailure =
   | BridgeStopped
   | BridgeUnavailable
   | ConnectorNotBound
-  | WebConnectorLeaseUnavailable
   | ConnectorOffline
-  | ConnectorBindingMismatch
-  | ConnectorAlreadyBound
   | CommandTimeout
   | CommandOutcomeUnknown
   | CommandRejected
