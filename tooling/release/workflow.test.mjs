@@ -9,6 +9,10 @@ const containerPreflight = readFileSync(
   resolve(root, "tooling/release/container-preflight.mjs"),
   "utf8",
 );
+const candidatePipeline = readFileSync(
+  resolve(root, "tooling/release/candidate-pipeline.mjs"),
+  "utf8",
+);
 
 it("owns one Linux candidate and same-artifact macOS/Windows witnesses", () => {
   assert.match(workflow, /pull_request:/);
@@ -75,6 +79,16 @@ it("shares one candidate pipeline between clean Linux preflight and Actions", ()
   assert.match(containerPreflight, /target=\/source,readonly/);
   assert.match(containerPreflight, /pnpm install --frozen-lockfile/);
   assert.match(containerPreflight, /candidate-pipeline\.mjs full/);
+});
+
+it("keeps full consumer verification in local preflight and out of the release narrow gate", () => {
+  const verifyCandidate =
+    candidatePipeline.match(/const verifyCandidate = \(\) => \{[\s\S]*?\n\};/)?.[0] ?? "";
+  const full = candidatePipeline.match(/case "full":[\s\S]*?\n    break;/)?.[0] ?? "";
+  assert.match(verifyCandidate, /\["verify:candidates"\]/);
+  assert.doesNotMatch(verifyCandidate, /verify:consumers/);
+  assert.match(full, /verifyCandidate\(\);\s+verifyConsumers\(\);/);
+  assert.doesNotMatch(workflow, /verify:consumers/);
 });
 
 it("keeps OIDC publish and public propagation in separate jobs", () => {

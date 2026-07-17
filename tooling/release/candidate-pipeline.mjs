@@ -26,6 +26,9 @@ const buildCandidate = (source) => {
 
 const verifyCandidate = () => {
   run("pnpm", ["verify:candidates"]);
+};
+
+const verifyConsumers = () => {
   run("pnpm", ["verify:consumers"]);
 };
 
@@ -45,6 +48,7 @@ switch (phase) {
     verifyLocalSource(sourceSha);
     buildCandidate(sourceSha);
     verifyCandidate();
+    verifyConsumers();
     break;
   default:
     throw new Error(`unknown candidate pipeline phase: ${String(phase)}`);
