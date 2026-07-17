@@ -19,6 +19,7 @@ import {
   connectorRequestProofMessage,
   connectorServerProofMessage,
   decodePairingConnector,
+  decodeProfileConnector,
   hashBridgeRequestBody,
   hmacProof,
   matchesRoute,
@@ -466,7 +467,24 @@ export class FakeBridge {
     }
 
     if (matchesRoute("connectorHandshake", request.method, url.pathname)) {
-      await readBody(request);
+      const body = await readBody(request);
+      const routeIdentity = this.readIdentity(request);
+      if (this.identity === undefined) {
+        const connector = decodeProfileConnector(JSON.parse(body) as unknown);
+        assert(
+          sameIdentity(connector, routeIdentity),
+          "Connector body identity differs from headers",
+        );
+        this.assertExpectedPackage(routeIdentity);
+        this.identity = Object.freeze({
+          ...connector,
+          runtimeOrigin: this.expectedOrigin,
+          ...(routeIdentity.transportOrigin === undefined
+            ? {}
+            : { transportOrigin: routeIdentity.transportOrigin }),
+        });
+        this.identityReady.resolve(this.identity);
+      }
       this.handleHandshake(request, response, "connector", cors);
       return;
     }

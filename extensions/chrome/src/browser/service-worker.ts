@@ -4,12 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Schedule from "effect/Schedule";
-import {
-  classifyChromeConnectorCompatibility,
-  ChromeExtensionEvidence,
-  projectChromeExtensionEvidence,
-  type ChromeExternalRequest as ChromeExternalRequestType,
-} from "@pi-suite/companion-contracts/chrome";
+import { classifyChromeConnectorCompatibility } from "@pi-suite/companion-contracts/chrome";
 import { messageOf } from "../core/errors.js";
 import { decodePollResponseJson } from "../protocol/codec.js";
 import { encodeJsonTransport } from "../protocol/json-transport.js";
@@ -48,12 +43,9 @@ import {
   handleDebuggerEvent,
 } from "./platform.js";
 import { localDurabilityRetrySchedule, sharedBridgeRetrySchedule } from "./runtime-scheduling.js";
-import { WebRunOfferOwner } from "./web-run-offer.js";
-import { decodeExternalWebRun } from "./external-web-run.js";
 
 const KEEPALIVE_ALARM = "pi-chrome-runtime";
 const connectorIdentity = ConnectorIdentityOwner.makeUnsafe();
-const webRunOffers = WebRunOfferOwner.makeUnsafe();
 const effectRuntime = ManagedRuntime.make(Layer.empty);
 
 class BrowserRuntimeFailure extends Data.TaggedError("BrowserRuntimeFailure")<{
@@ -263,67 +255,10 @@ const handleConnectorIdentityRequest = (
     }),
   );
 
-const extensionEvidence = (connector: ProfileConnector) =>
-  ChromeExtensionEvidence.make(projectChromeExtensionEvidence(connector));
-
-const handleExternalWebRunRequest = (request: ChromeExternalRequestType, webOrigin: string) =>
-  connectorIdentity.load.pipe(
-    Effect.flatMap((connector) =>
-      Effect.gen(function* () {
-        switch (request.type) {
-          case "pi-chrome/web-run/status":
-            return {
-              version: 1,
-              ok: true,
-              type: "Status",
-              evidence: extensionEvidence(connector),
-            } as const;
-          case "pi-chrome/web-run/prepare": {
-            const prepared = yield* webRunOffers.prepare(connector, webOrigin);
-            return {
-              version: 1,
-              ok: true,
-              type: "Prepared",
-              evidence: extensionEvidence(connector),
-              ...prepared,
-            } as const;
-          }
-          case "pi-chrome/web-run/complete":
-            yield* webRunOffers.complete(request.pairingId, connector, webOrigin);
-            yield* runtimeOwner.restart;
-            return {
-              version: 1,
-              ok: true,
-              type: "Completed",
-              evidence: extensionEvidence(connector),
-            } as const;
-        }
-      }),
-    ),
-    Effect.catch((error) =>
-      Effect.succeed({
-        version: 1,
-        ok: false,
-        error: { code: "web-run-failed", message: messageOf(error) },
-      } as const),
-    ),
-  );
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id || !isConnectorIdentityRequest(message)) return false;
   launch(
     handleConnectorIdentityRequest(message).pipe(
-      Effect.tap((response) => Effect.sync(() => sendResponse(response))),
-    ),
-  );
-  return true;
-});
-
-chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
-  const decoded = decodeExternalWebRun(message, sender.url);
-  if (decoded === null) return false;
-  launch(
-    handleExternalWebRunRequest(decoded.request, decoded.webOrigin).pipe(
       Effect.tap((response) => Effect.sync(() => sendResponse(response))),
     ),
   );

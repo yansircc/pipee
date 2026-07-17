@@ -4,7 +4,6 @@ import type { Cancel } from "@/browser/api-client"
 import { after } from "@/browser/timing"
 import { useBrowserEffectScope } from "@/browser/use-browser-effect-scope"
 import { loadSessionSnapshot, observeSession, sessionController } from "@/features/session/session-controller"
-import { controlRequest, type LoopControlAction } from "@/features/session/session-automation"
 import {
   initialSessionUiState,
   projectSessionEntryIds,
@@ -12,21 +11,6 @@ import {
   sessionUiReducer,
 } from "@/features/session/session-ui-state"
 import { parseBashCommand } from "@/lib/bash-command"
-import {
-  attachSameProfileChromeSession,
-  ChromeControlError,
-  ensureChromeSessionBinding,
-  getPiChromeExtensionId,
-  getPiChromeExtensionDirectory,
-  getPiChromeExtensionExpectation,
-  getPiChromeToolState,
-  getSameProfileChromeStatus,
-  hasLoadedPiChrome,
-  isPiChromeControlEnabled,
-  type SameProfileChromeConnection,
-} from "@/lib/chrome-control"
-import { getChromeStatusProjection, isChromeAuthorized } from "@/lib/extension-status"
-import { chromeRequirementMessage, firstUnsatisfiedChromeRequirement } from "@/lib/chrome-requirements"
 import {
   createNotice,
   getNextAutoDismissNotice,
@@ -128,18 +112,6 @@ export interface AttachedImage {
   previewUrl: string
 }
 
-type ChromeDetection =
-  | { readonly _tag: "Loading"; readonly cwd: string | null }
-  | { readonly _tag: "Absent"; readonly cwd: string | null }
-  | { readonly _tag: "Failed"; readonly cwd: string; readonly message: string }
-  | {
-      readonly _tag: "Installed"
-      readonly cwd: string
-      readonly extensionId: string | null
-      readonly extensionDirectory: string | null
-      readonly expectation: ReturnType<typeof getPiChromeExtensionExpectation>
-    }
-
 type ModelEntry = { id: string; name: string; provider: string }
 type ExtensionDialog = ExtensionInteraction
 
@@ -155,8 +127,6 @@ const cloneBranchNodes = (nodes: ReadonlyArray<SessionBranchNode>): SessionBranc
 
 const asUiMessages = (messages: ReadonlyArray<unknown>): AgentMessage[] =>
   messages.map((message) => message as AgentMessage)
-
-const asChromeConnection = (profile: SameProfileChromeConnection): SameProfileChromeConnection => profile
 
 export function useAgentSession(opts: UseAgentSessionOptions) {
   const {
@@ -186,11 +156,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [slashCommands, setSlashCommands] = useState<SlashCommandInfo[]>([])
   const [slashCommandsLoading, setSlashCommandsLoading] = useState(false)
   const [sessionStatsOverride, setSessionStatsOverride] = useState<SessionStatsInfo | null>(null)
-  const [chromeDetection, setChromeDetection] = useState<ChromeDetection>({ _tag: "Loading", cwd: null })
-  const [chromeToolsActive, setChromeToolsActive] = useState<boolean | null>(null)
-  const [chromeProfileConnection, setChromeProfileConnection] = useState<SameProfileChromeConnection | null>(null)
-  const [loopControlPending, setLoopControlPending] = useState(false)
-  const [weixinControlPending, setWeixinControlPending] = useState(false)
   const [noticeState, dispatchNotice] = useReducer(noticeReducer, { visible: [], pending: [] } satisfies NoticeState)
   const effectScopeOwner = `session:${session.id}`
   const runScoped = useBrowserEffectScope(effectScopeOwner)
@@ -201,7 +166,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const bashSequenceRef = useRef(0)
   const contextSequenceRef = useRef(0)
   const snapshotSequenceRef = useRef(0)
-  const chromeControlSequenceRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const lastUserMsgRef = useRef<HTMLDivElement | null>(null)
@@ -330,47 +294,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     })
   }, [modelCwd, opts.modelsRefreshKey, runScoped, sessionRefreshKey])
 
-  useEffect(() => {
-    setChromeDetection({ _tag: "Loading", cwd: modelCwd })
-    if (modelCwd === null) {
-      setChromeDetection({ _tag: "Absent", cwd: null })
-      return
-    }
-    return runScoped(sessionController.plugins(modelCwd), {
-      onSuccess: (plugins) => {
-        setChromeDetection(
-          hasLoadedPiChrome(plugins)
-            ? {
-                _tag: "Installed",
-                cwd: modelCwd,
-                extensionId: getPiChromeExtensionId(plugins),
-                extensionDirectory: getPiChromeExtensionDirectory(plugins),
-                expectation: getPiChromeExtensionExpectation(plugins),
-              }
-            : { _tag: "Absent", cwd: modelCwd },
-        )
-      },
-      onFailure: (error) => setChromeDetection({ _tag: "Failed", cwd: modelCwd, message: messageFor(error) }),
-    })
-  }, [modelCwd, runScoped, sessionRefreshKey])
-
-  const chromeExtensionId =
-    chromeDetection.cwd === modelCwd && chromeDetection._tag === "Installed" ? chromeDetection.extensionId : null
-  const chromeExtensionDirectory =
-    chromeDetection.cwd === modelCwd && chromeDetection._tag === "Installed" ? chromeDetection.extensionDirectory : null
-  const chromeExtensionExpectation =
-    chromeDetection.cwd === modelCwd && chromeDetection._tag === "Installed" ? chromeDetection.expectation : null
-  useEffect(() => {
-    if (chromeExtensionId === null) {
-      setChromeProfileConnection(null)
-      return
-    }
-    return runScoped(getSameProfileChromeStatus(chromeExtensionId, chromeExtensionExpectation), {
-      onSuccess: setChromeProfileConnection,
-      onFailure: () => setChromeProfileConnection({ connected: false }),
-    })
-  }, [chromeExtensionExpectation, chromeExtensionId, runScoped])
-
   const snapshot = state.snapshot
   useEffect(() => {
     setSessionStatsOverride(null)
@@ -408,39 +331,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const activeBashExecution = state.activeBashExecution as ActiveBashExecution | null
   const currentModel = snapshot?.context.model ?? null
   const displayModel = currentModel
-  const chromeAuthorized = isChromeAuthorized(extensionStatuses)
-  const chromeControlPending = state.chromeControlOperation !== null
-  const chromeControlEnabled = isPiChromeControlEnabled(chromeAuthorized, chromeToolsActive)
-  const currentChromeRequirement = useCallback(
-    () =>
-      firstUnsatisfiedChromeRequirement({
-        packageLoaded:
-          chromeDetection.cwd !== modelCwd || chromeDetection._tag === "Loading" || chromeDetection._tag === "Failed"
-            ? null
-            : chromeDetection._tag === "Installed",
-        extensionReachable: chromeProfileConnection === null ? null : chromeProfileConnection.connected,
-        extensionId: chromeExtensionId,
-        extensionDirectory: chromeExtensionDirectory,
-        currentProfile:
-          chromeProfileConnection?.connected === true
-            ? {
-                connectorId: chromeProfileConnection.connectorId,
-                connectorLabel: chromeProfileConnection.connectorLabel,
-              }
-            : null,
-        compatibility:
-          chromeProfileConnection?.connected === true ? chromeProfileConnection.compatibility : { _tag: "Unknown" },
-        status: getChromeStatusProjection(extensionStatuses),
-      }),
-    [
-      chromeDetection,
-      chromeExtensionDirectory,
-      chromeExtensionId,
-      chromeProfileConnection,
-      extensionStatuses,
-      modelCwd,
-    ],
-  )
 
   const sessionStats = useMemo<SessionStatsInfo | null>(() => {
     if (sessionStatsOverride !== null) return sessionStatsOverride
@@ -482,78 +372,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [data?.filePath, messages, session?.name, sessionStatsOverride, snapshot?.runtime?.contextUsage])
 
-  const ensurePromptChromeBinding = useCallback(
-    (sessionId: string) => {
-      if (!chromeControlEnabled) return Effect.void
-      const requirement = currentChromeRequirement()
-      if (
-        requirement?.requirement === "PackageLoaded" ||
-        requirement?.requirement === "ExtensionReachable" ||
-        requirement?.requirement === "ProtocolCompatible"
-      ) {
-        return Effect.fail(
-          new ChromeControlError({
-            operation: `binding.${requirement.requirement}`,
-            message: chromeRequirementMessage(requirement),
-          }),
-        )
-      }
-      if (chromeDetection.cwd !== modelCwd || chromeDetection._tag === "Loading") {
-        return Effect.fail(
-          new ChromeControlError({
-            operation: "binding.discovery",
-            message: "Still resolving the Chrome connector for this workspace",
-          }),
-        )
-      }
-      if (chromeDetection._tag === "Failed") {
-        return Effect.fail(
-          new ChromeControlError({
-            operation: "binding.discovery",
-            message: `Could not resolve the Chrome connector for this workspace: ${chromeDetection.message}`,
-          }),
-        )
-      }
-      if (chromeDetection._tag === "Absent") return Effect.void
-      if (chromeDetection.extensionId === null || chromeDetection.expectation === null) {
-        return Effect.fail(
-          new ChromeControlError({
-            operation: "binding.discovery",
-            message: "The installed pi-chrome package does not expose a built Chrome extension id",
-          }),
-        )
-      }
-      const control = (request: Parameters<typeof sessionController.chromeControl>[1]) =>
-        sessionController.chromeControl(sessionId, request)
-      return ensureChromeSessionBinding(
-        chromeDetection.extensionId,
-        chromeDetection.expectation,
-        getChromeStatusProjection(extensionStatuses),
-        control,
-      ).pipe(
-        Effect.flatMap(({ profile, commandResult }) =>
-          Effect.sync(() => setChromeProfileConnection(profile)).pipe(
-            Effect.andThen(
-              commandResult === null
-                ? Effect.void
-                : sessionController
-                    .tools(sessionId)
-                    .pipe(
-                      Effect.tap(({ tools }) =>
-                        Effect.sync(() =>
-                          setChromeToolsActive(getPiChromeToolState(tools.map((tool) => ({ ...tool })))),
-                        ),
-                      ),
-                    ),
-            ),
-            Effect.asVoid,
-          ),
-        ),
-      )
-    },
-    [chromeControlEnabled, chromeDetection, currentChromeRequirement, extensionStatuses, modelCwd],
-  )
-
   const handleSend = useCallback(
     (message: string, images?: AttachedImage[]) => {
       if ((!message.trim() && !images?.length) || state.agentRunning) return
@@ -578,30 +396,25 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         onSuccess: (requestId) => {
           dispatch({ _tag: "PromptSubmitted", requestId, message: uiMessage })
           withSession((sessionId) => {
-            runScoped(
-              ensurePromptChromeBinding(sessionId).pipe(
-                Effect.andThen(sessionController.prompt(sessionId, requestId, message, payloadImages)),
-              ),
-              {
-                onSuccess: (accepted) => {
-                  dispatch({
-                    _tag: "PromptAccepted",
-                    sessionId,
-                    requestId: accepted.requestId,
-                    runId: accepted.runId,
-                  })
-                  onSessionIndexChanged?.()
-                },
-                onFailure: (error) =>
-                  dispatch({ _tag: "OperationFailed", sessionId, kind: "prompt", message: messageFor(error) }),
+            runScoped(sessionController.prompt(sessionId, requestId, message, payloadImages), {
+              onSuccess: (accepted) => {
+                dispatch({
+                  _tag: "PromptAccepted",
+                  sessionId,
+                  requestId: accepted.requestId,
+                  runId: accepted.runId,
+                })
+                onSessionIndexChanged?.()
               },
-            )
+              onFailure: (error) =>
+                dispatch({ _tag: "OperationFailed", sessionId, kind: "prompt", message: messageFor(error) }),
+            })
           })
         },
         onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
       })
     },
-    [addNotice, ensurePromptChromeBinding, onSessionIndexChanged, runScoped, state.agentRunning, withSession],
+    [addNotice, onSessionIndexChanged, runScoped, state.agentRunning, withSession],
   )
 
   const handleBashCommand = useCallback(
@@ -844,7 +657,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const preset = getPresetFromTools(tools.map((tool) => ({ ...tool })))
           setToolPreset(preset)
           onToolPresetChange?.(preset)
-          setChromeToolsActive(getPiChromeToolState(tools.map((tool) => ({ ...tool }))))
         },
       })
     },
@@ -889,109 +701,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     })
     return slashCommands
   }, [runScoped, slashCommands])
-
-  const handleChromeControlChange = useCallback(
-    (enabled: boolean) => {
-      if (chromeControlPending) return
-      const requirement = currentChromeRequirement()
-      if (
-        enabled &&
-        (requirement?.requirement === "PackageLoaded" ||
-          requirement?.requirement === "ExtensionReachable" ||
-          requirement?.requirement === "ProtocolCompatible")
-      ) {
-        addNotice({ type: "error", message: chromeRequirementMessage(requirement) })
-        return
-      }
-      const extensionId = chromeExtensionId
-      if (enabled && (extensionId === null || chromeExtensionExpectation === null)) {
-        addNotice({ type: "error", message: "Pi Chrome Connector is unavailable in this browser profile" })
-        return
-      }
-      chromeControlSequenceRef.current += 1
-      const requestId = `chrome-control-${chromeControlSequenceRef.current}`
-      dispatch({ _tag: "ChromeControlRequested", requestId, enabled })
-      withSession((sessionId) => {
-        const control = (request: Parameters<typeof sessionController.chromeControl>[1]) =>
-          sessionController.chromeControl(sessionId, request)
-        const operation =
-          enabled && extensionId !== null && chromeExtensionExpectation !== null
-            ? control({ action: { _tag: "Authorize" } }).pipe(
-                Effect.andThen(attachSameProfileChromeSession(extensionId, chromeExtensionExpectation, control)),
-                Effect.flatMap(() =>
-                  getSameProfileChromeStatus(extensionId, chromeExtensionExpectation).pipe(
-                    Effect.map((profile) => ({ profile: asChromeConnection(profile) })),
-                  ),
-                ),
-              )
-            : control({ action: { _tag: "Revoke" } }).pipe(
-                Effect.map(() => ({
-                  profile: asChromeConnection({ connected: false }),
-                })),
-              )
-        runScoped(operation, {
-          onSuccess: ({ profile }) => {
-            setChromeProfileConnection(profile)
-            loadTools(sessionId)
-            dispatch({
-              _tag: "ChromeControlSucceeded",
-              requestId,
-            })
-            addNotice({ type: "success", message: enabled ? "Browser control enabled" : "Browser control disabled" })
-          },
-          onFailure: (error) => {
-            dispatch({ _tag: "ChromeControlFailed", requestId })
-            setChromeProfileConnection({ connected: false })
-            addNotice({ type: "error", message: messageFor(error) })
-          },
-        })
-      })
-    },
-    [
-      addNotice,
-      chromeControlPending,
-      chromeExtensionExpectation,
-      chromeExtensionId,
-      currentChromeRequirement,
-      loadTools,
-      runScoped,
-      withSession,
-    ],
-  )
-
-  const handleLoopControl = useCallback(
-    (action: LoopControlAction) => {
-      const sessionId = sessionIdRef.current
-      if (sessionId === null || loopControlPending) return
-      setLoopControlPending(true)
-      runScoped(sessionController.loopControl(sessionId, controlRequest(action)), {
-        onSuccess: () => {
-          setLoopControlPending(false)
-        },
-        onFailure: (error) => {
-          setLoopControlPending(false)
-          addNotice({ type: "error", message: messageFor(error) })
-        },
-      })
-    },
-    [addNotice, loopControlPending, runScoped],
-  )
-
-  const handleWeixinControl = useCallback(
-    (request: Parameters<typeof sessionController.weixinControl>[1]) => {
-      const sessionId = sessionIdRef.current
-      if (sessionId === null || weixinControlPending) return
-      setWeixinControlPending(true)
-      runScoped(sessionController.weixinControl(sessionId, request), {
-        onSuccess: () => setWeixinControlPending(false),
-        onFailure: (error) => {
-          setWeixinControlPending(false)
-          addNotice({ type: "error", message: messageFor(error) })
-        },
-      })
-    },
-    [addNotice, runScoped, weixinControlPending],
-  )
 
   const respondToExtensionUi = useCallback(
     (request: ExtensionDialog, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => {
@@ -1177,13 +886,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     extensionStatuses,
     extensionWidgets,
     respondToExtensionUi,
-    chromePackageLoaded:
-      chromeDetection.cwd !== modelCwd || chromeDetection._tag === "Loading" || chromeDetection._tag === "Failed"
-        ? null
-        : chromeDetection._tag === "Installed",
-    chromeControlEnabled,
-    chromeControlPending,
-    chromeProfileConnection,
     isAutoModelSelection: false,
     agentPhase,
     sessionIdRef,
@@ -1205,15 +907,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange,
-    handleChromeControlChange,
-    handleLoopControl,
-    loopControlPending,
-    handleWeixinControl,
-    weixinControlPending,
     handleThinkingLevelChange,
     loadTools,
     loadSlashCommands,
-    chromeExtensionId,
-    chromeExtensionDirectory,
   }
 }

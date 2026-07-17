@@ -31,6 +31,7 @@ const makeRepository = ({ withChanges = true } = {}) => {
   git(root, "init", "--initial-branch=main");
   git(root, "config", "user.name", "release-test");
   git(root, "config", "user.email", "release-test@example.invalid");
+  git(root, "config", "commit.gpgSign", "false");
   git(root, "remote", "add", "origin", remote);
   symlinkSync(join(projectRoot, "node_modules"), join(root, "node_modules"), "dir");
   mkdirSync(join(root, "tooling", "release"), { recursive: true });

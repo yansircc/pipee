@@ -1,172 +1,82 @@
 import {
   classifyChromeConnectorCompatibility,
   type ChromeStatusProjection,
-  type ChromeStatusRequirement as ChromeRequirement,
 } from "@pi-suite/companion-contracts/chrome";
 import type { BridgeStatusResponse } from "../protocol/schema.js";
-import type { SessionAuthorizationSnapshot } from "./session-runtime-owner.js";
 
-export type { ChromeRequirement, ChromeStatusProjection };
+export type { ChromeStatusProjection };
 
 export type BridgeStatusSnapshot =
   | Readonly<{ _tag: "Available"; status: BridgeStatusResponse }>
   | Readonly<{ _tag: "Error"; message: string }>;
 
-export type ChromeStatusTarget =
-  | Readonly<{ _tag: "Terminal" }>
-  | Readonly<{ _tag: "Web"; sessionKey: string }>;
-
-const authorizationProjection = (
-  session: SessionAuthorizationSnapshot,
-  now: number,
-): ChromeStatusProjection["authorization"] => {
-  if (session._tag !== "Active") return "locked";
-  if (session.authorization.state === "indefinite") return "indefinite";
-  return session.authorization.state === "timed" && session.authorization.deadline > now
-    ? { expiresAt: session.authorization.deadline }
-    : "locked";
-};
-
 export const projectChromeStatus = (
-  session: SessionAuthorizationSnapshot,
   bridgeSnapshot: BridgeStatusSnapshot,
-  now: number,
   extensionDirectory: string,
-  target: ChromeStatusTarget,
 ): ChromeStatusProjection => {
-  const authorization = authorizationProjection(session, now);
   if (bridgeSnapshot._tag === "Error") {
-    const readiness =
-      session._tag === "Poisoned" ? "error" : authorization === "locked" ? "locked" : "error";
     return {
       kind: "pi-chrome/status",
-      version: 2,
-      readiness,
-      authorization,
-      connection: "unknown",
+      version: 3,
+      state: "error",
       bridge: "error",
-      requirements: [],
-      errorMessage:
-        session._tag === "Poisoned"
-          ? "Chrome authorization ledger is fail-closed"
-          : bridgeSnapshot.message,
+      extensionDirectory,
+      errorMessage: bridgeSnapshot.message,
     };
   }
 
   const { status } = bridgeSnapshot;
-  const sessionRoute =
-    target._tag === "Web"
-      ? status.sessionRoutes.find((route) => route.sessionKey === target.sessionKey)
-      : undefined;
-  const connection: ChromeStatusProjection["connection"] =
-    target._tag === "Web"
-      ? sessionRoute === undefined
-        ? "unpaired"
-        : sessionRoute.availability === "expired"
-          ? "unavailable"
-          : sessionRoute.connected
-            ? "connected"
-            : "offline"
-      : !status.binding
-        ? "unpaired"
-        : status.connector.connected
-          ? "connected"
-          : "offline";
-  const terminalConnector = status.binding
-    ? status.connector.extensionId === undefined
-      ? status.binding
-      : status.connector
-    : undefined;
-  const selectedConnector = target._tag === "Web" ? sessionRoute?.connector : terminalConnector;
-  const compatibility = selectedConnector
-    ? classifyChromeConnectorCompatibility(status.extensionExpectation, selectedConnector)
-    : { _tag: "Unknown" as const };
-  const protocolRequirements: ReadonlyArray<ChromeRequirement> =
-    compatibility._tag === "Unknown"
-      ? []
-      : compatibility._tag === "Verified"
-        ? [{ requirement: "ProtocolCompatible", satisfied: true }]
-        : [
-            {
-              requirement: "ProtocolCompatible",
-              satisfied: false,
-              expectedVersion: compatibility.expected.displayVersion,
-              actualVersion: compatibility.actual.displayVersion,
-              mismatches: compatibility.mismatches,
-              remediation: {
-                type: "ReloadUnpackedExtension",
-                extensionId: compatibility.expected.extensionId,
-                directory: extensionDirectory,
-              },
-            },
-          ];
-  const shared: Omit<ChromeStatusProjection, "readiness" | "errorMessage"> = {
-    kind: "pi-chrome/status" as const,
-    version: 2 as const,
-    authorization,
-    connection,
-    bridge: status.mode === "server" || status.mode === "client" ? "running" : "stopped",
-    requirements: [
-      ...protocolRequirements,
-      connection === "connected"
-        ? { requirement: "ConnectorLive", satisfied: true }
-        : {
-            requirement: "ConnectorLive",
-            satisfied: false,
-            remediation: {
-              type: "OpenChromeProfile",
-              ...(selectedConnector
-                ? {
-                    connectorId: selectedConnector.connectorId,
-                    connectorLabel: selectedConnector.label,
-                  }
-                : {}),
-            },
-          },
-      authorization === "locked"
-        ? {
-            requirement: "Authorized",
-            satisfied: false,
-            remediation: { type: "AuthorizeSession" },
-          }
-        : { requirement: "Authorized", satisfied: true },
-    ],
-    ...(target._tag === "Web" && sessionRoute
-      ? {
-          connectorId: sessionRoute.connector.connectorId,
-          connectorLabel: sessionRoute.connector.label,
-          ...(sessionRoute.availability === "live"
-            ? { connectorExpiresAt: sessionRoute.expiresAt }
-            : {}),
-        }
-      : target._tag === "Terminal" && status.binding
-        ? {
-            connectorId: status.binding.connectorId,
-            connectorLabel: status.binding.label,
-          }
-        : {}),
-  };
-
-  if (session._tag === "Poisoned") {
+  const bridge = status.mode === "server" || status.mode === "client" ? "running" : "stopped";
+  if (bridge === "stopped") {
     return {
-      ...shared,
-      readiness: "error",
-      errorMessage: "Chrome authorization ledger is fail-closed",
-    };
-  }
-  if (compatibility._tag === "Incompatible") {
-    return {
-      ...shared,
-      readiness: "error",
-    };
-  }
-  if (authorization === "locked") return { ...shared, readiness: "locked" };
-  if (shared.bridge === "stopped") {
-    return {
-      ...shared,
-      readiness: "error",
+      kind: "pi-chrome/status",
+      version: 3,
+      state: "error",
+      bridge,
+      extensionDirectory,
       errorMessage: "Chrome bridge is stopped",
     };
   }
-  return { ...shared, readiness: connection === "connected" ? "ready" : "offline" };
+  if (!status.binding) {
+    return {
+      kind: "pi-chrome/status",
+      version: 3,
+      state: "waiting-for-extension",
+      bridge,
+      extensionDirectory,
+    };
+  }
+
+  const connector = status.connector.extensionId === undefined ? status.binding : status.connector;
+  const compatibility = classifyChromeConnectorCompatibility(
+    status.extensionExpectation,
+    connector,
+  );
+  const projectedConnector = {
+    id: status.binding.connectorId,
+    label: status.binding.label,
+    connected: status.connector.connected,
+    ...(status.connector.lastSeenAt === undefined
+      ? {}
+      : { lastSeenAt: status.connector.lastSeenAt }),
+  };
+  if (compatibility._tag === "Incompatible") {
+    return {
+      kind: "pi-chrome/status",
+      version: 3,
+      state: "error",
+      bridge,
+      connector: projectedConnector,
+      extensionDirectory,
+      errorMessage: `Chrome extension is incompatible: ${compatibility.mismatches.join(", ")}`,
+    };
+  }
+  return {
+    kind: "pi-chrome/status",
+    version: 3,
+    state: status.connector.connected ? "ready" : "offline",
+    bridge,
+    connector: projectedConnector,
+    extensionDirectory,
+  };
 };

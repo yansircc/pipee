@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { it } from "node:test";
 import { resolve } from "node:path";
-import { root } from "./lib.mjs";
+import { root, run } from "./lib.mjs";
 
 const workflow = readFileSync(resolve(root, ".github/workflows/release.yml"), "utf8");
 const containerPreflight = readFileSync(
@@ -41,6 +41,13 @@ it("publishes only the explicit independent package release set", () => {
   assert.doesNotMatch(publisher, /candidate is missing/);
   assert.match(workflow, /create-release-record\.mjs/);
   assert.match(workflow, /projection\.packages\.map\(p=>p\.tag\)/);
+});
+
+it("reports an ordinary nonzero child exit without dereferencing a null spawn error", () => {
+  assert.throws(
+    () => run(process.execPath, ["-e", "process.exit(7)"], { capture: true }),
+    /failed with exit 7/,
+  );
 });
 
 it("owns one Linux candidate and same-artifact macOS/Windows witnesses", () => {
@@ -105,7 +112,9 @@ it("shares one candidate pipeline between clean Linux preflight and Actions", ()
   assert.doesNotMatch(candidate, /node tooling\/release\/build-candidates\.mjs/);
   assert.match(containerPreflight, /git status.*--porcelain/);
   assert.match(containerPreflight, /@yansircc\/pi-chrome.*release:check/);
-  assert.match(containerPreflight, /target=\/source,readonly/);
+  assert.match(containerPreflight, /\["bundle", "create", bundlePath, "HEAD"\]/);
+  assert.match(containerPreflight, /target=\/input,readonly/);
+  assert.doesNotMatch(containerPreflight, /target=\/source,readonly/);
   assert.match(containerPreflight, /pnpm fetch --frozen-lockfile/);
   assert.match(containerPreflight, /pnpm install --offline --frozen-lockfile/);
   assert.match(containerPreflight, /preflight-image/);

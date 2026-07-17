@@ -140,67 +140,6 @@ type RuntimeEvaluation = {
   readonly exceptionDetails?: { readonly text?: string };
 };
 
-export const drivePairingPopup = async (
-  chrome: LaunchedChrome,
-  popupUrl: string,
-  pairingCapability: string,
-): Promise<void> => {
-  const webSocketUrl = await withTimeout(chrome.devToolsReady, "Chrome DevTools endpoint", 10_000);
-  const cdp = await openCdp(webSocketUrl);
-  try {
-    const { targetId } = await cdp.send<{ readonly targetId: string }>("Target.createTarget", {
-      url: popupUrl,
-    });
-    const { sessionId } = await cdp.send<{ readonly sessionId: string }>("Target.attachToTarget", {
-      targetId,
-      flatten: true,
-    });
-    await cdp.send("Runtime.enable", {}, sessionId);
-    await waitForCondition(async () => {
-      const evaluation = await cdp.send<RuntimeEvaluation>(
-        "Runtime.evaluate",
-        {
-          expression:
-            "document.readyState === 'complete' && !!document.querySelector('#challenge') && !document.querySelector('#confirm').disabled",
-          returnByValue: true,
-        },
-        sessionId,
-      );
-      return evaluation.result?.value === true;
-    }, "pairing popup to become interactive");
-    const expression = `(() => {
-      const label = document.querySelector('#label');
-      const challenge = document.querySelector('#challenge');
-      const confirm = document.querySelector('#confirm');
-      label.value = ${JSON.stringify("日常 Chrome Smoke")};
-      challenge.value = ${JSON.stringify(pairingCapability)};
-      confirm.click();
-      return true;
-    })()`;
-    await cdp.send("Runtime.evaluate", { expression, returnByValue: true }, sessionId);
-    const outcome = await waitForCondition(async () => {
-      const evaluation = await cdp.send<RuntimeEvaluation>(
-        "Runtime.evaluate",
-        {
-          expression:
-            "(() => { const message = document.querySelector('#message'); const panel = document.querySelector('#challenge-panel'); return { level: message?.dataset?.level ?? '', text: message?.textContent ?? '', hidden: !!panel?.hidden }; })()",
-          returnByValue: true,
-        },
-        sessionId,
-      );
-      const value = evaluation.result?.value;
-      if (typeof value !== "object" || value === null) return false;
-      const record = value as JsonObject;
-      return record.hidden === true || record.level === "error" ? record : false;
-    }, "pairing popup result");
-    if (outcome.level === "error") {
-      throw new SmokeFailure(`Pairing popup rejected the bridge: ${String(outcome.text)}`);
-    }
-  } finally {
-    cdp.close();
-  }
-};
-
 const extensionWorkerTargets = async (
   cdp: CdpClient,
   workerUrl: string,

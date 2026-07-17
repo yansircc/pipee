@@ -548,7 +548,7 @@ export const BridgeLive = Layer.effect(
         yield* store.clearAuth;
         yield* closeAccountOwner;
         yield* Ref.set(connection, { _tag: "Stopped" });
-        yield* Ref.set(lastError, Option.some("微信登录已失效，请执行 /weixin login"));
+        yield* Ref.set(lastError, Option.some("微信登录已失效，请让 Agent 重新连接微信"));
         yield* Effect.logWarning("微信登录凭证已失效", {
           operation: error.operation,
           code: error.code,

@@ -7,7 +7,7 @@ class TestCompanionError extends Data.TaggedError("TestCompanionError")<{
   readonly cause?: unknown
 }> {}
 
-it.effect("projects typed companion controls onto fixed private Pi commands", () =>
+it.effect("invokes an explicitly named Pi slash command", () =>
   Effect.gen(function* () {
     const calls: Array<readonly [string, string]> = []
     let activeName = ""
@@ -27,19 +27,9 @@ it.effect("projects typed companion controls onto fixed private Pi commands", ()
       (name, cause) => new TestCompanionError({ message: `failed:${name}`, cause }),
     )
 
-    yield* controller.controlWeixin({ action: { _tag: "Login" } })
-    yield* controller.controlChrome({ action: { _tag: "WebAssert", pairingId: "pair-1" } })
-    yield* controller.controlLoop({
-      kind: "pi-loop/control",
-      version: 1,
-      action: { _tag: "RunNow", id: "loop-1" },
-    })
+    yield* controller.invokeSlashCommand("inspect", "current")
 
-    expect(calls).toEqual([
-      ["weixin", "login"],
-      ["chrome", "web-assert pair-1"],
-      ["loop-control", '{"kind":"pi-loop/control","version":1,"action":{"_tag":"RunNow","id":"loop-1"}}'],
-    ])
+    expect(calls).toEqual([["inspect", "current"]])
   }),
 )
 
@@ -51,7 +41,7 @@ it.effect("fails closed when the fixed companion command is absent", () =>
       (name, cause) => new TestCompanionError({ message: `failed:${name}`, cause }),
     )
 
-    const error = yield* Effect.flip(controller.controlWeixin({ action: { _tag: "Status" } }))
-    expect(error.message).toBe("missing:weixin")
+    const error = yield* Effect.flip(controller.invokeSlashCommand("missing", ""))
+    expect(error.message).toBe("missing:missing")
   }),
 )

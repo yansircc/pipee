@@ -51,13 +51,8 @@ export type LoopRepository = {
   readonly removeAll: (
     retention: Loop["retention"],
   ) => Effect.Effect<ReadonlyArray<Loop>, RepositoryFailure | LeaseUnavailable>;
+  readonly replace: (id: LoopId, loop: Loop) => Effect.Effect<Loop, MutationError>;
   readonly arm: (id: LoopId, at: number) => Effect.Effect<Loop, MutationError>;
-  readonly updateInterval: (
-    id: LoopId,
-    periodMs: number,
-    prompt: string,
-    now: number,
-  ) => Effect.Effect<Loop, MutationError>;
   readonly setEnabled: (id: LoopId, enabled: boolean) => Effect.Effect<Loop, MutationError>;
   readonly claimNow: (
     id: LoopId,
@@ -281,22 +276,18 @@ export const makeLoopRepository = (
         }),
       );
 
-    const updateInterval = (id: LoopId, periodMs: number, prompt: string, now: number) =>
+    const replace = (id: LoopId, updated: Loop) =>
       mutationLock.withPermits(1)(
         Effect.gen(function* () {
           const current = yield* stateForId(id);
           const loop = current.loops.get(id);
           if (!loop) return yield* new LoopNotFound({ id });
-          if (loop._tag !== "Interval") {
-            return yield* new LoopStateConflict({ id, expected: "fixed-interval automation" });
+          if (updated.id !== id || updated.retention !== loop.retention) {
+            return yield* new LoopStateConflict({
+              id,
+              expected: "replacement with the same id and retention",
+            });
           }
-          const updated: Loop = {
-            ...loop,
-            prompt,
-            spec: { ...loop.spec, periodMs },
-            phase:
-              loop.phase._tag === "Waiting" ? { ...loop.phase, dueAt: now + periodMs } : loop.phase,
-          };
           const next = new Map(current.loops);
           next.set(id, updated);
           yield* commit(current, next, loop.retention);
@@ -420,8 +411,8 @@ export const makeLoopRepository = (
       get,
       remove,
       removeAll,
+      replace,
       arm: armLoop,
-      updateInterval,
       setEnabled,
       claimNow,
       claimDue,

@@ -244,7 +244,12 @@ const authenticatedRequest = (
     const clientNonce = freshBridgeClientNonce();
     const handshakeResponse = yield* bridgeRequest(
       handshakeRoute,
-      {},
+      handshakeRoute === "connectorHandshake"
+        ? {
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(connector),
+          }
+        : {},
       connector,
       {
         [CONNECTOR_CLIENT_NONCE_HEADER]: clientNonce,
@@ -337,26 +342,6 @@ export const connectorRequest = (
     timeoutMs,
     false,
     undefined,
-  );
-
-export const pairingRequest = (
-  init: ConnectorRequestInit,
-  connector: ProfileConnector,
-  pairingCapability: string,
-  pairingId?: string,
-  timeoutMs: number = CONNECTOR_REQUEST_DEADLINE_MS,
-): Effect.Effect<ConnectorHttpResponse, ConnectorHttpFailure> =>
-  authenticatedRequest(
-    "pairingHandshake",
-    "pairingConfirm",
-    "pairingServerProof",
-    "pairingRequestProof",
-    pairingCapability,
-    connector,
-    init,
-    timeoutMs,
-    true,
-    pairingId,
   );
 
 export const requireConnectorSuccess = (

@@ -3,15 +3,7 @@ import { Cause, Deferred, Effect, Exit, Fiber } from "effect"
 import { expect } from "vite-plus/test"
 import { makeSessionOperationSlot, PiOperationBusyError, type OperationKind } from "./session-operation-slot"
 
-const kinds: ReadonlyArray<OperationKind> = [
-  "prompt",
-  "bash",
-  "compaction",
-  "slash-command",
-  "loop-control",
-  "weixin-control",
-  "chrome-control",
-]
+const kinds: ReadonlyArray<OperationKind> = ["prompt", "bash", "compaction", "slash-command"]
 
 it.effect("allows exactly one owner across every operation kind", () =>
   Effect.gen(function* () {

@@ -6,8 +6,17 @@ export default Object.freeze({
     assets: Object.freeze([]),
   }),
   expected: Object.freeze({
-    commands: Object.freeze(["loop", "loop-control", "loop-kill", "loop-list"]),
-    tools: Object.freeze(["cron_create", "cron_delete", "cron_list", "schedule_wakeup"]),
+    commands: Object.freeze([]),
+    tools: Object.freeze([
+      "loop_create",
+      "loop_delete",
+      "loop_list",
+      "loop_pause",
+      "loop_resume",
+      "loop_run_now",
+      "loop_update",
+      "schedule_wakeup",
+    ]),
     handlers: Object.freeze(["agent_end", "agent_start", "session_shutdown", "session_start"]),
   }),
 });

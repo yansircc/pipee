@@ -202,7 +202,8 @@ export class ConnectorOwner {
             ? Effect.succeed(binding)
             : Effect.fail(
                 new ConnectorNotBound({
-                  message: "No Chrome profile is paired. Run /chrome onboard first.",
+                  message:
+                    "Chrome extension is not connected. Load the unpacked extension and retry.",
                 }),
               ),
         ),
@@ -218,7 +219,7 @@ export class ConnectorOwner {
         const { binding } = yield* Ref.get(this.state);
         if (!binding) {
           return yield* new ConnectorNotBound({
-            message: "No Chrome profile is paired. Run /chrome onboard first.",
+            message: "Chrome extension is not connected. Load the unpacked extension and retry.",
           });
         }
         if (binding.connectorId === expectedConnectorId) return binding;

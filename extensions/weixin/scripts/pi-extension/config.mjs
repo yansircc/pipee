@@ -6,8 +6,8 @@ export default Object.freeze({
     assets: Object.freeze([]),
   }),
   expected: Object.freeze({
-    commands: Object.freeze(["weixin"]),
-    tools: Object.freeze([]),
+    commands: Object.freeze([]),
+    tools: Object.freeze(["weixin_connect", "weixin_disconnect", "weixin_logout", "weixin_status"]),
     handlers: Object.freeze(["session_shutdown", "session_start"]),
   }),
 });

@@ -16,13 +16,12 @@ const extension = (
 ).default;
 assert.equal(typeof extension, "function", "archive extension must export a registration function");
 
-const commands = new Map();
 const handlers = new Map();
+const tools = new Map();
 const notifications = [];
 const statuses = new Map();
 const pi = {
-  registerCommand: (name, command) => commands.set(name, command),
-  registerTool: () => undefined,
+  registerTool: (tool) => tools.set(tool.name, tool),
   on: (name, handler) => handlers.set(name, handler),
 };
 const context = {
@@ -43,25 +42,26 @@ const context = {
 
 try {
   extension(pi);
-  const command = commands.get("weixin");
+  const status = tools.get("weixin_status");
+  const disconnect = tools.get("weixin_disconnect");
   const start = handlers.get("session_start");
   const shutdown = handlers.get("session_shutdown");
-  assert.ok(command && start && shutdown, "archive bridge/lifecycle surface is incomplete");
+  assert.ok(
+    status && disconnect && start && shutdown,
+    "archive Agent-first/lifecycle surface is incomplete",
+  );
 
   await start({}, context);
-  await command.handler("status", context);
-  assert.match(notifications.at(-1), /已停止，未登录，未绑定 session/);
-
-  await command.handler("start", context);
-  assert.match(notifications.at(-1), /等待启动，未登录，未绑定 session/);
+  const initial = await status.execute("release-status", {}, undefined, undefined, context);
+  assert.match(initial.content[0].text, /已停止，未登录，未绑定 session/);
   assert.equal(
     notifications.some((message) => message.includes("运行中")),
     false,
     "unconfigured archive bridge must not report a live connection",
   );
 
-  await command.handler("stop", context);
-  assert.match(notifications.at(-1), /已停止，未登录，未绑定 session/);
+  const stopped = await disconnect.execute("release-disconnect", {}, undefined, undefined, context);
+  assert.match(stopped.content[0].text, /已停止，未登录，未绑定 session/);
   await shutdown({}, context);
 
   assert.equal(

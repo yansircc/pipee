@@ -10,7 +10,7 @@ const structured = (kind: string, version: number, value: JsonValue) => {
 }
 
 test("registers each known companion discriminator exactly once", () => {
-  expect(companionRendererKeys).toEqual(["pi-loop/status@1", "pi-weixin/status@2", "pi-chrome/status@2"])
+  expect(companionRendererKeys).toEqual(["pi-loop/status@1", "pi-weixin/status@2", "pi-chrome/status@3"])
   expect(new Set(companionRendererKeys).size).toBe(companionRendererKeys.length)
 })
 
@@ -32,14 +32,6 @@ test("renders explicit incompatible and unknown fallbacks", () => {
         structured("third-party/status", 1, { state: "ready" }),
       ]}
       sessionId="session-1"
-      sessionBusy={false}
-      loopControlPending={false}
-      chromeControlPending={false}
-      chromeControlEnabled={false}
-      weixinControlPending={false}
-      onLoopControl={() => undefined}
-      onChromeControl={() => undefined}
-      onWeixinControl={() => undefined}
     />,
   )
   expect(html).toContain('data-companion-renderer="incompatible"')

@@ -69,12 +69,9 @@ import {
   SkillsResponse,
   SlashCommand,
   ToolEntry,
-  type ChromeControlRequestType,
   type ExtensionInteractionResponse as ExtensionInteractionResponseValue,
-  type LoopControlRequestType,
   type PluginsResponse as PluginsResponseValue,
   type RuntimeEnvelope as RuntimeEnvelopeValue,
-  type WeixinControlRequestType,
 } from "@/api/contract"
 import { appendLiveBashOutput } from "@/lib/bash-command"
 import {
@@ -213,13 +210,6 @@ export interface PiRuntime {
   readonly invokeSlashCommand: (
     name: string,
     args: string,
-  ) => Effect.Effect<void, PiAdapterError | PiOperationBusyError>
-  readonly controlLoop: (request: LoopControlRequestType) => Effect.Effect<void, PiAdapterError | PiOperationBusyError>
-  readonly controlWeixin: (
-    request: WeixinControlRequestType,
-  ) => Effect.Effect<void, PiAdapterError | PiOperationBusyError>
-  readonly controlChrome: (
-    request: ChromeControlRequestType,
   ) => Effect.Effect<void, PiAdapterError | PiOperationBusyError>
   readonly resolveInteraction: (
     interactionId: string,
@@ -1398,9 +1388,6 @@ const makeRuntime = (
         }),
       invokeSlashCommand: (name, args) =>
         withGeneratedOperation("slash-command", companions.invokeSlashCommand(name, args)),
-      controlLoop: (request) => withGeneratedOperation("loop-control", companions.controlLoop(request)),
-      controlWeixin: (request) => withGeneratedOperation("weixin-control", companions.controlWeixin(request)),
-      controlChrome: (request) => withGeneratedOperation("chrome-control", companions.controlChrome(request)),
       resolveInteraction: extensionUi.resolveInteraction,
       reload: Effect.tryPromise({
         try: () => inner.reload({ beforeSessionStart: () => inner.extensionRunner.setUIContext?.(uiContext, "rpc") }),

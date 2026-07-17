@@ -1,7 +1,7 @@
 {
   "name": "@yansircc/pi-chrome",
   "version": "0.2.0",
-  "description": "Let Pi use your existing signed-in Chrome profile after explicit authorization.",
+  "description": "Let Pi use your existing signed-in Chrome profile through Agent-first tools.",
   "keywords": [
     "agent",
     "agentic",
@@ -47,8 +47,7 @@
     "CHANGELOG.md",
     "CONTRIBUTING.md",
     "dist/browser-extension",
-    "docs",
-    "SECURITY.md"
+    "docs"
   ],
   "type": "module",
   "publishConfig": {

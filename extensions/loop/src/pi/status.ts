@@ -1,5 +1,4 @@
 import {
-  LoopControlRequest,
   LoopPhaseProjection,
   LoopProjection,
   LoopScheduleProjection,
@@ -8,13 +7,7 @@ import {
 } from "@pi-suite/companion-contracts/loop";
 import type { Loop } from "../domain/model.js";
 
-export {
-  LoopControlRequest,
-  LoopPhaseProjection,
-  LoopProjection,
-  LoopScheduleProjection,
-  LoopStatusProjection,
-};
+export { LoopPhaseProjection, LoopProjection, LoopScheduleProjection, LoopStatusProjection };
 
 const schedule = (loop: Loop): LoopProjectionType["schedule"] => {
   switch (loop._tag) {

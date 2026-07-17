@@ -1,22 +1,30 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
-import type { AuthorizationFailure } from "../core/errors.js";
 import { decodeAtomicToolRequest, type DomainRequest } from "../protocol/codec.js";
 import type { SessionContext } from "../protocol/schema.js";
 import { bridgeDeliveryTimeoutMs } from "../protocol/timeout.js";
 import { formatInputResult, formatPageResult, json } from "./format.js";
-import type { SessionScope } from "./session-runtime-owner.js";
 import { saveScreenshot } from "./screenshot.js";
 import type { ToolResult } from "./tools.js";
 
+export type ChromeToolScope = Readonly<{
+  context: ExtensionContext;
+  identity: Readonly<{ key: string; groupTitle: string }>;
+}>;
+
 type ToolAdmission<Claim> = Readonly<{
-  scope: SessionScope;
+  scope: ChromeToolScope;
   claim: Claim;
 }>;
 
-type ToolExecutionPort<Claim extends { readonly background: boolean }, E, R> = Readonly<{
-  admit: (context: ExtensionContext) => Effect.Effect<ToolAdmission<Claim>, AuthorizationFailure>;
+type ToolExecutionPort<
+  Claim extends { readonly background: boolean },
+  AdmissionError,
+  E,
+  R,
+> = Readonly<{
+  admit: (context: ExtensionContext) => Effect.Effect<ToolAdmission<Claim>, AdmissionError>;
   send: (
     claim: Claim,
     request: DomainRequest,
@@ -45,7 +53,7 @@ const normalizeRequest = (request: DomainRequest, context: ExtensionContext) =>
   });
 
 const sessionFor = (
-  scope: SessionScope,
+  scope: ChromeToolScope,
   request: DomainRequest,
   defaultBackground: boolean,
 ): SessionContext => {
@@ -57,7 +65,7 @@ const sessionFor = (
   return { ...scope.identity, foreground: !background };
 };
 
-const projectToolResult = (request: DomainRequest, value: unknown, scope: SessionScope) =>
+const projectToolResult = (request: DomainRequest, value: unknown, scope: ChromeToolScope) =>
   Effect.gen(function* () {
     if (request.domain === "page") {
       const operation = request.call.operation;
@@ -85,8 +93,13 @@ const projectToolResult = (request: DomainRequest, value: unknown, scope: Sessio
     } satisfies ToolResult;
   });
 
-export const executeChromeTool = <Claim extends { readonly background: boolean }, E, R>(
-  port: ToolExecutionPort<Claim, E, R>,
+export const executeChromeTool = <
+  Claim extends { readonly background: boolean },
+  AdmissionError,
+  E,
+  R,
+>(
+  port: ToolExecutionPort<Claim, AdmissionError, E, R>,
   toolName: string,
   input: unknown,
   context: ExtensionContext,

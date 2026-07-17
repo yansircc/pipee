@@ -23,8 +23,8 @@ Name unit tests `*.test.ts` in `test-suite/unit/`. Use Vitest and `@effect/vites
 
 ## Commit & Pull Request Guidelines
 
-Use concise Conventional Commit subjects such as `fix:`, `feat:`, `build:`, `style:`, or breaking `refactor!:`. Scope commits to one invariant. Pull requests should explain the failure class and structural fix, list verification, link issues, and include benchmark verdicts or screenshots for visible changes. Bug reports need `/chrome doctor`, package/extension versions, the exact tool call and result, and a minimal repro.
+Use concise Conventional Commit subjects such as `fix:`, `feat:`, `build:`, `style:`, or breaking `refactor!:`. Scope commits to one invariant. Pull requests should explain the failure class and structural fix, list verification, link issues, and include benchmark verdicts or screenshots for visible changes. Bug reports need `chrome_status`, package/extension versions, the exact tool call and result, and a minimal repro.
 
 ## Security & Compatibility
 
-Preserve existing-profile operation, explicit authorization, connector ownership, bounded JSON transport, and Chrome 120 compatibility. Never commit credentials, tokens, or profile data.
+Preserve existing-profile operation, automatic connector ownership, bounded JSON transport, and Chrome 120 compatibility. The product surface is Agent-first: no authorization commands, confirmation controls, or mutable Web UI. Never commit credentials, tokens, or profile data.

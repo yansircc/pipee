@@ -38,7 +38,7 @@ python3 -m http.server 8765
 
 Include:
 
-- `/chrome doctor` output
+- `chrome_status` output
 - `pi-chrome` version + extension version (the `doctor` output prints both)
 - The exact tool call + the result envelope you got
 - Page URL or a minimal repro page in `test-suite/`

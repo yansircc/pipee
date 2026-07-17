@@ -1,8 +1,5 @@
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSchema } from "effect/unstable/httpapi"
-import { ChromeControlRequest } from "@pi-suite/companion-contracts/chrome"
-import { LoopControlRequest } from "@pi-suite/companion-contracts/loop"
-import { WeixinControlRequest } from "@pi-suite/companion-contracts/weixin"
 
 // -----------------------------------------------------------------------------
 // Wire primitives
@@ -250,24 +247,15 @@ export const CompletedBashExecution = Schema.Struct({
 export type CompletedBashExecution = typeof CompletedBashExecution.Type
 
 export {
-  ChromeAuthorizationRequirement,
-  ChromeConnectorRequirement,
-  ChromeProtocolRequirement,
   ChromeStatusProjection,
-  ChromeStatusRequirement,
   type ChromeStatusProjection as ChromeStatusProjectionType,
-  type ChromeStatusRequirement as ChromeStatusRequirementType,
-  type ChromeControlRequest as ChromeControlRequestType,
 } from "@pi-suite/companion-contracts/chrome"
 export {
   WeixinBindingStatus,
   WeixinStatusProjection,
   type WeixinBindingStatus as WeixinBindingStatusType,
   type WeixinStatusProjection as WeixinStatusProjectionType,
-  type WeixinControlRequest as WeixinControlRequestType,
 } from "@pi-suite/companion-contracts/weixin"
-export { ChromeControlRequest, LoopControlRequest, WeixinControlRequest }
-export type { LoopControlRequest as LoopControlRequestType } from "@pi-suite/companion-contracts/loop"
 export const ExtensionStatusContribution = Schema.Union([
   Schema.TaggedStruct("Text", { key: Schema.String, text: Schema.String }),
   Schema.TaggedStruct("Structured", {
@@ -455,15 +443,7 @@ export const QueuedMessages = Schema.Struct({
   steering: Schema.Array(Schema.String),
   followUp: Schema.Array(Schema.String),
 })
-export const OperationKind = Schema.Literals([
-  "prompt",
-  "bash",
-  "compaction",
-  "slash-command",
-  "loop-control",
-  "weixin-control",
-  "chrome-control",
-])
+export const OperationKind = Schema.Literals(["prompt", "bash", "compaction", "slash-command"])
 export const OperationSlot = Schema.Union([
   Schema.TaggedStruct("Idle", {}),
   Schema.TaggedStruct("Starting", { kind: OperationKind, operationId: Schema.NonEmptyString }),
@@ -1094,24 +1074,6 @@ const SessionActionsApi = HttpApiGroup.make("sessionActions").add(
   HttpApiEndpoint.post("slashCommand", "/api/sessions/:id/actions/slash-command", {
     params: IdParam,
     payload: Schema.Struct({ name: Schema.NonEmptyString, args: Schema.String }),
-    success: Ok,
-    error: CommonErrors,
-  }),
-  HttpApiEndpoint.post("loopControl", "/api/sessions/:id/companions/loop/control", {
-    params: IdParam,
-    payload: LoopControlRequest,
-    success: Ok,
-    error: CommonErrors,
-  }),
-  HttpApiEndpoint.post("weixinControl", "/api/sessions/:id/companions/weixin/control", {
-    params: IdParam,
-    payload: WeixinControlRequest,
-    success: Ok,
-    error: CommonErrors,
-  }),
-  HttpApiEndpoint.post("chromeControl", "/api/sessions/:id/companions/chrome/control", {
-    params: IdParam,
-    payload: ChromeControlRequest,
     success: Ok,
     error: CommonErrors,
   }),

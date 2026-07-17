@@ -47,6 +47,7 @@
     "@effect/vitest": "catalog:",
     "@pi-suite/companion-contracts": "workspace:*",
     "@pi-suite/host-runtime": "workspace:*",
+    "@sinclair/typebox": "0.34.41",
     "@types/cross-spawn": "catalog:",
     "@types/node": "^25.0.0",
     "@types/qrcode": "^1.5.6",

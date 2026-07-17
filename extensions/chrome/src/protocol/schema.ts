@@ -236,7 +236,7 @@ export const PairingState = Schema.Struct({
 
 export const PairingConfirmRequest = Schema.Struct({ connector: ProfileConnector });
 
-export const PairingConfirmResponse = Schema.Union([
+const PairingConfirmResponse = Schema.Union([
   Schema.Struct({ ok: Schema.Literal(true), connector: PublicConnector }),
   Schema.Struct({ ok: Schema.Literal(false), error: Schema.String }),
 ]);
@@ -462,7 +462,6 @@ export type BridgeStatusResponse = Schema.Schema.Type<typeof BridgeStatusRespons
 export type PairingExpectation = Schema.Schema.Type<typeof PairingExpectation>;
 export type PairingState = Schema.Schema.Type<typeof PairingState>;
 export type PairingConfirmRequest = Schema.Schema.Type<typeof PairingConfirmRequest>;
-export type PairingConfirmResponse = Schema.Schema.Type<typeof PairingConfirmResponse>;
 export type SystemCall = Schema.Schema.Type<typeof SystemCallSchema>;
 export type WireDomainRequest = Schema.Schema.Type<typeof WireDomainRequest>;
 export type WireCommand = Schema.Schema.Type<typeof WireCommand>;

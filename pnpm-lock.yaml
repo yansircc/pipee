@@ -301,6 +301,9 @@ importers:
       '@pi-suite/host-runtime':
         specifier: workspace:*
         version: link:../../packages/host-runtime
+      '@sinclair/typebox':
+        specifier: 0.34.41
+        version: 0.34.41
       '@types/cross-spawn':
         specifier: 'catalog:'
         version: 6.0.6

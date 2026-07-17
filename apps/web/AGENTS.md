@@ -169,7 +169,10 @@ Pi behaviors that must remain intact:
 
 ### pi-chrome route ownership
 
-Chrome routing is session-owned, not prompt-owned. The browser completes prepare → `web-attach` → browser confirmation → `web-assert`; failed confirmation compensates with `web-detach`. Authorization status does not prove a live connector. Offline/expired Web routing must not silently fall back to Terminal; `/chrome revoke` is explicit detach.
+Chrome execution is Agent-first. Pi Web renders the extension-owned status projection and exposes no
+Chrome mutation route, permission toggle, or same-profile attachment protocol. The Pi extension owns
+the active session scope and admits typed tools only when its automatically registered connector is
+live.
 
 ## File/worktree boundary
 
