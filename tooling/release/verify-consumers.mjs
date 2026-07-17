@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { root, run, suiteConfig } from "./lib.mjs"
+import { root, run, runAsync, suiteConfig } from "./lib.mjs"
 
 run("node", ["tooling/release/verify-candidates.mjs"])
 
@@ -19,9 +19,13 @@ const packages = suiteConfig().packages.map((entry) => {
   }
 })
 
-for (const entry of packages.filter(({ id }) => id !== "web")) {
-  run("pnpm", ["--filter", entry.name, "run", "release:archive-check", "--", entry.archive])
-}
+await Promise.all(
+  packages
+    .filter(({ id }) => id !== "web")
+    .map((entry) =>
+      runAsync("pnpm", ["--filter", entry.name, "run", "release:archive-check", "--", entry.archive]),
+    ),
+)
 
 const web = packages.find(({ id }) => id === "web")
 assert.ok(web)
@@ -34,19 +38,19 @@ run("node", [
   web.archive,
 ])
 
-const verifyCombinedInstall = (consumer) => {
+const verifyCombinedInstall = async (consumer) => {
   const directory = mkdtempSync(join(tmpdir(), `pi-suite-${consumer}-consumer-`))
   try {
     if (consumer === "npm") {
-      run("npm", ["init", "-y"], { cwd: directory })
-      run("npm", ["install", ...packages.map(({ archive }) => archive)], { cwd: directory })
+      await runAsync("npm", ["init", "-y"], { cwd: directory })
+      await runAsync("npm", ["install", ...packages.map(({ archive }) => archive)], { cwd: directory })
     } else {
       writeFileSync(join(directory, "package.json"), '{"private":true}\n')
       writeFileSync(
         join(directory, "pnpm-workspace.yaml"),
         'allowBuilds:\n  "@google/genai": false\n  msgpackr-extract: false\n  protobufjs: false\n',
       )
-      run("pnpm", ["add", ...packages.map(({ archive }) => archive)], { cwd: directory })
+      await runAsync("pnpm", ["add", ...packages.map(({ archive }) => archive)], { cwd: directory })
     }
     for (const entry of packages) {
       const manifest = JSON.parse(
@@ -71,6 +75,5 @@ const verifyCombinedInstall = (consumer) => {
   }
 }
 
-verifyCombinedInstall("npm")
-verifyCombinedInstall("pnpm")
+await Promise.all([verifyCombinedInstall("npm"), verifyCombinedInstall("pnpm")])
 process.stdout.write("Verified raw Pi loading, pi-web runtime, and combined npm/pnpm consumers.\n")

@@ -15,6 +15,11 @@ const candidatePipeline = readFileSync(
 );
 const releaseLib = readFileSync(resolve(root, "tooling/release/lib.mjs"), "utf8");
 const classifier = readFileSync(resolve(root, "tooling/release/classify.mjs"), "utf8");
+const webConfig = readFileSync(resolve(root, "apps/web/vite.config.ts"), "utf8");
+const consumerVerifier = readFileSync(
+  resolve(root, "tooling/release/verify-consumers.mjs"),
+  "utf8",
+);
 
 it("owns one Linux candidate and same-artifact macOS/Windows witnesses", () => {
   assert.match(workflow, /pull_request:/);
@@ -79,7 +84,9 @@ it("shares one candidate pipeline between clean Linux preflight and Actions", ()
   assert.match(containerPreflight, /git status.*--porcelain/);
   assert.match(containerPreflight, /@yansircc\/pi-chrome.*release:check/);
   assert.match(containerPreflight, /target=\/source,readonly/);
-  assert.match(containerPreflight, /pnpm install --frozen-lockfile/);
+  assert.match(containerPreflight, /pnpm fetch --frozen-lockfile/);
+  assert.match(containerPreflight, /pnpm install --offline --frozen-lockfile/);
+  assert.match(containerPreflight, /preflight-image/);
   assert.match(containerPreflight, /candidate-pipeline\.mjs full/);
 });
 
@@ -104,6 +111,18 @@ it("keeps source classification install-free", () => {
   assert.doesNotMatch(classifier, /from "\.\/lib\.mjs"|from "cross-spawn"/);
   assert.match(classifier, /execFileSync\("git", args/);
   assert.doesNotMatch(classifyJob, /pnpm install|setup-node|pnpm\/action-setup/);
+});
+
+it("keeps source quality distinct from the one production candidate", () => {
+  const verifyTask = webConfig.match(/"ci:verify": \{[\s\S]*?\n      \},/)?.[0] ?? "";
+  assert.match(verifyTask, /pnpm test:e2e:run/);
+  assert.doesNotMatch(verifyTask, /pnpm build|pnpm test:package/);
+});
+
+it("parallelizes only independent candidate consumers", () => {
+  assert.match(consumerVerifier, /await Promise\.all\([\s\S]*?release:archive-check/);
+  assert.match(consumerVerifier, /run\("node", \[[\s\S]*?apps\/web\/scripts\/test-package\.mjs/);
+  assert.match(consumerVerifier, /Promise\.all\(\[verifyCombinedInstall\("npm"\), verifyCombinedInstall\("pnpm"\)\]\)/);
 });
 
 it("keeps OIDC publish and public propagation in separate jobs", () => {

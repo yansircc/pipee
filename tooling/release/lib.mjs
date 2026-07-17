@@ -28,5 +28,24 @@ export const run = (command, args, options = {}) => {
   return result.stdout ?? ""
 }
 
+export const runAsync = (command, args, options = {}) =>
+  new Promise((resolvePromise, reject) => {
+    const child = crossSpawn(command, args, {
+      cwd: options.cwd ?? root,
+      env: options.env ?? process.env,
+      stdio: "inherit",
+    })
+    child.once("error", reject)
+    child.once("exit", (code, signal) => {
+      if (code === 0) resolvePromise()
+      else
+        reject(
+          new Error(
+            `${command} ${args.join(" ")} failed with ${signal === null ? `exit ${code}` : `signal ${signal}`}`,
+          ),
+        )
+    })
+  })
+
 export const sha512Integrity = (bytes) =>
   `sha512-${createHash("sha512").update(bytes).digest("base64")}`
