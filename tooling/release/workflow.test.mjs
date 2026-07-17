@@ -71,6 +71,7 @@ it("shares one candidate pipeline between clean Linux preflight and Actions", ()
   assert.doesNotMatch(candidate, /release:check/);
   assert.doesNotMatch(candidate, /node tooling\/release\/build-candidates\.mjs/);
   assert.match(containerPreflight, /git status.*--porcelain/);
+  assert.match(containerPreflight, /@yansircc\/pi-chrome.*release:check/);
   assert.match(containerPreflight, /target=\/source,readonly/);
   assert.match(containerPreflight, /pnpm install --frozen-lockfile/);
   assert.match(containerPreflight, /candidate-pipeline\.mjs full/);

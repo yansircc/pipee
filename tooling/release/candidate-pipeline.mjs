@@ -11,7 +11,6 @@ const prepareSource = (source) => {
 const verifyLocalSource = (source) => {
   prepareSource(source);
   run("pnpm", ["verify"]);
-  run("pnpm", ["--filter", "@yansircc/pi-chrome", "run", "release:check"]);
 };
 
 const verifyReleaseSource = (source) => {
