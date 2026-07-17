@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { it } from "node:test";
@@ -20,6 +28,7 @@ const makeRepository = () => {
   git(root, "config", "user.name", "release-test");
   git(root, "config", "user.email", "release-test@example.invalid");
   git(root, "remote", "add", "origin", remote);
+  symlinkSync(join(projectRoot, "node_modules"), join(root, "node_modules"), "dir");
   mkdirSync(join(root, "tooling", "release"), { recursive: true });
   mkdirSync(join(root, "release"), { recursive: true });
   for (const file of ["build-candidates.mjs", "lib.mjs", "prepare.mjs", "release-record.mjs", "version.mjs"]) {
@@ -45,7 +54,10 @@ const makeRepository = () => {
     version: "0.5.7",
     private: true,
   });
-  writeFileSync(join(root, ".gitignore"), "release/candidate.json\nrelease/candidates/\n");
+  writeFileSync(
+    join(root, ".gitignore"),
+    "node_modules/\nrelease/candidate.json\nrelease/candidates/\n",
+  );
   return { root, remote };
 };
 const commitAll = (root, message) => {
