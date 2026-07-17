@@ -3,8 +3,10 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { setTimeout } from "node:timers/promises";
 import { root, run, suiteConfig } from "./lib.mjs";
-import { classifyRegistryLookup, requireRegistryIntegrity } from "./registry-state.mjs";
+import { waitForRegistrySet } from "./public-registry.mjs";
+import { classifyRegistryLookup } from "./registry-state.mjs";
 
 const candidate = JSON.parse(readFileSync(resolve(root, "release/candidate.json"), "utf8"));
 assert.equal(candidate.releasable, true, "public acceptance requires a releasable candidate");
@@ -12,21 +14,31 @@ assert.equal(candidate.releasable, true, "public acceptance requires a releasabl
 const packages = suiteConfig().packages.flatMap((entry) => {
   const artifact = candidate.artifacts[entry.id];
   if (!artifact) return [];
-  const lookup = spawnSync(
-    "npm",
-    ["view", `${artifact.name}@${artifact.version}`, "dist.integrity", "--json"],
-    {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
-  requireRegistryIntegrity(classifyRegistryLookup(lookup), artifact.integrity);
   return [
-    { ...entry, version: artifact.version, coordinate: `${artifact.name}@${artifact.version}` },
+    {
+      ...entry,
+      version: artifact.version,
+      coordinate: `${artifact.name}@${artifact.version}`,
+      artifact,
+    },
   ];
 });
 assert.ok(packages.length > 0, "public acceptance requires at least one selected package");
+
+const registryIntegrity = (artifact) =>
+  classifyRegistryLookup(
+    spawnSync("npm", ["view", `${artifact.name}@${artifact.version}`, "dist.integrity", "--json"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }),
+  );
+
+await waitForRegistrySet({
+  artifacts: packages.map(({ artifact }) => artifact),
+  lookup: registryIntegrity,
+  wait: () => setTimeout(10_000),
+});
 
 const verifyConsumer = (consumer) => {
   const directory = mkdtempSync(join(tmpdir(), `pi-suite-public-${consumer}-`));

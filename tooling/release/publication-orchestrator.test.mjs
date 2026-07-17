@@ -23,19 +23,13 @@ it("preflights the whole Suite before the first irreversible publication", () =>
   assert.deepEqual(published, []);
 });
 
-it("reuses exact packages, publishes only missing packages, then proves all integrities", () => {
-  const registry = new Map([[web.name, web.integrity]]);
+it("reuses exact packages and publishes only missing packages", () => {
   const published = [];
   const result = publishCandidateSet({
     artifacts: [web, loop],
-    lookup: ({ name }) => {
-      const integrity = registry.get(name);
-      return integrity === undefined ? { _tag: "Missing" } : { _tag: "Present", integrity };
-    },
-    publish: ({ name, integrity }) => {
-      published.push(name);
-      registry.set(name, integrity);
-    },
+    lookup: ({ name }) =>
+      name === web.name ? { _tag: "Present", integrity: web.integrity } : { _tag: "Missing" },
+    publish: ({ name }) => published.push(name),
   });
 
   assert.deepEqual(published, [loop.name]);
@@ -43,4 +37,21 @@ it("reuses exact packages, publishes only missing packages, then proves all inte
     { name: web.name, decision: "Reuse" },
     { name: loop.name, decision: "Publish" },
   ]);
+});
+
+it("does not make publication depend on immediate registry propagation", () => {
+  let lookups = 0;
+  const published = [];
+
+  publishCandidateSet({
+    artifacts: [web],
+    lookup: () => {
+      lookups += 1;
+      return { _tag: "Missing" };
+    },
+    publish: ({ name }) => published.push(name),
+  });
+
+  assert.equal(lookups, 1);
+  assert.deepEqual(published, [web.name]);
 });
