@@ -1,13 +1,11 @@
 export type NoticeType = "info" | "success" | "warning" | "error"
 export type NoticeSource = "app" | "extension"
-export type NoticeDismissMode = "auto" | "manual"
 
 export type NoticeItem = {
   id: string
   message: string
   type: NoticeType
   source: NoticeSource
-  dismissMode: NoticeDismissMode
   exiting?: boolean
 }
 
@@ -24,28 +22,21 @@ export type NoticeAction =
 export const MAX_VISIBLE_NOTICES = 4
 export const NOTICE_AUTO_DISMISS_MS = 6000
 
-export function getNoticeDismissMode(type: NoticeType, source: NoticeSource): NoticeDismissMode {
-  return source === "extension" || type === "warning" || type === "error" ? "manual" : "auto"
-}
-
 export function createNotice(input: {
   id: string
   message: string
   type: NoticeType
   source: NoticeSource
 }): NoticeItem {
-  return {
-    ...input,
-    dismissMode: getNoticeDismissMode(input.type, input.source),
-  }
+  return input
 }
 
 function markExiting(notices: NoticeItem[], id: string): NoticeItem[] {
   return notices.map((notice) => (notice.id === id && !notice.exiting ? { ...notice, exiting: true } : notice))
 }
 
-function oldestAutoNotice(notices: NoticeItem[]): NoticeItem | undefined {
-  return notices.find((notice) => notice.dismissMode === "auto" && !notice.exiting)
+function oldestNotice(notices: NoticeItem[]): NoticeItem | undefined {
+  return notices.find((notice) => !notice.exiting)
 }
 
 function fillVisibleNotices(visible: NoticeItem[], pending: NoticeItem[]): NoticeState {
@@ -67,21 +58,18 @@ export function noticeReducer(state: NoticeState, action: NoticeAction): NoticeS
         return state
       }
       const { visible, pending } = state
-      if (visible.length < MAX_VISIBLE_NOTICES && !visible.some((notice) => notice.exiting)) {
+      if (visible.some((notice) => notice.exiting)) {
+        return { visible, pending: [...pending, action.notice] }
+      }
+      if (visible.length < MAX_VISIBLE_NOTICES) {
         return { visible: [...visible, action.notice], pending }
       }
 
-      const evictable = oldestAutoNotice(visible)
-      if (evictable) {
-        return {
-          visible: markExiting(visible, evictable.id),
-          pending: [...pending, action.notice],
-        }
+      const evictable = visible[0]!
+      return {
+        visible: markExiting(visible, evictable.id),
+        pending: [...pending, action.notice],
       }
-
-      return action.notice.dismissMode === "manual"
-        ? { visible, pending: [...pending, action.notice] }
-        : { visible, pending }
     }
     case "dismiss":
       return { ...state, visible: markExiting(state.visible, action.id) }
@@ -96,5 +84,5 @@ export function noticeReducer(state: NoticeState, action: NoticeAction): NoticeS
 }
 
 export function getNextAutoDismissNotice(state: NoticeState): NoticeItem | undefined {
-  return oldestAutoNotice(state.visible)
+  return oldestNotice(state.visible)
 }

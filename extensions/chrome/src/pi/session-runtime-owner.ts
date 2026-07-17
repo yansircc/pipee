@@ -147,19 +147,22 @@ export class SessionRuntimeOwner {
     if (
       (this.state._tag !== "Active" && this.state._tag !== "Poisoned") ||
       this.state.sessionManager !== context.sessionManager ||
-      this.state.identity.key !== identity.key ||
-      this.state.identity.groupTitle !== identity.groupTitle
+      this.state.identity.key !== identity.key
     ) {
       return undefined;
+    }
+    if (this.state.identity.groupTitle !== identity.groupTitle) {
+      this.state = { ...this.state, identity };
     }
     return scopeOf(this.state);
   }
 
   projectPoison(scope: SessionScope): boolean {
-    if (!this.matches(scope)) return false;
+    const current = this.state;
+    if (current._tag === "Inactive" || !this.matches(scope)) return false;
     const poison = this.poisonedSessions.get(scope.identity.key);
     if (!poison) return false;
-    this.state = { ...scope, _tag: "Poisoned", poison };
+    this.state = { ...scope, identity: current.identity, _tag: "Poisoned", poison };
     return true;
   }
 
@@ -168,7 +171,7 @@ export class SessionRuntimeOwner {
       this.state._tag !== "Inactive" &&
       this.state.epoch === scope.epoch &&
       this.state.sessionManager === scope.sessionManager &&
-      this.state.identity === scope.identity &&
+      this.state.identity.key === scope.identity.key &&
       this.state.capability === scope.capability
     );
   }
@@ -250,16 +253,18 @@ export class SessionRuntimeOwner {
   }
 
   private publishActive(scope: SessionScope, authorization: AuthorizationOwner): boolean {
-    if (!this.matches(scope)) return false;
-    this.state = { ...scope, _tag: "Active", authorization };
+    const current = this.state;
+    if (current._tag === "Inactive" || !this.matches(scope)) return false;
+    this.state = { ...scope, identity: current.identity, _tag: "Active", authorization };
     return true;
   }
 
   poison(scope: SessionScope, background: boolean): boolean {
     const poison = { background } satisfies SessionPoison;
     this.poisonedSessions.set(scope.identity.key, poison);
-    if (!this.matches(scope)) return false;
-    this.state = { ...scope, _tag: "Poisoned", poison };
+    const current = this.state;
+    if (current._tag === "Inactive" || !this.matches(scope)) return false;
+    this.state = { ...scope, identity: current.identity, _tag: "Poisoned", poison };
     return true;
   }
 

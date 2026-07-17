@@ -295,7 +295,7 @@ const SessionsLive = HttpApiBuilder.group(PiWebApi, "sessions", (handlers) =>
             filePath: runtime.sessionFile,
             info,
             leafId: null,
-            tree: [],
+            branchNodes: [],
             context: {
               messages: [],
               entryIds: [],
@@ -304,6 +304,7 @@ const SessionsLive = HttpApiBuilder.group(PiWebApi, "sessions", (handlers) =>
               model:
                 runtime.model === undefined ? null : { provider: runtime.model.provider, modelId: runtime.model.id },
             },
+            contextPage: { beforeEntryId: null, hasMoreBefore: false },
             runtime,
           }
         }),
@@ -338,10 +339,11 @@ const SessionsLive = HttpApiBuilder.group(PiWebApi, "sessions", (handlers) =>
         expose(
           repository.context(params.id, {
             leafId: query.leafId,
+            beforeEntryId: query.beforeEntryId,
             deferThinking: query.deferThinking === "1" || query.deferThinking === "true",
             deferMedia: query.deferMedia === "1" || query.deferMedia === "true",
           }),
-        ).pipe(Effect.map((context) => ({ context }))),
+        ),
       )
       .handle("thinking", ({ params, query }) =>
         expose(repository.thinking(params.id, query.entryId, query.blockIndex)).pipe(

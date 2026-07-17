@@ -118,6 +118,31 @@ test("renders the provider failure owned by an empty assistant message", async (
   await expect(page.getByRole("alert")).toContainText("Fixture provider timed out.")
 })
 
+test("follows live output until the user scrolls away and offers a return to latest", async ({ page }) => {
+  const sessionId = "00000000-0000-4000-8000-000000000003"
+  await page.goto(`/?session=${sessionId}`)
+  const scroller = page.getByTestId("chat-scroll-container")
+  await expect(scroller).toBeVisible()
+  await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+  await expect(page.getByRole("button", { name: "回到最新消息" })).toHaveCount(0)
+
+  await scroller.evaluate((element) => element.scrollTo({ top: 0 }))
+  await expect(page.getByRole("button", { name: "回到最新消息" })).toBeVisible()
+
+  const running = await mutate(page, `/api/sessions/${sessionId}/actions/bash`, {
+    id: "detached-scroll-output",
+    command: "for i in $(seq 1 40); do printf 'live-output-%s\\n' \"$i\"; sleep 0.02; done",
+    excludeFromContext: true,
+  })
+  expect(running.status).toBe(200)
+  await waitForBashEvent(page, sessionId, "detached-scroll-output", "BashFinished")
+  expect(await scroller.evaluate((element) => element.scrollTop)).toBeLessThan(2)
+
+  await page.getByRole("button", { name: "回到最新消息" }).click()
+  await expect(page.getByRole("button", { name: "回到最新消息" })).toHaveCount(0)
+  await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+})
+
 test("projects an active session before Pi persists its first message", async ({ page }) => {
   await page.goto("/")
   await mutate(page, "/api/workspace/cwd/validate", { cwd: fixtureWorkspace })
@@ -144,6 +169,14 @@ test("projects an active session before Pi persists its first message", async ({
     context: { messages: [], entryIds: [] },
     runtime: { sessionId },
   })
+  const tools = await page.evaluate(async (id) => {
+    const response = await fetch(`/api/sessions/${id}/tools`)
+    return { status: response.status, body: await response.json() }
+  }, sessionId)
+  expect(tools.status, JSON.stringify(tools.body)).toBe(200)
+  expect(tools.body.tools).toEqual(
+    expect.arrayContaining([expect.objectContaining({ name: "set_session_name", active: true })]),
+  )
 
   const removed = await mutate(page, `/api/sessions/${sessionId}`, {}, "DELETE")
   expect(removed.status).toBe(200)

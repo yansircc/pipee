@@ -5,6 +5,7 @@ import {
   createAgentSessionServices,
   DefaultPackageManager,
   DefaultResourceLoader,
+  defineTool,
   getAgentDir,
   getPackageDir,
   ModelRegistry,
@@ -18,6 +19,7 @@ import {
   type ResolvedPaths,
   type ResolvedResource,
 } from "@earendil-works/pi-coding-agent"
+import { Type } from "@earendil-works/pi-ai"
 import { completeSimple, getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat"
 import { ChromeExtensionExpectation } from "@pi-suite/companion-contracts/chrome"
 import {
@@ -64,7 +66,6 @@ import {
   RuntimeSnapshot,
   SessionEntry,
   SessionStats,
-  SessionTreeNode,
   SkillsResponse,
   SlashCommand,
   ToolEntry,
@@ -123,7 +124,6 @@ export interface PiSessionDocument {
   readonly parentSessionPath?: string
   readonly leafId: string | null
   readonly entries: ReadonlyArray<typeof SessionEntry.Type>
-  readonly tree: ReadonlyArray<SessionTreeNode>
   readonly thinkingLevel: string
   readonly model: { readonly provider: string; readonly modelId: string } | null
 }
@@ -572,13 +572,63 @@ const collectPluginResources = (
 }
 
 const createRpcRuntimeSession: CreateAgentSessionRuntimeFactory = (options) =>
-  createAgentSessionServices({ cwd: options.cwd, agentDir: options.agentDir }).then((services) =>
-    createAgentSessionFromServices({
+  createAgentSessionServices({ cwd: options.cwd, agentDir: options.agentDir }).then((services) => {
+    // Tools cannot execute until the completed session escapes this factory. The cell closes
+    // the construction cycle while keeping AgentSession.setSessionName as the sole event owner.
+    const sessionCell = {} as { current: AgentSessionLike }
+    return createAgentSessionFromServices({
       services,
       sessionManager: options.sessionManager,
       sessionStartEvent: options.sessionStartEvent,
-    }).then((result) => ({ ...result, services, diagnostics: services.diagnostics })),
-  )
+      customTools: [
+        makeAgentSessionNameTool(options.sessionManager, (name) => sessionCell.current.setSessionName(name)),
+      ],
+    }).then((result) => {
+      sessionCell.current = result.session as unknown as AgentSessionLike
+      return { ...result, services, diagnostics: services.diagnostics }
+    })
+  })
+
+export const normalizeAgentSessionName = (value: string): string =>
+  Array.from(value.replaceAll(/\s+/g, " ").trim()).slice(0, 30).join("")
+
+const makeAgentSessionNameTool = (sessionManager: SessionManager, setSessionName: (name: string) => void) =>
+  defineTool({
+    name: "set_session_name",
+    label: "Set session name",
+    description:
+      "Give the current unnamed Pi session a concise title in the same language as the user's current request.",
+    promptSnippet: "Name an unnamed session once with a concise title matching the user's language",
+    promptGuidelines: [
+      "At the beginning of the first user task in an unnamed session, call set_session_name once with a highly concise title that summarizes the goal and matches the primary language of the current user request.",
+      "For Chinese use roughly 4-16 Chinese characters; for English use roughly 3-6 short words; for mixed-language requests follow the dominant language. Never rename a session that already has a name.",
+    ],
+    parameters: Type.Object({
+      name: Type.String({ minLength: 1, maxLength: 30, description: "Concise title matching the user's language" }),
+    }),
+    async execute(_toolCallId, params) {
+      const existing = sessionManager.getSessionName()?.trim()
+      if (existing) {
+        return {
+          content: [{ type: "text" as const, text: `Session already named: ${existing}` }],
+          details: { changed: false, name: existing },
+        }
+      }
+      const name = normalizeAgentSessionName(params.name)
+      if (!name) {
+        return {
+          content: [{ type: "text" as const, text: "Session name must not be empty" }],
+          details: { changed: false, name },
+          isError: true,
+        }
+      }
+      setSessionName(name)
+      return {
+        content: [{ type: "text" as const, text: `Session named: ${name}` }],
+        details: { changed: true, name },
+      }
+    },
+  })
 
 export const normalizePiMessage = (message: unknown): unknown => {
   if (typeof message !== "object" || message === null) return message
@@ -627,25 +677,6 @@ const normalizeEntry = (entry: unknown): unknown => {
   if (typeof entry !== "object" || entry === null) return entry
   const value = entry as { readonly type?: unknown; readonly message?: unknown }
   return value.type === "message" ? { ...value, message: normalizePiMessage(value.message) } : value
-}
-
-export const normalizePiTree = (node: unknown): unknown => {
-  if (typeof node !== "object" || node === null) return node
-  const value = node as {
-    readonly entry?: unknown
-    readonly children?: unknown
-    readonly label?: unknown
-    readonly compressedEntryIds?: unknown
-  }
-  return {
-    entry: normalizeEntry(value.entry),
-    children: Array.isArray(value.children) ? value.children.map(normalizePiTree) : [],
-    ...(typeof value.label === "string" ? { label: value.label } : {}),
-    ...(Array.isArray(value.compressedEntryIds) &&
-    value.compressedEntryIds.every((entryId) => typeof entryId === "string")
-      ? { compressedEntryIds: value.compressedEntryIds }
-      : {}),
-  }
 }
 
 const patchExportHtml = (source: string): Effect.Effect<string, PiAdapterError> =>
@@ -740,7 +771,6 @@ const readSession = (filePath: string) =>
       "session.entries",
       manager.getEntries().map(normalizeEntry),
     )
-    const tree = yield* decode(Schema.Array(SessionTreeNode), "session.tree", manager.getTree().map(normalizePiTree))
     const header = manager.getHeader()
     const leafId = manager.getLeafId() ?? null
     const piContext = piBuildSessionContext(manager.getEntries() as Parameters<typeof piBuildSessionContext>[0], leafId)
@@ -753,7 +783,6 @@ const readSession = (filePath: string) =>
       parentSessionPath: header?.parentSession,
       leafId,
       entries,
-      tree,
       thinkingLevel: piContext.thinkingLevel,
       model: piContext.model ?? null,
     } satisfies PiSessionDocument

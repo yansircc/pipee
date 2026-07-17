@@ -212,6 +212,7 @@ const zhCN: Record<string, string> = {
   "Agent is running…": "Agent 正在运行…",
   "Message… Type / for commands, @ for files": "输入消息… 使用 / 调用命令，使用 @ 引用文件",
   "Steer now / queue follow-up...": "立即引导 / 排队后续消息…",
+  "Scroll to latest": "回到最新消息",
   "Built-in": "内置",
   Extensions: "扩展",
   Prompts: "提示词",

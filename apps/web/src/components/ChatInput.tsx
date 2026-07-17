@@ -21,7 +21,7 @@ import { useI18n } from "@/lib/i18n"
 import { parseBashCommand } from "@/lib/bash-command"
 import { DEFAULT_TOOL_PRESET, type ToolPreset } from "@/lib/tool-presets"
 import type { SameProfileChromeConnection } from "@/lib/chrome-control"
-import { firstUnsatisfiedChromeRequirement } from "@/lib/chrome-requirements"
+import { chromeStatusTargetsAnotherProfile, firstUnsatisfiedChromeRequirement } from "@/lib/chrome-requirements"
 import type { ChromeStatusProjection } from "@/api/contract"
 import { withApi, runApi, runBrowser } from "@/browser/api-client"
 import { BrowserPlatform } from "@/browser/browser-platform"
@@ -271,14 +271,18 @@ function BrowserControl({
   const [open, setOpen] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
+  const currentProfile =
+    profile?.connected === true ? { connectorId: profile.connectorId, connectorLabel: profile.connectorLabel } : null
   const firstRequirement = firstUnsatisfiedChromeRequirement({
     packageLoaded,
     extensionReachable: profile === null ? null : profile.connected,
     extensionId,
     extensionDirectory,
+    currentProfile,
     compatibility: profile?.connected === true ? profile.compatibility : { _tag: "Unknown" },
     status,
   })
+  const reconnectCurrentProfile = chromeStatusTargetsAnotherProfile(status, currentProfile)
   const expiresAt = status && typeof status.authorization === "object" ? status.authorization.expiresAt : null
 
   useEffect(() => {
@@ -315,13 +319,18 @@ function BrowserControl({
           ? { color: "#d49a00", label: locale === "zh-CN" ? "当前 Chrome 未加载扩展" : "Extension not reachable" }
           : firstRequirement?.requirement === "ProtocolCompatible"
             ? { color: "#d14343", label: locale === "zh-CN" ? "扩展与 package 不兼容" : "Extension/package mismatch" }
-            : status?.readiness === "offline"
-              ? { color: "#d49a00", label: t("Chrome not connected") }
-              : status?.readiness === "locked"
-                ? { color: "var(--text-dim)", label: t("Chrome not authorized") }
-                : status?.readiness === "error"
-                  ? { color: "#d14343", label: t("Chrome error") }
-                  : { color: "var(--text-dim)", label: t("Unknown") }
+            : reconnectCurrentProfile
+              ? {
+                  color: "#d49a00",
+                  label: locale === "zh-CN" ? "重新连接当前 Chrome profile" : "Reconnect current Chrome profile",
+                }
+              : status?.readiness === "offline"
+                ? { color: "#d49a00", label: t("Chrome not connected") }
+                : status?.readiness === "locked"
+                  ? { color: "var(--text-dim)", label: t("Chrome not authorized") }
+                  : status?.readiness === "error"
+                    ? { color: "#d14343", label: t("Chrome error") }
+                    : { color: "var(--text-dim)", label: t("Unknown") }
   const authorization =
     status?.authorization === "indefinite"
       ? t("Continuous authorization")
@@ -369,8 +378,12 @@ function BrowserControl({
           : "Copy extension path"
         : remediation?.type === "OpenChromeProfile"
           ? locale === "zh-CN"
-            ? "重试连接"
-            : "Retry connection"
+            ? reconnectCurrentProfile
+              ? "重新连接当前 Chrome profile"
+              : "重试连接"
+            : reconnectCurrentProfile
+              ? "Reconnect current Chrome profile"
+              : "Retry connection"
           : remediation?.type === "AuthorizeSession"
             ? locale === "zh-CN"
               ? "授权"
@@ -547,7 +560,9 @@ function BrowserControl({
           >
             <span style={{ color: "var(--text-dim)" }}>{t("Profile")}</span>
             <span style={{ color: "var(--text)", overflowWrap: "anywhere" }}>
-              {status?.connectorLabel ?? (profile?.connected ? profile.connectorLabel : t("Not connected"))}
+              {reconnectCurrentProfile && profile?.connected
+                ? profile.connectorLabel
+                : (status?.connectorLabel ?? (profile?.connected ? profile.connectorLabel : t("Not connected")))}
             </span>
             <span style={{ color: "var(--text-dim)" }}>{t("Connection")}</span>
             <span style={{ color: "var(--text)" }}>{connection}</span>

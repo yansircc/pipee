@@ -1110,6 +1110,20 @@ it("bounds the persisted target label at the ownership boundary", async () => {
   expect(targetMap[longSession.key]?.[0]?.label).toHaveLength(80);
 });
 
+it("projects a renamed Pi session onto its existing Chrome group", async () => {
+  const first = (await dispatchBrowserCommand(navigate)) as TabResult;
+  const renamed = { ...session, groupTitle: "Pi · 修复浏览器标题" };
+
+  const second = (await dispatchBrowserCommand({
+    ...navigate,
+    id: "navigate-after-rename",
+    session: renamed,
+  })) as TabResult;
+
+  expect(second.id).toBe(first.id);
+  expect(groups.get(second.groupId ?? -1)?.title).toBe(renamed.groupTitle);
+});
+
 it("never adopts a user tab when an owned tab shares its visual group", async () => {
   const groupedTab: MockTab = {
     id: 2,

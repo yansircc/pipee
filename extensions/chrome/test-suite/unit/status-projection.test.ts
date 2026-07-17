@@ -15,6 +15,8 @@ const active = (
 });
 
 const extensionDirectory = "/pi-chrome/dist/browser-extension";
+const terminalTarget = { _tag: "Terminal" } as const;
+const webTarget = (sessionKey: string) => ({ _tag: "Web", sessionKey }) as const;
 
 const bridge = (connected: boolean): BridgeStatusResponse => ({
   url: "http://127.0.0.1:17318",
@@ -54,6 +56,7 @@ describe("Chrome status projection", () => {
         { _tag: "Available", status: bridge(true) },
         1_000,
         extensionDirectory,
+        terminalTarget,
       ),
     ).toMatchObject({
       readiness: "ready",
@@ -68,10 +71,55 @@ describe("Chrome status projection", () => {
         { _tag: "Available", status: bridge(false) },
         1_000,
         extensionDirectory,
+        terminalTarget,
       ),
     ).toMatchObject({
       readiness: "offline",
       connection: "offline",
+    });
+  });
+
+  it("keeps an unbound Web target independent from a mismatched Terminal binding", () => {
+    const terminal = bridge(true);
+    const mismatched = {
+      ...terminal,
+      extensionExpectation: { ...terminal.extensionExpectation, displayVersion: "2.0.0" },
+    };
+    const web = projectChromeStatus(
+      active({ state: "locked" }),
+      { _tag: "Available", status: mismatched },
+      1_000,
+      extensionDirectory,
+      webTarget("session:web"),
+    );
+
+    expect(web).toMatchObject({
+      readiness: "locked",
+      authorization: "locked",
+      connection: "unpaired",
+      bridge: "running",
+    });
+    expect("connectorId" in web).toBe(false);
+    expect(web.requirements.some(({ requirement }) => requirement === "ProtocolCompatible")).toBe(
+      false,
+    );
+
+    const projectedTerminal = projectChromeStatus(
+      active({ state: "indefinite" }),
+      { _tag: "Available", status: mismatched },
+      1_000,
+      extensionDirectory,
+      terminalTarget,
+    );
+    expect(projectedTerminal).toMatchObject({
+      readiness: "error",
+      connection: "connected",
+      connectorId: terminal.binding?.connectorId,
+    });
+    expect(projectedTerminal.requirements[0]).toMatchObject({
+      requirement: "ProtocolCompatible",
+      satisfied: false,
+      mismatches: ["DisplayVersion"],
     });
   });
 
@@ -105,7 +153,7 @@ describe("Chrome status projection", () => {
         { _tag: "Available", status: { ...status, sessionRoutes: [sessionRoute] } },
         1_000,
         extensionDirectory,
-        "session:web",
+        webTarget("session:web"),
       ),
     ).toMatchObject({
       readiness: "ready",
@@ -171,7 +219,7 @@ describe("Chrome status projection", () => {
         bridgeSnapshot,
         1_000,
         extensionDirectory,
-        compatible.sessionKey,
+        webTarget(compatible.sessionKey),
       );
       expect(compatibleStatus).toMatchObject({
         readiness: "ready",
@@ -186,12 +234,13 @@ describe("Chrome status projection", () => {
         bridgeSnapshot,
         1_000,
         extensionDirectory,
-        incompatible.sessionKey,
+        webTarget(incompatible.sessionKey),
       );
       expect(incompatibleStatus).toMatchObject({
         readiness: "error",
         connectorId: incompatible.connector.connectorId,
       });
+      expect(incompatibleStatus).not.toHaveProperty("errorMessage");
       expect(incompatibleStatus.requirements[0]).toMatchObject({
         requirement: "ProtocolCompatible",
         satisfied: false,
@@ -223,7 +272,7 @@ describe("Chrome status projection", () => {
         { _tag: "Available", status: { ...status, sessionRoutes: [sessionRoute] } },
         1_000,
         extensionDirectory,
-        "session:web",
+        webTarget("session:web"),
       ),
     ).toMatchObject({
       readiness: "offline",
@@ -240,6 +289,7 @@ describe("Chrome status projection", () => {
         { _tag: "Available", status: bridge(true) },
         1_000,
         extensionDirectory,
+        terminalTarget,
       ),
     ).toMatchObject({
       readiness: "locked",
@@ -255,6 +305,7 @@ describe("Chrome status projection", () => {
         { _tag: "Available", status: bridge(true) },
         1_000,
         extensionDirectory,
+        terminalTarget,
       ),
     ).toMatchObject({
       readiness: "ready",
@@ -285,8 +336,10 @@ describe("Chrome status projection", () => {
         { _tag: "Available", status: { ...status, extensionExpectation: expectation } },
         1_000,
         extensionDirectory,
+        terminalTarget,
       );
       expect(projected).toMatchObject({ readiness: "error" });
+      expect(projected).not.toHaveProperty("errorMessage");
       expect(projected.requirements[0]).toEqual({
         requirement: "ProtocolCompatible",
         satisfied: false,
@@ -309,6 +362,7 @@ describe("Chrome status projection", () => {
         { _tag: "Error", message: "owner unreachable" },
         1_000,
         extensionDirectory,
+        terminalTarget,
       ),
     ).toMatchObject({
       readiness: "error",
@@ -321,6 +375,7 @@ describe("Chrome status projection", () => {
         { _tag: "Available", status: bridge(true) },
         1_000,
         extensionDirectory,
+        terminalTarget,
       ),
     ).toMatchObject({
       readiness: "error",

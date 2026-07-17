@@ -396,18 +396,17 @@ export const SessionEntry = Schema.Union([
 ])
 export type SessionEntry = typeof SessionEntry.Type
 
-export interface SessionTreeNode {
-  readonly entry: SessionEntry
-  readonly children: ReadonlyArray<SessionTreeNode>
-  readonly label?: string
-  readonly compressedEntryIds?: ReadonlyArray<string>
-}
-export const SessionTreeNode: Schema.Codec<SessionTreeNode> = Schema.Struct({
-  entry: SessionEntry,
-  children: Schema.Array(Schema.suspend((): Schema.Codec<SessionTreeNode> => SessionTreeNode)),
-  label: Schema.optionalKey(Schema.String),
-  compressedEntryIds: Schema.optionalKey(Schema.Array(Schema.String)),
+export const SessionBranchNode = Schema.Struct({
+  entryId: Schema.String,
+  parentNodeId: Schema.NullOr(Schema.String),
+  timestamp: Schema.String,
+  kind: Schema.String,
+  role: Schema.optionalKey(Schema.String),
+  label: Schema.String,
+  compressedCount: Schema.Int,
+  active: Schema.Boolean,
 })
+export type SessionBranchNode = typeof SessionBranchNode.Type
 
 export const SessionInfo = Schema.Struct({
   path: Schema.String,
@@ -439,6 +438,13 @@ export const SessionContext = Schema.Struct({
   model: Schema.NullOr(Schema.Struct({ provider: Schema.String, modelId: Schema.String })),
 })
 export type SessionContext = typeof SessionContext.Type
+
+export const SessionContextPage = Schema.Struct({
+  context: SessionContext,
+  beforeEntryId: Schema.NullOr(Schema.String),
+  hasMoreBefore: Schema.Boolean,
+})
+export type SessionContextPage = typeof SessionContextPage.Type
 
 export const ContextUsage = Schema.Struct({
   percent: Schema.NullOr(Schema.Number),
@@ -488,8 +494,12 @@ export const SessionSnapshot = Schema.Struct({
   filePath: Schema.String,
   info: Schema.NullOr(SessionInfo),
   leafId: Schema.NullOr(Schema.String),
-  tree: Schema.Array(SessionTreeNode),
+  branchNodes: Schema.Array(SessionBranchNode),
   context: SessionContext,
+  contextPage: Schema.Struct({
+    beforeEntryId: Schema.NullOr(Schema.String),
+    hasMoreBefore: Schema.Boolean,
+  }),
   runtime: Schema.NullOr(RuntimeSnapshot),
 })
 export type SessionSnapshot = typeof SessionSnapshot.Type
@@ -912,10 +922,11 @@ const SessionsApi = HttpApiGroup.make("sessions").add(
     params: IdParam,
     query: {
       leafId: Schema.optionalKey(Schema.String),
+      beforeEntryId: Schema.optionalKey(Schema.String),
       deferThinking: Schema.optionalKey(Schema.String),
       deferMedia: Schema.optionalKey(Schema.String),
     },
-    success: Schema.Struct({ context: SessionContext }),
+    success: SessionContextPage,
     error: CommonErrors,
   }),
   HttpApiEndpoint.get("thinking", "/api/sessions/:id/thinking", {

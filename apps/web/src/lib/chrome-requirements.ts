@@ -29,17 +29,35 @@ export interface ChromeRequirementFacts {
   readonly extensionReachable: boolean | null
   readonly extensionId: string | null
   readonly extensionDirectory: string | null
+  readonly currentProfile: Readonly<{ connectorId: string; connectorLabel: string }> | null
   readonly compatibility: ChromeCompatibility
   readonly status: ChromeStatusProjection | undefined
 }
 
-const remoteRequirementOrder = ["ProtocolCompatible", "ConnectorLive", "Authorized"] as const
+export const chromeStatusTargetsAnotherProfile = (
+  status: ChromeStatusProjection | undefined,
+  currentProfile: ChromeRequirementFacts["currentProfile"],
+): boolean =>
+  status?.connectorId !== undefined && currentProfile !== null && status.connectorId !== currentProfile.connectorId
 
 export const projectChromeRequirements = (facts: ChromeRequirementFacts): ReadonlyArray<ChromeRequirement> => {
   const remote = new Map(facts.status?.requirements.map((requirement) => [requirement.requirement, requirement]))
-  if (facts.compatibility._tag === "Verified") {
+  const routeTargetsAnotherProfile = chromeStatusTargetsAnotherProfile(facts.status, facts.currentProfile)
+  if (routeTargetsAnotherProfile) {
+    remote.delete("ProtocolCompatible")
+    remote.set("ConnectorLive", {
+      requirement: "ConnectorLive",
+      satisfied: false,
+      remediation: {
+        type: "OpenChromeProfile",
+        connectorId: facts.currentProfile?.connectorId,
+        connectorLabel: facts.currentProfile?.connectorLabel,
+      },
+    })
+  }
+  if (facts.currentProfile !== null && facts.compatibility._tag === "Verified") {
     remote.set("ProtocolCompatible", { requirement: "ProtocolCompatible", satisfied: true })
-  } else if (facts.compatibility._tag === "Incompatible") {
+  } else if (facts.currentProfile !== null && facts.compatibility._tag === "Incompatible") {
     remote.set("ProtocolCompatible", {
       requirement: "ProtocolCompatible",
       satisfied: false,
@@ -53,6 +71,11 @@ export const projectChromeRequirements = (facts: ChromeRequirementFacts): Readon
       },
     })
   }
+  const remoteRequirementOrder = routeTargetsAnotherProfile
+    ? (["ProtocolCompatible", "ConnectorLive", "Authorized"] as const)
+    : facts.status?.authorization === "locked"
+      ? (["ProtocolCompatible", "Authorized", "ConnectorLive"] as const)
+      : (["ProtocolCompatible", "ConnectorLive", "Authorized"] as const)
   const extensionUrl = facts.extensionId ? `chrome://extensions/?id=${facts.extensionId}` : "chrome://extensions/"
   return [
     {

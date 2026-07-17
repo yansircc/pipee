@@ -69,6 +69,21 @@ it("rejects stale epochs and structurally forged scopes", () => {
   expect(owner.publishRestored(admitted.scope, authorization())).toBe(false);
 });
 
+it("refreshes a display title without invalidating the session capability", () => {
+  const owner = new SessionRuntimeOwner();
+  const transition = owner.begin();
+  const admitted = owner.admit(transition.epoch, context("renamed"), identity("renamed"))!;
+  expect(owner.publishRestored(admitted.scope, authorization())).toBe(true);
+  const renamed = { ...admitted.scope.identity, groupTitle: "Pi · 浏览器标题收敛" };
+  const refreshedContext = {
+    cwd: admitted.scope.context.cwd,
+    sessionManager: admitted.scope.sessionManager,
+  } as ExtensionContext;
+
+  expect(owner.scopeFor(refreshedContext, renamed)?.identity).toEqual(renamed);
+  expect(owner.matches(admitted.scope)).toBe(true);
+});
+
 it("exposes poisoned authorization as a state, never as a nullable owner", () => {
   const owner = new SessionRuntimeOwner();
   const transition = owner.begin();
