@@ -5,11 +5,7 @@ import { join, resolve } from "node:path";
 import type { ConnectorRouteIdentity, ProfileConnector } from "../src/protocol/schema.js";
 import { EXTENSION_BUILD_GRAPH } from "./extension-build-graph.ts";
 import { exerciseAuthenticationAttacks } from "./smoke/authentication-attacks.ts";
-import {
-  drivePairingPopup,
-  restartExtensionWorker,
-  waitForBrowserEvent,
-} from "./smoke/cdp-client.ts";
+import { restartExtensionWorker, waitForBrowserEvent } from "./smoke/cdp-client.ts";
 import {
   assertNoProductionOrigin,
   buildSmokeExtension,
@@ -148,32 +144,17 @@ const runSmoke = async (options: ReturnType<typeof smokeOptions>): Promise<void>
       await assertNoProductionOrigin(extensionDirectory);
 
     chrome = await launchChrome(extensionDirectory, userDataDirectory, "about:blank");
-    await waitForBrowserEvent(
-      bridge,
-      chrome,
-      bridge.unpairedReady.promise,
-      "two stable unpaired connector handshakes",
-      15_000,
-    );
     const action = asObject(manifest.action, "extension action");
     const background = asObject(manifest.background, "extension background");
     assert.equal(typeof action.default_popup, "string");
     assert.equal(typeof background.service_worker, "string");
     const popupUrl = `chrome-extension://${expectedExtensionId}/${String(action.default_popup)}`;
     const workerUrl = `chrome-extension://${expectedExtensionId}/${String(background.service_worker)}`;
-    await drivePairingPopup(chrome, popupUrl, bridge.pairingCapability);
-    await waitForBrowserEvent(
-      bridge,
-      chrome,
-      bridge.pairingReady.promise,
-      "popup HMAC pairing confirmation",
-      15_000,
-    );
     const identity = await waitForBrowserEvent(
       bridge,
       chrome,
       bridge.identityReady.promise,
-      "the temporary profile connector",
+      "the automatically registered profile connector",
       15_000,
     );
     assert(

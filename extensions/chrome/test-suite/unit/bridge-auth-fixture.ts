@@ -50,7 +50,7 @@ const httpRequest = (url: string, init?: RequestInit) =>
     catch: (cause) => new BridgeAuthFixtureFailure({ message: `request failed: ${url}`, cause }),
   });
 
-export const issueBridgeChallenge = (
+const issueBridgeChallenge = (
   baseUrl: string,
   handshakeRoute: "connectorHandshake" | "pairingHandshake",
   serverDomain: ConnectorServerProofDomain,
@@ -66,8 +66,10 @@ export const issueBridgeChallenge = (
       headers: {
         ...extensionIdentityHeaders(connector),
         [CONNECTOR_CLIENT_NONCE_HEADER]: clientNonce,
+        ...(handshakeRoute === "connectorHandshake" ? { "content-type": "application/json" } : {}),
         ...(pairingId ? { [PAIRING_ID_HEADER]: pairingId } : {}),
       },
+      ...(handshakeRoute === "connectorHandshake" ? { body: JSON.stringify(connector) } : {}),
     });
     if (response.status !== 200) {
       return yield* new BridgeAuthFixtureFailure({
@@ -93,7 +95,7 @@ export const issueBridgeChallenge = (
     return { challenge, handshake } as const;
   });
 
-export const bridgeRequestProofHeaders = (
+const bridgeRequestProofHeaders = (
   routeName: BridgeRouteName,
   requestDomain: ConnectorRequestProofDomain,
   secret: string,

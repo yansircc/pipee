@@ -4,8 +4,8 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { layer as nodeServicesLayer, type NodeServices } from "@effect/platform-node/NodeServices";
-import { Type } from "@sinclair/typebox";
-import { Clock, Data, Effect, Exit, ManagedRuntime, Schema, Scope } from "effect";
+import { Type, type Static } from "@sinclair/typebox";
+import { Clock, Data, Effect, Exit, ManagedRuntime, Scope } from "effect";
 import { RuntimeLeaseProjection } from "@pi-suite/companion-contracts/runtime";
 import { loadLoopConfig } from "../application/config.js";
 import { makeLoopOperations, type LoopOperations } from "../application/operations.js";
@@ -13,8 +13,7 @@ import { makeLoopRepository, type LoopRepository } from "../application/reposito
 import { makeScheduler, PromptDeliveryFailure, type Scheduler } from "../application/scheduler.js";
 import { cronToHuman } from "../domain/cron.js";
 import type { Loop, LoopConfig, Occurrence } from "../domain/model.js";
-import { parseLoop } from "./parse-loop.js";
-import { LoopControlRequest, projectLoops } from "./status.js";
+import { projectLoops } from "./status.js";
 import { makeSessionLoopPersistence } from "./session-state.js";
 
 const runtime = ManagedRuntime.make(nodeServicesLayer);
@@ -117,11 +116,6 @@ const refreshStatus = (active: Session) =>
     ),
   );
 
-const decodeControl = (input: string) =>
-  Schema.decodeUnknownEffect(Schema.fromJsonString(LoopControlRequest), {
-    onExcessProperty: "error",
-  })(input);
-
 const stopSession = (pi: ExtensionAPI, active: Session) =>
   Scope.close(active.scope, Exit.succeed(undefined)).pipe(
     Effect.ensuring(Effect.sync(() => sessions.delete(pi as object))),
@@ -178,183 +172,138 @@ const startSession = (pi: ExtensionAPI, context: ExtensionContext) =>
 
 const registrations = new WeakSet<object>();
 
+const ScheduleParameters = Type.Union([
+  Type.Object({
+    kind: Type.Literal("interval"),
+    periodSeconds: Type.Number({ minimum: 1 }),
+    runImmediately: Type.Optional(Type.Boolean({ default: true })),
+  }),
+  Type.Object({
+    kind: Type.Literal("cron"),
+    expression: Type.String(),
+  }),
+  Type.Object({
+    kind: Type.Literal("once"),
+    delaySeconds: Type.Number({ minimum: 1 }),
+  }),
+  Type.Object({ kind: Type.Literal("dynamic") }),
+]);
+const DeleteTargetParameters = Type.Union([
+  Type.Object({ kind: Type.Literal("one"), id: Type.String() }),
+  Type.Object({ kind: Type.Literal("all") }),
+]);
+
+type ScheduleParameter = Static<typeof ScheduleParameters>;
+
+const scheduleInput = (schedule: ScheduleParameter) =>
+  schedule.kind === "interval"
+    ? { ...schedule, runImmediately: schedule.runImmediately ?? true }
+    : schedule;
+
 export default function piLoop(pi: ExtensionAPI): void {
   if (registrations.has(pi as object)) return;
   registrations.add(pi as object);
 
-  pi.registerCommand("loop", {
-    description: "Run a prompt now and continue on a fixed interval or model-selected wakeup",
-    handler(args, context) {
-      const parsed = parseLoop(args);
-      if (!parsed) {
-        if (context.hasUI) context.ui.notify("Usage: /loop [interval] <prompt>", "warning");
-        return run(Effect.void);
-      }
-      return run(
-        withSession(pi, (active) =>
-          (parsed._tag === "Fixed"
-            ? active.operations.createFixed(parsed.interval, parsed.prompt)
-            : active.operations.createDynamic(parsed.prompt)
-          ).pipe(
-            Effect.tap(() => active.scheduler.drain),
-            Effect.tap(() => refreshStatus(active)),
-            Effect.tap((loop) =>
-              Effect.sync(() => {
-                if (context.hasUI) context.ui.notify(`Loop ${loop.id} created`, "info");
-              }),
-            ),
-          ),
-        ).pipe(
-          Effect.catch((error) => notifyFailure(context, error)),
-          Effect.asVoid,
-        ),
-      );
-    },
-  });
-
-  pi.registerCommand("loop-list", {
-    description: "List active loops",
-    handler(_args, context) {
-      return run(
-        withSession(pi, (active) => active.operations.list).pipe(
-          Effect.tap((loops) =>
-            Effect.sync(() => {
-              if (context.hasUI) {
-                context.ui.notify(
-                  loops.length === 0 ? "No active loops" : loops.map(describeLoop).join("\n"),
-                  "info",
-                );
-              }
-            }),
-          ),
-          Effect.catch((error) => notifyFailure(context, error)),
-          Effect.asVoid,
-        ),
-      );
-    },
-  });
-
-  pi.registerCommand("loop-kill", {
-    description: "Cancel a loop by id, or all loops",
-    handler(args, context) {
-      const id = args.trim();
-      if (!id) {
-        if (context.hasUI) context.ui.notify("Usage: /loop-kill <id|all>", "warning");
-        return run(Effect.void);
-      }
-      return run(
-        withSession(pi, (active) =>
-          Effect.gen(function* () {
-            if (id === "all") yield* active.operations.removeAll;
-            else yield* active.operations.remove(id);
-          }).pipe(
-            Effect.ensuring(refreshStatus(active)),
-            Effect.tap(() =>
-              Effect.sync(() => {
-                if (context.hasUI) context.ui.notify(`Cancelled ${id}`, "info");
-              }),
-            ),
-          ),
-        ).pipe(
-          Effect.catch((error) => notifyFailure(context, error)),
-          Effect.asVoid,
-        ),
-      );
-    },
-  });
-
-  pi.registerCommand("loop-control", {
-    description: "Typed pi-web control surface for the current session automation",
-    handler(args, context) {
-      return run(
-        withSession(pi, (active) =>
-          Effect.gen(function* () {
-            const request = yield* decodeControl(args);
-            switch (request.action._tag) {
-              case "CreateInterval":
-                yield* active.operations.createInterval(
-                  request.action.periodMs,
-                  request.action.prompt,
-                  false,
-                );
-                break;
-              case "UpdateInterval":
-                yield* active.operations.updateInterval(
-                  request.action.id,
-                  request.action.periodMs,
-                  request.action.prompt,
-                );
-                break;
-              case "SetEnabled":
-                yield* active.operations.setEnabled(request.action.id, request.action.enabled);
-                break;
-              case "Delete":
-                yield* active.operations.remove(request.action.id);
-                break;
-              case "RunNow":
-                yield* active.scheduler.runNow(request.action.id);
-                break;
-            }
-          }).pipe(Effect.ensuring(refreshStatus(active))),
-        ).pipe(Effect.tapError((error) => notifyFailure(context, error))),
-      );
-    },
-  });
-
   pi.registerTool({
-    name: "cron_create",
-    label: "Create Scheduled Loop",
-    description: "Create a recurring or one-shot prompt on a five-field local-time cron schedule.",
+    name: "loop_create",
+    label: "Create Loop",
+    description: "Create an interval, cron, one-shot, or agent-scheduled loop.",
     parameters: Type.Object({
-      cron: Type.String(),
       prompt: Type.String(),
-      recurring: Type.Boolean({ default: true }),
-      durable: Type.Boolean({ default: false }),
+      schedule: ScheduleParameters,
+      retention: Type.Optional(
+        Type.Union([Type.Literal("session"), Type.Literal("project")], {
+          default: "session",
+        }),
+      ),
       label: Type.Optional(Type.String()),
     }),
     execute(_id, parameters) {
       return run(
         withSession(pi, (active) =>
           active.operations
-            .createCron({
-              expression: parameters.cron ?? "",
+            .create({
               prompt: parameters.prompt ?? "",
-              recurring: parameters.recurring ?? true,
-              retention: parameters.durable ? "project" : "session",
+              retention: parameters.retention ?? "session",
+              schedule: scheduleInput(parameters.schedule as ScheduleParameter),
               ...(parameters.label === undefined ? {} : { label: parameters.label }),
             })
             .pipe(
+              Effect.tap(() => active.scheduler.drain),
               Effect.tap(() => refreshStatus(active)),
-              Effect.map((loop) => toolResult(`Scheduled ${describeLoop(loop)}`)),
+              Effect.map((loop) => toolResult(`Created ${describeLoop(loop)}`)),
             ),
-        ).pipe(
-          Effect.catch((error) =>
-            Effect.succeed(toolResult(`cron_create failed: ${String(error)}`)),
-          ),
         ),
       );
     },
   });
 
   pi.registerTool({
-    name: "cron_delete",
-    label: "Cancel Scheduled Loop",
-    description: "Cancel a scheduled loop by id, or pass all.",
+    name: "loop_update",
+    label: "Update Loop",
+    description: "Update a loop's prompt, label, or complete schedule.",
+    parameters: Type.Object({
+      id: Type.String(),
+      prompt: Type.Optional(Type.String()),
+      label: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+      schedule: Type.Optional(ScheduleParameters),
+    }),
+    execute(_id, parameters) {
+      return run(
+        withSession(pi, (active) =>
+          active.operations
+            .update({
+              id: parameters.id ?? "",
+              ...(parameters.prompt === undefined ? {} : { prompt: parameters.prompt }),
+              ...(parameters.label === undefined ? {} : { label: parameters.label }),
+              ...(parameters.schedule === undefined
+                ? {}
+                : { schedule: scheduleInput(parameters.schedule as ScheduleParameter) }),
+            })
+            .pipe(
+              Effect.tap(() => active.scheduler.drain),
+              Effect.tap(() => refreshStatus(active)),
+              Effect.map((loop) => toolResult(`Updated ${describeLoop(loop)}`)),
+            ),
+        ),
+      );
+    },
+  });
+
+  const registerEnabledTool = (name: "loop_pause" | "loop_resume", enabled: boolean) =>
+    pi.registerTool({
+      name,
+      label: enabled ? "Resume Loop" : "Pause Loop",
+      description: `${enabled ? "Resume" : "Pause"} a loop by id.`,
+      parameters: Type.Object({ id: Type.String() }),
+      execute(_id, parameters) {
+        return run(
+          withSession(pi, (active) =>
+            active.operations.setEnabled(parameters.id ?? "", enabled).pipe(
+              Effect.tap(() => refreshStatus(active)),
+              Effect.map((loop) =>
+                toolResult(`${enabled ? "Resumed" : "Paused"} ${describeLoop(loop)}`),
+              ),
+            ),
+          ),
+        );
+      },
+    });
+
+  registerEnabledTool("loop_pause", false);
+  registerEnabledTool("loop_resume", true);
+
+  pi.registerTool({
+    name: "loop_run_now",
+    label: "Run Loop Now",
+    description: "Run one enabled loop immediately.",
     parameters: Type.Object({ id: Type.String() }),
     execute(_id, parameters) {
       return run(
         withSession(pi, (active) =>
-          Effect.gen(function* () {
-            const id = parameters.id ?? "";
-            if (id === "all") yield* active.operations.removeAll;
-            else yield* active.operations.remove(id);
-          }).pipe(
-            Effect.ensuring(refreshStatus(active)),
-            Effect.map(() => toolResult(`Cancelled ${parameters.id ?? ""}`)),
-          ),
-        ).pipe(
-          Effect.catch((error) =>
-            Effect.succeed(toolResult(`cron_delete failed: ${String(error)}`)),
+          active.scheduler.runNow(parameters.id ?? "").pipe(
+            Effect.tap(() => refreshStatus(active)),
+            Effect.map(() => toolResult(`Ran loop ${parameters.id}`)),
           ),
         ),
       );
@@ -362,9 +311,35 @@ export default function piLoop(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "cron_list",
-    label: "List Scheduled Loops",
-    description: "List active temporal loops.",
+    name: "loop_delete",
+    label: "Delete Loop",
+    description: "Delete one loop or every loop owned by this session and project.",
+    parameters: Type.Object({
+      target: DeleteTargetParameters,
+    }),
+    execute(_id, parameters) {
+      return run(
+        withSession(pi, (active) =>
+          ((parameters.target as Static<typeof DeleteTargetParameters>).kind === "all"
+            ? active.operations.removeAll
+            : active.operations
+                .remove((parameters.target as { readonly kind: "one"; readonly id: string }).id)
+                .pipe(Effect.map((loop) => [loop]))
+          ).pipe(
+            Effect.tap(() => refreshStatus(active)),
+            Effect.map((removed) =>
+              toolResult(`Deleted ${removed.length} loop${removed.length === 1 ? "" : "s"}.`),
+            ),
+          ),
+        ),
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: "loop_list",
+    label: "List Loops",
+    description: "List all loops visible to this Pi session.",
     parameters: Type.Object({}),
     execute() {
       return run(
@@ -376,8 +351,6 @@ export default function piLoop(pi: ExtensionAPI): void {
               ),
             ),
           ),
-        ).pipe(
-          Effect.catch((error) => Effect.succeed(toolResult(`cron_list failed: ${String(error)}`))),
         ),
       );
     },
@@ -405,10 +378,6 @@ export default function piLoop(pi: ExtensionAPI): void {
                 ),
               ),
             ),
-        ).pipe(
-          Effect.catch((error) =>
-            Effect.succeed(toolResult(`schedule_wakeup failed: ${String(error)}`)),
-          ),
         ),
       );
     },

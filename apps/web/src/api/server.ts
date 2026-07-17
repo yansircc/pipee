@@ -542,24 +542,6 @@ const SessionActionsLive = HttpApiBuilder.group(PiWebApi, "sessionActions", (han
           Effect.as(ok),
         ),
       )
-      .handle("loopControl", ({ params, payload }) =>
-        runtime(params.id).pipe(
-          Effect.flatMap((handle) => expose(handle.runtime.controlLoop(payload))),
-          Effect.as(ok),
-        ),
-      )
-      .handle("weixinControl", ({ params, payload }) =>
-        runtime(params.id).pipe(
-          Effect.flatMap((handle) => expose(handle.runtime.controlWeixin(payload))),
-          Effect.as(ok),
-        ),
-      )
-      .handle("chromeControl", ({ params, payload }) =>
-        runtime(params.id).pipe(
-          Effect.flatMap((handle) => expose(handle.runtime.controlChrome(payload))),
-          Effect.as(ok),
-        ),
-      )
       .handle("resolveInteraction", ({ params, payload }) =>
         runtime(params.id).pipe(
           Effect.flatMap((handle) =>

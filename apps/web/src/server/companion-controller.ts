@@ -1,4 +1,3 @@
-import type { ChromeControlRequestType, LoopControlRequestType, WeixinControlRequestType } from "@/api/contract"
 import { Effect } from "effect"
 
 export interface CompanionCommandRunner {
@@ -25,25 +24,7 @@ export const makeCompanionController = <E>(
       })
     })
 
-  const chromeArgument = (request: ChromeControlRequestType): string => {
-    switch (request.action._tag) {
-      case "Authorize":
-        return "authorize"
-      case "Revoke":
-        return "revoke"
-      case "WebAttach":
-        return `web-attach ${request.action.offer}`
-      case "WebAssert":
-        return `web-assert ${request.action.pairingId}`
-      case "WebDetach":
-        return `web-detach ${request.action.pairingId}`
-    }
-  }
-
   return {
     invokeSlashCommand: (name: string, args: string) => invoke(name, args),
-    controlLoop: (request: LoopControlRequestType) => invoke("loop-control", JSON.stringify(request)),
-    controlWeixin: (request: WeixinControlRequestType) => invoke("weixin", request.action._tag.toLowerCase()),
-    controlChrome: (request: ChromeControlRequestType) => invoke("chrome", chromeArgument(request)),
   }
 }

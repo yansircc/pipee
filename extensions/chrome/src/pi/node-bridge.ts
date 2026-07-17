@@ -90,6 +90,7 @@ import {
   type WebRunOffer,
   type WireDomainRequest,
 } from "../protocol/schema.js";
+import { ProfileConnector as ProfileConnectorSchema } from "../protocol/schema.js";
 import type { ConnectorBindingStore, ConnectorBindingStoreFailure } from "./connector-binding.js";
 import { ConnectorOwner } from "./connector-owner.js";
 import { makeSessionConnectorBindingStore } from "./session-connector-binding.js";
@@ -821,7 +822,41 @@ export class NodeBridge {
     headers: Record<string, string>,
   ): Effect.Effect<void, ProtocolFailure> {
     return Effect.gen({ self: this }, function* () {
-      yield* readBody(request, requestBodyLimitForRoute("connectorHandshake"));
+      const body = yield* readBody(request, requestBodyLimitForRoute("connectorHandshake"));
+      const presented = yield* Schema.decodeUnknownEffect(
+        Schema.fromJsonString(ProfileConnectorSchema),
+        { onExcessProperty: "error" },
+      )(body).pipe(
+        Effect.matchEffect({
+          onFailure: () =>
+            writeJson(
+              response,
+              400,
+              { ok: false, error: "connector metadata is malformed" },
+              headers,
+            ).pipe(Effect.as(undefined)),
+          onSuccess: Effect.succeed,
+        }),
+      );
+      if (!presented) return;
+      const current = yield* this.connectors.current;
+      if (!current || current.connectorId === presented.connectorId) {
+        const now = yield* Effect.clockWith((clock) => clock.currentTimeMillis);
+        const accepted = yield* provideNode(
+          this.connectors.replace({
+            ...presented,
+            pairedAt: current?.pairedAt ?? now,
+          }),
+        ).pipe(
+          Effect.as(true),
+          Effect.catch((error) =>
+            writeJson(response, 409, { ok: false, error: error.message }, headers).pipe(
+              Effect.as(false),
+            ),
+          ),
+        );
+        if (!accepted) return;
+      }
       const identified = yield* this.identifyAuthorizedConnector(request, response, headers);
       if (!identified) return;
       const clientNonce = String(request.headers[CONNECTOR_CLIENT_NONCE_HEADER] ?? "");

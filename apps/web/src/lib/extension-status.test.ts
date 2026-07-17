@@ -4,9 +4,9 @@ import { ChromeStatusProjection, ExtensionStatusContribution, type JsonValue } f
 import {
   decodeChromeStatusProjection,
   extensionStructuredStatusOrUndefined,
+  getChromeStatusProjection,
   getLoopStatusProjection,
   getWeixinStatusProjection,
-  isChromeAuthorized,
   sameWeixinStatusProjection,
 } from "./extension-status"
 
@@ -16,29 +16,25 @@ const structured = (key: string, kind: string, version: number, value: JsonValue
 test("decodes the pi-chrome readiness projection without interpreting display text", () => {
   const status = ChromeStatusProjection.make({
     kind: "pi-chrome/status",
-    version: 2,
-    readiness: "ready",
-    authorization: { expiresAt: 123_000 },
-    connection: "connected",
+    version: 3,
+    state: "ready",
     bridge: "running",
-    requirements: [],
-    connectorLabel: "Personal",
+    connector: { id: "personal", label: "Personal", connected: true, lastSeenAt: 123_000 },
+    extensionDirectory: "/tmp/pi-chrome",
   })
   expect(Option.getOrNull(decodeChromeStatusProjection(status))).toEqual(status)
 })
 
 test("rejects incomplete or unknown status projections", () => {
-  expect(Option.isNone(decodeChromeStatusProjection({ kind: "pi-chrome/status", version: 2 }))).toBe(true)
+  expect(Option.isNone(decodeChromeStatusProjection({ kind: "pi-chrome/status", version: 3 }))).toBe(true)
   expect(
     Option.isNone(
       decodeChromeStatusProjection({
         kind: "pi-chrome/status",
-        version: 2,
-        readiness: "ready",
-        authorization: "indefinite",
-        connection: "connected",
+        version: 3,
+        state: "ready",
         bridge: "mystery",
-        requirements: [],
+        extensionDirectory: "/tmp/pi-chrome",
       }),
     ),
   ).toBe(true)
@@ -58,7 +54,7 @@ test("preserves extension-owned JSON status projections without treating them as
     version: 2,
     value: weixin,
   })
-  expect(isChromeAuthorized([structured("weixin", weixin.kind, weixin.version, weixin)])).toBe(false)
+  expect(getChromeStatusProjection([structured("weixin", weixin.kind, weixin.version, weixin)])).toBeUndefined()
   expect(getWeixinStatusProjection([structured("weixin", weixin.kind, weixin.version, weixin)])).toEqual(weixin)
   expect(getWeixinStatusProjection([])).toBeUndefined()
 })
@@ -140,26 +136,23 @@ test("compares Weixin bindings by identity rather than projection order", () => 
   expect(sameWeixinStatusProjection(left, { ...left, bindings: [...left.bindings].reverse() })).toBe(true)
 })
 
-test("derives authorization only from the structured Chrome projection", () => {
-  expect(isChromeAuthorized([{ _tag: "Text", key: "chrome", text: "● Chrome (indefinite)" }])).toBe(false)
-  const authorized = ChromeStatusProjection.make({
+test("derives Chrome readiness only from the structured Chrome projection", () => {
+  expect(getChromeStatusProjection([{ _tag: "Text", key: "chrome", text: "● Chrome ready" }])).toBeUndefined()
+  const ready = ChromeStatusProjection.make({
     kind: "pi-chrome/status",
-    version: 2,
-    readiness: "offline",
-    authorization: "indefinite",
-    connection: "offline",
+    version: 3,
+    state: "ready",
     bridge: "running",
-    requirements: [],
+    connector: { id: "personal", label: "Personal", connected: true },
+    extensionDirectory: "/tmp/pi-chrome",
   })
-  expect(isChromeAuthorized([structured("chrome", authorized.kind, authorized.version, authorized)])).toBe(true)
-  const locked = ChromeStatusProjection.make({
+  expect(getChromeStatusProjection([structured("chrome", ready.kind, ready.version, ready)])).toEqual(ready)
+  const waiting = ChromeStatusProjection.make({
     kind: "pi-chrome/status",
-    version: 2,
-    readiness: "locked",
-    authorization: "locked",
-    connection: "connected",
+    version: 3,
+    state: "waiting-for-extension",
     bridge: "running",
-    requirements: [],
+    extensionDirectory: "/tmp/pi-chrome",
   })
-  expect(isChromeAuthorized([structured("chrome", locked.kind, locked.version, locked)])).toBe(false)
+  expect(getChromeStatusProjection([structured("chrome", waiting.kind, waiting.version, waiting)])).toEqual(waiting)
 })

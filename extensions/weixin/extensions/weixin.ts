@@ -1,8 +1,9 @@
 import type {
+  AgentToolResult,
   ExtensionAPI,
-  ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "@sinclair/typebox";
 import { Effect, Exit, Stream } from "effect";
 import QRCode from "qrcode";
 import { Bridge, type BridgeStatus } from "../src/bridge.ts";
@@ -52,13 +53,13 @@ const formatStatus = (status: BridgeStatus): string => {
   return `${state}${account}${session}${error}`;
 };
 
-const clearLoginWidget = (ctx: ExtensionCommandContext, imageUi: ImageWidgetUi) =>
+const clearLoginWidget = (ctx: ExtensionContext, imageUi: ImageWidgetUi) =>
   Effect.sync(() => {
     ctx.ui.setWidget("weixin-login", undefined);
     imageUi.setImageWidget?.("weixin-login", undefined);
   });
 
-const login = (ctx: ExtensionCommandContext) =>
+const login = (ctx: ExtensionContext) =>
   Effect.gen(function* () {
     if (!ctx.hasUI) {
       return yield* new BridgeConfigurationError({ reason: "微信登录需要可交互 UI" });
@@ -144,47 +145,26 @@ const login = (ctx: ExtensionCommandContext) =>
     const auth = yield* bridge
       .loginAndBind(callbacks, bindingFrom(ctx))
       .pipe(Effect.ensuring(clearLoginWidget(ctx, imageUi)));
-    yield* Effect.sync(() => {
-      ctx.ui.notify(`微信已登录并绑定当前 session：${auth.accountId}`, "info");
-    });
+    return auth;
   });
 
-const handleCommandEffect = (args: string, ctx: ExtensionCommandContext) =>
+const connect = (ctx: ExtensionContext) =>
   Effect.gen(function* () {
     const bridge = yield* Bridge;
-    const [command = "status"] = args.trim().split(/\s+/);
-    switch (command) {
-      case "login":
-        return yield* login(ctx);
-      case "bind":
-        yield* bridge.bind(bindingFrom(ctx));
-        return yield* Effect.sync(() => ctx.ui.notify("微信已绑定当前 Pi session", "info"));
-      case "start":
-        yield* bridge.setEnabled(true);
-        return yield* bridge.status.pipe(
-          Effect.tap((status) => Effect.sync(() => ctx.ui.notify(formatStatus(status), "info"))),
-          Effect.asVoid,
-        );
-      case "stop":
-        yield* bridge.setEnabled(false);
-        return yield* bridge.status.pipe(
-          Effect.tap((status) => Effect.sync(() => ctx.ui.notify(formatStatus(status), "info"))),
-          Effect.asVoid,
-        );
-      case "logout":
-        yield* bridge.logout;
-        return yield* Effect.sync(() => ctx.ui.notify("微信登录和 session 绑定已清除", "info"));
-      case "status":
-        return yield* bridge.status.pipe(
-          Effect.tap((status) => Effect.sync(() => ctx.ui.notify(formatStatus(status), "info"))),
-          Effect.asVoid,
-        );
-      default:
-        return yield* new BridgeConfigurationError({
-          reason: "用法：/weixin login|bind|start|stop|status|logout",
-        });
+    const current = yield* bridge.status;
+    if (!current.accountId) {
+      yield* login(ctx);
+    } else {
+      yield* bridge.bind(bindingFrom(ctx));
+      yield* bridge.setEnabled(true);
     }
+    return yield* bridge.status;
   });
+
+const toolResult = (text: string, details: unknown): AgentToolResult<unknown> => ({
+  content: [{ type: "text", text }],
+  details,
+});
 
 export default function weixinExtension(pi: ExtensionAPI): void {
   const runtime = getPiWeixinRuntime();
@@ -213,9 +193,86 @@ export default function weixinExtension(pi: ExtensionAPI): void {
       }),
     );
 
-  pi.registerCommand("weixin", {
-    description: "连接微信 iLink 与当前 Pi session",
-    handler: (args, ctx) => runtime.runPromise(handleCommandEffect(args, ctx)),
+  pi.registerTool({
+    name: "weixin_connect",
+    label: "Connect Weixin",
+    description:
+      "Ensure Weixin is logged in, bound to this Pi session, and running. Shows a QR code when login is required.",
+    parameters: Type.Object({}),
+    execute(_id, _parameters, signal, _onUpdate, context) {
+      return runtime.runPromise(
+        connect(context).pipe(
+          Effect.map((status) =>
+            toolResult(`Weixin connected: ${formatStatus(status)}`, {
+              accountId: status.accountId,
+              sessionId: status.sessionId,
+              phase: status.connection._tag,
+            }),
+          ),
+        ),
+        { signal },
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: "weixin_disconnect",
+    label: "Disconnect Weixin",
+    description: "Stop the Weixin bridge while preserving login credentials and session binding.",
+    parameters: Type.Object({}),
+    execute(_id, _parameters, signal) {
+      return runtime.runPromise(
+        Effect.gen(function* () {
+          const bridge = yield* Bridge;
+          yield* bridge.setEnabled(false);
+          const status = yield* bridge.status;
+          return toolResult(`Weixin disconnected: ${formatStatus(status)}`, {
+            phase: status.connection._tag,
+          });
+        }),
+        { signal },
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: "weixin_logout",
+    label: "Log Out Weixin",
+    description: "Stop Weixin and clear the stored account, cursor, and Pi session binding.",
+    parameters: Type.Object({}),
+    execute(_id, _parameters, signal) {
+      return runtime.runPromise(
+        Effect.gen(function* () {
+          const bridge = yield* Bridge;
+          yield* bridge.logout;
+          return toolResult("Weixin logged out and local binding cleared.", { loggedIn: false });
+        }),
+        { signal },
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: "weixin_status",
+    label: "Inspect Weixin Status",
+    description: "Read the current Weixin account, session binding, and connection status.",
+    parameters: Type.Object({}),
+    execute(_id, _parameters, signal) {
+      return runtime.runPromise(
+        Effect.gen(function* () {
+          const bridge = yield* Bridge;
+          const status = yield* bridge.status;
+          return toolResult(formatStatus(status), {
+            accountId: status.accountId,
+            sessionId: status.sessionId,
+            enabled: status.enabled,
+            phase: status.connection._tag,
+            lastError: status.lastError,
+          });
+        }),
+        { signal },
+      );
+    },
   });
 
   pi.on("session_start", (_event, ctx) =>

@@ -1,9 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import type {
   ExtensionAPI,
-  ExtensionCommandContext,
   ExtensionContext,
-  RegisteredCommand,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { layer as nodeServicesLayer } from "@effect/platform-node/NodeServices";
@@ -29,14 +27,14 @@ const wait = (milliseconds: number) =>
 
 type Handler = (event: unknown, context: ExtensionContext) => Promise<void> | void;
 
-const invoke = (name: string, call: () => Promise<void> | void) =>
+const invoke = (name: string, call: () => unknown) =>
   Effect.suspend(() => {
     const result = call();
     return result instanceof Promise
       ? Effect.tryPromise({
           try: () => result,
           catch: (cause) => new InvocationFailure({ name, cause }),
-        })
+        }).pipe(Effect.asVoid)
       : Effect.void;
   });
 
@@ -51,14 +49,12 @@ it.effect("gates the real Pi callback path until the agent becomes idle", () =>
       );
 
       const handlers = new Map<string, Handler>();
-      const commands = new Map<string, RegisteredCommand>();
       const tools = new Map<string, ToolDefinition>();
       const messages: Array<string> = [];
       const entries: Array<unknown> = [];
       const statuses = new Map<string, unknown>();
       const pi = {
         on: (name: string, handler: Handler) => handlers.set(name, handler),
-        registerCommand: (name: string, command: RegisteredCommand) => commands.set(name, command),
         registerTool: (tool: ToolDefinition) => tools.set(tool.name, tool),
         sendUserMessage: (message: string) => messages.push(message),
         appendEntry: (customType: string, data: unknown) =>
@@ -82,30 +78,45 @@ it.effect("gates the real Pi callback path until the agent becomes idle", () =>
           getEntries: () => entries,
         },
       } as unknown as ExtensionContext;
-      const commandContext = context as unknown as ExtensionCommandContext;
       const start = handlers.get("session_start");
       const busy = handlers.get("agent_start");
       const idle = handlers.get("agent_end");
       const shutdown = handlers.get("session_shutdown");
-      const loop = commands.get("loop");
-      const loopControl = commands.get("loop-control");
+      const create = tools.get("loop_create");
+      const runNow = tools.get("loop_run_now");
       expect(start).toBeDefined();
       expect(busy).toBeDefined();
       expect(idle).toBeDefined();
       expect(shutdown).toBeDefined();
-      expect(loop).toBeDefined();
-      expect(loopControl).toBeDefined();
+      expect(create).toBeDefined();
+      expect(runNow).toBeDefined();
       expect([...tools.keys()].sort((left, right) => left.localeCompare(right))).toEqual([
-        "cron_create",
-        "cron_delete",
-        "cron_list",
+        "loop_create",
+        "loop_delete",
+        "loop_list",
+        "loop_pause",
+        "loop_resume",
+        "loop_run_now",
+        "loop_update",
         "schedule_wakeup",
       ]);
 
       yield* invoke("session_start", () => start?.({}, context));
       yield* invoke("agent_start", () => busy?.({}, context));
       yield* wait(20);
-      yield* invoke("loop", () => loop?.handler("7m inspect build", commandContext));
+      yield* invoke("loop", () =>
+        create?.execute(
+          "create-1",
+          {
+            prompt: "inspect build",
+            schedule: { kind: "interval", periodSeconds: 420, runImmediately: true },
+            retention: "session",
+          },
+          undefined,
+          undefined,
+          context,
+        ),
+      );
       yield* wait(30);
       expect(messages).toEqual([]);
 
@@ -113,7 +124,19 @@ it.effect("gates the real Pi callback path until the agent becomes idle", () =>
       yield* wait(30);
       expect(messages).toEqual(["inspect build"]);
 
-      yield* invoke("loop-immediate", () => loop?.handler("9m immediate probe", commandContext));
+      yield* invoke("loop-immediate", () =>
+        create?.execute(
+          "create-2",
+          {
+            prompt: "immediate probe",
+            schedule: { kind: "interval", periodSeconds: 540, runImmediately: true },
+            retention: "session",
+          },
+          undefined,
+          undefined,
+          context,
+        ),
+      );
       expect(messages).toEqual(["inspect build", "immediate probe"]);
       expect(statuses.get("pi-loop")).toMatchObject({
         kind: "pi-loop/status",
@@ -128,14 +151,7 @@ it.effect("gates the real Pi callback path until the agent becomes idle", () =>
       });
 
       yield* invoke("run-now", () =>
-        loopControl?.handler(
-          JSON.stringify({
-            kind: "pi-loop/control",
-            version: 1,
-            action: { _tag: "RunNow", id: "missing" },
-          }),
-          commandContext,
-        ),
+        runNow?.execute("run-missing", { id: "missing" }, undefined, undefined, context),
       ).pipe(Effect.exit);
       expect(messages).toEqual(["inspect build", "immediate probe"]);
 

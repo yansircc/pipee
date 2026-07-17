@@ -17,10 +17,6 @@ export type OperationKind = "prompt" | "bash" | "compaction"
 export interface SessionUiState {
   readonly sessionId: string | null
   readonly runtimeIdentity: RuntimeIdentityValue | null
-  readonly chromeControlOperation: {
-    readonly requestId: string
-    readonly enabled: boolean
-  } | null
   readonly snapshotRequestId: number
   readonly contextRequestId: number
   readonly snapshot: SessionSnapshot | null
@@ -59,7 +55,6 @@ export interface SessionUiState {
 export const initialSessionUiState: SessionUiState = {
   sessionId: null,
   runtimeIdentity: null,
-  chromeControlOperation: null,
   snapshotRequestId: 0,
   contextRequestId: 0,
   snapshot: null,
@@ -126,12 +121,6 @@ export type SessionUiAction =
       readonly message: string
     }
   | { readonly _tag: "PromptSubmitted"; readonly requestId: string; readonly message: UserMessage }
-  | { readonly _tag: "ChromeControlRequested"; readonly requestId: string; readonly enabled: boolean }
-  | {
-      readonly _tag: "ChromeControlSucceeded"
-      readonly requestId: string
-    }
-  | { readonly _tag: "ChromeControlFailed"; readonly requestId: string }
   | {
       readonly _tag: "RuntimeEvent"
       readonly sessionId: string
@@ -244,21 +233,6 @@ export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction)
       return action.sessionId === state.sessionId ? state : { ...initialSessionUiState, sessionId: action.sessionId }
     case "LoadFailed":
       return action.sessionId === state.sessionId ? { ...state, error: action.message } : state
-    case "ChromeControlRequested":
-      return state.chromeControlOperation === null
-        ? {
-            ...state,
-            chromeControlOperation: { requestId: action.requestId, enabled: action.enabled },
-          }
-        : state
-    case "ChromeControlSucceeded":
-      return state.chromeControlOperation?.requestId === action.requestId
-        ? { ...state, chromeControlOperation: null }
-        : state
-    case "ChromeControlFailed":
-      return state.chromeControlOperation?.requestId === action.requestId
-        ? { ...state, chromeControlOperation: null }
-        : state
     case "Loaded":
       if (
         action.sessionId !== state.sessionId ||

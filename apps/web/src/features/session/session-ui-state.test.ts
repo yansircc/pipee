@@ -348,31 +348,6 @@ test("keeps optimistic messages idempotent", () => {
   expect(projectSessionMessages(twice)).toEqual([{ role: "user", content: "hello" }])
 })
 
-test("owns Chrome control pending state by projection and request receipt", () => {
-  const active = sessionState()
-  const pending = sessionUiReducer(active, {
-    _tag: "ChromeControlRequested",
-    requestId: "chrome-1",
-    enabled: true,
-  })
-  expect(pending.chromeControlOperation).toEqual({ requestId: "chrome-1", enabled: true })
-  expect(sessionUiReducer(pending, { _tag: "ChromeControlFailed", requestId: "chrome-stale" })).toBe(pending)
-
-  const succeeded = sessionUiReducer(pending, {
-    _tag: "ChromeControlSucceeded",
-    requestId: "chrome-1",
-  })
-  expect(succeeded.chromeControlOperation).toBeNull()
-
-  const nextPending = sessionUiReducer(succeeded, {
-    _tag: "ChromeControlRequested",
-    requestId: "chrome-2",
-    enabled: false,
-  })
-  const switched = sessionUiReducer(nextPending, { _tag: "Reset", sessionId: "session-other" })
-  expect(switched.chromeControlOperation).toBeNull()
-})
-
 test("only a new authoritative entry confirms a submitted prompt", () => {
   const originalSnapshot = SessionSnapshot.make({
     sessionId: "session-1",

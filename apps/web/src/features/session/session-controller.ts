@@ -1,15 +1,7 @@
 import { Effect, Stream } from "effect"
 import { withApi } from "@/browser/api-client"
 import { BrowserPlatform } from "@/browser/browser-platform"
-import type {
-  ChromeControlRequestType,
-  ExtensionInteractionResponse,
-  LoopControlRequestType,
-  RuntimeId,
-  RuntimeEnvelope,
-  SessionSnapshot,
-  WeixinControlRequestType,
-} from "@/api/contract"
+import type { ExtensionInteractionResponse, RuntimeId, RuntimeEnvelope, SessionSnapshot } from "@/api/contract"
 
 const errorMessage = (error: unknown): string => {
   if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
@@ -69,12 +61,6 @@ export const observeRunningSessions = (callbacks: {
   )
   return events
 }
-
-const weixinControl = (sessionId: string, payload: WeixinControlRequestType) =>
-  withApi((api) => api.sessionActions.weixinControl({ params: { id: sessionId }, payload }))
-
-const chromeControl = (sessionId: string, payload: ChromeControlRequestType) =>
-  withApi((api) => api.sessionActions.chromeControl({ params: { id: sessionId }, payload }))
 
 const resolveInteraction = (
   sessionId: string,
@@ -232,15 +218,6 @@ export const sessionController = {
     withApi((api) => api.sessionActions.reload({ params: { id: sessionId }, payload: {} })),
   slashCommand: (sessionId: string, name: string, args: string) =>
     withApi((api) => api.sessionActions.slashCommand({ params: { id: sessionId }, payload: { name, args } })),
-  loopControl: (sessionId: string, payload: LoopControlRequestType) =>
-    withApi((api) =>
-      api.sessionActions.loopControl({
-        params: { id: sessionId },
-        payload,
-      }),
-    ),
-  weixinControl,
-  chromeControl,
   resolveInteraction,
   modelCatalog: (cwd: string) => withApi((api) => api.models.catalog({ query: { cwd } })),
   plugins: (cwd: string) => withApi((api) => api.packages.plugins({ query: { cwd } })),

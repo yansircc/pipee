@@ -41,35 +41,34 @@ try {
   extension(pi);
   const start = handlers.get("session_start");
   const shutdown = handlers.get("session_shutdown");
-  const create = tools.get("cron_create");
-  const list = tools.get("cron_list");
-  const remove = tools.get("cron_delete");
+  const create = tools.get("loop_create");
+  const list = tools.get("loop_list");
+  const remove = tools.get("loop_delete");
   assert.ok(
     start && shutdown && create && list && remove,
-    "archive lifecycle/cron surface is incomplete",
+    "archive lifecycle/Agent-first tool surface is incomplete",
   );
 
   await start({}, context);
   const created = textOf(
     await create.execute("release-create", {
-      cron: "*/5 * * * *",
       prompt: "release domain probe",
-      recurring: true,
-      durable: false,
+      schedule: { kind: "interval", periodSeconds: 300, runImmediately: false },
+      retention: "session",
     }),
   );
-  assert.match(created, /^Scheduled \[/, "cron_create did not create an archive-backed loop");
-  const id = created.match(/^Scheduled \[([^\]]+)\]/)?.[1];
-  assert.ok(id, "cron_create result did not expose the loop id");
+  assert.match(created, /^Created \[/, "loop_create did not create an archive-backed loop");
+  const id = created.match(/^Created \[([^\]]+)\]/)?.[1];
+  assert.ok(id, "loop_create result did not expose the loop id");
 
   const listed = textOf(await list.execute("release-list", {}));
-  assert.match(listed, /release domain probe/, "cron_list did not observe the created loop");
-  const deleted = textOf(await remove.execute("release-delete", { id }));
-  assert.equal(deleted, `Cancelled ${id}`);
+  assert.match(listed, /release domain probe/, "loop_list did not observe the created loop");
+  const deleted = textOf(await remove.execute("release-delete", { target: { kind: "one", id } }));
+  assert.equal(deleted, "Deleted 1 loop.");
   assert.equal(textOf(await list.execute("release-list-empty", {})), "No active loops");
   await shutdown({}, context);
 
-  process.stdout.write(`${JSON.stringify({ cronLifecycle: true, id })}\n`);
+  process.stdout.write(`${JSON.stringify({ loopLifecycle: true, id })}\n`);
 } finally {
   try {
     await handlers.get("session_shutdown")?.({}, context);

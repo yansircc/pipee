@@ -30,11 +30,7 @@ import { useAudio } from "@/hooks/useAudio"
 import { useDragDrop } from "@/hooks/useDragDrop"
 import { useIsMobile } from "@/hooks/useIsMobile"
 import { useI18n } from "@/lib/i18n"
-import {
-  getChromeStatusProjection,
-  getWeixinStatusProjection,
-  sameWeixinStatusProjection,
-} from "@/lib/extension-status"
+import { getWeixinStatusProjection, sameWeixinStatusProjection } from "@/lib/extension-status"
 import { NOTICE_AUTO_DISMISS_MS, type NoticeItem, type NoticeType } from "@/lib/notices"
 import { copyText } from "@/lib/clipboard"
 import { runBrowser } from "@/browser/api-client"
@@ -262,12 +258,6 @@ export function ChatWindow({
     extensionStatuses,
     extensionWidgets,
     respondToExtensionUi,
-    chromePackageLoaded,
-    chromeControlEnabled,
-    chromeControlPending,
-    chromeProfileConnection,
-    chromeExtensionId,
-    chromeExtensionDirectory,
     isAutoModelSelection,
     agentPhase,
     messagesEndRef,
@@ -288,11 +278,6 @@ export function ChatWindow({
     handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange,
-    handleChromeControlChange,
-    handleLoopControl,
-    loopControlPending,
-    handleWeixinControl,
-    weixinControlPending,
     handleThinkingLevelChange,
     loadSlashCommands,
   } = useAgentSession({
@@ -434,8 +419,6 @@ export function ChatWindow({
     ? (modelThinkingLevelMaps[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
     : null
 
-  const chromeControlStatus = getChromeStatusProjection(extensionStatuses)
-
   const chatInputElement = (
     <ChatInput
       ref={chatInputRef}
@@ -459,14 +442,6 @@ export function ChatWindow({
       compactResult={compactResult}
       toolPreset={toolPreset}
       onToolPresetChange={handleToolPresetChange}
-      browserControlEnabled={chromeControlEnabled}
-      browserControlPending={chromeControlPending}
-      browserControlStatus={chromeControlStatus}
-      browserControlProfile={chromeProfileConnection}
-      browserControlPackageLoaded={chromePackageLoaded}
-      browserControlExtensionId={chromeExtensionId}
-      browserControlExtensionDirectory={chromeExtensionDirectory}
-      onBrowserControlChange={handleChromeControlChange}
       thinkingLevel={thinkingLevel}
       onThinkingLevelChange={handleThinkingLevelChange}
       availableThinkingLevels={availableThinkingLevels}
@@ -672,18 +647,7 @@ export function ChatWindow({
             >
               <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
                 <div style={{ maxWidth: 820, margin: "0 auto" }}>
-                  <CompanionRendererRegistry
-                    statuses={extensionStatuses}
-                    sessionId={session.id}
-                    sessionBusy={sessionBusy}
-                    loopControlPending={loopControlPending}
-                    chromeControlPending={chromeControlPending}
-                    chromeControlEnabled={chromeControlEnabled}
-                    weixinControlPending={weixinControlPending}
-                    onLoopControl={handleLoopControl}
-                    onChromeControl={handleChromeControlChange}
-                    onWeixinControl={handleWeixinControl}
-                  />
+                  <CompanionRendererRegistry statuses={extensionStatuses} sessionId={session.id} />
                   <ExtensionStatusBar statuses={extensionStatuses} />
                   <ExtensionWidgets widgets={aboveEditorWidgets} />
 

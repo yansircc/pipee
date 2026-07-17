@@ -26,11 +26,6 @@ export const extensionStructuredStatusOrUndefined = (
   return json === undefined || discriminator === undefined ? undefined : { ...discriminator, value: json }
 }
 
-export function isChromeAuthorized(statuses: ReadonlyArray<ExtensionStatusContribution>): boolean {
-  const chrome = getChromeStatusProjection(statuses)
-  return chrome !== undefined && chrome.authorization !== "locked"
-}
-
 export function getChromeStatusProjection(
   statuses: ReadonlyArray<ExtensionStatusContribution>,
 ): ChromeStatusProjection | undefined {

@@ -22,7 +22,7 @@ export const run = (command, args, options = {}) => {
       process.stderr.write(result.stdout ?? "")
       process.stderr.write(result.stderr ?? "")
     }
-    const outcome = result.error === undefined ? `exit ${result.status}` : result.error.message
+    const outcome = result.error == null ? `exit ${result.status}` : result.error.message
     throw new Error(`${command} ${args.join(" ")} failed with ${outcome}`)
   }
   return result.stdout ?? ""

@@ -36,20 +36,3 @@ export const LoopStatusProjection = Schema.Struct({
   loops: Schema.Array(LoopProjection),
 })
 export type LoopStatusProjection = typeof LoopStatusProjection.Type
-
-export const LoopControlRequest = Schema.Struct({
-  kind: Schema.Literal("pi-loop/control"),
-  version: Schema.Literal(1),
-  action: Schema.Union([
-    Schema.TaggedStruct("CreateInterval", { periodMs: PositiveInt, prompt: Schema.NonEmptyString }),
-    Schema.TaggedStruct("UpdateInterval", {
-      id: Schema.NonEmptyString,
-      periodMs: PositiveInt,
-      prompt: Schema.NonEmptyString,
-    }),
-    Schema.TaggedStruct("SetEnabled", { id: Schema.NonEmptyString, enabled: Schema.Boolean }),
-    Schema.TaggedStruct("Delete", { id: Schema.NonEmptyString }),
-    Schema.TaggedStruct("RunNow", { id: Schema.NonEmptyString }),
-  ]),
-})
-export type LoopControlRequest = typeof LoopControlRequest.Type

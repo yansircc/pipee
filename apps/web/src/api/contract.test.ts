@@ -68,9 +68,6 @@ test("models every session mutation as a dedicated action endpoint", () => {
       "compact",
       "bash",
       "slashCommand",
-      "loopControl",
-      "weixinControl",
-      "chromeControl",
       "resolveInteraction",
     ]),
   )

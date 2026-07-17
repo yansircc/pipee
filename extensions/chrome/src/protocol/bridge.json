@@ -108,9 +108,9 @@
     },
     "connector": {
       "connectorHandshake": {
-        "method": "GET",
+        "method": "POST",
         "path": "/connector/handshake",
-        "bodyLimit": "none",
+        "bodyLimit": "controlBody",
         "responseLimit": "controlBody"
       },
       "poll": {

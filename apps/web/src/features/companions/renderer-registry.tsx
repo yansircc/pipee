@@ -1,26 +1,13 @@
 import { Option, Schema } from "effect"
 import type { ReactNode } from "react"
-import {
-  ChromeStatusProjection,
-  WeixinStatusProjection,
-  type ExtensionStatusContribution,
-  type WeixinControlRequestType,
-} from "@/api/contract"
-import { LoopStatusProjection, type LoopControlAction } from "@/features/session/session-automation"
+import { ChromeStatusProjection, WeixinStatusProjection, type ExtensionStatusContribution } from "@/api/contract"
+import { LoopStatusProjection } from "@/features/session/session-automation"
 import { SessionAutomationBar } from "@/components/SessionAutomationBar"
 
 export type CompanionRendererKey = `${string}@${number}`
 
 export interface CompanionRendererProps {
   readonly sessionId: string
-  readonly sessionBusy: boolean
-  readonly loopControlPending: boolean
-  readonly chromeControlPending: boolean
-  readonly chromeControlEnabled: boolean
-  readonly weixinControlPending: boolean
-  readonly onLoopControl: (action: LoopControlAction) => void
-  readonly onChromeControl: (enabled: boolean) => void
-  readonly onWeixinControl: (request: WeixinControlRequestType) => void
 }
 
 interface RendererDefinition {
@@ -56,55 +43,23 @@ const defineRenderer = <A, I>(
 
 const renderers = {
   "pi-loop/status@1": defineRenderer(LoopStatusProjection, (status, props) =>
-    status.sessionId === props.sessionId ? (
-      <SessionAutomationBar
-        status={status}
-        pending={props.loopControlPending}
-        sessionBusy={props.sessionBusy}
-        onControl={props.onLoopControl}
-      />
-    ) : null,
+    status.sessionId === props.sessionId ? <SessionAutomationBar status={status} /> : null,
   ),
   "pi-weixin/status@2": defineRenderer(WeixinStatusProjection, (status, props) => {
     const binding = status.bindings.find((item) => item.sessionId === props.sessionId)
     return (
       <div style={panelStyle} data-companion-renderer="pi-weixin/status@2">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <span>Weixin · {binding?.phase ?? "Not bound"}</span>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button
-              type="button"
-              disabled={props.weixinControlPending}
-              onClick={() => props.onWeixinControl({ action: { _tag: binding === undefined ? "Login" : "Status" } })}
-            >
-              {binding === undefined ? "Login" : "Refresh"}
-            </button>
-            {binding !== undefined && (
-              <button
-                type="button"
-                disabled={props.weixinControlPending}
-                onClick={() => props.onWeixinControl({ action: { _tag: binding.connected ? "Stop" : "Start" } })}
-              >
-                {binding.connected ? "Stop" : "Start"}
-              </button>
-            )}
-          </div>
-        </div>
+        <div>Weixin · {binding?.phase ?? "Not bound"}</div>
+        {binding?.accountId && <div style={{ marginTop: 4, color: "var(--text-muted)" }}>{binding.accountId}</div>}
+        {binding?.error && <div style={{ marginTop: 4, color: "#d14343" }}>{binding.error}</div>}
       </div>
     )
   }),
-  "pi-chrome/status@2": defineRenderer(ChromeStatusProjection, (status, props) => (
-    <div style={panelStyle} data-companion-renderer="pi-chrome/status@2">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <span>Chrome · {status.readiness}</span>
-        <button
-          type="button"
-          disabled={props.chromeControlPending}
-          onClick={() => props.onChromeControl(!props.chromeControlEnabled)}
-        >
-          {props.chromeControlEnabled ? "Disable" : "Enable"}
-        </button>
-      </div>
+  "pi-chrome/status@3": defineRenderer(ChromeStatusProjection, (status) => (
+    <div style={panelStyle} data-companion-renderer="pi-chrome/status@3">
+      <div>Chrome · {status.state}</div>
+      {status.connector && <div style={{ marginTop: 4, color: "var(--text-muted)" }}>{status.connector.label}</div>}
+      {status.errorMessage && <div style={{ marginTop: 4, color: "#d14343" }}>{status.errorMessage}</div>}
     </div>
   )),
 } satisfies Record<CompanionRendererKey, RendererDefinition>

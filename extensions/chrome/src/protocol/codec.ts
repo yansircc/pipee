@@ -25,7 +25,6 @@ import {
   InputCall,
   PageCall,
   PairingConfirmRequest,
-  PairingConfirmResponse,
   PairingState,
   PollResponse,
   SystemCall,
@@ -36,7 +35,6 @@ import {
   WireResult,
   WebRunLeaseAcquireRequest,
   WebRunLeaseReleaseRequest,
-  WebRunOffer,
   type SessionContext,
   type WireBridgeFailure,
   type WireCommand,
@@ -74,8 +72,6 @@ export const decodeForgetRequestJson = (text: string) =>
   decodeJson("forget request", ForgetRequest, text);
 export const decodeForgetResponseJson = (text: string) =>
   decodeJson("forget response", BindingMutationResponse, text);
-export const decodeWebRunOfferJson = (text: string) =>
-  decodeJson("web run offer", WebRunOffer, text);
 export const decodeWebRunLeaseAcquireRequestJson = (text: string) =>
   decodeJson("web run lease acquisition", WebRunLeaseAcquireRequest, text);
 export const decodeWebRunLeaseReleaseRequestJson = (text: string) =>
@@ -90,8 +86,6 @@ export const decodePairingStateJson = (text: string) =>
   decodeJson("pairing state", PairingState, text);
 export const decodePairingConfirmRequestJson = (text: string) =>
   decodeJson("pairing confirmation", PairingConfirmRequest, text);
-export const decodePairingConfirmResponseJson = (text: string) =>
-  decodeJson("pairing response", PairingConfirmResponse, text);
 export const decodeBridgeStatusJson = (text: string) =>
   decodeJson("bridge status", BridgeStatusResponse, text);
 export const decodeBridgeAuthenticationHandshakeJson = (text: string) =>

@@ -2,16 +2,16 @@ import { expect, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as TestClock from "effect/testing/TestClock";
-import { connectorRequest, pairingRequest } from "../../src/browser/connector-http.js";
+import { connectorRequest } from "../../src/browser/connector-http.js";
 import { connectorServerProofMessage } from "../../src/protocol/bridge-authentication.js";
 import { BRIDGE_ORIGIN, BRIDGE_ROUTES } from "../../src/protocol/bridge-contract.js";
 import {
   CONNECTOR_BODY_SHA256_HEADER,
   CONNECTOR_BRIDGE_EPOCH_HEADER,
   CONNECTOR_CLIENT_NONCE_HEADER,
+  CONNECTOR_DISPLAY_VERSION_METADATA_HEADER,
   CONNECTOR_EXTENSION_ID_HEADER,
   CONNECTOR_ID_HEADER,
-  CONNECTOR_DISPLAY_VERSION_METADATA_HEADER,
   CONNECTOR_PROOF_HEADER,
   CONNECTOR_PROTOCOL_FINGERPRINT_HEADER,
   CONNECTOR_REQUEST_NONCE_HEADER,
@@ -64,7 +64,7 @@ it.effect("aborts a connector request at its explicit deadline", () =>
   }),
 );
 
-it.effect("keeps Unicode profile labels out of HTTP headers", () =>
+it.effect("auto-registers connector metadata without putting labels in headers", () =>
   Effect.gen(function* () {
     const requests: Array<{ readonly url: string; readonly init: RequestInit }> = [];
     vi.stubGlobal(
@@ -101,10 +101,6 @@ it.effect("keeps Unicode profile labels out of HTTP headers", () =>
 
     yield* connectorRequest("poll", {}, connector, 1_000);
 
-    expect(requests.map(({ url }) => url)).toEqual([
-      `${__PI_CHROME_BRIDGE_URL__}${BRIDGE_ROUTES.connectorHandshake.path}`,
-      `${__PI_CHROME_BRIDGE_URL__}${BRIDGE_ROUTES.poll.path}`,
-    ]);
     const handshakeHeaders = Object.fromEntries(new Headers(requests[0]!.init.headers).entries());
     const pollHeaders = Object.fromEntries(new Headers(requests[1]!.init.headers).entries());
     expect(handshakeHeaders).toMatchObject({
@@ -120,140 +116,10 @@ it.effect("keeps Unicode profile labels out of HTTP headers", () =>
       [CONNECTOR_BODY_SHA256_HEADER]: expect.stringMatching(/^[0-9a-f]{64}$/),
       [CONNECTOR_PROOF_HEADER]: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
-    expect(JSON.stringify(requests)).not.toContain(connector.secret);
-    expect(JSON.stringify(requests)).not.toContain(connector.label);
-    vi.unstubAllGlobals();
-  }),
-);
-
-it.effect("withholds the connector secret from an unauthenticated listener", () =>
-  Effect.gen(function* () {
-    const requests: Array<RequestInit> = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((_url: string, init: RequestInit) => {
-        requests.push(init);
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              bridgeDisplayVersion: "0.16.0",
-              protocolFingerprint: connector.protocolFingerprint,
-              bridgeEpoch,
-              requestNonce,
-              proof: "0".repeat(64),
-            }),
-          ),
-        );
-      }),
-    );
-
-    const failure = yield* connectorRequest("poll", {}, connector, 1_000).pipe(Effect.flip);
-    expect(failure.code).toBe("bridge-listener-authentication");
-    expect(requests).toHaveLength(1);
-    expect(JSON.stringify([...new Headers(requests[0]!.headers).entries()])).not.toContain(
-      connector.secret,
-    );
-    vi.unstubAllGlobals();
-  }),
-);
-
-it.effect("withholds the pairing token and new connector secret from a rogue listener", () =>
-  Effect.gen(function* () {
-    const capability = "A".repeat(32);
-    const requests: Array<RequestInit> = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((_url: string, init: RequestInit) => {
-        requests.push(init);
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              bridgeDisplayVersion: "0.16.0",
-              protocolFingerprint: connector.protocolFingerprint,
-              bridgeEpoch,
-              requestNonce,
-              proof: "0".repeat(64),
-            }),
-          ),
-        );
-      }),
-    );
-
-    const failure = yield* pairingRequest(
-      { headers: { "content-type": "application/json" }, body: JSON.stringify({ connector }) },
-      connector,
-      capability,
-      undefined,
-      1_000,
-    ).pipe(Effect.flip);
-    expect(failure.code).toBe("bridge-listener-authentication");
-    expect(requests).toHaveLength(1);
-    const serialized = JSON.stringify({
-      headers: [...new Headers(requests[0]!.headers).entries()],
-      body: requests[0]!.body,
-    });
-    expect(serialized).not.toContain(capability);
-    expect(serialized).not.toContain(connector.secret);
-    vi.unstubAllGlobals();
-  }),
-);
-
-it.effect("sends the new connector only after the pairing listener proves the token", () =>
-  Effect.gen(function* () {
-    const capability = "A".repeat(32);
-    const requests: Array<RequestInit> = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((url: string, init: RequestInit) => {
-        requests.push(init);
-        if (url.endsWith(BRIDGE_ROUTES.pairingHandshake.path)) {
-          const clientNonce = new Headers(init.headers).get(CONNECTOR_CLIENT_NONCE_HEADER)!;
-          const challenge = { bridgeEpoch, requestNonce } as const;
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                bridgeDisplayVersion: "0.16.0",
-                protocolFingerprint: connector.protocolFingerprint,
-                ...challenge,
-                proof: nodeHmacProof(
-                  capability,
-                  connectorServerProofMessage(
-                    "pairingServerProof",
-                    connector,
-                    clientNonce,
-                    challenge,
-                    connector.protocolFingerprint,
-                  ),
-                ),
-              }),
-            ),
-          );
-        }
-        return Promise.resolve(new Response(JSON.stringify({ ok: true })));
-      }),
-    );
-
-    yield* pairingRequest(
-      { headers: { "content-type": "application/json" }, body: JSON.stringify({ connector }) },
-      connector,
-      capability,
-      undefined,
-      1_000,
-    );
-
-    expect(requests).toHaveLength(2);
-    const handshake = JSON.stringify({
-      headers: [...new Headers(requests[0]!.headers).entries()],
-      body: requests[0]!.body,
-    });
-    expect(handshake).not.toContain(capability);
-    expect(handshake).not.toContain(connector.secret);
-    const confirmationBody = requests[1]!.body;
-    expect(typeof confirmationBody).toBe("string");
-    expect(confirmationBody).toContain(connector.secret);
-    expect(JSON.stringify([...new Headers(requests[1]!.headers).entries()])).not.toContain(
-      capability,
-    );
+    const handshakeBody = requests[0]!.init.body;
+    expect(typeof handshakeBody).toBe("string");
+    expect(JSON.parse(handshakeBody as string)).toEqual(connector);
+    expect(JSON.stringify(pollHeaders)).not.toContain(connector.label);
     vi.unstubAllGlobals();
   }),
 );

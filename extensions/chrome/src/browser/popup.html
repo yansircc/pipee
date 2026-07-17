@@ -9,25 +9,8 @@
   <body>
     <main>
       <h1>Pi Chrome Connector</h1>
-      <p id="identity" class="muted"></p>
-      <label>
-        Profile label
-        <input id="label" maxlength="80" autocomplete="off" />
-      </label>
-      <section id="challenge-panel">
-        <label>
-          One-time pairing token from Pi
-          <input
-            id="challenge"
-            maxlength="32"
-            autocomplete="off"
-            inputmode="text"
-            spellcheck="false"
-          />
-        </label>
-      </section>
-      <p id="message" role="status"></p>
-      <button id="confirm" type="button" disabled>Pair this Chrome profile</button>
+      <p id="identity" class="muted">Loading connector identity…</p>
+      <p id="state" role="status">Inspecting local status…</p>
     </main>
     <script src="{{extension-asset:popupScript}}"></script>
   </body>

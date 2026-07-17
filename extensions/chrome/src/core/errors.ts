@@ -81,7 +81,7 @@ export class ScreenshotFailure extends Data.TaggedError("ScreenshotFailure")<{
   readonly cause?: unknown;
 }> {}
 
-export class AuthorizationFailure extends Data.TaggedError("AuthorizationFailure")<{
+export class ChromeUnavailable extends Data.TaggedError("ChromeUnavailable")<{
   readonly message: string;
 }> {}
 

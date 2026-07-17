@@ -34,8 +34,11 @@ describe("atomic public tool surface", () => {
         details: { profile },
       });
     });
+    const readStatus = vi.fn(() =>
+      Promise.resolve({ content: [{ type: "text" as const, text: "ready" }], details: {} }),
+    );
 
-    registerChromeTools(pi as never, execute, enableProfile as never);
+    registerChromeTools(pi as never, execute, enableProfile as never, readStatus as never);
 
     expect(ATOMIC_TOOL_DESCRIPTORS).toHaveLength(25);
     expect(new Set(CHROME_ATOMIC_TOOL_NAMES).size).toBe(25);

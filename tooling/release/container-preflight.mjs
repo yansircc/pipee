@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { root, run } from "./lib.mjs";
 
 assert.equal(process.platform, "darwin", "release:preflight requires Apple container on macOS");
@@ -68,7 +69,7 @@ if (spawnSync("container", ["volume", "inspect", storeVolume]).status !== 0)
   run("container", ["volume", "create", storeVolume]);
 
 const containerScript = `
-git clone --no-local --quiet /source /work/pi-suite
+git clone --quiet /input/source.bundle /work/pi-suite
 cd /work/pi-suite
 git checkout --detach --quiet "$SOURCE_SHA"
 test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
@@ -84,6 +85,11 @@ pnpm install --offline --frozen-lockfile
 node tooling/release/candidate-pipeline.mjs full "$SOURCE_SHA"
 `;
 
+const bundleDirectory = mkdtempSync(join(tmpdir(), "pi-suite-preflight-source-"));
+const bundlePath = join(bundleDirectory, "source.bundle");
+run("git", ["bundle", "create", bundlePath, "HEAD"]);
+run("git", ["bundle", "verify", bundlePath], { capture: true });
+
 const args = [
   "run",
   "--rm",
@@ -95,7 +101,7 @@ const args = [
   memory,
   ...(platform === "linux/amd64" ? ["--rosetta"] : []),
   "--mount",
-  `type=bind,source=${root},target=/source,readonly`,
+  `type=bind,source=${bundleDirectory},target=/input,readonly`,
   "--mount",
   `type=volume,source=${storeVolume},target=/pnpm-store`,
   "--env",
@@ -106,5 +112,9 @@ const args = [
   containerScript,
 ];
 
-run("container", args);
+try {
+  run("container", args);
+} finally {
+  rmSync(bundleDirectory, { recursive: true, force: true });
+}
 process.stdout.write(`Linux candidate preflight passed for ${sourceSha} on ${platform}.\n`);

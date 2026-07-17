@@ -36,39 +36,6 @@ export const projectChromeExtensionEvidence = (
   },
 })
 
-export const ChromeExternalRequest = Schema.Union([
-  Schema.Struct({ version: Schema.Literal(1), type: Schema.Literal("pi-chrome/web-run/status") }),
-  Schema.Struct({ version: Schema.Literal(1), type: Schema.Literal("pi-chrome/web-run/prepare") }),
-  Schema.Struct({
-    version: Schema.Literal(1),
-    type: Schema.Literal("pi-chrome/web-run/complete"),
-    pairingId: Schema.NonEmptyString,
-  }),
-])
-export type ChromeExternalRequest = typeof ChromeExternalRequest.Type
-
-export const ChromeExternalSuccess = Schema.Union([
-  Schema.Struct({ version: Schema.Literal(1), ok: Schema.Literal(true), type: Schema.Literal("Status"), evidence: ChromeExtensionEvidence }),
-  Schema.Struct({
-    version: Schema.Literal(1),
-    ok: Schema.Literal(true),
-    type: Schema.Literal("Prepared"),
-    evidence: ChromeExtensionEvidence,
-    pairingId: Schema.NonEmptyString,
-    offer: Schema.NonEmptyString,
-  }),
-  Schema.Struct({ version: Schema.Literal(1), ok: Schema.Literal(true), type: Schema.Literal("Completed"), evidence: ChromeExtensionEvidence }),
-])
-
-export const ChromeExternalError = Schema.Struct({
-  version: Schema.Literal(1),
-  ok: Schema.Literal(false),
-  error: Schema.Struct({ code: Schema.NonEmptyString, message: Schema.NonEmptyString }),
-})
-
-export const ChromeExternalResponse = Schema.Union([ChromeExternalSuccess, ChromeExternalError])
-export type ChromeExternalResponse = typeof ChromeExternalResponse.Type
-
 export const ChromeCompatibilityMismatch = Schema.Literals([
   "ExtensionId",
   "DisplayVersion",
@@ -118,76 +85,20 @@ export const classifyChromeConnectorCompatibility = (
 ): ChromeKnownCompatibility =>
   classifyChromeCompatibility(expected, projectChromeExtensionEvidence(connector))
 
-export const ChromeProtocolRequirement = Schema.Union([
-  Schema.Struct({ requirement: Schema.Literal("ProtocolCompatible"), satisfied: Schema.Literal(true) }),
-  Schema.Struct({
-    requirement: Schema.Literal("ProtocolCompatible"),
-    satisfied: Schema.Literal(false),
-    expectedVersion: Schema.String,
-    actualVersion: Schema.String,
-    mismatches: Schema.optionalKey(Schema.Array(ChromeCompatibilityMismatch)),
-    remediation: Schema.Struct({
-      type: Schema.Literal("ReloadUnpackedExtension"),
-      extensionId: Schema.String,
-      directory: Schema.String,
-    }),
-  }),
-])
-
-export const ChromeConnectorRequirement = Schema.Union([
-  Schema.Struct({ requirement: Schema.Literal("ConnectorLive"), satisfied: Schema.Literal(true) }),
-  Schema.Struct({
-    requirement: Schema.Literal("ConnectorLive"),
-    satisfied: Schema.Literal(false),
-    remediation: Schema.Struct({
-      type: Schema.Literal("OpenChromeProfile"),
-      connectorId: Schema.optionalKey(Schema.String),
-      connectorLabel: Schema.optionalKey(Schema.String),
-    }),
-  }),
-])
-
-export const ChromeAuthorizationRequirement = Schema.Union([
-  Schema.Struct({ requirement: Schema.Literal("Authorized"), satisfied: Schema.Literal(true) }),
-  Schema.Struct({
-    requirement: Schema.Literal("Authorized"),
-    satisfied: Schema.Literal(false),
-    remediation: Schema.Struct({ type: Schema.Literal("AuthorizeSession") }),
-  }),
-])
-
-export const ChromeStatusRequirement = Schema.Union([
-  ChromeProtocolRequirement,
-  ChromeConnectorRequirement,
-  ChromeAuthorizationRequirement,
-])
-export type ChromeStatusRequirement = typeof ChromeStatusRequirement.Type
-
 export const ChromeStatusProjection = Schema.Struct({
   kind: Schema.Literal("pi-chrome/status"),
-  version: Schema.Literal(2),
-  readiness: Schema.Literals(["ready", "offline", "locked", "error"]),
-  authorization: Schema.Union([
-    Schema.Literals(["indefinite", "locked"]),
-    Schema.Struct({ expiresAt: Schema.Number }),
-  ]),
-  connection: Schema.Literals(["connected", "offline", "unavailable", "unpaired", "unknown"]),
+  version: Schema.Literal(3),
+  state: Schema.Literals(["ready", "waiting-for-extension", "offline", "error"]),
   bridge: Schema.Literals(["running", "stopped", "error"]),
-  connectorId: Schema.optionalKey(Schema.String),
-  connectorLabel: Schema.optionalKey(Schema.String),
-  connectorExpiresAt: Schema.optionalKey(Schema.Number),
+  connector: Schema.optionalKey(
+    Schema.Struct({
+      id: Schema.NonEmptyString,
+      label: Schema.NonEmptyString,
+      connected: Schema.Boolean,
+      lastSeenAt: Schema.optionalKey(Schema.Finite),
+    }),
+  ),
+  extensionDirectory: Schema.String,
   errorMessage: Schema.optionalKey(Schema.String),
-  requirements: Schema.Array(ChromeStatusRequirement),
 })
 export type ChromeStatusProjection = typeof ChromeStatusProjection.Type
-
-export const ChromeControlRequest = Schema.Struct({
-  action: Schema.Union([
-    Schema.TaggedStruct("Authorize", {}),
-    Schema.TaggedStruct("Revoke", {}),
-    Schema.TaggedStruct("WebAttach", { offer: Schema.NonEmptyString }),
-    Schema.TaggedStruct("WebAssert", { pairingId: Schema.NonEmptyString }),
-    Schema.TaggedStruct("WebDetach", { pairingId: Schema.NonEmptyString }),
-  ]),
-})
-export type ChromeControlRequest = typeof ChromeControlRequest.Type

@@ -1,66 +1,24 @@
 # pi-loop
 
-Effect-based temporal loops for Pi.
+Agent-first scheduling tools for Pi. Users describe recurring or delayed work conversationally; the
+agent creates and manages typed loops. There are no slash commands or Web control buttons.
 
-```sh
-pi install npm:@yansircc/pi-loop
-```
+## Tools
 
-## Commands
+- `loop_create`: create an interval, cron, one-shot, or dynamic loop.
+- `loop_update`: replace a loop's prompt, label, or complete schedule.
+- `loop_pause` / `loop_resume`: change whether a loop may run.
+- `loop_run_now`: run one enabled loop immediately.
+- `loop_delete`: delete one loop or all visible loops.
+- `loop_list`: inspect the current loops.
+- `schedule_wakeup`: arm the next wakeup for a dynamic loop.
 
-```text
-/loop 7m inspect the build       # execute now, then every exact 7 minutes
-/loop monitor the deployment     # model-paced dynamic loop
-/loop-list
-/loop-kill <id|all>
-```
+Session-retained loops disappear with their owning Pi session. Project-retained loops survive and
+are leased by one live Pi process. Dynamic loops are session-retained because their next wakeup is
+part of the active agent conversation.
 
-Fixed intervals are elapsed durations, not approximated cron expressions. Dynamic loops execute
-once, enter `AwaitingArm`, and continue only when the model calls:
-
-```text
-schedule_wakeup { loopId, delaySeconds, reason }
-```
-
-## Model tools
-
-- `cron_create`: recurring calendar cron or one-shot prompt.
-- `cron_delete`: cancel by id or `all`.
-- `cron_list`: list active loops.
-- `schedule_wakeup`: arm one dynamic loop for 60–3600 seconds.
-
-`cron_create` accepts a five-field cron expression, prompt, `recurring`, `durable`, and optional
-label. Cron uses an explicit IANA timezone and standard day-of-month/day-of-week OR semantics.
-Missed recurring occurrences coalesce into one claim.
-
-## State and delivery
-
-Session loops are stored as versioned custom entries in the owning Pi session. Forked sessions do
-not inherit them. Durable cron and one-shot loops are stored in `.pi-loop.json`. One PID lease owns
-durable mutation. Followers continue running session loops and retry ownership while draining project
-loops, so one live follower reloads the durable file and takes over after the previous owner exits.
-Completed, expired, and cancelled loops are removed; `Stopped` is not a persisted phase.
-
-When the extension runs inside pi-web it also exposes a structured multi-loop status and a typed
-control command. pi-web keeps a session runtime alive while at least one loop exists. If pi-web is
-stopped, no loop runs; reopening the session restores state and coalesces an overdue occurrence.
-
-Delivery is at-most-once after claim: durable state commits before Pi receives the prompt. A failed
-commit emits no occurrence; a Pi failure after commit is logged and is not retried.
-
-Project overrides belong in `.pi-loop.config.json`:
-
-```json
-{
-  "maxLoops": 50,
-  "recurringMaxAgeMs": 604800000,
-  "recurringJitterFraction": 0.5,
-  "recurringJitterCapMs": 1800000,
-  "checkIntervalMs": 1000,
-  "durableFilePath": ".pi-loop.json",
-  "timeZone": "Asia/Shanghai"
-}
-```
+Pi Web renders the structured loop projection as read-only status. All mutations go through the
+typed Agent tools.
 
 ## Development
 
