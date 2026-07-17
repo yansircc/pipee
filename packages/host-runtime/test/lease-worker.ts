@@ -5,12 +5,13 @@ import { Effect, Layer } from "effect";
 import { acquireCrossProcessLease } from "../src/cross-process-lease.ts";
 
 const [path, mode] = process.argv.slice(2);
-if (path === undefined || (mode !== "hold" && mode !== "try")) process.exit(64);
+if (path === undefined || (mode !== "hold" && mode !== "try" && mode !== "contend"))
+  process.exit(64);
 
 const PlatformLive = Layer.mergeAll(NodeFileSystemLayer, NodePathLayer);
 const program = acquireCrossProcessLease(path).pipe(
   Effect.tap(() => Effect.sync(() => process.stdout.write("acquired\n"))),
-  Effect.andThen(mode === "hold" ? Effect.never : Effect.void),
+  Effect.andThen(mode === "try" ? Effect.void : Effect.never),
   Effect.catchTag("LeaseUnavailable", () =>
     Effect.sync(() => process.stdout.write("unavailable\n")),
   ),
@@ -18,4 +19,11 @@ const program = acquireCrossProcessLease(path).pipe(
   Effect.provide(PlatformLive),
 );
 
-NodeRuntime.runMain(program);
+const run = () => NodeRuntime.runMain(program);
+if (mode === "contend") {
+  process.send?.("ready");
+  process.once("message", (message) => {
+    if (message === "acquire") run();
+    else process.exit(64);
+  });
+} else run();
