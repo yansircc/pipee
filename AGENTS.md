@@ -18,7 +18,7 @@
 
 - The root lockfile, catalog, candidate builder, and release workflow are the only toolchain and release owners.
 - Pi extensions bundle ordinary dependencies, externalize only Node built-ins and declared Pi host APIs, and must load from the raw npm archive without installing dependencies inside it.
-- One release source SHA maps to one Suite version and four exact npm archives. Never rebuild or repack a witnessed candidate.
+- One release source SHA maps to one explicit public-package release set and one exact archive per selected package. Unselected packages keep their versions and are not published. Never rebuild or repack a witnessed candidate.
 
 ## Commands
 

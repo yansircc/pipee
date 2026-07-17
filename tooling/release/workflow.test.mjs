@@ -20,6 +20,28 @@ const consumerVerifier = readFileSync(
   resolve(root, "tooling/release/verify-consumers.mjs"),
   "utf8",
 );
+const candidateBuilder = readFileSync(
+  resolve(root, "tooling/release/build-candidates.mjs"),
+  "utf8",
+);
+const publisher = readFileSync(resolve(root, "tooling/release/publish-candidates.mjs"), "utf8");
+
+it("publishes only the explicit independent package release set", () => {
+  assert.match(workflow, /source_release: \$\{\{ steps\.commit\.outputs\.source_release \}\}/);
+  assert.match(
+    workflow,
+    /if: needs\.classify\.outputs\.release_commit == 'false' && needs\.classify\.outputs\.source_release == 'true'/,
+  );
+  assert.match(
+    candidateBuilder,
+    /const selectedEntries = preparedSource \? plan\.packages : suiteConfig\(\)\.packages/,
+  );
+  assert.doesNotMatch(candidateBuilder, /share one Suite version|versions\.every/);
+  assert.match(publisher, /flatMap\(\(entry\)/);
+  assert.doesNotMatch(publisher, /candidate is missing/);
+  assert.match(workflow, /create-release-record\.mjs/);
+  assert.match(workflow, /projection\.packages\.map\(p=>p\.tag\)/);
+});
 
 it("owns one Linux candidate and same-artifact macOS/Windows witnesses", () => {
   assert.match(workflow, /pull_request:/);
@@ -122,7 +144,10 @@ it("keeps source quality distinct from the one production candidate", () => {
 it("parallelizes only independent candidate consumers", () => {
   assert.match(consumerVerifier, /await Promise\.all\([\s\S]*?release:archive-check/);
   assert.match(consumerVerifier, /run\("node", \[[\s\S]*?apps\/web\/scripts\/test-package\.mjs/);
-  assert.match(consumerVerifier, /Promise\.all\(\[verifyCombinedInstall\("npm"\), verifyCombinedInstall\("pnpm"\)\]\)/);
+  assert.match(
+    consumerVerifier,
+    /Promise\.all\(\[verifyCombinedInstall\("npm"\), verifyCombinedInstall\("pnpm"\)\]\)/,
+  );
 });
 
 it("keeps OIDC publish and public propagation in separate jobs", () => {

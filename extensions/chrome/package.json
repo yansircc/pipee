@@ -1,6 +1,6 @@
 {
   "name": "@yansircc/pi-chrome",
-  "version": "0.5.7",
+  "version": "0.1.6",
   "description": "Let Pi use your existing signed-in Chrome profile after explicit authorization.",
   "keywords": [
     "agent",

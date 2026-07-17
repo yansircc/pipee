@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "changes": [
+    {
+      "package": "@yansircc/pi-web",
+      "bump": "minor"
+    },
+    {
+      "package": "@yansircc/pi-chrome",
+      "bump": "minor"
+    }
+  ]
+}

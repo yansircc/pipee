@@ -11,7 +11,7 @@ Pi Suite is the source and compatibility release repository for Pi Agent Web and
 - `packages/host-runtime` — scoped host mechanisms shared by extensions, currently cross-process leases.
 - `protocols/companion-contracts` — schemas shared across the host/extension boundary.
 
-The four public npm packages and the Chrome browser extension share one Suite version. A supported installation is the exact archive set recorded by the candidate manifest generated under `release/`; one source SHA owns that version and all four archive integrities.
+The four public npm packages version independently. A source change declares its public release set under `release/changes/`; packages outside that set keep their versions and are not published. The Chrome browser extension remains part of the `@yansircc/pi-chrome` release unit and shares its version. A supported release is the exact selected archive set and integrities recorded by the candidate manifest under `release/`.
 
 ## Development
 

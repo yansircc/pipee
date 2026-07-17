@@ -9,7 +9,7 @@ import { assertReleaseRecordCommit, parseReleaseRecord } from "./release-record.
 const manifestPath = resolve(root, "release/candidate.json");
 assert.equal(existsSync(manifestPath), true, "release/candidate.json is missing");
 const candidate = JSON.parse(readFileSync(manifestPath, "utf8"));
-assert.equal(candidate.schemaVersion, 3);
+assert.equal(candidate.schemaVersion, 4);
 assert.equal(typeof candidate.releasable, "boolean");
 if (candidate.sourceSha !== null) assert.match(candidate.sourceSha, /^[0-9a-f]{40}$/);
 if (candidate.releasable) {
@@ -19,34 +19,73 @@ if (candidate.releasable) {
       run("git", ["show", "-s", "--format=%B", head], { capture: true }),
     );
     assert.ok(record, "candidate is not being verified from its source or release commit");
-    assert.equal(record.source, candidate.sourceSha, "release record owns another candidate source");
-    assert.equal(record.version, candidate.projection?.version, "release and candidate versions differ");
+    assert.equal(
+      record.source,
+      candidate.sourceSha,
+      "release record owns another candidate source",
+    );
+    assert.deepEqual(
+      record.packages,
+      candidate.projection.packages.map(({ id, toVersion, bump }) => ({
+        id,
+        version: toVersion,
+        bump,
+      })),
+      "release and candidate package projections differ",
+    );
     assertReleaseRecordCommit({
       record,
       parents: run("git", ["show", "-s", "--format=%P", head], { capture: true })
         .trim()
         .split(/\s+/)
         .filter(Boolean),
-      manifestVersions: candidate.projection.files.map(
-        (path) => JSON.parse(run("git", ["show", `${head}:${path}`], { capture: true })).version,
+      manifestVersions: Object.fromEntries(
+        suiteConfig().packages.map(({ id, path }) => [
+          id,
+          JSON.parse(run("git", ["show", `${head}:${path}/package.json`], { capture: true }))
+            .version,
+        ]),
       ),
+      packageIds: suiteConfig().packages.map(({ id }) => id),
+      packageManifestPaths: Object.fromEntries(
+        suiteConfig().packages.map(({ id, path }) => [id, `${path}/package.json`]),
+      ),
+      changedFiles: run("git", ["diff-tree", "--no-commit-id", "--name-status", "-r", head], {
+        capture: true,
+      })
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => {
+          const [status, path] = line.split("\t");
+          return { status, path };
+        }),
     });
   }
 }
 if (candidate.projection !== undefined) {
-  assert.equal(candidate.projection.kind, "suite-version");
-  assert.match(candidate.projection.version, /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/);
+  assert.equal(candidate.projection.kind, "package-versions");
+  assert.match(candidate.projection.releaseTag, /^release-[0-9a-f]{12}$/);
   assert.deepEqual(
     [...candidate.projection.files].sort(),
-    ["package.json", ...suiteConfig().packages.map(({ path }) => `${path}/package.json`)].sort(),
+    [
+      ...candidate.projection.packages.map(({ id }) => {
+        const entry = suiteConfig().packages.find((candidateEntry) => candidateEntry.id === id);
+        assert.ok(entry, `projection names unknown package ${id}`);
+        return `${entry.path}/package.json`;
+      }),
+      ...candidate.projection.changeFiles,
+    ].sort(),
   );
 }
-const suiteVersions = new Set();
-for (const entry of suiteConfig().packages) {
+const projectedIds =
+  candidate.projection?.packages.map(({ id }) => id) ?? Object.keys(candidate.artifacts);
+assert.deepEqual(Object.keys(candidate.artifacts).sort(), [...projectedIds].sort());
+for (const entry of suiteConfig().packages.filter(({ id }) => projectedIds.includes(id))) {
   const artifact = candidate.artifacts[entry.id];
   assert.equal(artifact.name, entry.name);
-  suiteVersions.add(artifact.version);
-  if (candidate.projection) assert.equal(artifact.version, candidate.projection.version);
+  const projected = candidate.projection?.packages.find(({ id }) => id === entry.id);
+  if (projected) assert.equal(artifact.version, projected.toVersion);
   const archive = resolve(root, "release/candidates", artifact.archive);
   assert.equal(existsSync(archive), true, `${entry.id} archive is missing`);
   assert.equal(
@@ -93,5 +132,4 @@ for (const entry of suiteConfig().packages) {
     );
   }
 }
-assert.equal(suiteVersions.size, 1, "candidate archives diverge from the Suite version");
-process.stdout.write(`Verified ${suiteConfig().packages.length} immutable candidate archives.\n`);
+process.stdout.write(`Verified ${projectedIds.length} immutable candidate archives.\n`);

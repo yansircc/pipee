@@ -14,22 +14,19 @@ jobs:
   classify:
     runs-on: ubuntu-latest
     outputs:
-      release_commit: ${{ steps.commit.outputs.release_commit || steps.pull-request.outputs.release_commit }}
+      release_commit: ${{ steps.commit.outputs.release_commit }}
+      source_release: ${{ steps.commit.outputs.source_release }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 2
       - id: commit
-        if: github.event_name == 'push'
         run: node tooling/release/classify.mjs "${{ github.sha }}"
-      - id: pull-request
-        if: github.event_name == 'pull_request'
-        run: echo "release_commit=false" >> "$GITHUB_OUTPUT"
 
   candidate:
     needs: classify
-    if: needs.classify.outputs.release_commit == 'false'
+    if: needs.classify.outputs.release_commit == 'false' && needs.classify.outputs.source_release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -37,8 +34,7 @@ jobs:
       actions: read
     outputs:
       mode: ${{ steps.source.outputs.mode }}
-      version: ${{ steps.source.outputs.version }}
-      tag: ${{ steps.source.outputs.tag }}
+      release_tag: ${{ steps.source.outputs.release_tag }}
       artifact: ${{ steps.artifact.outputs.name }}
     steps:
       - uses: actions/checkout@v4
@@ -52,10 +48,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - id: source
-        if: github.event_name == 'push'
+        env:
+          PI_SUITE_RELEASE_PREVIEW: ${{ github.event_name == 'pull_request' && '1' || '0' }}
         run: node tooling/release/candidate-pipeline.mjs verify-release-source "${{ github.sha }}"
-      - if: github.event_name == 'pull_request'
-        run: pnpm release:verify-source
       - name: Materialize the one candidate owned by this source
         shell: bash
         env:
@@ -82,7 +77,7 @@ jobs:
             if [ "${{ steps.source.outputs.mode }}" = "existing" ]; then
               rm -rf release/restore release/assets
               mkdir -p release/restore release/assets
-              if gh release download "${{ steps.source.outputs.tag }}" \
+              if gh release download "${{ steps.source.outputs.release_tag }}" \
                 --pattern "$asset" \
                 --dir release/restore; then
                 stored="release/restore/$asset"
@@ -173,7 +168,7 @@ jobs:
         run: node tooling/release/prepare.mjs "${{ github.sha }}"
       - name: Bind verified archives to prepared version
         run: |
-          node -e "const fs=require('node:fs');const p=require('./package.json');const c=require('./release/candidate.json');if(p.version!==c.projection.version)throw new Error('prepared version differs from verified candidate')"
+          node tooling/release/verify-prepared-candidate.mjs
           pnpm verify:candidates
       - name: Create the release commit and tag
         if: steps.prepare.outputs.mode == 'new'
@@ -181,16 +176,15 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add package.json apps/web/package.json extensions/loop/package.json extensions/weixin/package.json extensions/chrome/package.json
-          git commit -m "chore(release): ${{ steps.prepare.outputs.tag }}" -m "Release-Source: ${{ github.sha }}" -m "Release-Bump: ${{ steps.prepare.outputs.bump }}"
-          git tag "${{ steps.prepare.outputs.tag }}"
-          git push --atomic origin HEAD:main "refs/tags/${{ steps.prepare.outputs.tag }}"
+          node tooling/release/create-release-record.mjs "${{ github.sha }}"
+          tags="$(node -e "const c=require('./release/candidate.json');console.log([c.projection.releaseTag,...c.projection.packages.map(p=>p.tag)].map(t=>'refs/tags/'+t).join(' '))")"
+          git push --atomic origin HEAD:main $tags
       - name: Persist the exact candidate before publication
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="${{ steps.prepare.outputs.tag }}"
+          tag="${{ steps.prepare.outputs.release_tag }}"
           asset="suite-candidates-${{ github.sha }}.tgz"
           local_asset="release/assets/$asset"
           if ! gh release view "$tag" >/dev/null 2>&1; then

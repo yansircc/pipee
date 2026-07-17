@@ -48,7 +48,7 @@ Include:
 - Add the release entry to `CHANGELOG.md`.
 - Preserve the build graph's Chrome 120 minimum unless the runtime contract is intentionally raised with tests and documentation.
 - Run `vp run release` with a real Chrome for Testing or Chromium executable available.
-- Push the source change to `main`. CI owns `package.json` version changes, the release commit, and the annotated tag. The default bump is patch; use exactly one `Release-Bump: minor` or `Release-Bump: major` commit trailer when required.
+- Declare a Chrome release with a JSON changeset under `release/changes/`, naming `@yansircc/pi-chrome` and a `patch`, `minor`, or `major` bump. A push without that changeset does not change or publish Chrome. CI owns `package.json` version changes, the release commit, and package tag.
 - GitHub Actions packs once, runs the Linux archive/domain baseline, loads that exact candidate through Pi on macOS and Windows, publishes it through npm Trusted Publishing with provenance, and proves the public registry integrity matches. Do not publish or tag the same version manually.
 
 ## Code of conduct
