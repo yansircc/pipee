@@ -1,5 +1,5 @@
 import {
-  beginExclusiveLease,
+  beginWriteLease,
   closeSqliteDatabase,
   isSqliteBusy,
   openSqliteDatabase,
@@ -11,7 +11,7 @@ if (path === undefined) process.exit(64);
 const contend = () => {
   const database = openSqliteDatabase(path);
   try {
-    beginExclusiveLease(database);
+    beginWriteLease(database);
     process.stdout.write("acquired\n");
     setInterval(() => database.exec("SELECT 1"), 2_147_483_647);
   } catch (cause) {

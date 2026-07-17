@@ -1,6 +1,6 @@
 import { Data, Effect, FileSystem, Path, Scope } from "effect";
 import {
-  beginExclusiveLease,
+  beginWriteLease,
   closeSqliteDatabase,
   isSqliteBusy,
   openSqliteDatabase,
@@ -54,7 +54,7 @@ export const acquireCrossProcessLease = (
     const acquire = Effect.flatMap(open, (database) =>
       Effect.try({
         try: () => {
-          return beginExclusiveLease(database);
+          return beginWriteLease(database);
         },
         catch: (cause) =>
           isSqliteBusy(cause)

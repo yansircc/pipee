@@ -9,8 +9,11 @@ export const isSqliteBusy = (cause: unknown): boolean =>
 
 export const openSqliteDatabase = (path: string): DatabaseSync => new DatabaseSync(path);
 
-export const beginExclusiveLease = (database: DatabaseSync): DatabaseSync => {
-  database.exec("PRAGMA busy_timeout=0; BEGIN EXCLUSIVE");
+export const beginWriteLease = (database: DatabaseSync): DatabaseSync => {
+  // A lease requires one writer, not exclusion of readers. IMMEDIATE acquires SQLite's unique
+  // reserved write lock directly, so concurrent first openers cannot all fail while upgrading
+  // their own shared locks to EXCLUSIVE.
+  database.exec("PRAGMA busy_timeout=0; BEGIN IMMEDIATE");
   return database;
 };
 
