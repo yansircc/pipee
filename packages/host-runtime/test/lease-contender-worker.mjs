@@ -8,13 +8,12 @@ import {
 const [path] = process.argv.slice(2);
 if (path === undefined) process.exit(64);
 
-let _heldDatabase;
 const contend = () => {
   const database = openSqliteDatabase(path);
   try {
     beginExclusiveLease(database);
-    _heldDatabase = database;
     process.stdout.write("acquired\n");
+    setInterval(() => database.exec("SELECT 1"), 2_147_483_647);
   } catch (cause) {
     closeSqliteDatabase(database);
     if (!isSqliteBusy(cause)) throw cause;
