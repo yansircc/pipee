@@ -14,6 +14,10 @@ assert.match(sourceSha, /^[0-9a-f]{40}$/);
 
 const platform = process.env.PI_SUITE_PREFLIGHT_PLATFORM ?? "linux/arm64";
 assert.match(platform, /^linux\/(?:arm64|amd64)$/, "unsupported preflight platform");
+const cpus = process.env.PI_SUITE_PREFLIGHT_CPUS ?? "8";
+const memory = process.env.PI_SUITE_PREFLIGHT_MEMORY ?? "8G";
+assert.match(cpus, /^[1-9]\d*$/, "preflight CPUs must be a positive integer");
+assert.match(memory, /^[1-9]\d*[GM]$/, "preflight memory must use a positive G or M value");
 const architecture = platform.slice("linux/".length);
 const storeVolume = `pi-suite-pnpm-store-${architecture}`;
 if (spawnSync("container", ["volume", "inspect", storeVolume]).status !== 0)
@@ -37,6 +41,10 @@ const args = [
   "--rm",
   "--platform",
   platform,
+  "--cpus",
+  cpus,
+  "--memory",
+  memory,
   ...(platform === "linux/amd64" ? ["--rosetta"] : []),
   "--mount",
   `type=bind,source=${root},target=/source,readonly`,

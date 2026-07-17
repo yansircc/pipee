@@ -37,7 +37,7 @@ pnpm release:preflight
 git diff --check
 ```
 
-`release:preflight` requires a clean committed HEAD and Apple `container`. It mounts the repository read-only, clones only committed Git state into a fresh Linux workspace, installs with the frozen lockfile, and invokes `candidate-pipeline.mjs full`. The Actions candidate job invokes the same pipeline in phases so exact-candidate restoration can remain between source verification and candidate verification. `PI_SUITE_PREFLIGHT_PLATFORM=linux/amd64` opts into Rosetta-backed amd64 execution; the default is native `linux/arm64`.
+`release:preflight` requires a clean committed HEAD and Apple `container`. It mounts the repository read-only, clones only committed Git state into a fresh Linux workspace, installs with the frozen lockfile, and invokes `candidate-pipeline.mjs full`. The Actions candidate job invokes the same pipeline in phases so exact-candidate restoration can remain between source verification and candidate verification. `PI_SUITE_PREFLIGHT_PLATFORM=linux/amd64` opts into Rosetta-backed amd64 execution; the default is native `linux/arm64`. The container receives 8 CPUs and 8 GB by default because Apple container's 1 GB default cannot run the parallel workspace gate; `PI_SUITE_PREFLIGHT_CPUS` and `PI_SUITE_PREFLIGHT_MEMORY` override those explicit resources.
 
 `pnpm push:release` adds no release behavior: it requires `main`, runs `release:preflight`, proves HEAD and the worktree are unchanged, and pushes that verified commit.
 
