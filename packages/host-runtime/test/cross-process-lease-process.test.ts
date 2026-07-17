@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const worker = fileURLToPath(new URL("./lease-worker.ts", import.meta.url));
-const contenderWorker = fileURLToPath(new URL("./lease-contender-worker.ts", import.meta.url));
+const contenderWorker = fileURLToPath(new URL("./lease-contender-worker.mjs", import.meta.url));
 
 const start = (path: string, mode: "hold" | "try") =>
   spawn(process.execPath, ["--experimental-strip-types", worker, path, mode], {
