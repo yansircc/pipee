@@ -11,6 +11,12 @@ assert.equal(
 
 const sourceSha = run("git", ["rev-parse", "HEAD"], { capture: true }).trim();
 assert.match(sourceSha, /^[0-9a-f]{40}$/);
+run("pnpm", ["--filter", "@yansircc/pi-chrome", "run", "release:check"]);
+assert.equal(
+  run("git", ["status", "--porcelain"], { capture: true }),
+  "",
+  "Chrome connector verification changed the worktree",
+);
 
 const platform = process.env.PI_SUITE_PREFLIGHT_PLATFORM ?? "linux/arm64";
 assert.match(platform, /^linux\/(?:arm64|amd64)$/, "unsupported preflight platform");
