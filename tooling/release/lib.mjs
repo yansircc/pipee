@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
+import crossSpawn from "cross-spawn"
 
 export const root = resolve(fileURLToPath(new URL("../../", import.meta.url)))
 
@@ -11,7 +11,7 @@ export const readJson = (path) => JSON.parse(readFileSync(resolve(root, path), "
 export const suiteConfig = () => readJson("release/suite.config.json")
 
 export const run = (command, args, options = {}) => {
-  const result = spawnSync(command, args, {
+  const result = crossSpawn.sync(command, args, {
     cwd: options.cwd ?? root,
     encoding: "utf8",
     env: options.env ?? process.env,
@@ -22,7 +22,8 @@ export const run = (command, args, options = {}) => {
       process.stderr.write(result.stdout ?? "")
       process.stderr.write(result.stderr ?? "")
     }
-    throw new Error(`${command} ${args.join(" ")} failed with exit ${result.status}`)
+    const outcome = result.error === undefined ? `exit ${result.status}` : result.error.message
+    throw new Error(`${command} ${args.join(" ")} failed with ${outcome}`)
   }
   return result.stdout ?? ""
 }

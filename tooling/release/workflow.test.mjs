@@ -13,6 +13,7 @@ const candidatePipeline = readFileSync(
   resolve(root, "tooling/release/candidate-pipeline.mjs"),
   "utf8",
 );
+const releaseLib = readFileSync(resolve(root, "tooling/release/lib.mjs"), "utf8");
 
 it("owns one Linux candidate and same-artifact macOS/Windows witnesses", () => {
   assert.match(workflow, /pull_request:/);
@@ -89,6 +90,12 @@ it("keeps full consumer verification in local preflight and out of the release n
   assert.doesNotMatch(verifyCandidate, /verify:consumers/);
   assert.match(full, /verifyCandidate\(\);\s+verifyConsumers\(\);/);
   assert.doesNotMatch(workflow, /verify:consumers/);
+});
+
+it("resolves package binaries through the shared cross-platform process boundary", () => {
+  assert.match(releaseLib, /import crossSpawn from "cross-spawn"/);
+  assert.match(releaseLib, /crossSpawn\.sync\(command, args/);
+  assert.doesNotMatch(releaseLib, /spawnSync\(command, args/);
 });
 
 it("keeps OIDC publish and public propagation in separate jobs", () => {
