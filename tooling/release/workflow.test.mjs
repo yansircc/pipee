@@ -14,6 +14,7 @@ const candidatePipeline = readFileSync(
   "utf8",
 );
 const releaseLib = readFileSync(resolve(root, "tooling/release/lib.mjs"), "utf8");
+const classifier = readFileSync(resolve(root, "tooling/release/classify.mjs"), "utf8");
 
 it("owns one Linux candidate and same-artifact macOS/Windows witnesses", () => {
   assert.match(workflow, /pull_request:/);
@@ -96,6 +97,13 @@ it("resolves package binaries through the shared cross-platform process boundary
   assert.match(releaseLib, /import crossSpawn from "cross-spawn"/);
   assert.match(releaseLib, /crossSpawn\.sync\(command, args/);
   assert.doesNotMatch(releaseLib, /spawnSync\(command, args/);
+});
+
+it("keeps source classification install-free", () => {
+  const classifyJob = workflow.match(/\n  classify:[\s\S]*?\n  candidate:/)?.[0] ?? "";
+  assert.doesNotMatch(classifier, /from "\.\/lib\.mjs"|from "cross-spawn"/);
+  assert.match(classifier, /execFileSync\("git", args/);
+  assert.doesNotMatch(classifyJob, /pnpm install|setup-node|pnpm\/action-setup/);
 });
 
 it("keeps OIDC publish and public propagation in separate jobs", () => {
