@@ -17,7 +17,7 @@ jobs:
       release_commit: ${{ steps.commit.outputs.release_commit }}
       source_release: ${{ steps.commit.outputs.source_release }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
           fetch-depth: 2
@@ -37,12 +37,12 @@ jobs:
       release_tag: ${{ steps.source.outputs.release_tag }}
       artifact: ${{ steps.artifact.outputs.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24.11.0
           cache: pnpm
@@ -100,7 +100,7 @@ jobs:
       - id: artifact
         shell: bash
         run: echo "name=suite-candidates-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.artifact.outputs.name }}
           path: |
@@ -121,16 +121,16 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24.11.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: ${{ needs.candidate.outputs.artifact }}
           path: release
@@ -145,12 +145,12 @@ jobs:
       contents: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24.11.0
           cache: pnpm
@@ -160,7 +160,7 @@ jobs:
         run: |
           npm --version
           node -e "const {execFileSync}=require('node:child_process');const [major,minor]=execFileSync('npm',['--version'],{encoding:'utf8'}).trim().split('.').map(Number);if(major<11||(major===11&&minor<5))throw new Error('npm 11.5.1 or newer is required for OIDC')"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: ${{ needs.candidate.outputs.artifact }}
           path: release
@@ -208,17 +208,17 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24.11.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: ${{ needs.candidate.outputs.artifact }}
           path: release
