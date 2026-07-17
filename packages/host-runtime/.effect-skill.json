@@ -1,18 +1,12 @@
 {
   "shape": ["library", "node-tool"],
-  "executableEdges": [
-    {
-      "path": "test/lease-contender-worker.ts",
-      "owner": "@runtime-tests",
-      "reason": "process fixture owns one contender runtime and keeps an acquired SQLite lease scoped until process exit",
-      "execution": {
-        "lifecycle": "process-main",
-        "runner": "NodeRuntime.runMain"
-      }
-    }
-  ],
   "testGlobs": ["test/**/*.test.ts"],
   "hostTooling": [
+    {
+      "path": "test/lease-contender-worker.mjs",
+      "owner": "@runtime-tests",
+      "reason": "Lightweight process fixture drives the shared SQLite primitive without loading the public Effect adapter."
+    },
     {
       "path": "vite.config.ts",
       "owner": "@vite-plus-tooling",
