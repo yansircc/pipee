@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { root, run } from "./lib.mjs";
+import {
+  preflightBaseImage,
+  preflightImageFile,
+  preflightImageHash,
+  preflightLockHash,
+  preflightStoreVolume,
+} from "./preflight-cache.mjs";
 
 assert.equal(process.platform, "darwin", "release:preflight requires Apple container on macOS");
 assert.equal(
@@ -34,22 +40,19 @@ const memory = process.env.PI_SUITE_PREFLIGHT_MEMORY ?? "8G";
 assert.match(cpus, /^[1-9]\d*$/, "preflight CPUs must be a positive integer");
 assert.match(memory, /^[1-9]\d*[GM]$/, "preflight memory must use a positive G or M value");
 const architecture = platform.slice("linux/".length);
-const hashFile = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
-const imageDirectory = resolve(root, "tooling/release/preflight-image");
-const imageFile = resolve(imageDirectory, "Dockerfile");
-const baseImage = "node:24-bookworm";
-if (spawnSync("container", ["image", "inspect", baseImage]).status !== 0)
-  run("container", ["image", "pull", baseImage]);
+const imageFile = preflightImageFile(root);
+const imageDirectory = dirname(imageFile);
+if (spawnSync("container", ["image", "inspect", preflightBaseImage]).status !== 0)
+  run("container", ["image", "pull", preflightBaseImage]);
 const baseImageDescriptor = JSON.parse(
-  run("container", ["image", "inspect", baseImage], { capture: true }),
+  run("container", ["image", "inspect", preflightBaseImage], { capture: true }),
 )[0].configuration.descriptor.digest;
-assert.match(baseImageDescriptor, /^sha256:[0-9a-f]{64}$/, "preflight base image has no descriptor digest");
-const imageHash = createHash("sha256")
-  .update(readFileSync(imageFile))
-  .update("\0")
-  .update(baseImageDescriptor)
-  .digest("hex")
-  .slice(0, 16);
+assert.match(
+  baseImageDescriptor,
+  /^sha256:[0-9a-f]{64}$/,
+  "preflight base image has no descriptor digest",
+);
+const imageHash = preflightImageHash({ imageFile, baseImageDigest: baseImageDescriptor });
 const image = `pi-suite-preflight:${imageHash}-${architecture}`;
 if (spawnSync("container", ["image", "inspect", image]).status !== 0) {
   run("container", [
@@ -68,8 +71,8 @@ if (spawnSync("container", ["image", "inspect", image]).status !== 0) {
   ]);
 }
 
-const lockHash = hashFile(resolve(root, "pnpm-lock.yaml")).slice(0, 20);
-const storeVolume = `pi-suite-pnpm-${architecture}-${lockHash}`;
+const lockHash = preflightLockHash(resolve(root, "pnpm-lock.yaml"));
+const storeVolume = preflightStoreVolume({ architecture, lockHash, imageHash });
 if (spawnSync("container", ["volume", "inspect", storeVolume]).status !== 0)
   run("container", ["volume", "create", storeVolume]);
 
