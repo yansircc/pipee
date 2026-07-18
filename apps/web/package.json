@@ -52,7 +52,6 @@
   "dependencies": {
     "@earendil-works/pi-ai": "catalog:",
     "@earendil-works/pi-coding-agent": "catalog:",
-    "@pi-suite/host-runtime": "workspace:*",
     "fflate": "0.8.2"
   },
   "devDependencies": {
@@ -82,6 +81,7 @@
     "@types/react-syntax-highlighter": "15.5.13",
     "@vitejs/plugin-react": "6.0.3",
     "@pi-suite/companion-contracts": "workspace:*",
+    "@pi-suite/host-runtime": "workspace:*",
     "@yansircc/effect-scan": "catalog:",
     "cross-spawn": "7.0.6",
     "nitro": "3.0.260610-beta",
