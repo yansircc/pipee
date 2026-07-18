@@ -9,6 +9,7 @@ const containerPreflight = readFileSync(
   resolve(root, "tooling/release/container-preflight.mjs"),
   "utf8",
 );
+const preflightCache = readFileSync(resolve(root, "tooling/release/preflight-cache.mjs"), "utf8");
 const candidatePipeline = readFileSync(
   resolve(root, "tooling/release/candidate-pipeline.mjs"),
   "utf8",
@@ -138,7 +139,11 @@ it("shares one candidate pipeline between clean Linux preflight and Actions", ()
   assert.doesNotMatch(containerPreflight, /target=\/source,readonly/);
   assert.match(containerPreflight, /pnpm fetch --frozen-lockfile/);
   assert.match(containerPreflight, /pnpm install --offline --frozen-lockfile/);
-  assert.match(containerPreflight, /preflight-image/);
+  assert.match(preflightCache, /preflight-image/);
+  assert.match(
+    containerPreflight,
+    /preflightStoreVolume\(\{ architecture, lockHash, imageHash \}\)/,
+  );
   assert.match(containerPreflight, /candidate-pipeline\.mjs full/);
 });
 
