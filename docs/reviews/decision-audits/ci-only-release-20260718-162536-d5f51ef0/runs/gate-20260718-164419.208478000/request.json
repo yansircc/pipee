@@ -1,0 +1,145 @@
+{
+  "add_dir": [],
+  "allowed_tools": [
+    "Read",
+    "Grep",
+    "Glob"
+  ],
+  "append_system_prompt": null,
+  "budget": "20",
+  "command": "claude",
+  "created_at": 1784364259.214677,
+  "decision_work_dir": "/Users/yansir/code/52/pi-suite/docs/reviews/decision-audits/ci-only-release-20260718-162536-d5f51ef0",
+  "disable_slash_commands": true,
+  "disallowed_tools": [
+    "Edit",
+    "Write",
+    "NotebookEdit",
+    "WebFetch",
+    "WebSearch",
+    "Agent",
+    "Workflow",
+    "Artifact",
+    "Skill",
+    "Monitor",
+    "PowerShell",
+    "mcp__*"
+  ],
+  "effective_session_id": "f6c06acb-a6d7-65ce-8108-6ccbdf0d5bcb",
+  "effort": "xhigh",
+  "exclude_dynamic_sections": true,
+  "first_event_timeout": 90,
+  "idle_timeout": 1200,
+  "include_partial_messages": true,
+  "json_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "blockers": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "causal_boundary": {
+              "type": "string"
+            },
+            "claim": {
+              "type": "string"
+            },
+            "claim_type": {
+              "enum": [
+                "fact",
+                "invariant",
+                "tradeoff",
+                "preference"
+              ],
+              "type": "string"
+            },
+            "confidence": {
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ],
+              "type": "string"
+            },
+            "criterion_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "evidence": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "falsifier": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "severity": {
+              "enum": [
+                "invariant",
+                "high",
+                "medium",
+                "low"
+              ],
+              "type": "string"
+            },
+            "violated_invariant": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "claim",
+            "claim_type",
+            "causal_boundary",
+            "evidence",
+            "severity",
+            "confidence",
+            "falsifier"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "summary": {
+        "type": "string"
+      },
+      "verdict": {
+        "enum": [
+          "LGTM",
+          "BLOCKED"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "verdict",
+      "summary",
+      "blockers"
+    ],
+    "type": "object"
+  },
+  "no_chrome": true,
+  "operation": "gate",
+  "operation_id": "gate-20260718-164419.208478000",
+  "permission_mode": "dontAsk",
+  "prompt_input_type": "gate",
+  "prompt_path": "/Users/yansir/code/52/pi-suite/docs/reviews/decision-audits/ci-only-release-20260718-162536-d5f51ef0/runs/gate-20260718-164419.208478000/prompt.md",
+  "prompt_sha256": "ca3c4e8125f2146f4398b0431a9c5f13aff96b7bbe38b515a7f4bf9efe51cf0f",
+  "safe_mode": true,
+  "strict_mcp_config": true,
+  "tool_profile": "read-only-explore",
+  "tools": [
+    "Read",
+    "Grep",
+    "Glob"
+  ]
+}

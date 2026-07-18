@@ -1,3 +1,5 @@
+import { bumpVersion } from "./version.mjs";
+
 const strictVersion = "(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)";
 const subjectPattern = /^chore\(release\): release-([0-9a-f]{12})$/;
 
@@ -21,6 +23,7 @@ export const parseReleaseRecord = (message) => {
   if (subjectMatch?.[1] === undefined)
     throw new Error("release record has a non-canonical subject");
   const source = uniqueTrailer(lines, "Release-Source", /^Release-Source:\s*([0-9a-f]{40})\s*$/);
+  const base = uniqueTrailer(lines, "Release-Base", /^Release-Base:\s*([0-9a-f]{40})\s*$/);
   if (source.slice(0, 12) !== subjectMatch[1]) {
     throw new Error("release record tag does not match its source");
   }
@@ -37,25 +40,30 @@ export const parseReleaseRecord = (message) => {
   if (new Set(packages.map(({ id }) => id)).size !== packages.length) {
     throw new Error("release record repeats a package");
   }
-  return { source, tag: `release-${subjectMatch[1]}`, packages };
+  if (base === source) throw new Error("release source must advance its base");
+  return { source, base, tag: `release-${subjectMatch[1]}`, packages };
 };
 
 export const assertReleaseRecordCommit = ({
   record,
   parents,
   manifestVersions,
+  sourceManifestVersions,
   packageIds,
   packageManifestPaths,
   changedFiles,
 }) => {
-  if (parents.length !== 1 || parents[0] !== record.source) {
-    throw new Error("release commit must have its source commit as the only parent");
+  if (parents.length !== 2 || parents[0] !== record.base || parents[1] !== record.source) {
+    throw new Error("release commit parents must be its base and development source");
   }
   const known = new Set(packageIds);
   for (const entry of record.packages) {
     if (!known.has(entry.id)) throw new Error(`release record names unknown package ${entry.id}`);
     if (manifestVersions[entry.id] !== entry.version) {
       throw new Error(`release record version does not match ${entry.id} manifest`);
+    }
+    if (bumpVersion(sourceManifestVersions[entry.id], entry.bump) !== entry.version) {
+      throw new Error(`release record version does not match ${entry.id} requested bump`);
     }
   }
   if (changedFiles !== undefined) {

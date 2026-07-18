@@ -1,10 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertReleaseRecordCommit, parseReleaseRecord } from "./release-record.mjs";
 
 const root = resolve(fileURLToPath(new URL("../../", import.meta.url)));
+const readJson = (path) => JSON.parse(readFileSync(resolve(root, path), "utf8"));
+const suiteConfig = () => readJson("release/suite.config.json");
 
 const commit = process.argv[2];
 if (!commit) throw new Error("usage: classify.mjs <commit>");
@@ -18,29 +20,20 @@ const record = parseReleaseRecord(git(["show", "-s", "--format=%B", commit]));
 
 if (record !== undefined) {
   const parents = git(["show", "-s", "--format=%P", commit]).split(/\s+/).filter(Boolean);
-  const packages = JSON.parse(git(["show", `${commit}:release/suite.config.json`])).packages;
+  const packages = suiteConfig().packages;
   const packageManifestPaths = Object.fromEntries(
     packages.map(({ id, path }) => [id, `${path}/package.json`]),
   );
   const manifestVersions = Object.fromEntries(
-    packages.map(({ id, path }) => [
-      id,
-      JSON.parse(git(["show", `${commit}:${path}/package.json`])).version,
-    ]),
+    packages.map(({ id, path }) => [id, readJson(`${path}/package.json`).version]),
   );
   assertReleaseRecordCommit({
     record,
     parents,
     manifestVersions,
-    sourceManifestVersions: Object.fromEntries(
-      packages.map(({ id, path }) => [
-        id,
-        JSON.parse(git(["show", `${record.source}:${path}/package.json`])).version,
-      ]),
-    ),
     packageIds: packages.map(({ id }) => id),
     packageManifestPaths,
-    changedFiles: git(["diff", "--name-status", record.source, commit])
+    changedFiles: git(["diff-tree", "--no-commit-id", "--name-status", "-r", commit])
       .split(/\r?\n/)
       .filter(Boolean)
       .map((line) => {

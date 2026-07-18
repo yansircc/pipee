@@ -1,60 +1,85 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { it } from "node:test";
 import { resolve } from "node:path";
 import { root, run } from "./lib.mjs";
 
-const workflow = readFileSync(resolve(root, ".github/workflows/release.yml"), "utf8");
-const containerPreflight = readFileSync(
-  resolve(root, "tooling/release/container-preflight.mjs"),
+const candidate = readFileSync(resolve(root, ".github/workflows/release-candidate.yml"), "utf8");
+const promotion = readFileSync(resolve(root, ".github/workflows/release-promote.yml"), "utf8");
+const promoter = readFileSync(resolve(root, "tooling/release/promote-candidate.mjs"), "utf8");
+const materializer = readFileSync(
+  resolve(root, "tooling/release/materialize-release-candidate.mjs"),
   "utf8",
 );
-const preflightCache = readFileSync(resolve(root, "tooling/release/preflight-cache.mjs"), "utf8");
-const candidatePipeline = readFileSync(
-  resolve(root, "tooling/release/candidate-pipeline.mjs"),
-  "utf8",
-);
-const releaseLib = readFileSync(resolve(root, "tooling/release/lib.mjs"), "utf8");
-const classifier = readFileSync(resolve(root, "tooling/release/classify.mjs"), "utf8");
-const webConfig = readFileSync(resolve(root, "apps/web/vite.config.ts"), "utf8");
-const consumerVerifier = readFileSync(
-  resolve(root, "tooling/release/verify-consumers.mjs"),
-  "utf8",
-);
-const candidateBuilder = readFileSync(
-  resolve(root, "tooling/release/build-candidates.mjs"),
-  "utf8",
-);
-const publisher = readFileSync(resolve(root, "tooling/release/publish-candidates.mjs"), "utf8");
 
-it("runs every JavaScript action on the verified Node 24 major", () => {
-  const actions = [
-    ...new Set([...workflow.matchAll(/uses:\s+([^\s#]+)/g)].map((match) => match[1])),
-  ].sort();
-  assert.deepEqual(actions, [
-    "actions/checkout@v5",
-    "actions/download-artifact@v7",
-    "actions/setup-node@v5",
-    "actions/upload-artifact@v6",
-    "pnpm/action-setup@v5",
-  ]);
+it("runs candidate code only in a manually dispatched read-only witness workflow", () => {
+  assert.match(candidate, /workflow_dispatch:/);
+  assert.doesNotMatch(candidate, /push:|pull_request:/);
+  assert.match(candidate, /permissions:\s+contents: read/);
+  assert.doesNotMatch(candidate, /contents: write|id-token: write/);
+  assert.match(candidate, /persist-credentials: false/);
+  assert.match(candidate, /ref: \$\{\{ inputs\.release_sha \}\}/);
+  assert.match(candidate, /node tooling\/release\/classify\.mjs/);
 });
 
-it("publishes only the explicit independent package release set", () => {
-  assert.match(workflow, /source_release: \$\{\{ steps\.commit\.outputs\.source_release \}\}/);
-  assert.match(
-    workflow,
-    /if: needs\.classify\.outputs\.release_commit == 'false' && needs\.classify\.outputs\.source_release == 'true'/,
+it("owns one Linux archive set and fans out exact witnesses", () => {
+  assert.equal((candidate.match(/candidate-pipeline\.mjs build/g) ?? []).length, 1);
+  assert.match(candidate, /- run: pnpm verify\s/);
+  assert.match(candidate, /- run: pnpm verify:candidates/);
+  assert.match(candidate, /- run: pnpm verify:consumers/);
+  assert.match(candidate, /pnpm --filter @yansircc\/pi-chrome run release:check/);
+  assert.match(candidate, /- run: pnpm verify:chrome-candidate/);
+  assert.match(candidate, /matrix:[\s\S]*os: \[macos-14, windows-2022\]/);
+  assert.match(candidate, /actions\/download-artifact@v7/);
+  assert.match(candidate, /retention-days: 14/);
+  assert.doesNotMatch(
+    candidate.match(/platform-witness:[\s\S]*?\n  witness:/)?.[0] ?? "",
+    /build-candidates|candidate-pipeline\.mjs build|\bpack\b/,
   );
-  assert.match(
-    candidateBuilder,
-    /const selectedEntries = preparedSource \? plan\.packages : suiteConfig\(\)\.packages/,
-  );
-  assert.doesNotMatch(candidateBuilder, /share one Suite version|versions\.every/);
-  assert.match(publisher, /flatMap\(\(entry\)/);
-  assert.doesNotMatch(publisher, /candidate is missing/);
-  assert.match(workflow, /create-release-record\.mjs/);
-  assert.match(workflow, /projection\.packages\.map\(p=>p\.tag\)/);
+});
+
+it("keeps promotion privileged, trusted, and free of candidate execution", () => {
+  assert.match(promotion, /workflow_run:[\s\S]*workflows: \[Release Candidate\]/);
+  const privileged = promotion.match(/promote-and-publish:[\s\S]*?\n  public-acceptance:/)?.[0] ?? "";
+  assert.match(privileged, /contents: write/);
+  assert.match(privileged, /id-token: write/);
+  assert.match(privileged, /ref: \$\{\{ github\.event\.workflow_run\.head_sha \}\}/);
+  assert.doesNotMatch(privileged, /pnpm install|npm install|ref: \$\{\{ steps\.artifact\.outputs\.release_sha \}\}/);
+  assert.match(privileged, /promote-candidate\.mjs verify/);
+  assert.match(privileged, /sha256:\[0-9a-f\]\{64\}/);
+  assert.match(privileged, /promote-candidate\.mjs promote/);
+  assert.match(privileged, /promote-candidate\.mjs persist/);
+  assert.match(privileged, /promote-candidate\.mjs publish/);
+  assert.match(promoter, /--ignore-scripts/);
+  assert.match(promoter, /git", \["push", "--atomic"/);
+  assert.doesNotMatch(promoter, /import .*\.\/lib\.mjs|cross-spawn/);
+  assert.match(promoter, /"pack", archive, "--dry-run", "--json", "--ignore-scripts"/);
+});
+
+it("keeps public propagation separate from irreversible publication", () => {
+  const publicAcceptance = promotion.match(/public-acceptance:[\s\S]*$/)?.[0] ?? "";
+  assert.match(publicAcceptance, /pnpm verify:registry/);
+  assert.doesNotMatch(publicAcceptance, /id-token: write|contents: write|npm publish/);
+});
+
+it("has one release entry and no compatibility release path", () => {
+  const manifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+  assert.equal(manifest.scripts["release:submit"], "node tooling/release/submit-release-candidate.mjs");
+  for (const script of ["push:release", "release:preflight", "publish:candidates"]) {
+    assert.equal(manifest.scripts[script], undefined);
+  }
+  for (const file of [
+    ".github/workflows/release.yml",
+    "tooling/release/push-release.mjs",
+    "tooling/release/container-preflight.mjs",
+    "tooling/release/prepare.mjs",
+    "tooling/release/create-release-record.mjs",
+    "tooling/release/publish-candidates.mjs",
+  ]) {
+    assert.equal(existsSync(resolve(root, file)), false, `${file} is a forbidden compatibility path`);
+  }
+  assert.doesNotMatch(candidate + promotion, /queue: max|NODE_AUTH_TOKEN|NPM_TOKEN|_authToken/);
+  assert.match(materializer, /"commit-tree"[\s\S]*"-p", base, "-p", source/);
 });
 
 it("reports an ordinary nonzero child exit without dereferencing a null spawn error", () => {
@@ -62,146 +87,4 @@ it("reports an ordinary nonzero child exit without dereferencing a null spawn er
     () => run(process.execPath, ["-e", "process.exit(7)"], { capture: true }),
     /failed with exit 7/,
   );
-});
-
-it("owns one Linux candidate and same-artifact macOS/Windows witnesses", () => {
-  assert.match(workflow, /pull_request:/);
-  assert.match(workflow, /candidate:[\s\S]*runs-on: ubuntu-latest/);
-  assert.match(workflow, /matrix:[\s\S]*os: \[macos-14, windows-2022\]/);
-  assert.match(workflow, /platform-witness:[\s\S]*download-artifact/);
-  assert.doesNotMatch(
-    workflow.match(/platform-witness:[\s\S]*?\n  publish:/)?.[0] ?? "",
-    /build-candidates|\bpack\b/,
-  );
-  assert.match(workflow, /suite-candidates-\$\{GITHUB_RUN_ID\}-\$\{GITHUB_RUN_ATTEMPT\}/);
-  assert.match(workflow, /artifact: \$\{\{ steps\.artifact\.outputs\.name \}\}/);
-  assert.match(workflow, /name: \$\{\{ needs\.candidate\.outputs\.artifact \}\}/);
-  assert.match(workflow, /group: \$\{\{ github\.event_name == 'push'[\s\S]*pi-suite-release-pr-/);
-  assert.match(workflow, /queue: max/);
-});
-
-it("restores an existing source and persists its exact candidate before npm publication", () => {
-  const materialize =
-    workflow.match(
-      /name: Materialize the one candidate[\s\S]*?\n      - run: node tooling\/release\/candidate-pipeline\.mjs verify-candidate/,
-    )?.[0] ?? "";
-  const publish = workflow.match(/\n  publish:[\s\S]*?\n  public-acceptance:/)?.[0] ?? "";
-  const existing = materialize.match(/else\n[\s\S]*?candidate-store\.mjs restore/)?.[0] ?? "";
-  assert.match(existing, /gh release download/);
-  assert.match(materialize, /gh run download/);
-  assert.doesNotMatch(existing, /build-candidates|\bpack\b/);
-  assert.match(publish, /Persist the exact candidate before publication[\s\S]*gh release upload/);
-  assert.ok(
-    publish.indexOf("Persist the exact candidate before publication") <
-      publish.indexOf("pnpm publish:candidates"),
-    "durable candidate must exist before the first npm publish",
-  );
-  assert.doesNotMatch(workflow, /--existing-release/);
-  assert.doesNotMatch(workflow, /overwrite:\s*true|--clobber/);
-});
-
-it("reuses a prior attempt candidate even before a release record exists", () => {
-  const materialize =
-    workflow.match(
-      /name: Materialize the one candidate[\s\S]*?\n      - run: node tooling\/release\/candidate-pipeline\.mjs verify-candidate/,
-    )?.[0] ?? "";
-  assert.match(materialize, /actions\/runs\/\$GITHUB_RUN_ID\/artifacts/);
-  assert.match(materialize, /elif \[ -n "\$prior_artifact" \]; then\s+restore_prior_attempt/);
-  const restoreIndex = materialize.indexOf('elif [ -n "$prior_artifact" ]');
-  const buildIndex = materialize.indexOf('candidate-pipeline.mjs build "${{ github.sha }}"');
-  assert.ok(
-    restoreIndex >= 0 && restoreIndex < buildIndex,
-    "full rerun must restore before considering a rebuild",
-  );
-});
-
-it("shares one candidate pipeline between clean Linux preflight and Actions", () => {
-  const candidate = workflow.match(/\n  candidate:[\s\S]*?\n  platform-witness:/)?.[0] ?? "";
-  assert.match(candidate, /candidate-pipeline\.mjs verify-release-source/);
-  assert.match(candidate, /candidate-pipeline\.mjs build/);
-  assert.match(candidate, /candidate-pipeline\.mjs verify-candidate/);
-  assert.doesNotMatch(candidate, /steps\.prepare/);
-  assert.doesNotMatch(candidate, /- run: pnpm verify(?:\s|$)/);
-  assert.doesNotMatch(candidate, /release:check/);
-  assert.doesNotMatch(candidate, /node tooling\/release\/build-candidates\.mjs/);
-  assert.match(containerPreflight, /git status.*--porcelain/);
-  assert.match(containerPreflight, /@yansircc\/pi-chrome.*release:check/);
-  assert.match(
-    containerPreflight,
-    /\["bundle", "create", bundlePath, "HEAD", "refs\/remotes\/origin\/main"\]/,
-  );
-  assert.match(
-    containerPreflight,
-    /git fetch --quiet \/input\/source\.bundle refs\/remotes\/origin\/main:refs\/remotes\/origin\/main/,
-  );
-  assert.match(containerPreflight, /PI_SUITE_RELEASE_PREVIEW=1/);
-  assert.match(containerPreflight, /target=\/input,readonly/);
-  assert.doesNotMatch(containerPreflight, /target=\/source,readonly/);
-  assert.match(containerPreflight, /pnpm fetch --frozen-lockfile/);
-  assert.match(containerPreflight, /pnpm install --offline --frozen-lockfile --trust-lockfile/);
-  assert.ok(
-    containerPreflight.indexOf("pnpm fetch --frozen-lockfile") <
-      containerPreflight.indexOf("touch /pnpm-store/.fetch-complete") &&
-      containerPreflight.indexOf("touch /pnpm-store/.fetch-complete") <
-        containerPreflight.indexOf("pnpm install --offline --frozen-lockfile --trust-lockfile"),
-    "the verified fetch must commit the marker before trusted offline install",
-  );
-  assert.match(containerPreflight, /preflightFileHash\(resolve\(root, "pnpm-workspace\.yaml"\)\)/);
-  assert.match(preflightCache, /preflight-image/);
-  assert.match(
-    containerPreflight,
-    /preflightStoreVolume\(\{ architecture, lockHash, workspaceHash, imageHash \}\)/,
-  );
-  assert.match(containerPreflight, /candidate-pipeline\.mjs full/);
-});
-
-it("keeps full consumer verification in local preflight and out of the release narrow gate", () => {
-  const verifyCandidate =
-    candidatePipeline.match(/const verifyCandidate = \(\) => \{[\s\S]*?\n\};/)?.[0] ?? "";
-  const full = candidatePipeline.match(/case "full":[\s\S]*?\n    break;/)?.[0] ?? "";
-  assert.match(verifyCandidate, /\["verify:candidates"\]/);
-  assert.doesNotMatch(verifyCandidate, /verify:consumers/);
-  assert.match(full, /verifyCandidate\(\);\s+verifyConsumers\(\);/);
-  assert.doesNotMatch(workflow, /verify:consumers/);
-});
-
-it("resolves package binaries through the shared cross-platform process boundary", () => {
-  assert.match(releaseLib, /import crossSpawn from "cross-spawn"/);
-  assert.match(releaseLib, /crossSpawn\.sync\(command, args/);
-  assert.doesNotMatch(releaseLib, /spawnSync\(command, args/);
-});
-
-it("keeps source classification install-free", () => {
-  const classifyJob = workflow.match(/\n  classify:[\s\S]*?\n  candidate:/)?.[0] ?? "";
-  assert.doesNotMatch(classifier, /from "\.\/lib\.mjs"|from "cross-spawn"/);
-  assert.match(classifier, /execFileSync\("git", args/);
-  assert.doesNotMatch(classifyJob, /pnpm install|setup-node|pnpm\/action-setup/);
-});
-
-it("keeps source quality distinct from the one production candidate", () => {
-  const verifyTask = webConfig.match(/"ci:verify": \{[\s\S]*?\n      \},/)?.[0] ?? "";
-  assert.match(verifyTask, /pnpm test:e2e:run/);
-  assert.doesNotMatch(verifyTask, /pnpm build|pnpm test:package/);
-});
-
-it("parallelizes only independent candidate consumers", () => {
-  assert.match(consumerVerifier, /await Promise\.all\([\s\S]*?release:archive-check/);
-  assert.match(consumerVerifier, /run\("node", \[[\s\S]*?apps\/web\/scripts\/test-package\.mjs/);
-  assert.match(
-    consumerVerifier,
-    /Promise\.all\(\[verifyCombinedInstall\("npm"\), verifyCombinedInstall\("pnpm"\)\]\)/,
-  );
-});
-
-it("keeps OIDC publish and public propagation in separate jobs", () => {
-  const publish = workflow.match(/\n  publish:[\s\S]*?\n  public-acceptance:/)?.[0] ?? "";
-  const publicAcceptance = workflow.match(/\n  public-acceptance:[\s\S]*$/)?.[0] ?? "";
-  assert.match(publish, /id-token: write/);
-  assert.match(publish, /npm 11\.5\.1 or newer/);
-  assert.match(publish, /pnpm publish:candidates/);
-  assert.doesNotMatch(publish, /verify:registry/);
-  assert.match(publicAcceptance, /needs: \[candidate, publish\]/);
-  assert.match(publicAcceptance, /pnpm verify:registry/);
-  assert.doesNotMatch(publicAcceptance, /publish:candidates/);
-  assert.doesNotMatch(workflow, /registry-url:/);
 });

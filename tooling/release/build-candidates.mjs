@@ -2,15 +2,12 @@ import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { root, run, sha512Integrity, suiteConfig } from "./lib.mjs";
-import { readReleasePlan } from "./release-plan.mjs";
-import { bumpVersion } from "./version.mjs";
+import { assertReleaseRecordCommit, parseReleaseRecord } from "./release-record.mjs";
 
 const development = process.argv.includes("--development");
-const preparedSourceIndex = process.argv.indexOf("--prepared-source");
-const preparedSource = preparedSourceIndex === -1 ? null : process.argv[preparedSourceIndex + 1];
-if (preparedSourceIndex !== -1 && !preparedSource) {
-  throw new Error("--prepared-source requires a source commit");
-}
+const releaseIndex = process.argv.indexOf("--release-sha");
+const releaseSha = releaseIndex === -1 ? null : process.argv[releaseIndex + 1];
+if (releaseIndex !== -1 && !releaseSha) throw new Error("--release-sha requires a commit");
 assert.equal(
   process.argv.includes("--existing-release"),
   false,
@@ -29,21 +26,60 @@ const dirtyFiles = run("git", ["status", "--porcelain"], { capture: true })
   .filter(Boolean)
   .map((line) => line.slice(3))
   .sort();
-const plan = readReleasePlan();
-const selectedEntries = preparedSource ? plan.packages : suiteConfig().packages;
-const changedManifestFiles = selectedEntries.map(({ path }) => `${path}/package.json`).sort();
-if (preparedSource) {
-  assert.match(preparedSource, /^[0-9a-f]{40}$/, "prepared source must be a full commit SHA");
-  assert.equal(headSha, preparedSource, "prepared candidate must remain on its source commit");
-  assert.deepEqual(
-    dirtyFiles,
-    changedManifestFiles,
-    "prepared candidate may change only selected package version manifests",
+let record;
+let selectedEntries;
+if (releaseSha) {
+  assert.match(releaseSha, /^[0-9a-f]{40}$/, "release SHA must be a full commit SHA");
+  assert.equal(headSha, releaseSha, "candidate must remain on its release commit");
+  assert.deepEqual(dirtyFiles, [], "release candidate worktree must remain clean");
+  record = parseReleaseRecord(run("git", ["show", "-s", "--format=%B", releaseSha], { capture: true }));
+  assert.ok(record, "release candidate commit has no release record");
+  const parents = run("git", ["show", "-s", "--format=%P", releaseSha], { capture: true })
+    .trim()
+    .split(/\s+/);
+  const config = suiteConfig();
+  const manifests = Object.fromEntries(
+    config.packages.map((entry) => [
+      entry.id,
+      JSON.parse(readFileSync(resolve(root, entry.path, "package.json"), "utf8")).version,
+    ]),
   );
+  assertReleaseRecordCommit({
+    record,
+    parents,
+    manifestVersions: manifests,
+    sourceManifestVersions: Object.fromEntries(
+      config.packages.map((entry) => [
+        entry.id,
+        JSON.parse(run("git", ["show", `${record.source}:${entry.path}/package.json`], { capture: true })).version,
+      ]),
+    ),
+    packageIds: config.packages.map(({ id }) => id),
+    packageManifestPaths: Object.fromEntries(
+      config.packages.map(({ id, path }) => [id, `${path}/package.json`]),
+    ),
+    changedFiles: run("git", ["diff", "--name-status", record.source, releaseSha], {
+      capture: true,
+    })
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => {
+        const [status, path] = line.split("\t");
+        return { status, path };
+      }),
+  });
+  selectedEntries = record.packages.map((projected) => {
+    const entry = config.packages.find(({ id }) => id === projected.id);
+    assert.ok(entry, `release record names unknown package ${projected.id}`);
+    return { ...entry, bump: projected.bump, releaseVersion: projected.version };
+  });
 } else if ((!headSha || dirtyFiles.length > 0) && !development) {
   throw new Error("release candidates require a clean committed worktree");
+} else {
+  selectedEntries = suiteConfig().packages;
 }
-const sourceSha = preparedSource ?? headSha;
+const sourceSha = record?.source ?? headSha;
 
 rmSync(candidateDirectory, { recursive: true, force: true });
 mkdirSync(candidateDirectory, { recursive: true });
@@ -80,22 +116,22 @@ for (const entry of selectedEntries) {
 
 assert.ok(Object.keys(artifacts).length > 0, "candidate requires at least one selected package");
 
-const projection = preparedSource
+const projection = record
   ? {
-      kind: "package-versions",
-      releaseTag: `release-${preparedSource.slice(0, 12)}`,
-      changeFiles: plan.files,
-      files: [...changedManifestFiles, ...plan.files].sort(),
+      kind: "release-record",
+      releaseSha,
+      baseSha: record.base,
+      releaseTag: record.tag,
       packages: selectedEntries.map((entry) => {
         const path = `${entry.path}/package.json`;
         const fromVersion = JSON.parse(
-          run("git", ["show", `${preparedSource}:${path}`], { capture: true }),
+          run("git", ["show", `${record.source}:${path}`], { capture: true }),
         ).version;
         const toVersion = artifacts[entry.id].version;
         assert.equal(
           toVersion,
-          bumpVersion(fromVersion, entry.bump),
-          `${entry.id} candidate version does not match its requested bump`,
+          entry.releaseVersion,
+          `${entry.id} archive version does not match its release record`,
         );
         return {
           id: entry.id,
@@ -113,9 +149,10 @@ writeFileSync(
   candidateManifestPath,
   `${JSON.stringify(
     {
-      schemaVersion: 4,
+      schemaVersion: 5,
       sourceSha,
-      releasable: sourceSha !== null && (preparedSource !== null || dirtyFiles.length === 0),
+      releaseSha,
+      releasable: releaseSha !== null,
       projection,
       artifacts,
     },

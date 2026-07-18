@@ -3,9 +3,12 @@ import { describe, it } from "node:test";
 import { assertReleaseRecordCommit, parseReleaseRecord } from "./release-record.mjs";
 
 const source = `abcdef123456${"a".repeat(28)}`;
+const base = "b".repeat(40);
 const message = `chore(release): release-abcdef123456
 
 Release-Source: ${source}
+
+Release-Base: ${base}
 
 Release-Package: web 0.2.0 minor
 
@@ -16,6 +19,7 @@ describe("independent package release record", () => {
     const record = parseReleaseRecord(message);
     assert.deepEqual(record, {
       source,
+      base,
       tag: "release-abcdef123456",
       packages: [
         { id: "web", version: "0.2.0", bump: "minor" },
@@ -25,8 +29,9 @@ describe("independent package release record", () => {
     assert.deepEqual(
       assertReleaseRecordCommit({
         record,
-        parents: [source],
+        parents: [base, source],
         manifestVersions: { web: "0.2.0", loop: "0.5.7", chrome: "0.2.0" },
+        sourceManifestVersions: { web: "0.1.9", loop: "0.5.7", chrome: "0.1.9" },
         packageIds: ["web", "loop", "chrome"],
       }),
       record,
@@ -59,18 +64,20 @@ describe("independent package release record", () => {
       () =>
         assertReleaseRecordCommit({
           record,
-          parents: ["b".repeat(40)],
+          parents: [base],
           manifestVersions: { web: "0.2.0", chrome: "0.2.0" },
+          sourceManifestVersions: { web: "0.1.9", chrome: "0.1.9" },
           packageIds: ["web", "chrome"],
         }),
-      /only parent/,
+      /parents must be/,
     );
     assert.throws(
       () =>
         assertReleaseRecordCommit({
           record,
-          parents: [source],
+          parents: [base, source],
           manifestVersions: { web: "0.1.9", chrome: "0.2.0" },
+          sourceManifestVersions: { web: "0.1.9", chrome: "0.1.9" },
           packageIds: ["web", "chrome"],
         }),
       /web manifest/,

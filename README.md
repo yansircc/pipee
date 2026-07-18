@@ -22,12 +22,11 @@ The four public npm packages version independently. A source change declares its
 ```bash
 pnpm install
 pnpm verify
-pnpm release:verify
-pnpm release:preflight
+pnpm release:submit
 ```
 
 `pnpm release:build-candidates -- --development` builds and packs each workspace once, records archive integrity, and marks the result non-releasable while the Git worktree is dirty. A releasable candidate requires a clean committed source tree.
 
-`pnpm release:preflight` clones the committed HEAD into a clean Apple Linux container, installs from the frozen lockfile, and runs the same candidate pipeline used by Actions. `pnpm push:release` is the thin clean-tree preflight-and-push entrypoint.
+`pnpm release:submit` materializes a deterministic release merge commit without changing the development branch, pushes only its `release-candidates/<sha>` ref, and dispatches the GitHub Actions witness workflow. All build, test, browser, consumer, platform, promotion, and publication gates run in Actions.
 
 See [docs/release.md](docs/release.md) for the OIDC release transition and evidence contract.

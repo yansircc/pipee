@@ -1,29 +1,21 @@
 # Suite release
 
-`main` is the only release source. `.github/workflows/release.yml` maps one source SHA to the explicit package release set declared by JSON changesets under `release/changes/`. Each selected package receives its own next version and one immutable npm archive; unselected packages keep their versions and are not published. The Chrome extension embedded in `@yansircc/pi-chrome` is part of that package's release unit and has its exact version and source SHA.
+The release control plane has one supported transition:
 
 ```text
-source SHA + tracked changesets
-→ selected package versions
-→ Linux verifies source and packs selected archives once
-→ macOS and Windows download and consume those exact archives
-→ release commit + source tag + per-package version tags
-→ tag-owned durable candidate asset, created before any npm publication
-→ npm Trusted Publishing through GitHub OIDC
-→ positive registry integrity equality
-→ fresh public npm and pnpm combined consumers
+development source S + tracked changesets
+→ deterministic release merge commit R
+→ explicit release-candidate ref
+→ GitHub Actions quality + one Linux archive set
+→ consumer + Chrome + macOS + Windows witnesses of R and those bytes
+→ trusted promotion fast-forwards main to R
+→ exact archives are persisted and published through npm OIDC
+→ registry integrity and fresh public consumers
 ```
 
-The trusted publisher coordinates for every package are:
+`R` has `origin/main` as its first parent and `S` as its second parent. Its tree contains the development source plus only the selected version bumps and deletion of the consumed changesets. No content commit is created after witnessing.
 
-```text
-GitHub owner: yansircc
-Repository:   pi-suite
-Workflow:     release.yml
-Environment:  none
-```
-
-Do not change package versions, create release tags, publish archives, or add npm credentials manually. The workflow owns versions and publication. A source commit publishes nothing unless it includes a changeset. Each changeset contains one or more `{ "package", "bump" }` entries, where `bump` is `patch`, `minor`, or `major`; repeated entries for one package collapse to the largest requested bump.
+The four public packages version independently. Add one or more JSON documents under `release/changes/`:
 
 ```json
 {
@@ -35,21 +27,31 @@ Do not change package versions, create release tags, publish archives, or add np
 }
 ```
 
-The first Linux build is the only writer of candidate bytes. The workflow stores `candidate.json` and every selected archive as one release asset named by the source SHA before calling `npm publish`. Any same-source rerun first restores a prior attempt artifact, even when the release record does not exist yet; after the source tag exists it prefers the durable release asset. It fails closed if stored bytes differ and never rebuilds or repacks a witnessed candidate. The prior attempt artifact also closes the failure window between pushing the tags and creating the release asset. Per-attempt Actions artifacts otherwise only transport the durable candidate between jobs.
-
-Main releases use GitHub Actions' maximal concurrency queue and are isolated from pull-request groups, so pending runs are not silently replaced. The release commit is still an atomic child of its source and must advance `main` directly. Therefore, do not push another main source until the preceding release finishes. Preparation rejects a source that is no longer `origin/main` before building any candidate. If accepting overlapping main pushes while publishing every source becomes a requirement, replace this boundary with a serialized release-ledger worker; retries against a moving branch are not valid.
-
-Local source and candidate gates:
+Then commit the development source and submit it:
 
 ```bash
-pnpm verify
-pnpm release:verify
-pnpm release:preflight
-git diff --check
+pnpm release:submit
 ```
 
-`release:preflight` requires a clean committed HEAD and Apple `container`. It first proves the real Chrome connector on the macOS host, then mounts the repository read-only, clones only committed Git state into a fresh Linux workspace, installs with the frozen lockfile, and invokes `candidate-pipeline.mjs full`. Chrome for Testing has no Linux ARM64 binary, so the connector fact cannot be moved into the default container. The Actions candidate job invokes the same candidate pipeline in phases so exact-candidate restoration can remain between source verification and candidate verification. `PI_SUITE_PREFLIGHT_PLATFORM=linux/amd64` opts into Rosetta-backed amd64 execution; the default is native `linux/arm64`. The container receives 8 CPUs and 8 GB by default because Apple container's 1 GB default cannot run the parallel workspace gate; `PI_SUITE_PREFLIGHT_CPUS` and `PI_SUITE_PREFLIGHT_MEMORY` override those explicit resources.
+Submission performs no dependency installation, build, test, browser operation, or container execution. It requires a clean committed source descended from the current `origin/main`, rejects development-owned public version changes, creates `R` in a temporary worktree, pushes `release-candidates/<R>`, and dispatches `release-candidate.yml` from trusted `main`.
 
-`pnpm push:release` adds no release behavior: it requires `main`, runs `release:preflight`, proves HEAD and the worktree are unchanged, and pushes that verified commit.
+The candidate workflow has read-only repository permissions. It runs root `pnpm verify`, builds the selected archives once on Linux, runs candidate and consumer acceptance, provisions Chrome for the connector and exact extension smoke, and fans the same archives out to macOS and Windows. The Actions artifact and witness expire after 14 days; an expired candidate must be materialized and witnessed again.
 
-Release evidence must include the source SHA, release commit, source tag, per-package tags, workflow run, selected archive integrities, Chrome extension version when selected, public registry equality, and successful npm/pnpm public consumer installs.
+`release-promote.yml` is loaded from the trusted default branch. Its privileged job checks out only the pre-dispatch main SHA, never the candidate. It validates the release commit and archive bytes using the trusted control-plane verifier, atomically advances main and tags, persists the exact archives, and runs `npm publish --ignore-scripts --provenance`. It never installs dependencies or executes repository code from the candidate.
+
+Public registry propagation is a separate retrying job. A successful npm publish followed by a temporary public 404 is not republished. Existing versions are reusable only when their registry integrity equals the witnessed archive.
+
+The npm Trusted Publisher coordinates for every public package are:
+
+```text
+GitHub owner: yansircc
+Repository:   pi-suite
+Workflow:     release-promote.yml
+Environment:  npm-release
+```
+
+No npm token, local publication command, push-to-main release path, or local preflight fallback is supported.
+
+GitHub repository rules must reject direct updates to `main` and the release tag namespaces outside the trusted promotion workflow. Candidate code must never receive write or OIDC authority.
+
+Release evidence is the tuple `(R, candidate artifact digest, package archive integrities, workflow run)` plus the source/base identities, selected package versions, platform witnesses, npm provenance, registry integrity equality, and fresh npm/pnpm consumer acceptance.

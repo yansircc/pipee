@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import {
@@ -20,6 +21,9 @@ const installed = await install({
   platform,
   downloadProgressCallback: "default",
 });
+if (process.env.GITHUB_OUTPUT) {
+  appendFileSync(process.env.GITHUB_OUTPUT, `executable=${installed.executablePath}\n`);
+}
 
 const result = crossSpawn.sync("pnpm", ["exec", "vp", "run", "smoke:connector:release"], {
   cwd: process.cwd(),

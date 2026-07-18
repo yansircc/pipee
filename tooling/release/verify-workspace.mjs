@@ -190,7 +190,9 @@ for (const [literal, owner] of schemaOwners) {
 const lockfilePath = resolve(root, "pnpm-lock.yaml");
 assert.equal(statSync(lockfilePath).isFile(), true, "root lockfile is missing");
 const piReleaseVersion = verifyPiReleaseTrain(readFileSync(lockfilePath, "utf8"));
-const releaseWorkflow = readFileSync(resolve(root, ".github/workflows/release.yml"), "utf8");
+const releaseWorkflow = ["release-candidate.yml", "release-promote.yml"]
+  .map((file) => readFileSync(resolve(root, ".github/workflows", file), "utf8"))
+  .join("\n");
 for (const forbidden of [
   ["NPM", "TOKEN"].join("_"),
   ["NODE", "AUTH", "TOKEN"].join("_"),

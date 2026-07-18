@@ -1,0 +1,157 @@
+name: Release Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Exact release-candidate commit to witness
+        required: true
+        type: string
+
+concurrency:
+  group: pi-suite-candidate-${{ inputs.release_sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    outputs:
+      release_sha: ${{ steps.identity.outputs.release_sha }}
+    steps:
+      - id: input
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: identity
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          test "$(node tooling/release/classify.mjs "$RELEASE_SHA")" = "true"
+          echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+
+  quality:
+    needs: identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.identity.outputs.release_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.11.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify
+
+  candidate:
+    needs: identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      artifact: ${{ steps.artifact.outputs.name }}
+      digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.identity.outputs.release_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.11.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node tooling/release/candidate-pipeline.mjs build "${{ needs.identity.outputs.release_sha }}"
+      - run: pnpm verify:candidates
+      - run: pnpm verify:consumers
+      - id: artifact
+        shell: bash
+        run: echo "name=suite-candidates-${{ needs.identity.outputs.release_sha }}" >> "$GITHUB_OUTPUT"
+      - id: upload
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: |
+            release/candidate.json
+            release/candidates/*.tgz
+          if-no-files-found: error
+          retention-days: 14
+
+  chrome-witness:
+    needs: [identity, candidate]
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.identity.outputs.release_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.11.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v7
+        with:
+          name: ${{ needs.candidate.outputs.artifact }}
+          path: .
+      - id: chrome
+        run: pnpm --filter @yansircc/pi-chrome run release:check
+      - run: pnpm verify:chrome-candidate
+        env:
+          PI_CHROME_SMOKE_CHROME: ${{ steps.chrome.outputs.executable }}
+
+  platform-witness:
+    needs: [identity, candidate]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.identity.outputs.release_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.11.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v7
+        with:
+          name: ${{ needs.candidate.outputs.artifact }}
+          path: .
+      - run: pnpm verify:platform
+
+  witness:
+    needs: [identity, quality, candidate, chrome-witness, platform-witness]
+    runs-on: ubuntu-latest
+    steps:
+      - shell: bash
+        run: |
+          echo "Witnessed release ${{ needs.identity.outputs.release_sha }}"
+          echo "Artifact ${{ needs.candidate.outputs.artifact }}"
+          echo "Digest ${{ needs.candidate.outputs.digest }}"
