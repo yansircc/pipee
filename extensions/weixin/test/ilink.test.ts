@@ -173,6 +173,24 @@ it.effect("uses the shared request algebra for polling, typing, and presence", (
   }),
 );
 
+it.effect("returns the server message id receipt from sendmessage", () =>
+  Effect.gen(function* () {
+    const { http, requests } = sequentialHttp([{ ret: 0, message_id: "7483914874329324552" }]);
+    const receipt = yield* makeIlinkClient(http).sendText(
+      auth,
+      "user-1",
+      "hello",
+      "context-1",
+      "client-1",
+    );
+    expect(receipt).toEqual({
+      serverMessageId: "7483914874329324552",
+      clientId: "client-1",
+    });
+    expect(requests[0]?.url).toContain("sendmessage");
+  }),
+);
+
 it.effect("downloads and decrypts AES-128-ECB image media", () =>
   Effect.gen(function* () {
     const key = Buffer.from("00112233445566778899aabbccddeeff", "hex");

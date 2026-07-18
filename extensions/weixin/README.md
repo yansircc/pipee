@@ -1,21 +1,26 @@
 # pi-weixin
 
-Agent-first Weixin bridge tools for Pi. The agent connects, disconnects, logs out, and inspects
-status directly; there is no `/weixin` command or Web control button.
+Agent-first Weixin bridge tools for Pi. One Weixin account is connected globally to Pi Web. An
+unquoted message enters the configured default Pi session; quoting a Pi-originated Weixin message
+routes back to the exact session that sent it.
 
 ## Tools
 
-- `weixin_connect`: ensure login, bind the current Pi session, and start the bridge.
-- `weixin_disconnect`: stop the bridge while retaining credentials and binding.
-- `weixin_logout`: stop and clear credentials, cursor, and binding.
-- `weixin_status`: read account, binding, and connection state.
+- `weixin_connect`: ensure the global account is logged in and running. The first caller becomes the
+  default session when none exists.
+- `weixin_set_default`: make the current Pi session the target for unquoted messages.
+- `weixin_send`: send a text report from the current Pi session. Quoted replies return here.
+- `weixin_disconnect`: stop polling while retaining credentials, default session, and routes.
+- `weixin_logout`: clear credentials, cursor, and send context while retaining the default session.
+- `weixin_status`: read the global account, default session, connection, and send readiness.
 
 `weixin_connect` is the only path that may require temporary user interaction. When credentials are
 missing or expired, it shows the QR widget and waits for the scan. Existing credentials connect
 without a prompt.
 
-Pi Web renders the structured Weixin projection as read-only status. All mutations go through the
-typed Agent tools.
+Proactive send becomes ready after the connected user has sent at least one inbound message, which
+provides the iLink context token. Pi Web renders the structured Weixin projection as read-only
+global status in the plugin page. All mutations go through typed Agent tools.
 
 ## Development
 

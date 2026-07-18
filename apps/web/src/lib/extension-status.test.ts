@@ -43,15 +43,17 @@ test("rejects incomplete or unknown status projections", () => {
 test("preserves extension-owned JSON status projections without treating them as Chrome", () => {
   const weixin = {
     kind: "pi-weixin/status",
-    version: 2,
-    bindings: [
-      { sessionId: "session-a", accountId: "wx-a", connected: true, phase: "Connected" as const },
-      { sessionId: "session-b", accountId: "wx-b", connected: false, phase: "Stopped" as const },
-    ],
+    version: 3,
+    enabled: true,
+    connected: true,
+    phase: "Connected" as const,
+    sendReady: true,
+    accountId: "wx-a",
+    defaultSessionId: "session-a",
   }
   expect(extensionStructuredStatusOrUndefined(weixin)).toEqual({
     kind: "pi-weixin/status",
-    version: 2,
+    version: 3,
     value: weixin,
   })
   expect(getChromeStatusProjection([structured("weixin", weixin.kind, weixin.version, weixin)])).toBeUndefined()
@@ -90,50 +92,31 @@ test("decodes the session automation projection from structured extension status
   ).toBeUndefined()
 })
 
-test("rejects ambiguous Weixin binding cardinality", () => {
-  const status = (bindings: ReadonlyArray<{ sessionId: string; accountId: string; connected: boolean }>) => ({
-    kind: "pi-weixin/status",
-    version: 2,
-    bindings,
-  })
+test("rejects incomplete global Weixin projections", () => {
   expect(
     getWeixinStatusProjection([
-      structured(
-        "weixin",
-        "pi-weixin/status",
-        2,
-        status([
-          { sessionId: "session-a", accountId: "wx-a", connected: true },
-          { sessionId: "session-a", accountId: "wx-b", connected: true },
-        ]),
-      ),
-    ]),
-  ).toBeUndefined()
-  expect(
-    getWeixinStatusProjection([
-      structured(
-        "weixin",
-        "pi-weixin/status",
-        2,
-        status([
-          { sessionId: "session-a", accountId: "wx-a", connected: true },
-          { sessionId: "session-b", accountId: "wx-a", connected: true },
-        ]),
-      ),
+      structured("weixin", "pi-weixin/status", 3, {
+        kind: "pi-weixin/status",
+        version: 3,
+        connected: true,
+      }),
     ]),
   ).toBeUndefined()
 })
 
-test("compares Weixin bindings by identity rather than projection order", () => {
+test("compares global Weixin status fields", () => {
   const left = {
     kind: "pi-weixin/status" as const,
-    version: 2 as const,
-    bindings: [
-      { sessionId: "session-a", accountId: "wx-a", connected: true, phase: "Connected" as const },
-      { sessionId: "session-b", accountId: "wx-b", connected: false, phase: "Stopped" as const },
-    ],
+    version: 3 as const,
+    enabled: true,
+    connected: true,
+    phase: "Connected" as const,
+    sendReady: true,
+    accountId: "wx-a",
+    defaultSessionId: "session-a",
   }
-  expect(sameWeixinStatusProjection(left, { ...left, bindings: [...left.bindings].reverse() })).toBe(true)
+  expect(sameWeixinStatusProjection(left, { ...left })).toBe(true)
+  expect(sameWeixinStatusProjection(left, { ...left, defaultSessionId: "session-b" })).toBe(false)
 })
 
 test("derives Chrome readiness only from the structured Chrome projection", () => {

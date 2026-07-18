@@ -43,6 +43,7 @@ import {
   handleDebuggerEvent,
 } from "./platform.js";
 import { localDurabilityRetrySchedule, sharedBridgeRetrySchedule } from "./runtime-scheduling.js";
+import { handleChromeExtensionProbe } from "./external-probe.js";
 
 const KEEPALIVE_ALARM = "pi-chrome-runtime";
 const connectorIdentity = ConnectorIdentityOwner.makeUnsafe();
@@ -263,6 +264,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     ),
   );
   return true;
+});
+
+chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
+  const response = handleChromeExtensionProbe(
+    message,
+    chrome.runtime,
+    __PI_CHROME_PROTOCOL_FINGERPRINT__,
+  );
+  if (response === undefined) return false;
+  sendResponse(response);
+  return false;
 });
 
 chrome.runtime.onInstalled.addListener(() => {

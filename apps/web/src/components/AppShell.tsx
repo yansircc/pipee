@@ -1,5 +1,5 @@
 import { Suspense, useState, useCallback, useRef, useEffect, useMemo } from "react"
-import { Effect } from "effect"
+import { Effect, Schedule } from "effect"
 import { getRouteApi } from "@tanstack/react-router"
 import { SessionSidebar } from "./SessionSidebar"
 import { ChatWindow } from "./ChatWindow"
@@ -18,6 +18,12 @@ import { BrowserPlatform } from "@/browser/browser-platform"
 import { FileViewer, ModelsConfig, PluginsConfig, SkillsConfig } from "@/browser/code-split"
 import { sessionController } from "@/features/session/session-controller"
 import { DEFAULT_TOOL_PRESET, getToolNamesForPreset } from "@/lib/tool-presets"
+import {
+  chromeExtensionNeedsAttention,
+  probeChromeExtension,
+  type ChromeExtensionHealth,
+} from "@/lib/chrome-extension-installation"
+import { PI_COMPANION_PACKAGE_NAMES } from "@/lib/plugin-package-settings"
 
 type SessionCopyField = "file" | "id"
 
@@ -48,6 +54,8 @@ export function AppShell() {
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0)
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false)
   const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false)
+  const [pluginsInitialPackage, setPluginsInitialPackage] = useState<string | undefined>(undefined)
+  const [chromeExtensionHealth, setChromeExtensionHealth] = useState<ChromeExtensionHealth | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false)
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
@@ -60,6 +68,19 @@ export function AppShell() {
   }, [])
   const chatInputRef = useRef<ChatInputHandle | null>(null)
   const topBarRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const check = withApi((api) => api.packages.globalChromePlugin()).pipe(
+      Effect.flatMap((response) => probeChromeExtension(response.package)),
+      Effect.tap((health) => Effect.sync(() => setChromeExtensionHealth(health))),
+      Effect.catch(() => Effect.void),
+      Effect.repeat({ schedule: Schedule.spaced("5 seconds") }),
+    )
+    return runApi(check, { onSuccess: () => undefined })
+  }, [])
+
+  const chromeExtensionAttention =
+    chromeExtensionHealth !== null && chromeExtensionNeedsAttention(chromeExtensionHealth)
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchNodes, setBranchNodes] = useState<SessionBranchNode[]>([])
@@ -91,9 +112,9 @@ export function AppShell() {
   const handleSessionStatsChange = useCallback((stats: SessionStats | null) => {
     setSessionStats(stats)
   }, [])
-  const [weixinBindings, setWeixinBindings] = useState<WeixinStatusProjection["bindings"]>([])
+  const [weixinStatus, setWeixinStatus] = useState<WeixinStatusProjection | undefined>(undefined)
   const handleWeixinStatusChange = useCallback((status: WeixinStatusProjection) => {
-    setWeixinBindings(status.bindings)
+    setWeixinStatus(status)
   }, [])
   const [copiedSessionField, setCopiedSessionField] = useState<SessionCopyField | null>(null)
   const sessionCopyTimerRef = useRef<Cancel | null>(null)
@@ -130,7 +151,6 @@ export function AppShell() {
   useEffect(() => {
     setSessionStats(null)
     setContextUsage(null)
-    setWeixinBindings([])
   }, [sessionProjectionOwner])
 
   // Single active panel — only one dropdown open at a time
@@ -395,7 +415,6 @@ export function AppShell() {
     <>
       <SessionSidebar
         selectedSessionId={selectedSession?.id ?? null}
-        weixinBindings={weixinBindings}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         newSessionPending={creatingSessionCwd !== null}
@@ -463,24 +482,44 @@ export function AppShell() {
             },
             {
               label: tr("Plugins"),
-              onClick: () => setPluginsConfigOpen(true),
-              disabled: !activeCwd && !selectedSession?.cwd,
+              onClick: () => {
+                setPluginsInitialPackage(chromeExtensionAttention ? PI_COMPANION_PACKAGE_NAMES.chrome : undefined)
+                setPluginsConfigOpen(true)
+              },
+              disabled: false,
               icon: (
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M9 7V2" />
-                  <path d="M15 7V2" />
-                  <path d="M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0Z" />
-                  <path d="M12 19v3" />
-                </svg>
+                <span style={{ position: "relative", display: "inline-flex" }}>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M9 7V2" />
+                    <path d="M15 7V2" />
+                    <path d="M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0Z" />
+                    <path d="M12 19v3" />
+                  </svg>
+                  {chromeExtensionAttention && (
+                    <span
+                      aria-label={tr("Chrome browser extension requires attention")}
+                      style={{
+                        position: "absolute",
+                        top: -4,
+                        right: -5,
+                        width: 7,
+                        height: 7,
+                        borderRadius: "50%",
+                        background: "#ef4444",
+                        boxShadow: "0 0 0 2px var(--bg-panel)",
+                      }}
+                    />
+                  )}
+                </span>
               ),
             },
           ] as { label: string; onClick: () => void; disabled: boolean; icon: React.ReactNode }[]
@@ -1575,11 +1614,17 @@ export function AppShell() {
         {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd) && (
           <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd)!} onClose={() => setSkillsConfigOpen(false)} />
         )}
-        {pluginsConfigOpen && (activeCwd ?? selectedSession?.cwd) && (
+        {pluginsConfigOpen && (
           <PluginsConfig
-            cwd={(activeCwd ?? selectedSession?.cwd)!}
+            cwd={activeCwd ?? selectedSession?.cwd ?? null}
             sessionId={selectedSession?.id ?? null}
-            onClose={() => setPluginsConfigOpen(false)}
+            initialPackageName={pluginsInitialPackage}
+            chromeHealth={chromeExtensionHealth}
+            weixinStatus={weixinStatus}
+            onClose={() => {
+              setPluginsConfigOpen(false)
+              setPluginsInitialPackage(undefined)
+            }}
             onReloaded={() => setSessionRefreshKey((key) => key + 1)}
           />
         )}

@@ -16,9 +16,58 @@ import {
 } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import { Bridge, BridgeLive, type BridgeStatus } from "../src/bridge.ts";
-import { BridgeOwnershipConflict, type StateStoreError } from "../src/errors.ts";
+import {
+  BridgeConfigurationError,
+  BridgeOwnershipConflict,
+  type StateStoreError,
+} from "../src/errors.ts";
 
-it.effect("publishes the current binding and every successful rebind", () =>
+it.effect("rejects proactive send until an inbound context token exists", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "pi-weixin-send-" });
+      const statePath = path.join(directory, "state.json");
+      yield* fs.writeFileString(
+        statePath,
+        JSON.stringify({
+          version: 3,
+          enabled: false,
+          cursor: "",
+          processedMessageIds: [],
+          auth: {
+            token: "secret",
+            baseUrl: "http://127.0.0.1:9",
+            accountId: "account",
+            userId: "user",
+            savedAt: "now",
+          },
+          defaultSession: { sessionId: "session", cwd: directory },
+        }),
+      );
+      const live = BridgeLive.pipe(
+        Layer.provide(Layer.merge(NodeServicesLayer, FetchHttpClient.layer)),
+        Layer.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromUnknown({
+              HOME: directory,
+              PI_WEIXIN_STATE_PATH: statePath,
+              PI_WEB_BASE_URL: "http://127.0.0.1:30141",
+            }),
+          ),
+        ),
+      );
+      const error = yield* Effect.gen(function* () {
+        const bridge = yield* Bridge;
+        return yield* bridge.sendText("session", "report", "client").pipe(Effect.flip);
+      }).pipe(Effect.provide(live));
+      expect(error).toBeInstanceOf(BridgeConfigurationError);
+    }),
+  ).pipe(Effect.provide(NodeServicesLayer)),
+);
+
+it.effect("publishes the global default session and every successful change", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -52,15 +101,15 @@ it.effect("publishes the current binding and every successful rebind", () =>
         );
 
         yield* Deferred.await(ready);
-        yield* bridge.bind({ sessionId: "session-a", cwd: "/tmp/a" });
-        yield* bridge.bind({ sessionId: "session-b", cwd: "/tmp/b" });
+        yield* bridge.setDefaultSession({ sessionId: "session-a", cwd: "/tmp/a" });
+        yield* bridge.setDefaultSession({ sessionId: "session-b", cwd: "/tmp/b" });
         yield* Fiber.join(fiber);
 
         expect(
           (yield* Ref.get(observed)).map(
             Exit.match({
               onFailure: () => "failed",
-              onSuccess: (status) => status.sessionId,
+              onSuccess: (status) => status.defaultSessionId,
             }),
           ),
         ).toEqual([undefined, "session-a", "session-b"]);

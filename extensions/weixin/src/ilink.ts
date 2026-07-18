@@ -19,6 +19,7 @@ import {
   LoginQrResponseSchema,
   LoginStatusResponseSchema,
   IlinkResponseSchema,
+  SendMessageResponseSchema,
   TypingConfigResponseSchema,
   UpdatesResponseSchema,
   type LoginStatus,
@@ -50,6 +51,12 @@ interface TypingHandle {
 }
 
 type ProtocolError = HttpRequestError | IlinkProtocolError | IlinkSessionExpiredError;
+export type WeixinTransportError = ProtocolError;
+
+export interface OutboundReceipt {
+  readonly serverMessageId: string;
+  readonly clientId: string;
+}
 
 export interface WeixinTransport {
   readonly login: <E>(
@@ -67,7 +74,7 @@ export interface WeixinTransport {
     text: string,
     contextToken: string,
     clientId: string,
-  ) => Effect.Effect<void, ProtocolError>;
+  ) => Effect.Effect<OutboundReceipt, ProtocolError>;
   readonly startTyping: (
     auth: WeixinAuth,
     userId: string,
@@ -462,9 +469,9 @@ export const makeIlinkClient = (http: JsonHttpClient): WeixinTransport => {
         },
         15_000,
       ).pipe(
-        Effect.flatMap((raw) => decodeResponse("ilink.send_text", IlinkResponseSchema, raw)),
+        Effect.flatMap((raw) => decodeResponse("ilink.send_text", SendMessageResponseSchema, raw)),
         Effect.flatMap((value) => requireSuccess("ilink.send_text", value)),
-        Effect.asVoid,
+        Effect.map((value) => ({ serverMessageId: String(value.message_id), clientId })),
       ),
 
     startTyping: (auth, userId, contextToken) =>

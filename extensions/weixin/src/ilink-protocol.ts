@@ -36,6 +36,13 @@ export const IlinkResponseSchema = Schema.Struct({
   errmsg: Schema.optional(Schema.String),
 });
 
+export const IlinkIdSchema = Schema.Union([Schema.String, Schema.Finite]);
+
+export const SendMessageResponseSchema = Schema.Struct({
+  ...IlinkResponseSchema.fields,
+  message_id: IlinkIdSchema,
+});
+
 const CdnMediaSchema = Schema.Struct({
   encrypt_query_param: Schema.optional(Schema.String),
   aes_key: Schema.optional(Schema.String),
@@ -63,14 +70,29 @@ const IlinkItemSchema = Schema.Struct({
   ref_msg: Schema.optional(
     Schema.Struct({
       title: Schema.optional(Schema.String),
-      message_item: Schema.optional(Schema.Unknown),
+      message_item: Schema.optional(
+        Schema.Struct({
+          msg_id: Schema.optional(IlinkIdSchema),
+          type: Schema.optional(Schema.Finite),
+          text_item: Schema.optional(Schema.Struct({ text: Schema.optional(Schema.String) })),
+          voice_item: Schema.optional(
+            Schema.Struct({
+              text: Schema.optional(Schema.String),
+              media: Schema.optional(Schema.Unknown),
+            }),
+          ),
+          image_item: Schema.optional(IlinkImageSchema),
+          file_item: Schema.optional(Schema.Unknown),
+          video_item: Schema.optional(Schema.Unknown),
+        }),
+      ),
     }),
   ),
 });
 
 export const IlinkMessageSchema = Schema.Struct({
   seq: Schema.optional(Schema.Finite),
-  message_id: Schema.optional(Schema.Finite),
+  message_id: Schema.optional(IlinkIdSchema),
   client_id: Schema.optional(Schema.String),
   create_time_ms: Schema.optional(Schema.Finite),
   message_type: Schema.optional(Schema.Finite),

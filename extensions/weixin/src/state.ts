@@ -1,12 +1,14 @@
-import { Clock, Effect, FileSystem, Path, Random, Schema, Semaphore } from "effect";
-import { StateStoreError } from "./errors.ts";
+import { Clock, Effect, FileSystem, Path, Random, Schema, Scope, Semaphore } from "effect";
+import { StateStoreError, type RouteStoreError } from "./errors.ts";
 import type { IlinkImage } from "./ilink-protocol.ts";
 import { messageBatchIdentity } from "./message.ts";
+import { makeRouteStore, type RouteStore } from "./route-store.ts";
 import {
   BridgeStateJsonSchema,
+  BridgeStateV2JsonSchema,
   type BridgeState,
   type PendingImageBatch,
-  type SessionBinding,
+  type SessionTarget,
   type WeixinAuth,
 } from "./schema.ts";
 
@@ -34,7 +36,7 @@ export type InboundStateEvent =
   | { readonly _tag: "CompleteImages"; readonly requestId: string };
 
 const EMPTY_STATE: BridgeState = {
-  version: 2,
+  version: 3,
   enabled: false,
   cursor: "",
   processedMessageIds: [],
@@ -42,12 +44,16 @@ const EMPTY_STATE: BridgeState = {
 
 export interface StateStore {
   readonly path: string;
+  readonly routes: RouteStore;
   readonly read: Effect.Effect<BridgeState, StateStoreError>;
   readonly write: (state: BridgeState) => Effect.Effect<void, StateStoreError>;
   readonly saveAuth: (auth: WeixinAuth) => Effect.Effect<BridgeState, StateStoreError>;
   readonly clearAuth: Effect.Effect<BridgeState, StateStoreError>;
-  readonly bind: (binding: SessionBinding) => Effect.Effect<BridgeState, StateStoreError>;
+  readonly setDefaultSession: (
+    session: SessionTarget,
+  ) => Effect.Effect<BridgeState, StateStoreError>;
   readonly setEnabled: (enabled: boolean) => Effect.Effect<BridgeState, StateStoreError>;
+  readonly saveContextToken: (contextToken: string) => Effect.Effect<BridgeState, StateStoreError>;
   readonly markProcessed: (messageId: string) => Effect.Effect<BridgeState, StateStoreError>;
   readonly saveCursor: (cursor: string) => Effect.Effect<BridgeState, StateStoreError>;
   readonly transitionInbound: (
@@ -62,12 +68,17 @@ const stateError = (operation: StateStoreError["operation"], path: string) => (c
 export const makeStateStore = (
   statePath: string,
   processedLimit = 512,
-): Effect.Effect<StateStore, never, FileSystem.FileSystem | Path.Path> =>
+): Effect.Effect<
+  StateStore,
+  StateStoreError | RouteStoreError,
+  FileSystem.FileSystem | Path.Path | Scope.Scope
+> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const lock = yield* Semaphore.make(1);
     const directory = path.dirname(statePath);
+    const routes = yield* makeRouteStore(path.join(directory, "routes.sqlite"));
 
     const writeUnlocked = (state: BridgeState): Effect.Effect<void, StateStoreError> =>
       Effect.gen(function* () {
@@ -100,9 +111,24 @@ export const makeStateStore = (
       const encoded = yield* fs
         .readFileString(statePath)
         .pipe(Effect.mapError(stateError("read", statePath)));
-      return yield* Schema.decodeUnknownEffect(BridgeStateJsonSchema)(encoded).pipe(
+      const current = yield* Schema.decodeUnknownEffect(BridgeStateJsonSchema)(encoded).pipe(
+        Effect.option,
+      );
+      if (current._tag === "Some") return current.value;
+      const previous = yield* Schema.decodeUnknownEffect(BridgeStateV2JsonSchema)(encoded).pipe(
         Effect.mapError(stateError("decode", statePath)),
       );
+      const migrated: BridgeState = {
+        version: 3,
+        enabled: previous.enabled && previous.binding !== undefined,
+        cursor: previous.cursor,
+        processedMessageIds: previous.processedMessageIds,
+        ...(previous.pendingImageBatch ? { pendingImageBatch: previous.pendingImageBatch } : {}),
+        ...(previous.auth ? { auth: previous.auth } : {}),
+        ...(previous.binding ? { defaultSession: previous.binding } : {}),
+      };
+      yield* writeUnlocked(migrated);
+      return migrated;
     });
 
     const read: StateStore["read"] = lock
@@ -238,31 +264,43 @@ export const makeStateStore = (
 
     return {
       path: statePath,
+      routes,
       read,
       write,
       saveAuth: (auth) =>
         update((state) => {
-          const { pendingImageBatch: _pending, ...stable } = state;
+          const { contextToken: _contextToken, pendingImageBatch: _pending, ...stable } = state;
+          const sameAccount = state.auth?.accountId === auth.accountId;
           return {
             ...stable,
             auth,
             cursor: "",
             processedMessageIds: [],
+            ...(sameAccount && state.contextToken ? { contextToken: state.contextToken } : {}),
           };
         }),
       clearAuth: update((state) => {
-        const { auth: _auth, pendingImageBatch: _pending, ...withoutAuth } = state;
+        const {
+          auth: _auth,
+          contextToken: _contextToken,
+          pendingImageBatch: _pending,
+          ...withoutAuth
+        } = state;
         return {
           ...withoutAuth,
           cursor: "",
           processedMessageIds: [],
         };
       }),
-      bind: (binding) => update((state) => ({ ...state, binding, enabled: true })),
+      setDefaultSession: (defaultSession) => update((state) => ({ ...state, defaultSession })),
       setEnabled: (enabled) => update((state) => ({ ...state, enabled })),
+      saveContextToken: (contextToken) => update((state) => ({ ...state, contextToken })),
       markProcessed: (messageId) => update((state) => withProcessed(state, messageId)),
       saveCursor: (cursor) => update((state) => ({ ...state, cursor })),
       transitionInbound,
-      logout: write(EMPTY_STATE).pipe(Effect.as(EMPTY_STATE)),
+      logout: update((state) => ({
+        ...EMPTY_STATE,
+        ...(state.defaultSession ? { defaultSession: state.defaultSession } : {}),
+      })),
     };
   });

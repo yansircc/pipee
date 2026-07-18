@@ -10,12 +10,12 @@ const WeixinAuthSchema = Schema.Struct({
 });
 export type WeixinAuth = Schema.Schema.Type<typeof WeixinAuthSchema>;
 
-const SessionBindingSchema = Schema.Struct({
+export const SessionTargetSchema = Schema.Struct({
   sessionId: Schema.String,
   sessionFile: Schema.optional(Schema.String),
   cwd: Schema.String,
 });
-export type SessionBinding = Schema.Schema.Type<typeof SessionBindingSchema>;
+export type SessionTarget = Schema.Schema.Type<typeof SessionTargetSchema>;
 
 const PendingImageBatchBase = {
   sessionId: Schema.String,
@@ -39,16 +39,29 @@ const PendingImageBatchSchema = Schema.Union([
 export type PendingImageBatch = Schema.Schema.Type<typeof PendingImageBatchSchema>;
 
 export const BridgeStateSchema = Schema.Struct({
+  version: Schema.Literal(3),
+  enabled: Schema.Boolean,
+  cursor: Schema.String,
+  processedMessageIds: Schema.Array(Schema.String),
+  pendingImageBatch: Schema.optional(PendingImageBatchSchema),
+  auth: Schema.optional(WeixinAuthSchema),
+  defaultSession: Schema.optional(SessionTargetSchema),
+  contextToken: Schema.optional(Schema.String),
+});
+export type BridgeState = Schema.Schema.Type<typeof BridgeStateSchema>;
+export const BridgeStateJsonSchema = Schema.fromJsonString(BridgeStateSchema);
+
+export const BridgeStateV2Schema = Schema.Struct({
   version: Schema.Literal(2),
   enabled: Schema.Boolean,
   cursor: Schema.String,
   processedMessageIds: Schema.Array(Schema.String),
   pendingImageBatch: Schema.optional(PendingImageBatchSchema),
   auth: Schema.optional(WeixinAuthSchema),
-  binding: Schema.optional(SessionBindingSchema),
+  binding: Schema.optional(SessionTargetSchema),
 });
-export type BridgeState = Schema.Schema.Type<typeof BridgeStateSchema>;
-export const BridgeStateJsonSchema = Schema.fromJsonString(BridgeStateSchema);
+export type BridgeStateV2 = Schema.Schema.Type<typeof BridgeStateV2Schema>;
+export const BridgeStateV2JsonSchema = Schema.fromJsonString(BridgeStateV2Schema);
 
 export const PiPromptProgressEventSchema = Schema.Union([
   Schema.TaggedStruct("ToolStarted", {

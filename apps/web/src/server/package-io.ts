@@ -1,4 +1,5 @@
-import { Context, Data, Effect, Layer, Schema, Stream } from "effect"
+import { Context, Data, Effect, FileSystem, Layer, Path, Schema, Stream } from "effect"
+import { zipSync } from "fflate"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { HttpClient } from "effect/unstable/http"
 import { SkillSearchResult } from "@/api/contract"
@@ -23,6 +24,7 @@ export class PackageIo extends Context.Service<
       scope: "global" | "project",
       cwd: string | undefined,
     ) => Effect.Effect<string, PackageIoError>
+    readonly archiveDirectory: (directory: string) => Effect.Effect<Uint8Array, PackageIoError>
   }
 >()("pi-web/server/PackageIo") {}
 
@@ -77,6 +79,60 @@ const layerEffect = Effect.gen(function* () {
   const config = yield* AppConfig
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
   const http = yield* HttpClient.HttpClient
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+
+  const archiveDirectory = (directory: string) =>
+    Effect.gen(function* () {
+      const entries: Record<string, Uint8Array> = {}
+      const visit = (current: string, relative: string): Effect.Effect<void, PackageIoError> =>
+        Effect.gen(function* () {
+          const names = yield* fs
+            .readDirectory(current)
+            .pipe(
+              Effect.mapError(
+                (cause) => new PackageIoError({ operation: "chrome-extension.archive.read", message: String(cause) }),
+              ),
+            )
+          yield* Effect.forEach(
+            names,
+            (name) =>
+              Effect.gen(function* () {
+                const fullPath = path.join(current, name)
+                const entryPath = relative ? `${relative}/${name}` : name
+                const info = yield* fs
+                  .stat(fullPath)
+                  .pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new PackageIoError({ operation: "chrome-extension.archive.stat", message: String(cause) }),
+                    ),
+                  )
+                if (info.type === "Directory") return yield* visit(fullPath, entryPath)
+                if (info.type !== "File") {
+                  return yield* new PackageIoError({
+                    operation: "chrome-extension.archive.entry",
+                    message: `Unsupported archive entry: ${entryPath}`,
+                  })
+                }
+                entries[entryPath] = yield* fs
+                  .readFile(fullPath)
+                  .pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new PackageIoError({ operation: "chrome-extension.archive.file", message: String(cause) }),
+                    ),
+                  )
+              }),
+            { concurrency: 8, discard: true },
+          )
+        })
+      yield* visit(directory, "")
+      return yield* Effect.try({
+        try: () => zipSync(entries, { level: 6 }),
+        catch: (cause) => new PackageIoError({ operation: "chrome-extension.archive.zip", message: String(cause) }),
+      })
+    })
 
   const runNpx = (args: ReadonlyArray<string>, cwd: string | undefined, timeout: number) =>
     Effect.scoped(
@@ -174,11 +230,11 @@ const layerEffect = Effect.gen(function* () {
     )
   }
 
-  return PackageIo.of({ searchSkills, installSkill })
+  return PackageIo.of({ searchSkills, installSkill, archiveDirectory })
 })
 
 export const PackageIoLive: Layer.Layer<
   PackageIo,
   never,
-  AppConfig | ChildProcessSpawner.ChildProcessSpawner | HttpClient.HttpClient
+  AppConfig | ChildProcessSpawner.ChildProcessSpawner | HttpClient.HttpClient | FileSystem.FileSystem | Path.Path
 > = Layer.effect(PackageIo, layerEffect)

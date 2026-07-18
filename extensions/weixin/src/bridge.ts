@@ -29,6 +29,8 @@ import {
   HttpRequestError,
   IlinkProtocolError,
   IlinkSessionExpiredError,
+  RouteConflictError,
+  RouteStoreError,
   QrCodeError,
   StateStoreError,
 } from "./errors.ts";
@@ -45,7 +47,8 @@ import {
   replyClientId,
   splitTextReply,
 } from "./message.ts";
-import { type PendingImageBatch, type SessionBinding, type WeixinAuth } from "./schema.ts";
+import { makeRoutedMessenger, type RoutedMessenger } from "./routed-messenger.ts";
+import { type PendingImageBatch, type SessionTarget, type WeixinAuth } from "./schema.ts";
 import { makeStateStore, type StateStore } from "./state.ts";
 
 const UNSUPPORTED_MESSAGE_REPLY = "当前 pi-weixin 仅支持文本和图片消息。";
@@ -54,6 +57,8 @@ const VOICE_TRANSCRIPTION_UNAVAILABLE_REPLY =
 const MEDIA_ERROR_REPLY = "图片下载或解密失败，请重新发送原图。";
 const IDEMPOTENCY_CONFLICT_REPLY =
   "上一条请求的执行状态无法安全确认。为避免重复执行，已停止自动重试；请检查 Pi 会话后重新发送。";
+const UNKNOWN_REFERENCE_REPLY = "无法识别这条引用消息的来源。请取消引用后重新发送。";
+const SESSION_UNAVAILABLE_REPLY = "引用对应的 Pi 会话已不可用。请取消引用后发送到默认会话。";
 export const IMAGE_BATCH_WAIT_MILLIS = 30_000;
 
 export const imageAwarePollTimeout = (
@@ -70,7 +75,8 @@ export interface BridgeStatus {
   readonly enabled: boolean;
   readonly authenticated: boolean;
   readonly accountId?: string;
-  readonly sessionId?: string;
+  readonly defaultSessionId?: string;
+  readonly sendReady: boolean;
   readonly lastError?: string;
   readonly connection: BridgeConnectionState;
 }
@@ -93,6 +99,8 @@ type BatchError =
   | HttpRequestError
   | IlinkProtocolError
   | IlinkSessionExpiredError
+  | RouteStoreError
+  | RouteConflictError
   | GatewayError
   | GatewayIdempotencyConflictError;
 
@@ -109,6 +117,7 @@ const dispatchPrompt = (
   input: PromptDispatch,
   auth: WeixinAuth,
   transport: WeixinTransport,
+  messenger: RoutedMessenger,
   gateway: PiGateway,
 ): Effect.Effect<void, BatchError> =>
   Effect.gen(function* () {
@@ -119,13 +128,13 @@ const dispatchPrompt = (
       Effect.catchTag("IlinkMediaError", () => Effect.succeed({ _tag: "Rejected" as const })),
     );
     if (prepared._tag === "Rejected") {
-      yield* transport.sendText(
+      yield* messenger.sendText({
         auth,
-        input.userId,
-        MEDIA_ERROR_REPLY,
-        input.contextToken,
-        replyClientId(input.requestId, 0),
-      );
+        sourceSessionId: input.sessionId,
+        text: MEDIA_ERROR_REPLY,
+        contextToken: input.contextToken,
+        clientId: replyClientId(input.requestId, 0),
+      });
       return;
     }
 
@@ -152,33 +161,39 @@ const dispatchPrompt = (
           );
     const reply = yield* gateway
       .promptAndWait(input.sessionId, input.requestId, input.prompt, prepared.images, (event) =>
-        transport.sendText(
-          auth,
-          input.userId,
-          `Pi 正在使用工具：${event.toolName}`,
-          input.contextToken,
-          progressClientId(input.requestId, event.toolCallId),
-        ),
+        messenger
+          .sendText({
+            auth,
+            sourceSessionId: input.sessionId,
+            text: `Pi 正在使用工具：${event.toolName}`,
+            contextToken: input.contextToken,
+            clientId: progressClientId(input.requestId, event.toolCallId),
+          })
+          .pipe(Effect.asVoid),
       )
       .pipe(
         Effect.matchEffect({
           onFailure: (error) => stopTyping.pipe(Effect.andThen(Effect.fail(error))),
           onSuccess: (value) => stopTyping.pipe(Effect.as(value)),
         }),
-        Effect.catchTag("GatewayIdempotencyConflictError", () =>
-          Effect.succeed(IDEMPOTENCY_CONFLICT_REPLY),
-        ),
+        Effect.catchTags({
+          GatewayIdempotencyConflictError: () => Effect.succeed(IDEMPOTENCY_CONFLICT_REPLY),
+          GatewayError: (error) =>
+            error.cause instanceof HttpRequestError && error.cause.status === 404
+              ? Effect.succeed(SESSION_UNAVAILABLE_REPLY)
+              : Effect.fail(error),
+        }),
       );
     yield* Effect.forEach(
       splitTextReply(reply),
       (chunk, chunkIndex) =>
-        transport.sendText(
+        messenger.sendText({
           auth,
-          input.userId,
-          chunk,
-          input.contextToken,
-          replyClientId(input.requestId, chunkIndex),
-        ),
+          sourceSessionId: input.sessionId,
+          text: chunk,
+          contextToken: input.contextToken,
+          clientId: replyClientId(input.requestId, chunkIndex),
+        }),
       { concurrency: 1, discard: true },
     );
   });
@@ -199,6 +214,7 @@ const dispatchPending = (
     },
     auth,
     dependencies.transport,
+    makeRoutedMessenger(dependencies.transport, dependencies.store.routes),
     dependencies.gateway,
   ).pipe(
     Effect.andThen(
@@ -216,15 +232,17 @@ export const processUpdateBatch = (
 ): Effect.Effect<void, BatchError> =>
   Effect.gen(function* () {
     const { store, transport, gateway } = dependencies;
+    const routes = store.routes;
+    const messenger = makeRoutedMessenger(transport, routes);
     const initial = yield* store.read;
-    if (!initial.auth || !initial.binding) {
+    if (!initial.auth || !initial.defaultSession) {
       return yield* new IlinkProtocolError({
         operation: "bridge.process_batch",
-        cause: "微信账号或 Pi session 尚未绑定",
+        cause: "微信账号或默认 Pi session 尚未配置",
       });
     }
     const auth = initial.auth;
-    const binding = initial.binding;
+    const defaultSession = initial.defaultSession;
 
     let ready = initial;
     if ((response.msgs?.length ?? 0) === 0) {
@@ -235,8 +253,7 @@ export const processUpdateBatch = (
     }
     if (
       ready.pendingImageBatch?._tag === "Collecting" &&
-      (ready.pendingImageBatch.sessionId !== binding.sessionId ||
-        ready.pendingImageBatch.userId !== auth.userId)
+      ready.pendingImageBatch.userId !== auth.userId
     ) {
       ready = yield* store.transitionInbound({ _tag: "FlushImages" });
     }
@@ -267,16 +284,33 @@ export const processUpdateBatch = (
           }
 
           const inbound = parseInboundMessage(message);
+          const contextToken = message.context_token ?? "";
+          if (contextToken) yield* store.saveContextToken(contextToken);
+          const routedSessionId = inbound.referencedMessageId
+            ? yield* routes.resolve(auth.accountId, inbound.referencedMessageId)
+            : defaultSession.sessionId;
+          if (inbound.referencedMessageId && routedSessionId === undefined) {
+            yield* messenger.sendText({
+              auth,
+              sourceSessionId: defaultSession.sessionId,
+              text: UNKNOWN_REFERENCE_REPLY,
+              contextToken,
+              clientId: replyClientId(id, 0),
+            });
+            yield* store.markProcessed(id);
+            return;
+          }
+          const targetSessionId = routedSessionId ?? defaultSession.sessionId;
           const text = renderInboundPrompt(inbound);
           const imageParts = inbound.parts.filter((part) => part._tag === "Image");
           if (imageParts.some((part) => part.image === undefined)) {
-            yield* transport.sendText(
+            yield* messenger.sendText({
               auth,
-              fromUserId,
-              MEDIA_ERROR_REPLY,
-              message.context_token ?? "",
-              replyClientId(id, 0),
-            );
+              sourceSessionId: targetSessionId,
+              text: MEDIA_ERROR_REPLY,
+              contextToken,
+              clientId: replyClientId(id, 0),
+            });
             yield* store.markProcessed(id);
             return;
           }
@@ -285,11 +319,11 @@ export const processUpdateBatch = (
             const now = yield* Clock.currentTimeMillis;
             const collected = yield* store.transitionInbound({
               _tag: "CollectImages",
-              sessionId: binding.sessionId,
+              sessionId: targetSessionId,
               userId: fromUserId,
               messageId: id,
               images,
-              contextToken: message.context_token ?? "",
+              contextToken,
               deadlineAt: now + IMAGE_BATCH_WAIT_MILLIS,
             });
             if (!collected.processedMessageIds.includes(id)) {
@@ -305,11 +339,11 @@ export const processUpdateBatch = (
           if (text !== undefined && (images.length > 0 || pending?._tag === "Collecting")) {
             const state = yield* store.transitionInbound({
               _tag: "DispatchImages",
-              sessionId: binding.sessionId,
+              sessionId: targetSessionId,
               userId: fromUserId,
               messageId: id,
               images,
-              contextToken: message.context_token ?? "",
+              contextToken,
               prompt: text,
             });
             if (state.pendingImageBatch?._tag === "Dispatching") {
@@ -325,25 +359,26 @@ export const processUpdateBatch = (
           if (prompt) {
             yield* dispatchPrompt(
               {
-                sessionId: binding.sessionId,
+                sessionId: targetSessionId,
                 userId: fromUserId,
                 requestId: id,
                 prompt,
                 images: [],
-                contextToken: message.context_token ?? "",
+                contextToken,
               },
               auth,
               transport,
+              messenger,
               gateway,
             );
           } else {
-            yield* transport.sendText(
+            yield* messenger.sendText({
               auth,
-              fromUserId,
-              fallbackReply,
-              message.context_token ?? "",
-              replyClientId(id, 0),
-            );
+              sourceSessionId: targetSessionId,
+              text: fallbackReply,
+              contextToken,
+              clientId: replyClientId(id, 0),
+            });
           }
           yield* store.markProcessed(id);
         }),
@@ -378,33 +413,34 @@ export interface BridgeService {
   readonly start: Effect.Effect<boolean, StateStoreError | BridgeOwnershipConflict>;
   readonly stop: Effect.Effect<void>;
   readonly releaseSession: (sessionId: string) => Effect.Effect<void>;
-  readonly loginAndBind: (
+  readonly connect: (
     callbacks: LoginCallbacks<QrCodeError | BridgeConfigurationError>,
-    binding: SessionBinding,
+    session: SessionTarget,
   ) => Effect.Effect<WeixinAuth, LoginError>;
-  readonly bind: (
-    binding: SessionBinding,
-  ) => Effect.Effect<void, StateStoreError | BridgeOwnershipConflict>;
+  readonly setDefaultSession: (session: SessionTarget) => Effect.Effect<void, StateStoreError>;
+  readonly sendText: (
+    sourceSessionId: string,
+    text: string,
+    clientId: string,
+  ) => Effect.Effect<
+    string,
+    | StateStoreError
+    | BridgeConfigurationError
+    | HttpRequestError
+    | IlinkProtocolError
+    | IlinkSessionExpiredError
+    | RouteStoreError
+    | RouteConflictError
+  >;
   readonly setEnabled: (
     enabled: boolean,
-  ) => Effect.Effect<void, StateStoreError | BridgeOwnershipConflict>;
+  ) => Effect.Effect<void, StateStoreError | BridgeOwnershipConflict | BridgeConfigurationError>;
   readonly logout: Effect.Effect<void, StateStoreError>;
 }
 
 export class Bridge extends Context.Service<Bridge, BridgeService>()("pi-weixin/Bridge") {}
 
 const describeError = (error: BridgeLoopError): string => error._tag;
-
-export const bindAfterDispatchBarrier = <StopE, StopR, BindE, BindR, StartE, StartR>(
-  stopDispatches: Effect.Effect<void, StopE, StopR>,
-  persistBinding: Effect.Effect<unknown, BindE, BindR>,
-  startDispatches: Effect.Effect<unknown, StartE, StartR>,
-): Effect.Effect<void, StopE | BindE | StartE, StopR | BindR | StartR> =>
-  stopDispatches.pipe(
-    Effect.andThen(persistBinding),
-    Effect.andThen(startDispatches),
-    Effect.asVoid,
-  );
 
 export const BridgeLive = Layer.effect(
   Bridge,
@@ -428,8 +464,14 @@ export const BridgeLive = Layer.effect(
     const piWebBaseUrl = yield* Config.string("PI_WEB_BASE_URL").pipe(
       Config.withDefault(DEFAULT_PI_WEB_BASE_URL),
     );
-    const store = yield* makeStateStore(statePath);
+    const serviceScope = yield* Scope.make("sequential");
+    yield* Effect.addFinalizer(() => Scope.close(serviceScope, Exit.succeed(undefined)));
+    const store = yield* makeStateStore(statePath).pipe(
+      Effect.provideService(Scope.Scope, serviceScope),
+    );
+    const routes = store.routes;
     const transport = makeIlinkClient(makeJsonHttpClient(httpClient));
+    const messenger = makeRoutedMessenger(transport, routes);
     const gateway = yield* makePiGateway(makeJsonHttpClient(httpClient), piWebBaseUrl);
     const bridgeFiber = yield* Ref.make(Option.none<Fiber.Fiber<void, never>>());
     const loginFiber = yield* Ref.make(
@@ -486,7 +528,7 @@ export const BridgeLive = Layer.effect(
       const state = yield* store.read;
       const runtimeConnection = yield* Ref.get(connection);
       const currentConnection: BridgeConnectionState =
-        state.enabled && state.binding && !state.auth
+        state.enabled && state.defaultSession && !state.auth
           ? { _tag: "ReauthenticationRequired" }
           : runtimeConnection;
       const running =
@@ -498,8 +540,9 @@ export const BridgeLive = Layer.effect(
         running,
         enabled: state.enabled,
         authenticated: state.auth !== undefined,
+        sendReady: state.auth !== undefined && Boolean(state.contextToken),
         ...(state.auth ? { accountId: state.auth.accountId } : {}),
-        ...(state.binding ? { sessionId: state.binding.sessionId } : {}),
+        ...(state.defaultSession ? { defaultSessionId: state.defaultSession.sessionId } : {}),
         ...(Option.isSome(error) ? { lastError: error.value } : {}),
         connection: currentConnection,
       };
@@ -512,7 +555,7 @@ export const BridgeLive = Layer.effect(
 
     const iteration = Effect.gen(function* () {
       let state = yield* store.read;
-      if (!state.enabled || !state.auth || !state.binding) {
+      if (!state.enabled || !state.auth || !state.defaultSession) {
         return yield* new IlinkProtocolError({
           operation: "bridge.loop",
           cause: "bridge is not configured",
@@ -606,7 +649,7 @@ export const BridgeLive = Layer.effect(
     const startBridgeRaw = Effect.gen(function* () {
       if (Option.isSome(yield* Ref.get(bridgeFiber))) return false;
       const state = yield* store.read;
-      if (!state.enabled || !state.auth || !state.binding) return false;
+      if (!state.enabled || !state.auth || !state.defaultSession) return false;
       yield* acquireAccountOwner(state.auth.accountId);
       yield* Ref.set(connection, { _tag: "Connecting" });
       yield* Ref.set(lastError, Option.none());
@@ -615,12 +658,11 @@ export const BridgeLive = Layer.effect(
       yield* Effect.uninterruptible(
         Effect.gen(function* () {
           const registered = yield* Deferred.make<void>();
-          const fiber = yield* Effect.forkDetach(
-            Deferred.await(registered).pipe(
-              Effect.andThen(runLoop()),
-              Effect.ensuring(Ref.set(bridgeFiber, Option.none())),
-              Effect.ensuring(invalidateStatus),
-            ),
+          const fiber = yield* Deferred.await(registered).pipe(
+            Effect.andThen(runLoop()),
+            Effect.ensuring(Ref.set(bridgeFiber, Option.none())),
+            Effect.ensuring(invalidateStatus),
+            Effect.forkIn(serviceScope),
           );
           yield* Ref.set(bridgeFiber, Option.some(fiber));
           yield* Deferred.succeed(registered, undefined);
@@ -657,7 +699,7 @@ export const BridgeLive = Layer.effect(
       stop: observeStatus(stopRaw),
       releaseSession: (sessionId) =>
         lifecycle.withPermits(1)(releaseSessionLogin(loginFiber, sessionId)),
-      loginAndBind: (callbacks, binding) =>
+      connect: (callbacks, session) =>
         observeStatus(
           Effect.gen(function* () {
             const login = Effect.gen(function* () {
@@ -665,7 +707,9 @@ export const BridgeLive = Layer.effect(
               const auth = yield* transport.login(callbacks, existing.auth);
               yield* acquireAccountOwner(auth.accountId);
               yield* store.saveAuth(auth);
-              yield* store.bind(binding);
+              const configured = yield* store.read;
+              if (!configured.defaultSession) yield* store.setDefaultSession(session);
+              yield* store.setEnabled(true);
               yield* startRaw;
               return auth;
             }).pipe(Effect.onError(() => closeAccountOwner));
@@ -680,10 +724,10 @@ export const BridgeLive = Layer.effect(
                     });
                   }
                   yield* stopBridgeRaw;
-                  const fiber = yield* Effect.forkDetach(login);
+                  const fiber = yield* login.pipe(Effect.forkIn(serviceScope));
                   yield* Ref.set(
                     loginFiber,
-                    Option.some({ ownerSessionId: binding.sessionId, fiber }),
+                    Option.some({ ownerSessionId: session.sessionId, fiber }),
                   );
                   return fiber;
                 }),
@@ -695,16 +739,41 @@ export const BridgeLive = Layer.effect(
             );
           }),
         ),
-      bind: (binding) =>
-        observeStatus(
-          lifecycle.withPermits(1)(
-            bindAfterDispatchBarrier(stopBridgeRaw, store.bind(binding), startBridgeRaw),
-          ),
-        ),
+      setDefaultSession: (session) =>
+        observeStatus(store.setDefaultSession(session).pipe(Effect.asVoid)),
+      sendText: (sourceSessionId, text, clientId) =>
+        Effect.gen(function* () {
+          const state = yield* store.read;
+          if (!state.auth) {
+            return yield* new BridgeConfigurationError({ reason: "微信尚未登录" });
+          }
+          if (!state.contextToken) {
+            return yield* new BridgeConfigurationError({
+              reason: "尚未收到微信消息，缺少主动发送所需的 context token",
+            });
+          }
+          const receipt = yield* messenger.sendText({
+            auth: state.auth,
+            sourceSessionId,
+            text,
+            contextToken: state.contextToken,
+            clientId,
+          });
+          return receipt.serverMessageId;
+        }),
       setEnabled: (enabled) =>
         observeStatus(
           enabled
-            ? store.setEnabled(true).pipe(Effect.andThen(startRaw), Effect.asVoid)
+            ? Effect.gen(function* () {
+                const state = yield* store.read;
+                if (!state.auth || !state.defaultSession) {
+                  return yield* new BridgeConfigurationError({
+                    reason: "启用微信前必须先登录并设置默认会话",
+                  });
+                }
+                yield* store.setEnabled(true);
+                yield* startRaw;
+              })
             : stopRaw.pipe(Effect.andThen(store.setEnabled(false)), Effect.asVoid),
         ),
       logout: observeStatus(stopRaw.pipe(Effect.andThen(store.logout), Effect.asVoid)),

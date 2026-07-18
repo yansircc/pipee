@@ -107,6 +107,9 @@ it("derives every extension output and manifest entry from one build graph", () 
     "alarms",
     "debugger",
   ]);
+  expect(sourceManifest.externally_connectable).toEqual({
+    matches: ["http://localhost/*", "http://127.0.0.1/*"],
+  });
   const manifest = renderExtensionManifest(sourceManifest, manifestInputs);
   expect(manifest).toMatchObject({
     key: manifestInputs.publicKey,
@@ -114,6 +117,9 @@ it("derives every extension output and manifest entry from one build graph", () 
     minimum_chrome_version: String(EXTENSION_BUILD_GRAPH.minimumChromeVersion),
     background: { service_worker: "service-worker.js" },
     action: { default_popup: "popup.html" },
+    externally_connectable: {
+      matches: ["http://localhost/*", "http://127.0.0.1/*"],
+    },
   });
   expect(extensionPackageIdFromPublicKey(String(manifest.key))).toBe(EXTENSION_PACKAGE_ID);
 });

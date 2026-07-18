@@ -7,6 +7,28 @@ export const ChromeExtensionExpectation = Schema.Struct({
 })
 export type ChromeExtensionExpectation = typeof ChromeExtensionExpectation.Type
 
+export const CHROME_EXTENSION_PROBE_KIND = "pi-chrome/extension-probe" as const
+
+export const ChromeExtensionProbeRequest = Schema.Struct({
+  kind: Schema.Literal(CHROME_EXTENSION_PROBE_KIND),
+  version: Schema.Literal(1),
+})
+export type ChromeExtensionProbeRequest = typeof ChromeExtensionProbeRequest.Type
+
+export const chromeExtensionProbeRequest: ChromeExtensionProbeRequest = {
+  kind: CHROME_EXTENSION_PROBE_KIND,
+  version: 1,
+}
+
+export const isChromeExtensionProbeRequest = Schema.is(ChromeExtensionProbeRequest)
+
+export const ChromeExtensionProbeResponse = Schema.Struct({
+  kind: Schema.Literal(CHROME_EXTENSION_PROBE_KIND),
+  version: Schema.Literal(1),
+  extension: ChromeExtensionExpectation,
+})
+export type ChromeExtensionProbeResponse = typeof ChromeExtensionProbeResponse.Type
+
 export const ChromeExtensionEvidence = Schema.Struct({
   ...ChromeExtensionExpectation.fields,
   connectorIdentity: Schema.Struct({
@@ -42,6 +64,17 @@ export const ChromeCompatibilityMismatch = Schema.Literals([
   "ProtocolFingerprint",
 ])
 
+export const chromeExtensionMismatches = (
+  expected: ChromeExtensionExpectation,
+  actual: ChromeExtensionExpectation,
+): ReadonlyArray<typeof ChromeCompatibilityMismatch.Type> => {
+  const mismatches: Array<typeof ChromeCompatibilityMismatch.Type> = []
+  if (expected.extensionId !== actual.extensionId) mismatches.push("ExtensionId")
+  if (expected.displayVersion !== actual.displayVersion) mismatches.push("DisplayVersion")
+  if (expected.protocolFingerprint !== actual.protocolFingerprint) mismatches.push("ProtocolFingerprint")
+  return mismatches
+}
+
 export const ChromeCompatibility = Schema.Union([
   Schema.TaggedStruct("Unknown", {}),
   Schema.TaggedStruct("Verified", { evidence: ChromeExtensionEvidence }),
@@ -70,10 +103,7 @@ export function classifyChromeCompatibility(
   actual: ChromeExtensionEvidence | null,
 ): ChromeCompatibility {
   if (expected === null || actual === null) return { _tag: "Unknown" }
-  const mismatches: Array<typeof ChromeCompatibilityMismatch.Type> = []
-  if (expected.extensionId !== actual.extensionId) mismatches.push("ExtensionId")
-  if (expected.displayVersion !== actual.displayVersion) mismatches.push("DisplayVersion")
-  if (expected.protocolFingerprint !== actual.protocolFingerprint) mismatches.push("ProtocolFingerprint")
+  const mismatches = chromeExtensionMismatches(expected, actual)
   return mismatches.length === 0
     ? { _tag: "Verified", evidence: actual }
     : { _tag: "Incompatible", expected, actual, mismatches }

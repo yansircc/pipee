@@ -4,7 +4,12 @@ import type { IlinkImage, IlinkMessage } from "./ilink-protocol.ts";
 const ILINK_TEXT_CHUNK_LIMIT = 4_000;
 
 type InboundMessagePart =
-  | { readonly _tag: "Text"; readonly text: string; readonly quote: ReadonlyArray<string> }
+  | {
+      readonly _tag: "Text";
+      readonly text: string;
+      readonly quote: ReadonlyArray<string>;
+      readonly referencedMessageId?: string;
+    }
   | { readonly _tag: "VoiceTranscript"; readonly text: string }
   | { readonly _tag: "Image"; readonly image?: IlinkImage }
   | { readonly _tag: "Voice" }
@@ -14,6 +19,7 @@ type InboundMessagePart =
 
 export interface InboundMessage {
   readonly parts: ReadonlyArray<InboundMessagePart>;
+  readonly referencedMessageId?: string;
 }
 
 function canonicalJson(value: unknown): string {
@@ -58,7 +64,14 @@ export function parseInboundMessage(message: IlinkMessage): InboundMessage {
           )
         : [];
       return text
-        ? { _tag: "Text", text, quote }
+        ? {
+            _tag: "Text",
+            text,
+            quote,
+            ...(ref?.message_item?.msg_id !== undefined
+              ? { referencedMessageId: String(ref.message_item.msg_id) }
+              : {}),
+          }
         : { _tag: "Unknown", ...(item.type === undefined ? {} : { itemType: item.type }) };
     }
     if (item.type === 2) {
@@ -78,7 +91,13 @@ export function parseInboundMessage(message: IlinkMessage): InboundMessage {
     if (item.type === 5) return { _tag: "Video" };
     return { _tag: "Unknown", ...(item.type === undefined ? {} : { itemType: item.type }) };
   });
-  return { parts };
+  const referencedMessageIds = parts.flatMap((part) =>
+    part._tag === "Text" && part.referencedMessageId ? [part.referencedMessageId] : [],
+  );
+  return {
+    parts,
+    ...(referencedMessageIds[0] ? { referencedMessageId: referencedMessageIds[0] } : {}),
+  };
 }
 
 export function renderInboundPrompt(message: InboundMessage): string | undefined {
@@ -102,7 +121,10 @@ export function splitTextReply(text: string): ReadonlyArray<string> {
 export function messageIdentity(message: unknown): string {
   if (message && typeof message === "object") {
     const wire = message as Record<string, unknown>;
-    if (typeof wire["message_id"] === "number" && Number.isFinite(wire["message_id"])) {
+    if (typeof wire["message_id"] === "string" && wire["message_id"]) {
+      return `message-${wire["message_id"]}`;
+    }
+    if (typeof wire["message_id"] === "number" && Number.isSafeInteger(wire["message_id"])) {
       return `message-${wire["message_id"]}`;
     }
     if (typeof wire["client_id"] === "string" && wire["client_id"]) {
@@ -125,3 +147,6 @@ export const replyClientId = (messageId: string, chunkIndex: number): string =>
 
 export const progressClientId = (messageId: string, toolCallId: string): string =>
   outboundClientId(messageId, `tool:${toolCallId}`);
+
+export const proactiveClientId = (sessionId: string, toolCallId: string): string =>
+  outboundClientId(sessionId, `proactive:${toolCallId}`);
