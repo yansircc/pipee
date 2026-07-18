@@ -67,6 +67,22 @@ export const readDistributionContract = (root, config) => {
     assert.deepEqual(assets, [], "single-file profile must not declare assets");
   }
 
+  const webManifest = manifest.piSuite?.web;
+  if (webManifest !== undefined) {
+    assert.equal(webManifest.contract, "pi-suite/web-surface@1", "unknown Pi web surface contract");
+    assert.equal(typeof webManifest.title, "string", "Pi web surface title must be a string");
+    assert.ok(webManifest.title.trim(), "Pi web surface title must not be empty");
+    assert.equal(
+      config.profile.kind,
+      "multi-file",
+      "Pi web surfaces require the multi-file profile",
+    );
+    assert.ok(assets.includes("dist/web"), "Pi web surfaces require dist/web in profile.assets");
+    const document = normalizeRelative(webManifest.document, "Pi web surface document");
+    assert.ok(document.startsWith("dist/web/"), "Pi web surface document must be under dist/web/");
+    assert.ok(existsSync(resolve(root, document)), `missing Pi web surface document: ${document}`);
+  }
+
   const expectedFiles = [entryDirectory, ...assets];
   assert.deepEqual(
     manifest.files,
@@ -130,5 +146,6 @@ export const readDistributionContract = (root, config) => {
     entryRelative,
     entryAbsolute,
     outputFileName: basename(entryAbsolute),
+    webManifest: webManifest === undefined ? null : Object.freeze({ ...webManifest }),
   });
 };

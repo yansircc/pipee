@@ -29,6 +29,7 @@ it.effect("closes admission atomically with an interaction entering the runtime"
         (event) => events.push(event),
         {},
         () => new Error("unavailable"),
+        new Map(),
       )
 
       const interaction = runtime.uiContext.input("Name")
@@ -63,6 +64,7 @@ it.effect("interrupts callback fibers instead of waiting forever during close", 
         () => undefined,
         {},
         () => new Error("unavailable"),
+        new Map(),
       )
 
       runtime.uiContext.notify("will never receive an id")
@@ -79,6 +81,7 @@ it.effect("keeps structured views and retention on independent owner-bound ports
       () => undefined,
       {},
       () => new Error("unavailable"),
+      new Map(),
     )
     const structured = runtime.uiContext.getPiSuiteCapability<StructuredViewPort>("alpha", STRUCTURED_VIEW_CAPABILITY)!
     const retention = runtime.uiContext.getPiSuiteCapability<RuntimeRetentionPort>(

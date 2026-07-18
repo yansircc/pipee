@@ -27,6 +27,7 @@ lookup binds an Extension package identity to one versioned port:
 pi-suite/structured-view@1
 pi-suite/media-view@1
 pi-suite/runtime-retention@1
+pi-suite/web-surface-runtime@1
 ```
 
 `@pi-suite/companion-contracts` owns the method and port identifiers plus their wire-safe schemas.
@@ -46,6 +47,33 @@ Package identity is declared by each trusted Suite Extension's `package.json`. T
 not a security boundary. Supporting untrusted Extensions would require process isolation rather than
 additional branches in these helpers.
 
+## Session-bound Web Surfaces
+
+A package may declare one browser document without changing Pi:
+
+```json
+{
+  "piSuite": {
+    "web": {
+      "contract": "pi-suite/web-surface@1",
+      "document": "./dist/web/index.html",
+      "title": "Example"
+    }
+  }
+}
+```
+
+Pi settings remain installed/enabled truth. The package archive owns the runtime entry and `dist/web` bytes;
+`SessionRuntimeRegistry` owns the live controller. A surface instance is identified by
+`packageName × candidateHash × sessionId × RuntimeIdentity`. `candidateHash` is derived from sorted
+`package.json`, Pi runtime entries, and `dist/web/**`; it is never writable state.
+
+Pi Web serves admitted assets through `/extension-assets/...` and runs them in
+`<iframe sandbox="allow-scripts">`. The iframe receives a transferred `MessagePort`; it is never imported into
+the host realm and has no mount/dispose protocol. Projection changes stay in the existing session runtime SSE
+stream. Route disposal closes only the browser channel, while runtime replacement closes the owning Session
+Scope and invalidates old actions by identity.
+
 ## Lifecycle
 
 Every long-lived fiber, runtime claim, queue, lease, and handle is owned by an Effect Scope. Session
@@ -58,3 +86,7 @@ Each public Extension declares one Pi entry, its assets, expected registrations,
 and optional domain check. Ordinary dependencies are bundled; only Node built-ins and declared Pi
 host modules remain external. Verification loads the raw npm archive with Pi's real resource loader
 without installing dependencies inside the package.
+
+Declaring a Web Surface requires the multi-file profile, explicit `dist/web` profile assets, and matching
+`package.json.files`. Archive verification resolves the complete relative browser module graph and rejects bare,
+Node, Pi-host, server, missing, or escaping imports before the candidate can be released.

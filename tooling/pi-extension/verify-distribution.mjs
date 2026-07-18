@@ -122,6 +122,34 @@ const verifyAssets = (contract) => {
   return contract.assets.map(({ relative: path, kind }) => ({ path, kind }));
 };
 
+const verifyWebSurface = (contract) => {
+  if (contract.webManifest === null) return null;
+  const webRoot = resolve(contract.root, "dist/web");
+  const files = listFiles(webRoot);
+  assert.ok(files.length > 0, "dist/web must not be empty");
+  const modules = files.filter((file) => /\.(?:m?js)$/.test(file));
+  for (const module of modules) {
+    const absolute = resolve(webRoot, module);
+    const imports = inspectModule(readFileSync(absolute, "utf8"));
+    for (const specifier of imports) {
+      assert.ok(
+        specifier.startsWith("./") || specifier.startsWith("../"),
+        `web module contains bare import: ${specifier}`,
+      );
+      const target = resolve(absolute, "..", specifier);
+      assert.ok(
+        relative(webRoot, target).split(sep).includes("..") === false,
+        `web import escapes dist/web: ${specifier}`,
+      );
+      assert.ok(
+        existsSync(target),
+        `web import is missing from archive: ${module} -> ${specifier}`,
+      );
+    }
+  }
+  return { document: contract.webManifest.document, files, modules };
+};
+
 const verifyWithPiLoader = async (packageRoot, harnessRoot) => {
   const loaderModule = config.hostModules[0];
   const hostDirectory = resolve(projectRoot, "node_modules", ...loaderModule.split("/"));
@@ -129,7 +157,11 @@ const verifyWithPiLoader = async (packageRoot, harnessRoot) => {
   const hostEntry = hostManifest.exports?.["."]?.import ?? hostManifest.main;
   assert.equal(typeof hostEntry, "string", `${loaderModule} has no import entry`);
   const host = await import(pathToFileURL(resolve(hostDirectory, hostEntry)).href);
-  assert.equal(typeof host.DefaultResourceLoader, "function", `${loaderModule} does not export DefaultResourceLoader`);
+  assert.equal(
+    typeof host.DefaultResourceLoader,
+    "function",
+    `${loaderModule} does not export DefaultResourceLoader`,
+  );
   const loader = new host.DefaultResourceLoader({
     cwd: harnessRoot,
     agentDir: resolve(harnessRoot, ".pi-agent-test"),
@@ -222,6 +254,7 @@ const verifyRawPackage = async (archive) => {
     const contract = readDistributionContract(packageRoot, config);
     const remainingImports = verifyBundle(contract);
     const assets = verifyAssets(contract);
+    const webSurface = verifyWebSurface(contract);
     const packageFiles = listFiles(packageRoot);
     const unexpected = packageFiles.filter((path) => {
       if (path === "package.json" || isStandardDocument(path)) return false;
@@ -244,6 +277,7 @@ const verifyRawPackage = async (archive) => {
         entry: contract.entryRelative,
         bundleBytes: statSync(contract.entryAbsolute).size,
         assets,
+        webSurface,
         remainingImports,
         packageFiles,
         archiveEntries: archiveEntries.length,
@@ -308,6 +342,7 @@ if (mode === "bundle") {
     entry: contract.entryRelative,
     bundleBytes: statSync(contract.entryAbsolute).size,
     assets: verifyAssets(contract),
+    webSurface: verifyWebSurface(contract),
     remainingImports: verifyBundle(contract),
   };
 } else if (mode === "package") {

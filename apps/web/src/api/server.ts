@@ -1,5 +1,5 @@
 import { NodeHttpClient, NodeHttpServer, NodeServices } from "@effect/platform-node"
-import { Effect, Layer, Path, Result, Semaphore, Stream } from "effect"
+import { Effect, FileSystem, Layer, Path, Result, Semaphore, Stream } from "effect"
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiMiddleware } from "effect/unstable/httpapi"
 import {
@@ -32,6 +32,8 @@ import { WorkspaceIo, WorkspaceIoError, WorkspaceIoLive } from "@/server/workspa
 import { WorkspaceError, WorkspaceService, WorkspaceServiceLive } from "@/server/workspace-service"
 import { activeSessionInfo, mergeSessionIndex } from "@/server/session-index"
 import { PI_COMPANION_PACKAGE_NAMES, isLocalPackageSource } from "@/lib/plugin-package-settings"
+import { WebSurfaceCatalog, WebSurfaceCatalogLive } from "@/server/web-surface-catalog"
+import { webSurfaceAssetHandler } from "@/server/web-surface-assets"
 
 const ok = { ok: true as const }
 
@@ -530,12 +532,7 @@ const SessionActionsLive = HttpApiBuilder.group(PiWebApi, "sessionActions", (han
       .handle("clearQueue", ({ params }) =>
         runtime(params.id).pipe(Effect.flatMap((handle) => expose(handle.runtime.clearQueue))),
       )
-      .handle("reload", ({ params }) =>
-        runtime(params.id).pipe(
-          Effect.flatMap((handle) => expose(handle.runtime.reload)),
-          Effect.as(ok),
-        ),
-      )
+      .handle("reload", ({ params }) => expose(registry.restart(params.id)).pipe(Effect.as(ok)))
       .handle("slashCommand", ({ params, payload }) =>
         runtime(params.id).pipe(
           Effect.flatMap((handle) => expose(handle.runtime.invokeSlashCommand(payload.name, payload.args))),
@@ -665,6 +662,7 @@ const AuthLive = HttpApiBuilder.group(PiWebApi, "auth", (handlers) =>
 const PackagesLive = HttpApiBuilder.group(PiWebApi, "packages", (handlers) =>
   Effect.gen(function* () {
     const adapter = yield* PiAgentAdapter
+    const registry = yield* SessionRuntimeRegistry
     const config = yield* AppConfig
     const packageIo = yield* PackageIo
     const path = yield* Path.Path
@@ -724,7 +722,9 @@ const PackagesLive = HttpApiBuilder.group(PiWebApi, "packages", (handlers) =>
                 ? config.home
                 : yield* new InvalidInput({ field: "cwd", message: "Project plugin actions require a workspace" })
           yield* expose(admitLocalPackageInstall(cwd, payload.action, payload.source))
-          return yield* expose(adapter.pluginAction(cwd, payload.action, payload.source, payload.scope))
+          const projection = yield* expose(adapter.pluginAction(cwd, payload.action, payload.source, payload.scope))
+          yield* expose(registry.invalidatePackageChanges)
+          return projection
         }),
       )
       .handle("skills", ({ query }) =>
@@ -763,6 +763,37 @@ const PackagesLive = HttpApiBuilder.group(PiWebApi, "packages", (handlers) =>
   }),
 )
 
+const WebSurfacesLive = HttpApiBuilder.group(PiWebApi, "webSurfaces", (handlers) =>
+  Effect.gen(function* () {
+    const catalog = yield* WebSurfaceCatalog
+    const registry = yield* SessionRuntimeRegistry
+    return handlers
+      .handle("catalog", ({ params }) => expose(catalog.read(params.id)).pipe(Effect.map((result) => result.public)))
+      .handle("dispatch", ({ params, payload }) =>
+        Effect.gen(function* () {
+          const admitted = yield* expose(catalog.read(params.id))
+          const surface = admitted.admitted.get(params.surfaceId)
+          if (surface === undefined || surface.candidate.candidateHash !== params.candidateHash) {
+            return yield* new NotFound({
+              resource: "web-surface",
+              id: params.surfaceId,
+              message: "Web surface candidate is not active",
+            })
+          }
+          const handle = yield* expose(registry.active(params.id))
+          if (handle.identity.runtimeId !== params.runtimeId) {
+            return yield* new Conflict({ message: "Session runtime changed before web surface action" })
+          }
+          return yield* handle.runtime.dispatchWebSurface(
+            surface.candidate.packageName,
+            surface.candidate.candidateHash,
+            payload,
+          )
+        }),
+      )
+  }),
+)
+
 const FoundationLive = Layer.mergeAll(
   NodeServices.layer,
   NodeHttpServer.layerHttpServices,
@@ -778,7 +809,9 @@ const DomainLive = Layer.mergeAll(SessionRepositoryLive, SessionRuntimeRegistryL
   Layer.provideMerge(AdapterAndWorkspaceLive),
 )
 
-const ServicesLive = Layer.merge(WorkspaceIoLive, PackageIoLive).pipe(Layer.provideMerge(DomainLive))
+const ServicesLive = Layer.mergeAll(WorkspaceIoLive, PackageIoLive, WebSurfaceCatalogLive).pipe(
+  Layer.provideMerge(DomainLive),
+)
 
 const HandlersLive = Layer.mergeAll(
   MetaLive,
@@ -788,11 +821,24 @@ const HandlersLive = Layer.mergeAll(
   ModelsLive,
   AuthLive,
   PackagesLive,
+  WebSurfacesLive,
 ).pipe(Layer.provide(Layer.mergeAll(ServicesLive, SameOriginLive, RequestSchemaErrorsLive)))
 
 const ApiLive = HttpApiBuilder.layer(PiWebApi).pipe(Layer.provide(HandlersLive), Layer.provide(FoundationLive))
 
-const webHandler = HttpRouter.toWebHandler(ApiLive, { disableLogger: true })
+const registerHttpRoutes = HttpRouter.use
+const WebSurfaceAssetRoutesLive = registerHttpRoutes((router) =>
+  Effect.gen(function* () {
+    const catalog = yield* WebSurfaceCatalog
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    yield* router.add("GET", "/extension-assets/*", (request) => webSurfaceAssetHandler(catalog, fs, path, request))
+  }),
+).pipe(Layer.provide(ServicesLive))
+
+const WebAppLive = Layer.merge(ApiLive, WebSurfaceAssetRoutesLive)
+
+const webHandler = HttpRouter.toWebHandler(WebAppLive, { disableLogger: true })
 
 export const handleApiRequest = webHandler.handler
 export const disposeApi = webHandler.dispose

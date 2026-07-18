@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process"
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 import process from "node:process"
 import { stripVTControlCharacters } from "node:util"
+import { x as extractArchive } from "tar"
 
 const root = fileURLToPath(new URL("..", import.meta.url))
 const fixtureRoot = join(root, "test-results", "e2e-fixture")
@@ -21,9 +22,9 @@ const extensionPath = process.env.PI_WEB_E2E_EXTENSION_PATH
 const vitePackageDirectory = dirname(fileURLToPath(import.meta.resolve("vite/package.json")))
 const viteCli = join(vitePackageDirectory, "dist", "vite", "node", "cli.js")
 
-const run = (command, args) =>
+const run = (command, args, cwd = workspace) =>
   new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: workspace, stdio: "inherit" })
+    const child = spawn(command, args, { cwd, stdio: "inherit" })
     child.once("error", reject)
     child.once("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${command} exited ${code}`))))
   })
@@ -87,7 +88,9 @@ await writeFile(
   "---\nname: e2e-skill\ndescription: isolated fixture\n---\n\n# E2E skill\n",
 )
 const fixturePluginDirectory = join(fixtureRoot, "e2e-plugin")
-const fixtureExtensionDirectory = join(fixtureRoot, "e2e-extension")
+const fixtureExtensionSource = join(fixtureRoot, "e2e-extension-source")
+const fixtureExtensionArchiveDirectory = join(fixtureRoot, "e2e-extension-archive")
+const fixtureExtensionDirectory = join(fixtureRoot, "e2e-extension-raw", "package")
 const fixtureNpmCommandLog = join(fixtureRoot, "npm-command.log")
 const fixtureNpmCommand = join(fixtureRoot, "npm-command.mjs")
 const fixturePluginSkillDirectory = join(fixturePluginDirectory, "skills", "plugin-skill")
@@ -108,23 +111,34 @@ await writeFile(
   join(fixturePluginSkillDirectory, "SKILL.md"),
   "---\nname: plugin-skill\ndescription: local package fixture\n---\n\n# Plugin skill\n",
 )
-await mkdir(fixtureExtensionDirectory, { recursive: true })
+await mkdir(join(fixtureExtensionSource, "dist", "pi"), { recursive: true })
+await mkdir(join(fixtureExtensionSource, "dist", "web"), { recursive: true })
 await writeFile(
-  join(fixtureExtensionDirectory, "package.json"),
+  join(fixtureExtensionSource, "package.json"),
   JSON.stringify(
     {
       name: "pi-web-e2e-extension",
       version: "1.0.0",
       type: "module",
-      pi: { extensions: ["extension.mjs"] },
+      files: ["dist"],
+      pi: { extensions: ["./dist/pi/extension.js"] },
+      piSuite: { web: { contract: "pi-suite/web-surface@1", document: "./dist/web/index.html", title: "E2E Surface" } },
     },
     null,
     2,
   ),
 )
 await writeFile(
-  join(fixtureExtensionDirectory, "extension.mjs"),
+  join(fixtureExtensionSource, "dist", "pi", "extension.js"),
   `export default function e2eExtension(pi) {
+  let surface
+  pi.on("session_start", (_event, context) => {
+    surface = context.ui.getPiSuiteCapability("pi-web-e2e-extension", "pi-suite/web-surface-runtime@1").register({
+      dispatch: async (request) => ({ _tag: "Accepted", payload: Number(request.payload) + 1 }),
+    })
+    surface.replace({ answer: 41 })
+  })
+  pi.on("session_shutdown", () => { surface?.release(); surface = undefined })
   pi.registerCommand("interaction-test", {
     description: "Exercise session-scoped extension interaction",
     async handler(_args, context) {
@@ -177,6 +191,50 @@ await writeFile(
 }
 `,
 )
+await writeFile(
+  join(fixtureExtensionSource, "dist", "web", "index.html"),
+  `<!doctype html><html><head><link rel="stylesheet" href="./style.css" crossorigin="anonymous"></head><body><main><h1>E2E Surface</h1><output id="result">waiting</output><div id="isolation"></div></main><script type="module" src="./app.js" crossorigin="anonymous"></script></body></html>`,
+)
+await writeFile(
+  join(fixtureExtensionSource, "dist", "web", "style.css"),
+  `body{font:16px system-ui;background:#f8fafc;color:#0f172a}main{padding:24px}output{font-weight:700}`,
+)
+await writeFile(
+  join(fixtureExtensionSource, "dist", "web", "app.js"),
+  `
+const result = document.querySelector("#result")
+const isolation = document.querySelector("#isolation")
+try { void parent.document.body; isolation.textContent = "parent access failed" } catch { isolation.textContent = "parent access blocked" }
+addEventListener("message", (event) => {
+  if (event.data?.type !== "pi-suite-web-surface-port") return
+  const port = event.ports[0]
+  port.onmessage = ({ data }) => {
+    if (data?._tag === "init") {
+      result.textContent = String(data.surface.view?.answer ?? "missing")
+      port.postMessage({ _tag: "dispatch", requestId: "e2e-action", payload: 41 })
+    }
+    if (data?._tag === "action-result") result.textContent = String(data.outcome?.payload ?? data.outcome?.reason ?? "failed")
+  }
+  port.start()
+  port.postMessage({ _tag: "ready", contract: "pi-suite/web-surface-channel@1" })
+  setTimeout(() => { throw new Error("intentional e2e surface failure") }, 250)
+})
+`,
+)
+await mkdir(fixtureExtensionArchiveDirectory, { recursive: true })
+await run(
+  "npm",
+  ["pack", "--ignore-scripts", "--pack-destination", fixtureExtensionArchiveDirectory],
+  fixtureExtensionSource,
+)
+const extensionArchives = (await readdir(fixtureExtensionArchiveDirectory)).filter((file) => file.endsWith(".tgz"))
+if (extensionArchives.length !== 1)
+  throw new Error(`expected one synthetic extension archive, found ${extensionArchives.length}`)
+await mkdir(join(fixtureRoot, "e2e-extension-raw"), { recursive: true })
+await extractArchive({
+  file: join(fixtureExtensionArchiveDirectory, extensionArchives[0]),
+  cwd: join(fixtureRoot, "e2e-extension-raw"),
+})
 const agentDirectory = join(home, ".pi", "agent")
 await mkdir(join(agentDirectory, "npm"), { recursive: true })
 await writeFile(
@@ -345,7 +403,9 @@ const playwrightEnv = {
   PI_WEB_E2E_BASE_URL: baseURL,
 }
 delete playwrightEnv.FORCE_COLOR
-const playwright = spawn(process.execPath, [packageManagerEntry, "exec", "playwright", "test"], {
+const requestedPlaywrightArgs = process.argv.slice(2)
+const playwrightArgs = requestedPlaywrightArgs[0] === "--" ? requestedPlaywrightArgs.slice(1) : requestedPlaywrightArgs
+const playwright = spawn(process.execPath, [packageManagerEntry, "exec", "playwright", "test", ...playwrightArgs], {
   cwd: root,
   env: playwrightEnv,
   stdio: "inherit",

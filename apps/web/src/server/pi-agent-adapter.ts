@@ -21,6 +21,11 @@ import {
 import { Type } from "@earendil-works/pi-ai"
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat"
 import { ChromeExtensionExpectation } from "@pi-suite/companion-contracts/chrome"
+import type {
+  CandidateHash,
+  WebSurfaceActionOutcome,
+  WebSurfaceActionRequest,
+} from "@pi-suite/companion-contracts/web-surface"
 import {
   Context,
   Crypto,
@@ -96,6 +101,11 @@ import { makeSessionOperationSlot, PiOperationBusyError, type OperationKind } fr
 import { makeExtensionUiRuntime, PiInteractionConflictError, PiInteractionResponseError } from "./extension-ui-runtime"
 import { makeCompanionController } from "./companion-controller"
 import { adapterError, decode, PiAdapterError, PiPromptIdempotencyError } from "./pi-adapter-errors"
+import {
+  assertUniqueWebSurfaceCandidates,
+  findWebSurfaceCandidateForExtension,
+  packageSetFingerprint,
+} from "./web-surface-candidate"
 
 export { PiOperationBusyError } from "./session-operation-slot"
 
@@ -155,6 +165,7 @@ export interface PiRuntime {
   readonly sessionId: string
   readonly sessionFile: string
   readonly cwd: string
+  readonly packageFingerprint: string
   readonly created: string
   readonly firstMessage: Effect.Effect<string | null>
   readonly isConversationEmpty: Effect.Effect<boolean>
@@ -214,6 +225,11 @@ export interface PiRuntime {
     interactionId: string,
     response: ExtensionInteractionResponseValue,
   ) => Effect.Effect<void, PiInteractionConflictError | PiInteractionResponseError>
+  readonly dispatchWebSurface: (
+    packageName: string,
+    candidateHash: CandidateHash,
+    request: WebSurfaceActionRequest,
+  ) => Effect.Effect<WebSurfaceActionOutcome>
   readonly reload: Effect.Effect<void, PiAdapterError>
   readonly dispose: Effect.Effect<void>
 }
@@ -268,6 +284,7 @@ export class PiAgentAdapter extends Context.Service<
       source: string | undefined,
       scope: PluginScope | undefined,
     ) => Effect.Effect<PluginsResponseValue, PiAdapterError>
+    readonly packageFingerprint: (cwd: string) => Effect.Effect<string, PiAdapterError>
     readonly skills: (cwd: string) => Effect.Effect<typeof SkillsResponse.Type, PiAdapterError>
     readonly toggleSkill: (filePath: string, disabled: boolean) => Effect.Effect<void, PiAdapterError>
   }
@@ -300,6 +317,7 @@ interface AgentSessionLike {
   readonly sessionManager: SessionManager
   readonly agent: { readonly state?: { systemPrompt?: string; thinkingLevel?: string } }
   readonly extensionRunner: {
+    readonly getExtensionPaths: () => ReadonlyArray<string>
     readonly getRegisteredCommands: () => ReadonlyArray<{
       readonly invocationName: string
       readonly description?: string
@@ -785,10 +803,13 @@ const withExtensionTools = (session: AgentSessionLike, toolNames: ReadonlyArray<
 const makeRuntime = (
   runtime: AgentSessionRuntime,
   crypto: Crypto.Crypto,
+  fileSystem: Context.Service.Shape<typeof FileSystem.FileSystem>,
+  pathService: Context.Service.Shape<typeof Path.Path>,
   created: string,
   identity: typeof RuntimeIdentity.Type,
   toolNames?: ReadonlyArray<string>,
   requestedModel?: { readonly provider: string; readonly modelId: string },
+  packageFingerprint = "",
 ) =>
   Effect.gen(function* () {
     const inner = runtime.session as unknown as AgentSessionLike
@@ -824,6 +845,25 @@ const makeRuntime = (
       if (event !== null) publish(event)
     }
 
+    const webSurfaceCandidates = yield* Effect.forEach(
+      inner.extensionRunner.getExtensionPaths(),
+      (extensionPath) =>
+        findWebSurfaceCandidateForExtension(extensionPath).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provideService(Path.Path, pathService),
+        ),
+      { concurrency: 8 },
+    ).pipe(
+      Effect.map(
+        (values) =>
+          new Map(
+            [...assertUniqueWebSurfaceCandidates(values.filter((value) => value !== null)).values()].map(
+              (candidate) => [candidate.packageName, candidate.candidateHash],
+            ),
+          ),
+      ),
+      Effect.mapError(adapterError("runtime.webSurfaces")),
+    )
     const extensionUi = yield* makeExtensionUiRuntime(
       crypto,
       publish,
@@ -833,6 +873,7 @@ const makeRuntime = (
           operation: "runtime.customUi",
           message: "Custom terminal UI is unavailable in pi-web",
         }),
+      webSurfaceCandidates,
     )
     const uiContext = extensionUi.uiContext
 
@@ -1040,6 +1081,7 @@ const makeRuntime = (
       sessionId: inner.sessionId,
       sessionFile: inner.sessionFile ?? "",
       cwd: inner.sessionManager.getCwd(),
+      packageFingerprint,
       created,
       firstMessage: Ref.get(firstMessageRef),
       isConversationEmpty: Effect.sync(
@@ -1387,6 +1429,7 @@ const makeRuntime = (
       invokeSlashCommand: (name, args) =>
         withGeneratedOperation("slash-command", companions.invokeSlashCommand(name, args)),
       resolveInteraction: extensionUi.resolveInteraction,
+      dispatchWebSurface: extensionUi.dispatchWebSurface,
       reload: Effect.tryPromise({
         try: () => inner.reload({ beforeSessionStart: () => inner.extensionRunner.setUIContext?.(uiContext, "rpc") }),
         catch: adapterError("runtime.reload"),
@@ -2127,6 +2170,12 @@ const adapterLive = Effect.gen(function* () {
       }),
     createRuntime: (options, identity) =>
       Effect.gen(function* () {
+        const packages = yield* readPlugins(options.cwd)
+        const fingerprint = yield* packageSetFingerprint(packages).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, path),
+          Effect.mapError(adapterError("runtime.packageFingerprint")),
+        )
         const manager =
           options.sessionFile === null ? SessionManager.create(options.cwd) : SessionManager.open(options.sessionFile)
         const created = manager.getHeader()?.timestamp ?? ""
@@ -2140,7 +2189,17 @@ const adapterLive = Effect.gen(function* () {
           catch: adapterError("runtime.create"),
         })
         const createdSessionFile = options.sessionFile === null ? manager.getSessionFile() : undefined
-        return yield* makeRuntime(runtime, crypto, created, identity, options.toolNames, options.model).pipe(
+        return yield* makeRuntime(
+          runtime,
+          crypto,
+          fs,
+          path,
+          created,
+          identity,
+          options.toolNames,
+          options.model,
+          fingerprint,
+        ).pipe(
           Effect.tapError(() =>
             Effect.all(
               [
@@ -2193,6 +2252,15 @@ const adapterLive = Effect.gen(function* () {
     submitOAuthInput,
     logout,
     plugins: readPlugins,
+    packageFingerprint: (cwd) =>
+      Effect.gen(function* () {
+        const projection = yield* readPlugins(cwd)
+        return yield* packageSetFingerprint(projection).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, path),
+          Effect.mapError(adapterError("plugins.fingerprint")),
+        )
+      }),
     pluginAction,
     skills,
     toggleSkill,

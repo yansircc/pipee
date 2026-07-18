@@ -1,29 +1,18 @@
 import { Schema } from "effect"
+import { JsonValue, WebSurfaceProjection } from "@pi-suite/companion-contracts/web-surface"
+import {
+  CandidateHash,
+  SurfaceId,
+  WebSurfaceActionOutcome,
+  WebSurfaceActionRequest,
+  WebSurfaceCatalog,
+} from "@pi-suite/companion-contracts/web-surface"
+export { JsonValue }
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSchema } from "effect/unstable/httpapi"
 
 // -----------------------------------------------------------------------------
 // Wire primitives
 // -----------------------------------------------------------------------------
-
-export const JsonValue: Schema.Codec<JsonValue> = Schema.Union([
-  Schema.String,
-  Schema.Number,
-  Schema.Boolean,
-  Schema.Null,
-  Schema.Array(Schema.suspend(() => JsonValue)),
-  Schema.Record(
-    Schema.String,
-    Schema.suspend((): Schema.Codec<JsonValue> => JsonValue),
-  ),
-])
-
-export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | ReadonlyArray<JsonValue>
-  | { readonly [key: string]: JsonValue }
 
 export const RunId = Schema.String.pipe(Schema.brand("RunId"))
 export type RunId = typeof RunId.Type
@@ -324,6 +313,7 @@ export const ExtensionUiProjection = Schema.Struct({
   pendingInteraction: Schema.NullOr(ExtensionInteraction),
   statuses: Schema.Array(ExtensionStatusContribution),
   widgets: Schema.Array(ExtensionWidgetItem),
+  webSurfaces: Schema.Array(WebSurfaceProjection),
 })
 export type ExtensionUiProjection = typeof ExtensionUiProjection.Type
 
@@ -1283,7 +1273,33 @@ const PackagesApi = HttpApiGroup.make("packages").add(
   }),
 )
 
+const WebSurfacesApi = HttpApiGroup.make("webSurfaces")
+  .add(
+    HttpApiEndpoint.get("catalog", "/api/sessions/:id/web-surfaces", {
+      params: IdParam,
+      success: WebSurfaceCatalog,
+      error: CommonErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "dispatch",
+      "/api/sessions/:id/runtimes/:runtimeId/web-surfaces/:surfaceId/:candidateHash/actions",
+      {
+        params: Schema.Struct({
+          id: Schema.String,
+          runtimeId: RuntimeId,
+          surfaceId: SurfaceId,
+          candidateHash: CandidateHash,
+        }),
+        payload: WebSurfaceActionRequest,
+        success: WebSurfaceActionOutcome,
+        error: CommonErrors,
+      },
+    ),
+  )
+
 export const PiWebApi = HttpApi.make("PiWebApi")
-  .add(MetaApi, SessionsApi, SessionActionsApi, WorkspaceApi, ModelsApi, AuthApi, PackagesApi)
+  .add(MetaApi, SessionsApi, SessionActionsApi, WorkspaceApi, ModelsApi, AuthApi, PackagesApi, WebSurfacesApi)
   .middleware(SameOrigin)
   .middleware(RequestSchemaErrors)
