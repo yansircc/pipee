@@ -79,9 +79,6 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: 0.80.10
         version: 0.80.10(ws@8.21.1)(zod@4.4.3)
-      '@pi-suite/host-runtime':
-        specifier: workspace:*
-        version: link:../../packages/host-runtime
       fflate:
         specifier: 0.8.2
         version: 0.8.2
@@ -98,6 +95,9 @@ importers:
       '@pi-suite/companion-contracts':
         specifier: workspace:*
         version: link:../../protocols/companion-contracts
+      '@pi-suite/host-runtime':
+        specifier: workspace:*
+        version: link:../../packages/host-runtime
       '@playwright/test':
         specifier: 1.61.1
         version: 1.61.1
