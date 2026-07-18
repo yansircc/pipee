@@ -69,7 +69,7 @@ type ApiKeyProvider = typeof ApiKeyProviderSchema.Type
 type OAuthLoginState =
   | { phase: "idle" }
   | { phase: "connecting" }
-  | { phase: "auth"; url: string; instructions: string | null; token: string }
+  | { phase: "auth"; url: string; instructions: string | null }
   | {
       phase: "device_code"
       userCode: string
@@ -966,7 +966,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
         onValue: (event) => {
           switch (event._tag) {
             case "Auth":
-              setLoginState({ phase: "auth", url: event.url, instructions: event.instructions, token: event.token })
+              setLoginState({ phase: "auth", url: event.url, instructions: event.instructions })
               runBrowser(BrowserPlatform.pipe(Effect.flatMap((browser) => browser.openExternal(event.url))), {
                 onSuccess: () => undefined,
               })
@@ -1081,7 +1081,6 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   const isWorking =
     loginState.phase === "connecting" ||
     loginState.phase === "progress" ||
-    loginState.phase === "auth" ||
     loginState.phase === "device_code" ||
     loginState.phase === "prompt" ||
     loginState.phase === "select"
@@ -1143,27 +1142,28 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
             </div>
           </div>
         )}
-        {(loginState.phase === "auth" || loginState.phase === "prompt") && (
+        {loginState.phase === "auth" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-              {loginState.phase === "auth"
-                ? "Complete sign-in in the browser, then copy the redirect URL from the address bar and paste it below."
-                : loginState.message}
+              {loginState.instructions ?? "Complete sign-in in the browser."}
             </p>
-            {loginState.phase === "auth" && (
-              <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
-                If the browser window did not open,{" "}
-                <a
-                  href={loginState.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: "var(--accent)", wordBreak: "break-all" }}
-                >
-                  click here to open the login page
-                </a>
-                .
-              </p>
-            )}
+            <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
+              If the browser window did not open,{" "}
+              <a
+                href={loginState.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "var(--accent)", wordBreak: "break-all" }}
+              >
+                click here to open the login page
+              </a>
+              .
+            </p>
+          </div>
+        )}
+        {loginState.phase === "prompt" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>{loginState.message}</p>
             <div style={{ display: "flex", gap: 6 }}>
               <input
                 ref={inputRef}
@@ -1172,11 +1172,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
                 onKeyDown={(e) => {
                   if (e.key === "Enter") submitCode(loginState.token, inputValue)
                 }}
-                placeholder={
-                  loginState.phase === "auth"
-                    ? "http://localhost:1455/auth/callback?code=…"
-                    : (loginState.placeholder ?? "Enter value…")
-                }
+                placeholder={loginState.placeholder ?? "Enter value…"}
                 style={{
                   flex: 1,
                   padding: "6px 9px",

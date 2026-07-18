@@ -78,7 +78,7 @@ test("serves the Start shell and typed health metadata", async ({ page, request 
   await expect(health.json()).resolves.toMatchObject({
     status: "ok",
     appVersion: pkg.version,
-    piVersion: "0.80.6",
+    piVersion: "0.80.10",
   })
 
   await page.goto("/")

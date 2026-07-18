@@ -1,5 +1,4 @@
 import {
-  AuthStorage,
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
@@ -8,7 +7,7 @@ import {
   defineTool,
   getAgentDir,
   getPackageDir,
-  ModelRegistry,
+  ModelRuntime,
   parseFrontmatter,
   SessionManager,
   SettingsManager,
@@ -20,7 +19,7 @@ import {
   type ResolvedResource,
 } from "@earendil-works/pi-coding-agent"
 import { Type } from "@earendil-works/pi-ai"
-import { completeSimple, getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat"
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat"
 import { ChromeExtensionExpectation } from "@pi-suite/companion-contracts/chrome"
 import {
   Context,
@@ -441,7 +440,6 @@ const PLAIN_TEXT_THEME = new PlainTextTheme()
 
 const modelNameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" })
 const thinkingSuffixes = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"])
-const oauthProviderIds = new Set(["anthropic", "github-copilot", "openai-codex"])
 const oauthDisplayNames: Readonly<Record<string, string>> = {
   "openai-codex": "ChatGPT Plus/Pro",
   "github-copilot": "GitHub Copilot",
@@ -1420,6 +1418,10 @@ const adapterLive = Effect.gen(function* () {
 
   const modelsPath = path.join(getAgentDir(), "models.json")
   const defaultModelsConfig = ModelsConfig.make({ providers: {} })
+  const modelRuntime = yield* Effect.tryPromise({
+    try: () => ModelRuntime.create({ modelsPath, allowModelNetwork: false }),
+    catch: adapterError("models.runtime.create"),
+  }).pipe(Effect.orDie)
 
   const encodeModelsConfig = (value: typeof ModelsConfig.Type) =>
     Schema.encodeUnknownEffect(ModelsConfig)(value).pipe(Effect.mapError(adapterError("models.config.encode")))
@@ -1434,7 +1436,11 @@ const adapterLive = Effect.gen(function* () {
         yield* fs
           .writeFileString(filePath, JSON.stringify(encoded, null, 2))
           .pipe(Effect.mapError(adapterError("models.config.validate.write")))
-        const loadError = ModelRegistry.create(AuthStorage.create(), filePath).getError()
+        const runtime = yield* Effect.tryPromise({
+          try: () => ModelRuntime.create({ modelsPath: filePath, allowModelNetwork: false }),
+          catch: adapterError("models.config.validate.load"),
+        })
+        const loadError = runtime.getError()
         return loadError === undefined
           ? ModelConfigValidation.make({ valid: true })
           : ModelConfigValidation.make({ valid: false, error: loadError.split("\n\nFile:")[0] ?? loadError })
@@ -1482,6 +1488,10 @@ const adapterLive = Effect.gen(function* () {
           ),
           Effect.ensuring(fs.remove(temporaryPath).pipe(Effect.ignore)),
         )
+      yield* Effect.tryPromise({
+        try: () => modelRuntime.reloadConfig(),
+        catch: adapterError("models.config.reload"),
+      })
     })
 
   const modelCatalog = (cwd: string) =>
@@ -1491,7 +1501,10 @@ const adapterLive = Effect.gen(function* () {
         catch: adapterError("models.catalog"),
       })
       const settings = services.settingsManager
-      const available = services.modelRegistry.getAvailable()
+      const available = yield* Effect.tryPromise({
+        try: () => services.modelRuntime.getAvailable(),
+        catch: adapterError("models.catalog.available"),
+      })
       const visible = visibleModels(available, settings.getEnabledModels())
       const modelList = visible
         .map((model) => ({
@@ -1556,31 +1569,26 @@ const adapterLive = Effect.gen(function* () {
             ),
           )
           .pipe(Effect.mapError(adapterError("models.test.write")))
-        const registry = ModelRegistry.create(AuthStorage.create(), filePath)
-        const loadError = registry.getError()
+        const runtime = yield* Effect.tryPromise({
+          try: () => ModelRuntime.create({ modelsPath: filePath, allowModelNetwork: false }),
+          catch: adapterError("models.test.load"),
+        })
+        const loadError = runtime.getError()
         if (loadError !== undefined) return ModelTestResult.make({ ok: false, error: loadError })
-        const selected = registry.find(providerName, id)
+        const selected = runtime.getModel(providerName, id)
         if (selected === undefined) {
           return ModelTestResult.make({ ok: false, error: `Model not found: ${providerName}/${id}` })
         }
-        const auth = yield* Effect.tryPromise({
-          try: () => registry.getApiKeyAndHeaders(selected),
-          catch: adapterError("models.test.auth"),
-        })
-        if (!auth.ok) return ModelTestResult.make({ ok: false, error: auth.error })
-        if (!auth.apiKey) return ModelTestResult.make({ ok: false, error: `No API key found for "${providerName}"` })
         let status: number | undefined
         const startedAt = yield* Effect.clockWith((clock) => Effect.succeed(clock.currentTimeMillisUnsafe()))
         const message = yield* Effect.tryPromise({
           try: () =>
-            completeSimple(
+            runtime.completeSimple(
               selected,
               {
                 messages: [{ role: "user", content: "Reply with OK only.", timestamp: startedAt }],
               },
               {
-                apiKey: auth.apiKey,
-                headers: auth.headers,
                 maxTokens: 16,
                 timeoutMs: 20_000,
                 maxRetries: 0,
@@ -1623,37 +1631,38 @@ const adapterLive = Effect.gen(function* () {
       }),
     )
 
-  const oauthProviders = Effect.try({
-    try: () =>
-      AuthStorage.create()
-        .getOAuthProviders()
-        .filter((provider) => provider.id !== "anthropic")
-        .map((provider) =>
-          OAuthProvider.make({
-            id: provider.id,
-            name: oauthDisplayNames[provider.id] ?? provider.name,
-            usesCallbackServer: provider.usesCallbackServer ?? false,
-            loggedIn: AuthStorage.create().has(provider.id),
-          }),
-        ),
-    catch: adapterError("auth.oauthProviders"),
+  const oauthProviders = Effect.gen(function* () {
+    const stored = yield* Effect.tryPromise({
+      try: () => modelRuntime.listCredentials(),
+      catch: adapterError("auth.oauthProviders"),
+    })
+    const credentials = new Map(stored.map((credential) => [credential.providerId, credential.type]))
+    return modelRuntime
+      .getProviders()
+      .filter((provider) => provider.id !== "anthropic" && provider.auth.oauth !== undefined)
+      .map((provider) =>
+        OAuthProvider.make({
+          id: provider.id,
+          name: oauthDisplayNames[provider.id] ?? provider.auth.oauth?.name ?? provider.name,
+          loggedIn: credentials.get(provider.id) === "oauth",
+        }),
+      )
   })
 
   const apiKeyProviders = Effect.try({
     try: () => {
-      const auth = AuthStorage.create()
-      const registry = ModelRegistry.create(auth)
-      const all = registry.getAll()
+      const all = modelRuntime.getModels()
       const seen = new Set<string>()
       return all.flatMap((model) => {
-        if (seen.has(model.provider) || oauthProviderIds.has(model.provider)) return []
+        const provider = modelRuntime.getProvider(model.provider)
+        if (seen.has(model.provider) || provider?.auth.apiKey === undefined) return []
         seen.add(model.provider)
-        const status = registry.getProviderAuthStatus(model.provider)
+        const status = modelRuntime.getProviderAuthStatus(model.provider)
         if (status.source === "models_json_key") return []
         return [
           ApiKeyProvider.make({
             id: model.provider,
-            displayName: registry.getProviderDisplayName(model.provider),
+            displayName: provider.name,
             configured: status.configured,
             ...(status.source === undefined ? {} : { source: status.source }),
             modelCount: all.filter((candidate) => candidate.provider === model.provider).length,
@@ -1667,34 +1676,32 @@ const adapterLive = Effect.gen(function* () {
   const apiKeyStatus = (provider: string) =>
     Effect.try({
       try: () => {
-        const registry = ModelRegistry.create(AuthStorage.create())
-        const status = registry.getProviderAuthStatus(provider)
+        const status = modelRuntime.getProviderAuthStatus(provider)
         return ApiKeyStatus.make({
           provider,
-          displayName: registry.getProviderDisplayName(provider),
+          displayName: modelRuntime.getProvider(provider)?.name ?? provider,
           configured: status.configured,
           ...(status.source === undefined ? {} : { source: status.source }),
-          models: registry.getAll().filter((model) => model.provider === provider).length,
+          models: modelRuntime.getModels(provider).length,
         })
       },
       catch: adapterError("auth.apiKeyStatus"),
     })
 
   const setApiKey = (provider: string, apiKey: string) =>
-    Effect.try({
-      try: () => AuthStorage.create().set(provider, { type: "api_key", key: apiKey.trim() }),
+    Effect.tryPromise({
+      try: () => modelRuntime.setRuntimeApiKey(provider, apiKey.trim()),
       catch: adapterError("auth.setApiKey"),
     })
   const removeApiKey = (provider: string) =>
-    Effect.try({
-      try: () => AuthStorage.create().remove(provider),
+    Effect.tryPromise({
+      try: () => modelRuntime.logout(provider),
       catch: adapterError("auth.removeApiKey"),
     })
 
   const oauthEvents = (provider: string) =>
     Effect.gen(function* () {
-      const auth = AuthStorage.create()
-      if (!auth.getOAuthProviders().some((candidate) => candidate.id === provider)) {
+      if (modelRuntime.getProvider(provider)?.auth.oauth === undefined) {
         return yield* new PiAdapterError({ operation: "auth.oauth", message: `Unknown provider: ${provider}` })
       }
       const flowId = yield* crypto.randomUUIDv4.pipe(Effect.mapError(adapterError("auth.oauth.token")))
@@ -1702,39 +1709,35 @@ const adapterLive = Effect.gen(function* () {
         Effect.gen(function* () {
           const activeTokens = new Set<string>()
           let sequence = 0
-          let pending: { readonly token: string; readonly promise: Promise<string> } | null = null
           const emit = (event: typeof OAuthEvent.Type) => Queue.offerUnsafe(queue, event)
-          const createInput = () => {
+          const createInput = (signal?: AbortSignal) => {
             const token = `${provider}-${flowId}-${sequence++}`
             activeTokens.add(token)
             const promise = new Promise<string>((resolve, reject) => {
+              const finish = () => {
+                signal?.removeEventListener("abort", onAbort)
+                loginCallbacks.delete(token)
+                activeTokens.delete(token)
+              }
+              const onAbort = () => {
+                finish()
+                reject(new PiAdapterError({ operation: "auth.oauth.login", message: "Login prompt cancelled" }))
+              }
               loginCallbacks.set(token, {
                 provider,
                 resolve: (value) => {
-                  loginCallbacks.delete(token)
-                  activeTokens.delete(token)
+                  finish()
                   resolve(value)
                 },
                 reject: (error) => {
-                  loginCallbacks.delete(token)
-                  activeTokens.delete(token)
+                  finish()
                   reject(error)
                 },
               })
+              signal?.addEventListener("abort", onAbort, { once: true })
+              if (signal?.aborted === true) onAbort()
             })
             return { token, promise }
-          }
-          const manualInput = () => {
-            if (pending === null) {
-              const current = createInput()
-              pending = {
-                token: current.token,
-                promise: current.promise.finally(() => {
-                  pending = null
-                }),
-              }
-            }
-            return pending
           }
           const cleanup = Effect.sync(() => {
             for (const token of activeTokens) {
@@ -1747,54 +1750,58 @@ const adapterLive = Effect.gen(function* () {
           yield* Effect.addFinalizer(() => cleanup)
           yield* Effect.tryPromise({
             try: () =>
-              auth.login(provider as Parameters<AuthStorage["login"]>[0], {
-                onAuth: (info) => {
-                  const input = manualInput()
-                  emit(
-                    OAuthEvent.make({
-                      _tag: "Auth",
-                      url: info.url,
-                      instructions: info.instructions ?? null,
-                      token: input.token,
-                    }),
-                  )
+              modelRuntime.login(provider, "oauth", {
+                notify: (event) => {
+                  switch (event.type) {
+                    case "auth_url":
+                      emit(
+                        OAuthEvent.make({
+                          _tag: "Auth",
+                          url: event.url,
+                          instructions: event.instructions ?? null,
+                        }),
+                      )
+                      break
+                    case "device_code":
+                      emit(
+                        OAuthEvent.make({
+                          _tag: "DeviceCode",
+                          userCode: event.userCode,
+                          verificationUri: event.verificationUri,
+                          intervalSeconds: event.intervalSeconds ?? null,
+                          expiresInSeconds: event.expiresInSeconds ?? null,
+                        }),
+                      )
+                      break
+                    case "info":
+                    case "progress":
+                      emit(OAuthEvent.make({ _tag: "Progress", message: event.message }))
+                      break
+                  }
                 },
-                onDeviceCode: (info) =>
-                  emit(
-                    OAuthEvent.make({
-                      _tag: "DeviceCode",
-                      userCode: info.userCode,
-                      verificationUri: info.verificationUri,
-                      intervalSeconds: info.intervalSeconds ?? null,
-                      expiresInSeconds: info.expiresInSeconds ?? null,
-                    }),
-                  ),
-                onPrompt: (prompt) => {
-                  const input = manualInput()
-                  emit(
-                    OAuthEvent.make({
-                      _tag: "Prompt",
-                      message: prompt.message,
-                      placeholder: prompt.placeholder ?? null,
-                      token: input.token,
-                    }),
-                  )
+                prompt: (prompt) => {
+                  const input = createInput(prompt.signal)
+                  if (prompt.type === "select") {
+                    emit(
+                      OAuthEvent.make({
+                        _tag: "Select",
+                        message: prompt.message,
+                        options: prompt.options.map(({ id, label }) => ({ id, label })),
+                        token: input.token,
+                      }),
+                    )
+                  } else {
+                    emit(
+                      OAuthEvent.make({
+                        _tag: "Prompt",
+                        message: prompt.message,
+                        placeholder: prompt.placeholder ?? null,
+                        token: input.token,
+                      }),
+                    )
+                  }
                   return input.promise
                 },
-                onProgress: (message) => emit(OAuthEvent.make({ _tag: "Progress", message })),
-                onSelect: (prompt) => {
-                  const input = createInput()
-                  emit(
-                    OAuthEvent.make({
-                      _tag: "Select",
-                      message: prompt.message,
-                      options: prompt.options,
-                      token: input.token,
-                    }),
-                  )
-                  return input.promise.then((value) => value || undefined)
-                },
-                onManualCodeInput: () => manualInput().promise,
               }),
             catch: adapterError("auth.oauth.login"),
           }).pipe(
@@ -1833,15 +1840,11 @@ const adapterLive = Effect.gen(function* () {
 
   const logout = (provider: string) =>
     Effect.gen(function* () {
-      const auth = yield* Effect.try({
-        try: () => AuthStorage.create(),
-        catch: adapterError("auth.logout"),
-      })
-      if (!auth.getOAuthProviders().some((candidate) => candidate.id === provider)) {
+      if (modelRuntime.getProvider(provider)?.auth.oauth === undefined) {
         return yield* new PiAdapterError({ operation: "auth.logout", message: "Unknown OAuth provider" })
       }
-      yield* Effect.try({
-        try: () => auth.logout(provider),
+      yield* Effect.tryPromise({
+        try: () => modelRuntime.logout(provider),
         catch: adapterError("auth.logout"),
       })
     })

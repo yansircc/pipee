@@ -690,7 +690,6 @@ export const ModelTestResult = Schema.Struct({
 export const OAuthProvider = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
-  usesCallbackServer: Schema.Boolean,
   loggedIn: Schema.Boolean,
 })
 export const ApiKeyProvider = Schema.Struct({
@@ -711,7 +710,6 @@ export const OAuthEvent = Schema.Union([
   Schema.TaggedStruct("Auth", {
     url: Schema.String,
     instructions: Schema.NullOr(Schema.String),
-    token: Schema.String,
   }),
   Schema.TaggedStruct("DeviceCode", {
     userCode: Schema.String,
