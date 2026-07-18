@@ -5,8 +5,10 @@ packages:
   - "protocols/*"
 
 catalog:
-  "@earendil-works/pi-ai": 0.80.6
-  "@earendil-works/pi-coding-agent": 0.80.6
+  "@earendil-works/pi-agent-core": &pi-release 0.80.10
+  "@earendil-works/pi-ai": *pi-release
+  "@earendil-works/pi-coding-agent": *pi-release
+  "@earendil-works/pi-tui": *pi-release
   "@effect/platform-browser": 4.0.0-beta.98
   "@effect/platform-node": 4.0.0-beta.98
   "@effect/opentelemetry": 4.0.0-beta.98
@@ -22,6 +24,10 @@ catalog:
   vitest: 4.1.10
 
 overrides:
+  "@earendil-works/pi-agent-core": "catalog:"
+  "@earendil-works/pi-ai": "catalog:"
+  "@earendil-works/pi-coding-agent": "catalog:"
+  "@earendil-works/pi-tui": "catalog:"
   vite: "catalog:"
   vitest: "catalog:"
 

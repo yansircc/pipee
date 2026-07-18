@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { root, readJson, suiteConfig } from "./lib.mjs";
+import { requiredPiRuntimePackages, verifyPiReleaseTrain } from "./pi-release-train.mjs";
 
 const config = suiteConfig();
 const rootManifest = readJson("package.json");
@@ -60,8 +61,7 @@ for (const entry of config.packages) {
   );
   const dependencies = { ...manifest.dependencies, ...manifest.devDependencies };
   for (const dependency of [
-    "@earendil-works/pi-ai",
-    "@earendil-works/pi-coding-agent",
+    ...requiredPiRuntimePackages,
     "@effect/platform-browser",
     "@effect/platform-node",
     "@effect/tsgo",
@@ -187,7 +187,9 @@ for (const [literal, owner] of schemaOwners) {
   );
 }
 
-assert.equal(statSync(resolve(root, "pnpm-lock.yaml")).isFile(), true, "root lockfile is missing");
+const lockfilePath = resolve(root, "pnpm-lock.yaml");
+assert.equal(statSync(lockfilePath).isFile(), true, "root lockfile is missing");
+const piReleaseVersion = verifyPiReleaseTrain(readFileSync(lockfilePath, "utf8"));
 const releaseWorkflow = readFileSync(resolve(root, ".github/workflows/release.yml"), "utf8");
 for (const forbidden of [
   ["NPM", "TOKEN"].join("_"),
@@ -201,5 +203,5 @@ for (const forbidden of [
   );
 }
 process.stdout.write(
-  `Verified ${config.packages.length} Suite packages and ${schemaOwners.length} shared contracts.\n`,
+  `Verified ${config.packages.length} Suite packages, ${schemaOwners.length} shared contracts, and Pi release train ${piReleaseVersion}.\n`,
 );
