@@ -1,0 +1,325 @@
+{
+  "ok": true,
+  "work_dir": "/Users/yansir/code/52/pi-suite/docs/reviews/decision-audits/ci-only-release-20260718-162536-d5f51ef0/runs/challenge-20260718-162537.004652000",
+  "operation_id": "challenge-20260718-162537.004652000",
+  "terminal": true,
+  "terminal_reason": "provider_result",
+  "returncode": 0,
+  "verdict": "UNKNOWN",
+  "text": "recommendation: revise\nfindings: 6",
+  "structured_output": {
+    "findings": [
+      {
+        "causal_boundary": "True for the release.yml + candidate-pipeline.mjs + container-preflight.mjs + workflow.test.mjs at dossier creation. It judges the current implementation and the sequencing of removal, NOT the proposal's target design (proposal step 3 does include consumer/Chrome witnesses). The gap is that those witnesses are not yet built.",
+        "claim": "In the dossier-time implementation candidate, verify:consumers, Chrome release:check, and the test:release + verify:packages portions of root `pnpm verify` (which for web includes ci:verify/e2e) live ONLY in the local container preflight and are deliberately, test-enforcedly excluded from release.yml. Removing local preflight without first adding authoritative CI owners drops these checks from every supported release path, violating Criterion 3 and the invariant that all preflight checks remain represented in CI.",
+        "claim_type": "fact",
+        "confidence": "high",
+        "criterion_id": "3",
+        "evidence": [
+          ".github/workflows/release.yml:50-53 candidate job runs `candidate-pipeline.mjs verify-release-source` only",
+          "tooling/release/candidate-pipeline.mjs:17-21 verifyReleaseSource runs only `pnpm release:verify-source`",
+          "package.json:19 release:verify-source == `pnpm run check:workspace` (no test:release, no verify:packages)",
+          "package.json:27,31 root `verify`=check:workspace \u0026\u0026 test:release \u0026\u0026 verify:packages; consumers/chrome only in release:verify + preflight",
+          "tooling/release/candidate-pipeline.mjs:48-55 local `full` runs pnpm verify + verifyCandidate + verifyConsumers",
+          "tooling/release/container-preflight.mjs:29 runs pi-chrome release:check; :96 runs candidate-pipeline full",
+          "tooling/release/workflow.test.mjs:124-125 asserts candidate job has no `pnpm verify` and no `release:check`; :158-166 asserts workflow does NOT contain verify:consumers",
+          "Grep .github: only verify:platform, verify:candidates, verify:registry are present in the workflow"
+        ],
+        "falsifier": "A refreshed implementation candidate whose workflow assigns authoritative CI jobs to verify:consumers, chrome candidate/smoke, test:release and verify:packages (with the workflow.test.mjs prohibitions inverted), evidenced by the required command-to-job coverage map (Required Evidence #1).",
+        "id": "F1",
+        "severity": "invariant",
+        "violated_invariant": "Criterion 3 / All checks currently supplied by local preflight remain represented in CI (pnpm verify, consumer verification, Chrome candidate/smoke)"
+      },
+      {
+        "causal_boundary": "Property of verify-consumers.mjs, web ci:verify, and pi-chrome release:check as currently authored; becomes a blocker only if these cannot be reproduced faithfully on hosted runners. No runner-fidelity measurement (Required Evidence #7) is present.",
+        "claim": "The checks that must migrate include browser/SSE/CLI consumer smoke and web e2e, which today run on the operator's macOS host and a local Linux container. Their faithful execution on GitHub-hosted ubuntu/macos/windows runners (browsers, services, ports, hardware) is unproven, so the coverage-map closure in F1 is a re-architecture that can hit Abandon Condition #4 (required checks cannot run reliably in Actions), not a one-line addition.",
+        "claim_type": "fact",
+        "confidence": "medium",
+        "criterion_id": "3",
+        "evidence": [
+          "tooling/release/verify-consumers.mjs:40-50 web archive browser/sse/cli/health/page smoke",
+          "tooling/release/verify-consumers.mjs:52-102 combined npm+pnpm real install of archives",
+          "tooling/release/workflow.test.mjs:182-185 web ci:verify runs `pnpm test:e2e:run`",
+          "tooling/release/container-preflight.mjs:15 preflight asserts darwin (Apple container) host; Chrome release:check runs on host at :29"
+        ],
+        "falsifier": "Measured green runs of consumer smoke, web e2e, and Chrome release:check on the intended hosted runners, plus evidence the required browsers/services/ports are faithfully available (Required Evidence #7).",
+        "id": "F2",
+        "severity": "high",
+        "violated_invariant": null
+      },
+      {
+        "causal_boundary": "Describes the release.yml publish job as-is. The vulnerability materializes only under the candidate-ref model if promotion/publication are not split from candidate-code execution; it is not a live exploit in the current push-to-main flow.",
+        "claim": "The current publish job executes candidate-controlled code (root `prepare` lifecycle on install, prepare.mjs, verify-prepared-candidate.mjs, pnpm verify:candidates, create-release-record.mjs, pnpm publish:candidates) while holding contents:write + id-token:write and pushing HEAD:main. This is acceptable today because the SHA is already on main (push-to-main model), but it is structurally incompatible with proposal C, whose promoter must verify the witness set WITHOUT executing candidate code. Implementing C by retargeting this job at an unmerged candidate ref would re-open the exact failure class (Criterion 5 / Abandon Condition #2).",
+        "claim_type": "fact",
+        "confidence": "high",
+        "criterion_id": "5",
+        "evidence": [
+          ".github/workflows/release.yml:144-146 publish permissions contents:write + id-token:write",
+          ".github/workflows/release.yml:157 pnpm install runs root `prepare` (package.json:15 effect-tsgo patch)",
+          ".github/workflows/release.yml:167-172 runs prepare.mjs, verify-prepared-candidate.mjs, pnpm verify:candidates",
+          ".github/workflows/release.yml:176-181 create-release-record.mjs then `git push --atomic origin HEAD:main $tags`",
+          ".github/workflows/release.yml:201 pnpm publish:candidates under OIDC; all tooling/release/*.mjs are checked out at github.sha"
+        ],
+        "falsifier": "An implementation where a privileged promoter with no dependency install and no candidate-authored code verifies the witness set and fast-forwards main, and publication consumes only pre-witnessed archive bytes through a boundary that never grants candidate code write/OIDC authority (Required Evidence #4).",
+        "id": "F3",
+        "severity": "high",
+        "violated_invariant": "Proposal step 4 / Abandon Condition #2: the promoter must not execute candidate-controlled code while holding write or publication authority"
+      },
+      {
+        "causal_boundary": "Statement about in-tree evidence only. It does NOT assert server-side branch protection is absent (it may exist); it asserts the exclusivity guarantee is not demonstrable from the repository and must be produced as Required Evidence #3.",
+        "claim": "Exclusive-promoter enforcement is unverifiable from the repository: `.github` contains only release.yml, with no ruleset-as-code, CODEOWNERS, or branch-protection config in tree. Assumption #3 and Required Evidence #3 are therefore undischarged from available evidence, and Abandon Condition #1 (repo cannot prevent supported direct writes to main/tags) cannot be closed here. Fast-forward promotion is insufficient if any other supported path can push to main or create release tags (Known Weakness #3).",
+        "claim_type": "fact",
+        "confidence": "high",
+        "criterion_id": "1",
+        "evidence": [
+          "Glob .github/**/* returns only .github/workflows/release.yml (no ruleset/CODEOWNERS/branch-protection files)",
+          "Glob for CODEOWNERS/ruleset/branch-protection finds only node_modules third-party files",
+          "push-release.mjs:20 and release.yml:181 both perform `git push` to main from different identities, implying reliance on unseen server-side rules"
+        ],
+        "falsifier": "GitHub repository rules/branch protection showing every supported write to main and to release tags passes only through the promoter identity, plus a fail-closed test that attempts a direct-main push and a rogue tag and observes rejection (Required Evidence #3 + #8).",
+        "id": "F4",
+        "severity": "high",
+        "violated_invariant": "Criterion 1 / Abandon Condition #1: only witnessed SHAs may reach main; no supported path may bypass the promoter"
+      },
+      {
+        "causal_boundary": "Current publish flow. The record is a deterministic derivation re-checked by classify.mjs, so it is managed today; the risk is that the CI-only cutover conflates 'witnessed source' with 'what lands on main' unless the record model is redefined.",
+        "claim": "The publish job creates a NEW release-record commit (bumped versions) and pushes it to main — a SHA never covered by the candidate/platform witness DAG. Proposal step 4 says main is fast-forwarded to the exact witnessed source SHA, which is in direct tension with advancing main to an unwitnessed release-record commit. The design must keep source SHA, release-record SHA, tag target, and archive digest as distinct-but-bound identities before the local gate is removed.",
+        "claim_type": "tradeoff",
+        "confidence": "high",
+        "criterion_id": "9",
+        "evidence": [
+          ".github/workflows/release.yml:173-181 create-release-record.mjs creates a distinct commit pushed to main",
+          "tooling/release/prepare.mjs:88-101 writes bumped package versions into the release set",
+          "tooling/release/classify.mjs:19-44 independently re-verifies release-record commits (derivation, not witnessed by candidate/platform jobs)"
+        ],
+        "falsifier": "A model that either creates the release-record commit before the witness DAG so it becomes the witnessed SHA, or proves via test that the record is a byte-deterministic verified derivation of the witnessed source such that no unwitnessed content reaches main (Evidence That Would Change Our Mind #5).",
+        "id": "F5",
+        "severity": "medium",
+        "violated_invariant": "Known Weakness #5 / Review Question #2: witnessed source identity vs later release-metadata commit must stay distinct and bound"
+      },
+      {
+        "causal_boundary": "release.yml retention and restore logic as written; applies to D's 'reuse an existing witness' claim. For plain C (validate on release request) the constraint is weaker because persistence-before-publish already writes a durable asset.",
+        "claim": "The candidate run-artifact retention is 14 days, and the 'existing/prior' reuse path depends on either a durable gh release asset or a non-expired run artifact. The optimized continuous-witness form (D) reuses a witnessed archive for a not-yet-released candidate, for which no durable release asset exists yet; after 14 days its only copy expires, forcing a rebuild (new digest) and re-witness. This bounds D's latency benefit and requires an explicit durable-persistence + witness-expiry policy, reinforcing the initial recommendation to prefer on-demand candidate validation (C) over default D.",
+        "claim_type": "tradeoff",
+        "confidence": "medium",
+        "criterion_id": "7",
+        "evidence": [
+          ".github/workflows/release.yml:111 candidate artifact `retention-days: 14`",
+          ".github/workflows/release.yml:73-97 restore depends on durable gh release asset or non-expired prior run artifact",
+          ".github/workflows/release.yml:182-200 durable persistence (gh release upload + cmp) only happens at publication time"
+        ],
+        "falsifier": "A retention model persisting every eligible witnessed candidate to a durable immutable location at witness time with a defined expiry, and a measurement showing D's saved latency exceeds the added storage/capacity cost (Required Evidence #6 + #7).",
+        "id": "F6",
+        "severity": "low",
+        "violated_invariant": "Known Weakness #4: finite retention conflicts with indefinite reuse of a previously witnessed candidate"
+      }
+    ],
+    "recommendation": "revise",
+    "strongest_alternative": "Retain Alternative A (mandatory local container preflight) as the sole authoritative gate for this change, and add the missing checks (verify:consumers, Chrome candidate/smoke, test:release, verify:packages) to CI incrementally WITHOUT removing local preflight — cutting over to CI-only only after every precondition is discharged. This is the strongest competitor to adopting the proposal now because F1 shows the remote plane does not currently own the consumer/Chrome/e2e checks (they are test-enforced OUT of the workflow), F3 shows the only privileged job still fuses promotion, publication, and candidate-code execution, and F4 shows exclusive-promoter enforcement is unverifiable in-tree. A's acknowledged weaknesses (duplicated work, operator blocking, dependence on local container runtime) are tolerable during a transition and are strictly safer than deleting the only owner of consumer/e2e/Chrome coverage before CI provably owns it.",
+    "surviving_invariants": [
+      "Architecture C (candidate-ref validation + a privileged promoter that fast-forwards main only after the complete witness set) is the correct target; the challenge does not falsify it, and with F1/F3/F4 preconditions met it does close the unverified-main class.",
+      "Only an exact source SHA with a complete witness set may enter main; npm may receive only the exact witnessed archive bytes; no validation result may be reused across a different SHA or archive digest.",
+      "Publication must consume the persisted, byte-identical witnessed archive without rebuild or repack (upheld today by release.yml:182-201 cmp/persist-before-publish and verify-prepared-candidate.mjs; same artifact downloaded by macOS/Windows witnesses).",
+      "One release source SHA maps to one explicit public-package release set and one exact archive per selected package (Criterion 9).",
+      "Source classification stays install-free and cannot gain credentials (classify job has no setup-node/pnpm install; workflow.test.mjs:174-179)."
+    ],
+    "unknowns": [
+      "Whether GitHub server-side branch protection/rulesets already make the promoter the exclusive writer to main and release tags (not representable in the repo tree).",
+      "Whether hosted ubuntu/macos/windows runners faithfully run web `test:e2e:run`, consumer browser/sse/health/cli smoke, and pi-chrome `release:check` (Known Weakness #9; Required Evidence #7 absent).",
+      "Measured Actions queue + execution latency versus the local preflight, and whether release urgency requires synchronous completion (Required Evidence #7).",
+      "Whether `concurrency.queue: max` (release.yml:10, asserted at workflow.test.mjs:80) is an honored GitHub Actions key or silently ignored — if ignored, promotion serialization under concurrent SHAs / main movement (Criterion 4) may not hold as designed.",
+      "The durable-persistence and witness-expiry policy for witnessed-but-unreleased candidates required to make D's reuse claim hold past the 14-day artifact retention (Required Evidence #6)."
+    ]
+  },
+  "structured_output_valid": true,
+  "structured_output_error": null,
+  "session_id": "d51a6187-0431-2feb-f14d-2a976f75f099",
+  "effective_session_id": "d51a6187-0431-2feb-f14d-2a976f75f099",
+  "prompt_artifact": "/Users/yansir/code/52/pi-suite/docs/reviews/decision-audits/ci-only-release-20260718-162536-d5f51ef0/runs/challenge-20260718-162537.004652000/prompt.md",
+  "prompt_sha256": "96acb1f8b1a36d4fa84506dbcc579ea6953f59f912b64af839c0497ea3191fe5",
+  "prompt_input_type": "challenge",
+  "command": "claude",
+  "producer_pid": 57624,
+  "provider_pid": 57644,
+  "producer_alive": true,
+  "events_seen": 2776,
+  "provider_events_seen": 2774,
+  "last_event_at": 1784363576.408791,
+  "last_event_label": "provider_result",
+  "last_event_text": "",
+  "timeout_due": null,
+  "raw": {
+    "api_error_status": null,
+    "duration_api_ms": 435664,
+    "duration_ms": 438875,
+    "fast_mode_state": "off",
+    "is_error": false,
+    "modelUsage": {
+      "claude-opus-4-8[1m]": {
+        "cacheCreationInputTokens": 44022,
+        "cacheReadInputTokens": 124182,
+        "contextWindow": 1000000,
+        "costUSD": 1.1050635,
+        "inputTokens": 9127,
+        "maxOutputTokens": 64000,
+        "outputTokens": 28888,
+        "webSearchRequests": 0
+      }
+    },
+    "num_turns": 17,
+    "permission_denials": [],
+    "result": "{\"findings\":[{\"id\":\"F1\",\"claim\":\"In the dossier-time implementation candidate, verify:consumers, Chrome release:check, and the test:release + verify:packages portions of root `pnpm verify` (which for web includes ci:verify/e2e) live ONLY in the local container preflight and are deliberately, test-enforcedly excluded from release.yml. Removing local preflight without first adding authoritative CI owners drops these checks from every supported release path, violating Criterion 3 and the invariant that all preflight checks remain represented in CI.\",\"claim_type\":\"fact\",\"causal_boundary\":\"True for the release.yml + candidate-pipeline.mjs + container-preflight.mjs + workflow.test.mjs at dossier creation. It judges the current implementation and the sequencing of removal, NOT the proposal's target design (proposal step 3 does include consumer/Chrome witnesses). The gap is that those witnesses are not yet built.\",\"evidence\":[\".github/workflows/release.yml:50-53 candidate job runs `candidate-pipeline.mjs verify-release-source` only\",\"tooling/release/candidate-pipeline.mjs:17-21 verifyReleaseSource runs only `pnpm release:verify-source`\",\"package.json:19 release:verify-source == `pnpm run check:workspace` (no test:release, no verify:packages)\",\"package.json:27,31 root `verify`=check:workspace \u0026\u0026 test:release \u0026\u0026 verify:packages; consumers/chrome only in release:verify + preflight\",\"tooling/release/candidate-pipeline.mjs:48-55 local `full` runs pnpm verify + verifyCandidate + verifyConsumers\",\"tooling/release/container-preflight.mjs:29 runs pi-chrome release:check; :96 runs candidate-pipeline full\",\"tooling/release/workflow.test.mjs:124-125 asserts candidate job has no `pnpm verify` and no `release:check`; :158-166 asserts workflow does NOT contain verify:consumers\",\"Grep .github: only verify:platform, verify:candidates, verify:registry are present in the workflow\"],\"severity\":\"invariant\",\"confidence\":\"high\",\"criterion_id\":\"3\",\"violated_invariant\":\"Criterion 3 / All checks currently supplied by local preflight remain represented in CI (pnpm verify, consumer verification, Chrome candidate/smoke)\",\"falsifier\":\"A refreshed implementation candidate whose workflow assigns authoritative CI jobs to verify:consumers, chrome candidate/smoke, test:release and verify:packages (with the workflow.test.mjs prohibitions inverted), evidenced by the required command-to-job coverage map (Required Evidence #1).\"},{\"id\":\"F2\",\"claim\":\"The checks that must migrate include browser/SSE/CLI consumer smoke and web e2e, which today run on the operator's macOS host and a local Linux container. Their faithful execution on GitHub-hosted ubuntu/macos/windows runners (browsers, services, ports, hardware) is unproven, so the coverage-map closure in F1 is a re-architecture that can hit Abandon Condition #4 (required checks cannot run reliably in Actions), not a one-line addition.\",\"claim_type\":\"fact\",\"causal_boundary\":\"Property of verify-consumers.mjs, web ci:verify, and pi-chrome release:check as currently authored; becomes a blocker only if these cannot be reproduced faithfully on hosted runners. No runner-fidelity measurement (Required Evidence #7) is present.\",\"evidence\":[\"tooling/release/verify-consumers.mjs:40-50 web archive browser/sse/cli/health/page smoke\",\"tooling/release/verify-consumers.mjs:52-102 combined npm+pnpm real install of archives\",\"tooling/release/workflow.test.mjs:182-185 web ci:verify runs `pnpm test:e2e:run`\",\"tooling/release/container-preflight.mjs:15 preflight asserts darwin (Apple container) host; Chrome release:check runs on host at :29\"],\"severity\":\"high\",\"confidence\":\"medium\",\"criterion_id\":\"3\",\"violated_invariant\":null,\"falsifier\":\"Measured green runs of consumer smoke, web e2e, and Chrome release:check on the intended hosted runners, plus evidence the required browsers/services/ports are faithfully available (Required Evidence #7).\"},{\"id\":\"F3\",\"claim\":\"The current publish job executes candidate-controlled code (root `prepare` lifecycle on install, prepare.mjs, verify-prepared-candidate.mjs, pnpm verify:candidates, create-release-record.mjs, pnpm publish:candidates) while holding contents:write + id-token:write and pushing HEAD:main. This is acceptable today because the SHA is already on main (push-to-main model), but it is structurally incompatible with proposal C, whose promoter must verify the witness set WITHOUT executing candidate code. Implementing C by retargeting this job at an unmerged candidate ref would re-open the exact failure class (Criterion 5 / Abandon Condition #2).\",\"claim_type\":\"fact\",\"causal_boundary\":\"Describes the release.yml publish job as-is. The vulnerability materializes only under the candidate-ref model if promotion/publication are not split from candidate-code execution; it is not a live exploit in the current push-to-main flow.\",\"evidence\":[\".github/workflows/release.yml:144-146 publish permissions contents:write + id-token:write\",\".github/workflows/release.yml:157 pnpm install runs root `prepare` (package.json:15 effect-tsgo patch)\",\".github/workflows/release.yml:167-172 runs prepare.mjs, verify-prepared-candidate.mjs, pnpm verify:candidates\",\".github/workflows/release.yml:176-181 create-release-record.mjs then `git push --atomic origin HEAD:main $tags`\",\".github/workflows/release.yml:201 pnpm publish:candidates under OIDC; all tooling/release/*.mjs are checked out at github.sha\"],\"severity\":\"high\",\"confidence\":\"high\",\"criterion_id\":\"5\",\"violated_invariant\":\"Proposal step 4 / Abandon Condition #2: the promoter must not execute candidate-controlled code while holding write or publication authority\",\"falsifier\":\"An implementation where a privileged promoter with no dependency install and no candidate-authored code verifies the witness set and fast-forwards main, and publication consumes only pre-witnessed archive bytes through a boundary that never grants candidate code write/OIDC authority (Required Evidence #4).\"},{\"id\":\"F4\",\"claim\":\"Exclusive-promoter enforcement is unverifiable from the repository: `.github` contains only release.yml, with no ruleset-as-code, CODEOWNERS, or branch-protection config in tree. Assumption #3 and Required Evidence #3 are therefore undischarged from available evidence, and Abandon Condition #1 (repo cannot prevent supported direct writes to main/tags) cannot be closed here. Fast-forward promotion is insufficient if any other supported path can push to main or create release tags (Known Weakness #3).\",\"claim_type\":\"fact\",\"causal_boundary\":\"Statement about in-tree evidence only. It does NOT assert server-side branch protection is absent (it may exist); it asserts the exclusivity guarantee is not demonstrable from the repository and must be produced as Required Evidence #3.\",\"evidence\":[\"Glob .github/**/* returns only .github/workflows/release.yml (no ruleset/CODEOWNERS/branch-protection files)\",\"Glob for CODEOWNERS/ruleset/branch-protection finds only node_modules third-party files\",\"push-release.mjs:20 and release.yml:181 both perform `git push` to main from different identities, implying reliance on unseen server-side rules\"],\"severity\":\"high\",\"confidence\":\"high\",\"criterion_id\":\"1\",\"violated_invariant\":\"Criterion 1 / Abandon Condition #1: only witnessed SHAs may reach main; no supported path may bypass the promoter\",\"falsifier\":\"GitHub repository rules/branch protection showing every supported write to main and to release tags passes only through the promoter identity, plus a fail-closed test that attempts a direct-main push and a rogue tag and observes rejection (Required Evidence #3 + #8).\"},{\"id\":\"F5\",\"claim\":\"The publish job creates a NEW release-record commit (bumped versions) and pushes it to main — a SHA never covered by the candidate/platform witness DAG. Proposal step 4 says main is fast-forwarded to the exact witnessed source SHA, which is in direct tension with advancing main to an unwitnessed release-record commit. The design must keep source SHA, release-record SHA, tag target, and archive digest as distinct-but-bound identities before the local gate is removed.\",\"claim_type\":\"tradeoff\",\"causal_boundary\":\"Current publish flow. The record is a deterministic derivation re-checked by classify.mjs, so it is managed today; the risk is that the CI-only cutover conflates 'witnessed source' with 'what lands on main' unless the record model is redefined.\",\"evidence\":[\".github/workflows/release.yml:173-181 create-release-record.mjs creates a distinct commit pushed to main\",\"tooling/release/prepare.mjs:88-101 writes bumped package versions into the release set\",\"tooling/release/classify.mjs:19-44 independently re-verifies release-record commits (derivation, not witnessed by candidate/platform jobs)\"],\"severity\":\"medium\",\"confidence\":\"high\",\"criterion_id\":\"9\",\"violated_invariant\":\"Known Weakness #5 / Review Question #2: witnessed source identity vs later release-metadata commit must stay distinct and bound\",\"falsifier\":\"A model that either creates the release-record commit before the witness DAG so it becomes the witnessed SHA, or proves via test that the record is a byte-deterministic verified derivation of the witnessed source such that no unwitnessed content reaches main (Evidence That Would Change Our Mind #5).\"},{\"id\":\"F6\",\"claim\":\"The candidate run-artifact retention is 14 days, and the 'existing/prior' reuse path depends on either a durable gh release asset or a non-expired run artifact. The optimized continuous-witness form (D) reuses a witnessed archive for a not-yet-released candidate, for which no durable release asset exists yet; after 14 days its only copy expires, forcing a rebuild (new digest) and re-witness. This bounds D's latency benefit and requires an explicit durable-persistence + witness-expiry policy, reinforcing the initial recommendation to prefer on-demand candidate validation (C) over default D.\",\"claim_type\":\"tradeoff\",\"causal_boundary\":\"release.yml retention and restore logic as written; applies to D's 'reuse an existing witness' claim. For plain C (validate on release request) the constraint is weaker because persistence-before-publish already writes a durable asset.\",\"evidence\":[\".github/workflows/release.yml:111 candidate artifact `retention-days: 14`\",\".github/workflows/release.yml:73-97 restore depends on durable gh release asset or non-expired prior run artifact\",\".github/workflows/release.yml:182-200 durable persistence (gh release upload + cmp) only happens at publication time\"],\"severity\":\"low\",\"confidence\":\"medium\",\"criterion_id\":\"7\",\"violated_invariant\":\"Known Weakness #4: finite retention conflicts with indefinite reuse of a previously witnessed candidate\",\"falsifier\":\"A retention model persisting every eligible witnessed candidate to a durable immutable location at witness time with a defined expiry, and a measurement showing D's saved latency exceeds the added storage/capacity cost (Required Evidence #6 + #7).\"}],\"strongest_alternative\":\"Retain Alternative A (mandatory local container preflight) as the sole authoritative gate for this change, and add the missing checks (verify:consumers, Chrome candidate/smoke, test:release, verify:packages) to CI incrementally WITHOUT removing local preflight — cutting over to CI-only only after every precondition is discharged. This is the strongest competitor to adopting the proposal now because F1 shows the remote plane does not currently own the consumer/Chrome/e2e checks (they are test-enforced OUT of the workflow), F3 shows the only privileged job still fuses promotion, publication, and candidate-code execution, and F4 shows exclusive-promoter enforcement is unverifiable in-tree. A's acknowledged weaknesses (duplicated work, operator blocking, dependence on local container runtime) are tolerable during a transition and are strictly safer than deleting the only owner of consumer/e2e/Chrome coverage before CI provably owns it.\",\"surviving_invariants\":[\"Architecture C (candidate-ref validation + a privileged promoter that fast-forwards main only after the complete witness set) is the correct target; the challenge does not falsify it, and with F1/F3/F4 preconditions met it does close the unverified-main class.\",\"Only an exact source SHA with a complete witness set may enter main; npm may receive only the exact witnessed archive bytes; no validation result may be reused across a different SHA or archive digest.\",\"Publication must consume the persisted, byte-identical witnessed archive without rebuild or repack (upheld today by release.yml:182-201 cmp/persist-before-publish and verify-prepared-candidate.mjs; same artifact downloaded by macOS/Windows witnesses).\",\"One release source SHA maps to one explicit public-package release set and one exact archive per selected package (Criterion 9).\",\"Source classification stays install-free and cannot gain credentials (classify job has no setup-node/pnpm install; workflow.test.mjs:174-179).\"],\"unknowns\":[\"Whether GitHub server-side branch protection/rulesets already make the promoter the exclusive writer to main and release tags (not representable in the repo tree).\",\"Whether hosted ubuntu/macos/windows runners faithfully run web `test:e2e:run`, consumer browser/sse/health/cli smoke, and pi-chrome `release:check` (Known Weakness #9; Required Evidence #7 absent).\",\"Measured Actions queue + execution latency versus the local preflight, and whether release urgency requires synchronous completion (Required Evidence #7).\",\"Whether `concurrency.queue: max` (release.yml:10, asserted at workflow.test.mjs:80) is an honored GitHub Actions key or silently ignored — if ignored, promotion serialization under concurrent SHAs / main movement (Criterion 4) may not hold as designed.\",\"The durable-persistence and witness-expiry policy for witnessed-but-unreleased candidates required to make D's reuse claim hold past the 14-day artifact retention (Required Evidence #6).\"],\"recommendation\":\"revise\"}",
+    "session_id": "d51a6187-0431-2feb-f14d-2a976f75f099",
+    "stop_reason": "tool_use",
+    "structured_output": {
+      "findings": [
+        {
+          "causal_boundary": "True for the release.yml + candidate-pipeline.mjs + container-preflight.mjs + workflow.test.mjs at dossier creation. It judges the current implementation and the sequencing of removal, NOT the proposal's target design (proposal step 3 does include consumer/Chrome witnesses). The gap is that those witnesses are not yet built.",
+          "claim": "In the dossier-time implementation candidate, verify:consumers, Chrome release:check, and the test:release + verify:packages portions of root `pnpm verify` (which for web includes ci:verify/e2e) live ONLY in the local container preflight and are deliberately, test-enforcedly excluded from release.yml. Removing local preflight without first adding authoritative CI owners drops these checks from every supported release path, violating Criterion 3 and the invariant that all preflight checks remain represented in CI.",
+          "claim_type": "fact",
+          "confidence": "high",
+          "criterion_id": "3",
+          "evidence": [
+            ".github/workflows/release.yml:50-53 candidate job runs `candidate-pipeline.mjs verify-release-source` only",
+            "tooling/release/candidate-pipeline.mjs:17-21 verifyReleaseSource runs only `pnpm release:verify-source`",
+            "package.json:19 release:verify-source == `pnpm run check:workspace` (no test:release, no verify:packages)",
+            "package.json:27,31 root `verify`=check:workspace \u0026\u0026 test:release \u0026\u0026 verify:packages; consumers/chrome only in release:verify + preflight",
+            "tooling/release/candidate-pipeline.mjs:48-55 local `full` runs pnpm verify + verifyCandidate + verifyConsumers",
+            "tooling/release/container-preflight.mjs:29 runs pi-chrome release:check; :96 runs candidate-pipeline full",
+            "tooling/release/workflow.test.mjs:124-125 asserts candidate job has no `pnpm verify` and no `release:check`; :158-166 asserts workflow does NOT contain verify:consumers",
+            "Grep .github: only verify:platform, verify:candidates, verify:registry are present in the workflow"
+          ],
+          "falsifier": "A refreshed implementation candidate whose workflow assigns authoritative CI jobs to verify:consumers, chrome candidate/smoke, test:release and verify:packages (with the workflow.test.mjs prohibitions inverted), evidenced by the required command-to-job coverage map (Required Evidence #1).",
+          "id": "F1",
+          "severity": "invariant",
+          "violated_invariant": "Criterion 3 / All checks currently supplied by local preflight remain represented in CI (pnpm verify, consumer verification, Chrome candidate/smoke)"
+        },
+        {
+          "causal_boundary": "Property of verify-consumers.mjs, web ci:verify, and pi-chrome release:check as currently authored; becomes a blocker only if these cannot be reproduced faithfully on hosted runners. No runner-fidelity measurement (Required Evidence #7) is present.",
+          "claim": "The checks that must migrate include browser/SSE/CLI consumer smoke and web e2e, which today run on the operator's macOS host and a local Linux container. Their faithful execution on GitHub-hosted ubuntu/macos/windows runners (browsers, services, ports, hardware) is unproven, so the coverage-map closure in F1 is a re-architecture that can hit Abandon Condition #4 (required checks cannot run reliably in Actions), not a one-line addition.",
+          "claim_type": "fact",
+          "confidence": "medium",
+          "criterion_id": "3",
+          "evidence": [
+            "tooling/release/verify-consumers.mjs:40-50 web archive browser/sse/cli/health/page smoke",
+            "tooling/release/verify-consumers.mjs:52-102 combined npm+pnpm real install of archives",
+            "tooling/release/workflow.test.mjs:182-185 web ci:verify runs `pnpm test:e2e:run`",
+            "tooling/release/container-preflight.mjs:15 preflight asserts darwin (Apple container) host; Chrome release:check runs on host at :29"
+          ],
+          "falsifier": "Measured green runs of consumer smoke, web e2e, and Chrome release:check on the intended hosted runners, plus evidence the required browsers/services/ports are faithfully available (Required Evidence #7).",
+          "id": "F2",
+          "severity": "high",
+          "violated_invariant": null
+        },
+        {
+          "causal_boundary": "Describes the release.yml publish job as-is. The vulnerability materializes only under the candidate-ref model if promotion/publication are not split from candidate-code execution; it is not a live exploit in the current push-to-main flow.",
+          "claim": "The current publish job executes candidate-controlled code (root `prepare` lifecycle on install, prepare.mjs, verify-prepared-candidate.mjs, pnpm verify:candidates, create-release-record.mjs, pnpm publish:candidates) while holding contents:write + id-token:write and pushing HEAD:main. This is acceptable today because the SHA is already on main (push-to-main model), but it is structurally incompatible with proposal C, whose promoter must verify the witness set WITHOUT executing candidate code. Implementing C by retargeting this job at an unmerged candidate ref would re-open the exact failure class (Criterion 5 / Abandon Condition #2).",
+          "claim_type": "fact",
+          "confidence": "high",
+          "criterion_id": "5",
+          "evidence": [
+            ".github/workflows/release.yml:144-146 publish permissions contents:write + id-token:write",
+            ".github/workflows/release.yml:157 pnpm install runs root `prepare` (package.json:15 effect-tsgo patch)",
+            ".github/workflows/release.yml:167-172 runs prepare.mjs, verify-prepared-candidate.mjs, pnpm verify:candidates",
+            ".github/workflows/release.yml:176-181 create-release-record.mjs then `git push --atomic origin HEAD:main $tags`",
+            ".github/workflows/release.yml:201 pnpm publish:candidates under OIDC; all tooling/release/*.mjs are checked out at github.sha"
+          ],
+          "falsifier": "An implementation where a privileged promoter with no dependency install and no candidate-authored code verifies the witness set and fast-forwards main, and publication consumes only pre-witnessed archive bytes through a boundary that never grants candidate code write/OIDC authority (Required Evidence #4).",
+          "id": "F3",
+          "severity": "high",
+          "violated_invariant": "Proposal step 4 / Abandon Condition #2: the promoter must not execute candidate-controlled code while holding write or publication authority"
+        },
+        {
+          "causal_boundary": "Statement about in-tree evidence only. It does NOT assert server-side branch protection is absent (it may exist); it asserts the exclusivity guarantee is not demonstrable from the repository and must be produced as Required Evidence #3.",
+          "claim": "Exclusive-promoter enforcement is unverifiable from the repository: `.github` contains only release.yml, with no ruleset-as-code, CODEOWNERS, or branch-protection config in tree. Assumption #3 and Required Evidence #3 are therefore undischarged from available evidence, and Abandon Condition #1 (repo cannot prevent supported direct writes to main/tags) cannot be closed here. Fast-forward promotion is insufficient if any other supported path can push to main or create release tags (Known Weakness #3).",
+          "claim_type": "fact",
+          "confidence": "high",
+          "criterion_id": "1",
+          "evidence": [
+            "Glob .github/**/* returns only .github/workflows/release.yml (no ruleset/CODEOWNERS/branch-protection files)",
+            "Glob for CODEOWNERS/ruleset/branch-protection finds only node_modules third-party files",
+            "push-release.mjs:20 and release.yml:181 both perform `git push` to main from different identities, implying reliance on unseen server-side rules"
+          ],
+          "falsifier": "GitHub repository rules/branch protection showing every supported write to main and to release tags passes only through the promoter identity, plus a fail-closed test that attempts a direct-main push and a rogue tag and observes rejection (Required Evidence #3 + #8).",
+          "id": "F4",
+          "severity": "high",
+          "violated_invariant": "Criterion 1 / Abandon Condition #1: only witnessed SHAs may reach main; no supported path may bypass the promoter"
+        },
+        {
+          "causal_boundary": "Current publish flow. The record is a deterministic derivation re-checked by classify.mjs, so it is managed today; the risk is that the CI-only cutover conflates 'witnessed source' with 'what lands on main' unless the record model is redefined.",
+          "claim": "The publish job creates a NEW release-record commit (bumped versions) and pushes it to main — a SHA never covered by the candidate/platform witness DAG. Proposal step 4 says main is fast-forwarded to the exact witnessed source SHA, which is in direct tension with advancing main to an unwitnessed release-record commit. The design must keep source SHA, release-record SHA, tag target, and archive digest as distinct-but-bound identities before the local gate is removed.",
+          "claim_type": "tradeoff",
+          "confidence": "high",
+          "criterion_id": "9",
+          "evidence": [
+            ".github/workflows/release.yml:173-181 create-release-record.mjs creates a distinct commit pushed to main",
+            "tooling/release/prepare.mjs:88-101 writes bumped package versions into the release set",
+            "tooling/release/classify.mjs:19-44 independently re-verifies release-record commits (derivation, not witnessed by candidate/platform jobs)"
+          ],
+          "falsifier": "A model that either creates the release-record commit before the witness DAG so it becomes the witnessed SHA, or proves via test that the record is a byte-deterministic verified derivation of the witnessed source such that no unwitnessed content reaches main (Evidence That Would Change Our Mind #5).",
+          "id": "F5",
+          "severity": "medium",
+          "violated_invariant": "Known Weakness #5 / Review Question #2: witnessed source identity vs later release-metadata commit must stay distinct and bound"
+        },
+        {
+          "causal_boundary": "release.yml retention and restore logic as written; applies to D's 'reuse an existing witness' claim. For plain C (validate on release request) the constraint is weaker because persistence-before-publish already writes a durable asset.",
+          "claim": "The candidate run-artifact retention is 14 days, and the 'existing/prior' reuse path depends on either a durable gh release asset or a non-expired run artifact. The optimized continuous-witness form (D) reuses a witnessed archive for a not-yet-released candidate, for which no durable release asset exists yet; after 14 days its only copy expires, forcing a rebuild (new digest) and re-witness. This bounds D's latency benefit and requires an explicit durable-persistence + witness-expiry policy, reinforcing the initial recommendation to prefer on-demand candidate validation (C) over default D.",
+          "claim_type": "tradeoff",
+          "confidence": "medium",
+          "criterion_id": "7",
+          "evidence": [
+            ".github/workflows/release.yml:111 candidate artifact `retention-days: 14`",
+            ".github/workflows/release.yml:73-97 restore depends on durable gh release asset or non-expired prior run artifact",
+            ".github/workflows/release.yml:182-200 durable persistence (gh release upload + cmp) only happens at publication time"
+          ],
+          "falsifier": "A retention model persisting every eligible witnessed candidate to a durable immutable location at witness time with a defined expiry, and a measurement showing D's saved latency exceeds the added storage/capacity cost (Required Evidence #6 + #7).",
+          "id": "F6",
+          "severity": "low",
+          "violated_invariant": "Known Weakness #4: finite retention conflicts with indefinite reuse of a previously witnessed candidate"
+        }
+      ],
+      "recommendation": "revise",
+      "strongest_alternative": "Retain Alternative A (mandatory local container preflight) as the sole authoritative gate for this change, and add the missing checks (verify:consumers, Chrome candidate/smoke, test:release, verify:packages) to CI incrementally WITHOUT removing local preflight — cutting over to CI-only only after every precondition is discharged. This is the strongest competitor to adopting the proposal now because F1 shows the remote plane does not currently own the consumer/Chrome/e2e checks (they are test-enforced OUT of the workflow), F3 shows the only privileged job still fuses promotion, publication, and candidate-code execution, and F4 shows exclusive-promoter enforcement is unverifiable in-tree. A's acknowledged weaknesses (duplicated work, operator blocking, dependence on local container runtime) are tolerable during a transition and are strictly safer than deleting the only owner of consumer/e2e/Chrome coverage before CI provably owns it.",
+      "surviving_invariants": [
+        "Architecture C (candidate-ref validation + a privileged promoter that fast-forwards main only after the complete witness set) is the correct target; the challenge does not falsify it, and with F1/F3/F4 preconditions met it does close the unverified-main class.",
+        "Only an exact source SHA with a complete witness set may enter main; npm may receive only the exact witnessed archive bytes; no validation result may be reused across a different SHA or archive digest.",
+        "Publication must consume the persisted, byte-identical witnessed archive without rebuild or repack (upheld today by release.yml:182-201 cmp/persist-before-publish and verify-prepared-candidate.mjs; same artifact downloaded by macOS/Windows witnesses).",
+        "One release source SHA maps to one explicit public-package release set and one exact archive per selected package (Criterion 9).",
+        "Source classification stays install-free and cannot gain credentials (classify job has no setup-node/pnpm install; workflow.test.mjs:174-179)."
+      ],
+      "unknowns": [
+        "Whether GitHub server-side branch protection/rulesets already make the promoter the exclusive writer to main and release tags (not representable in the repo tree).",
+        "Whether hosted ubuntu/macos/windows runners faithfully run web `test:e2e:run`, consumer browser/sse/health/cli smoke, and pi-chrome `release:check` (Known Weakness #9; Required Evidence #7 absent).",
+        "Measured Actions queue + execution latency versus the local preflight, and whether release urgency requires synchronous completion (Required Evidence #7).",
+        "Whether `concurrency.queue: max` (release.yml:10, asserted at workflow.test.mjs:80) is an honored GitHub Actions key or silently ignored — if ignored, promotion serialization under concurrent SHAs / main movement (Criterion 4) may not hold as designed.",
+        "The durable-persistence and witness-expiry policy for witnessed-but-unreleased candidates required to make D's reuse claim hold past the 14-day artifact retention (Required Evidence #6)."
+      ]
+    },
+    "subtype": "success",
+    "terminal_reason": "completed",
+    "time_to_request_ms": 40,
+    "total_cost_usd": 1.1050635,
+    "ttft_ms": 18330,
+    "ttft_stream_ms": 17839,
+    "type": "result",
+    "usage": {
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 44022
+      },
+      "cache_creation_input_tokens": 44022,
+      "cache_read_input_tokens": 124182,
+      "inference_geo": "not_available",
+      "input_tokens": 9127,
+      "iterations": [],
+      "output_tokens": 28888,
+      "server_tool_use": {
+        "web_fetch_requests": 0,
+        "web_search_requests": 0
+      },
+      "service_tier": "standard",
+      "speed": "standard"
+    },
+    "uuid": "7b18741d-414d-489a-9e15-3c2c10c8b56d"
+  }
+}

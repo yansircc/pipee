@@ -29,7 +29,7 @@ pnpm verify:packages
 pnpm release:build-candidates
 pnpm verify:candidates
 pnpm verify:consumers
-pnpm release:preflight
+pnpm release:materialize
 git diff --check
 ```
 

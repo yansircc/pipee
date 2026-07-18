@@ -1,0 +1,98 @@
+name: Release Promotion
+
+on:
+  workflow_run:
+    workflows: [Release Candidate]
+    types: [completed]
+
+concurrency:
+  group: pi-suite-release-promotion
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  promote-and-publish:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: npm-release
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+    outputs:
+      artifact: ${{ steps.artifact.outputs.name }}
+      release_sha: ${{ steps.artifact.outputs.release_sha }}
+      trusted_main: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - id: artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          rows="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '[.artifacts[] | select(.expired == false and (.name | startswith("suite-candidates-")))] | unique_by(.id) | .[] | [.name, .digest] | @tsv')"
+          test "$(printf '%s\n' "$rows" | sed '/^$/d' | wc -l | tr -d ' ')" = "1"
+          IFS=$'\t' read -r name digest <<< "$rows"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          release_sha="${name#suite-candidates-}"
+          [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "release_sha=$release_sha" >> "$GITHUB_OUTPUT"
+          if ! git fetch origin "refs/heads/release-candidates/$release_sha:refs/remotes/origin/release-candidates/$release_sha"; then
+            git fetch origin main:refs/remotes/origin/main
+            test "$(git rev-parse refs/remotes/origin/main)" = "$release_sha"
+          fi
+          git cat-file -e "$release_sha^{commit}"
+      - uses: actions/download-artifact@v7
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+          name: ${{ steps.artifact.outputs.name }}
+          path: .
+      - id: verify
+        run: node tooling/release/promote-candidate.mjs verify release "${{ steps.artifact.outputs.release_sha }}" "${{ github.event.workflow_run.head_sha }}"
+      - run: node tooling/release/promote-candidate.mjs promote release "${{ steps.artifact.outputs.release_sha }}" "${{ github.event.workflow_run.head_sha }}"
+      - name: Require npm Trusted Publishing support
+        shell: bash
+        run: |
+          npm --version
+          node -e "const {execFileSync}=require('node:child_process');const [major,minor]=execFileSync('npm',['--version'],{encoding:'utf8'}).trim().split('.').map(Number);if(major<11||(major===11&&minor<5))throw new Error('npm 11.5.1 or newer is required for OIDC')"
+      - run: node tooling/release/promote-candidate.mjs persist release "${{ steps.artifact.outputs.release_sha }}" "${{ github.event.workflow_run.head_sha }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - run: node tooling/release/promote-candidate.mjs publish release "${{ steps.artifact.outputs.release_sha }}" "${{ github.event.workflow_run.head_sha }}"
+
+  public-acceptance:
+    needs: promote-and-publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.promote-and-publish.outputs.trusted_main }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.11.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v7
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+          name: ${{ needs.promote-and-publish.outputs.artifact }}
+          path: .
+      - run: pnpm verify:registry

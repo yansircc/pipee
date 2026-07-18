@@ -9,74 +9,61 @@ import { assertReleaseRecordCommit, parseReleaseRecord } from "./release-record.
 const manifestPath = resolve(root, "release/candidate.json");
 assert.equal(existsSync(manifestPath), true, "release/candidate.json is missing");
 const candidate = JSON.parse(readFileSync(manifestPath, "utf8"));
-assert.equal(candidate.schemaVersion, 4);
+assert.equal(candidate.schemaVersion, 5);
 assert.equal(typeof candidate.releasable, "boolean");
 if (candidate.sourceSha !== null) assert.match(candidate.sourceSha, /^[0-9a-f]{40}$/);
 if (candidate.releasable) {
   const head = run("git", ["rev-parse", "HEAD"], { capture: true }).trim();
-  if (head !== candidate.sourceSha) {
-    const record = parseReleaseRecord(
-      run("git", ["show", "-s", "--format=%B", head], { capture: true }),
-    );
-    assert.ok(record, "candidate is not being verified from its source or release commit");
-    assert.equal(
-      record.source,
-      candidate.sourceSha,
-      "release record owns another candidate source",
-    );
-    assert.deepEqual(
-      record.packages,
-      candidate.projection.packages.map(({ id, toVersion, bump }) => ({
+  assert.equal(head, candidate.releaseSha, "candidate must be verified on its release commit");
+  const record = parseReleaseRecord(
+    run("git", ["show", "-s", "--format=%B", head], { capture: true }),
+  );
+  assert.ok(record, "candidate release commit has no release record");
+  assert.equal(record.source, candidate.sourceSha, "release record owns another source");
+  assert.equal(record.base, candidate.projection.baseSha, "release base projection drifted");
+  assert.deepEqual(
+    record.packages,
+    candidate.projection.packages.map(({ id, toVersion, bump }) => ({
+      id,
+      version: toVersion,
+      bump,
+    })),
+  );
+  assertReleaseRecordCommit({
+    record,
+    parents: run("git", ["show", "-s", "--format=%P", head], { capture: true })
+      .trim()
+      .split(/\s+/),
+    manifestVersions: Object.fromEntries(
+      suiteConfig().packages.map(({ id, path }) => [
         id,
-        version: toVersion,
-        bump,
-      })),
-      "release and candidate package projections differ",
-    );
-    assertReleaseRecordCommit({
-      record,
-      parents: run("git", ["show", "-s", "--format=%P", head], { capture: true })
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean),
-      manifestVersions: Object.fromEntries(
-        suiteConfig().packages.map(({ id, path }) => [
-          id,
-          JSON.parse(run("git", ["show", `${head}:${path}/package.json`], { capture: true }))
-            .version,
-        ]),
-      ),
-      packageIds: suiteConfig().packages.map(({ id }) => id),
-      packageManifestPaths: Object.fromEntries(
-        suiteConfig().packages.map(({ id, path }) => [id, `${path}/package.json`]),
-      ),
-      changedFiles: run("git", ["diff-tree", "--no-commit-id", "--name-status", "-r", head], {
-        capture: true,
-      })
-        .trim()
-        .split(/\r?\n/)
-        .filter(Boolean)
-        .map((line) => {
-          const [status, path] = line.split("\t");
-          return { status, path };
-        }),
-    });
-  }
+        JSON.parse(run("git", ["show", `${head}:${path}/package.json`], { capture: true })).version,
+      ]),
+    ),
+    sourceManifestVersions: Object.fromEntries(
+      suiteConfig().packages.map(({ id, path }) => [
+        id,
+        JSON.parse(run("git", ["show", `${record.source}:${path}/package.json`], { capture: true })).version,
+      ]),
+    ),
+    packageIds: suiteConfig().packages.map(({ id }) => id),
+    packageManifestPaths: Object.fromEntries(
+      suiteConfig().packages.map(({ id, path }) => [id, `${path}/package.json`]),
+    ),
+    changedFiles: run("git", ["diff", "--name-status", record.source, head], { capture: true })
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => {
+        const [status, path] = line.split("\t");
+        return { status, path };
+      }),
+  });
 }
 if (candidate.projection !== undefined) {
-  assert.equal(candidate.projection.kind, "package-versions");
+  assert.equal(candidate.projection.kind, "release-record");
+  assert.equal(candidate.projection.releaseSha, candidate.releaseSha);
   assert.match(candidate.projection.releaseTag, /^release-[0-9a-f]{12}$/);
-  assert.deepEqual(
-    [...candidate.projection.files].sort(),
-    [
-      ...candidate.projection.packages.map(({ id }) => {
-        const entry = suiteConfig().packages.find((candidateEntry) => candidateEntry.id === id);
-        assert.ok(entry, `projection names unknown package ${id}`);
-        return `${entry.path}/package.json`;
-      }),
-      ...candidate.projection.changeFiles,
-    ].sort(),
-  );
 }
 const projectedIds =
   candidate.projection?.packages.map(({ id }) => id) ?? Object.keys(candidate.artifacts);

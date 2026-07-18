@@ -1,0 +1,87 @@
+{
+  "ok": true,
+  "work_dir": "/Users/yansir/code/52/pi-suite/docs/reviews/decision-audits/ci-only-release-20260718-162536-d5f51ef0/runs/gate-20260718-164419.208478000",
+  "operation_id": "gate-20260718-164419.208478000",
+  "terminal": true,
+  "terminal_reason": "provider_result",
+  "returncode": 0,
+  "verdict": "LGTM",
+  "text": "verdict: LGTM\nsummary: 审计对象为决定 ci-only-release-20260718-162536-d5f51ef0 的最终处置账本(state=DECIDED,outcome=revise,current proposal=P2,sha256=70c279e3...)。审计依据 BLOCKED 的三个合法条件逐项核对。(1) 无未解决 invariant:unresolved_finding_ids 为空;唯一 severity=invariant 的 F1 已 accepted、resolved、并由 P2 满足。(2) 处置有效:六项发现(F1–F6)全部 accepted,且每一项都被记录的决定 P2 逐条满足——F1 由 CI ownership map + 分阶段 cutover(先加 CI owner、保留本地 preflight,rollout 第 7 步才移除)满足;F2 由 hosted-runner fidelity gate(显式 provisioning、真实断言、三次连跑、计时、强制失败阻断,否则放弃 cutover)满足;F3 由 Privilege boundary(promoter 不 checkout/不 install/不执行候选代码,固定控制面发布器)满足;F4 由 GitHub enforcement + 负向探针,并明示当前无 ruleset 故 cutover 现被禁止满足;F5 由「R 在 witness DAG 前构造并作为被见证 SHA、witness 后不再新增内容提交」满足;F6 由「仅显式候选 eager witness、14 天到期 fail-closed、不主张无限复用」满足。(3) 无候选/提案不匹配:decision.proposal_sha256 与 current_proposal_sha256 一致,均指向 P2.md,且 prompt 中「Exact candidate proposal」即该 P2 内容。P2 亦未与 dossier invariant 冲突,并额外移除了未受支持的 concurrency queue:max 字段。三个 BLOCKED 条件均不成立,故判定 LGTM,无 blocker。",
+  "structured_output": {
+    "blockers": [],
+    "summary": "审计对象为决定 ci-only-release-20260718-162536-d5f51ef0 的最终处置账本(state=DECIDED,outcome=revise,current proposal=P2,sha256=70c279e3...)。审计依据 BLOCKED 的三个合法条件逐项核对。(1) 无未解决 invariant:unresolved_finding_ids 为空;唯一 severity=invariant 的 F1 已 accepted、resolved、并由 P2 满足。(2) 处置有效:六项发现(F1–F6)全部 accepted,且每一项都被记录的决定 P2 逐条满足——F1 由 CI ownership map + 分阶段 cutover(先加 CI owner、保留本地 preflight,rollout 第 7 步才移除)满足;F2 由 hosted-runner fidelity gate(显式 provisioning、真实断言、三次连跑、计时、强制失败阻断,否则放弃 cutover)满足;F3 由 Privilege boundary(promoter 不 checkout/不 install/不执行候选代码,固定控制面发布器)满足;F4 由 GitHub enforcement + 负向探针,并明示当前无 ruleset 故 cutover 现被禁止满足;F5 由「R 在 witness DAG 前构造并作为被见证 SHA、witness 后不再新增内容提交」满足;F6 由「仅显式候选 eager witness、14 天到期 fail-closed、不主张无限复用」满足。(3) 无候选/提案不匹配:decision.proposal_sha256 与 current_proposal_sha256 一致,均指向 P2.md,且 prompt 中「Exact candidate proposal」即该 P2 内容。P2 亦未与 dossier invariant 冲突,并额外移除了未受支持的 concurrency queue:max 字段。三个 BLOCKED 条件均不成立,故判定 LGTM,无 blocker。",
+    "verdict": "LGTM"
+  },
+  "structured_output_valid": true,
+  "structured_output_error": null,
+  "session_id": "f6c06acb-a6d7-65ce-8108-6ccbdf0d5bcb",
+  "effective_session_id": "f6c06acb-a6d7-65ce-8108-6ccbdf0d5bcb",
+  "prompt_artifact": "/Users/yansir/code/52/pi-suite/docs/reviews/decision-audits/ci-only-release-20260718-162536-d5f51ef0/runs/gate-20260718-164419.208478000/prompt.md",
+  "prompt_sha256": "ca3c4e8125f2146f4398b0431a9c5f13aff96b7bbe38b515a7f4bf9efe51cf0f",
+  "prompt_input_type": "gate",
+  "command": "claude",
+  "producer_pid": 62807,
+  "provider_pid": 62809,
+  "producer_alive": true,
+  "events_seen": 346,
+  "provider_events_seen": 344,
+  "last_event_at": 1784364371.177205,
+  "last_event_label": "provider_result",
+  "last_event_text": "",
+  "timeout_due": null,
+  "raw": {
+    "api_error_status": null,
+    "duration_api_ms": 110035,
+    "duration_ms": 111628,
+    "fast_mode_state": "off",
+    "is_error": false,
+    "modelUsage": {
+      "claude-opus-4-8[1m]": {
+        "cacheCreationInputTokens": 30697,
+        "cacheReadInputTokens": 4854,
+        "contextWindow": 1000000,
+        "costUSD": 0.4019332500000001,
+        "inputTokens": 50,
+        "maxOutputTokens": 64000,
+        "outputTokens": 8296,
+        "webSearchRequests": 0
+      }
+    },
+    "num_turns": 3,
+    "permission_denials": [],
+    "result": "{\"verdict\":\"LGTM\",\"summary\":\"审计对象为决定 ci-only-release-20260718-162536-d5f51ef0 的最终处置账本(state=DECIDED,outcome=revise,current proposal=P2,sha256=70c279e3...)。审计依据 BLOCKED 的三个合法条件逐项核对。(1) 无未解决 invariant:unresolved_finding_ids 为空;唯一 severity=invariant 的 F1 已 accepted、resolved、并由 P2 满足。(2) 处置有效:六项发现(F1–F6)全部 accepted,且每一项都被记录的决定 P2 逐条满足——F1 由 CI ownership map + 分阶段 cutover(先加 CI owner、保留本地 preflight,rollout 第 7 步才移除)满足;F2 由 hosted-runner fidelity gate(显式 provisioning、真实断言、三次连跑、计时、强制失败阻断,否则放弃 cutover)满足;F3 由 Privilege boundary(promoter 不 checkout/不 install/不执行候选代码,固定控制面发布器)满足;F4 由 GitHub enforcement + 负向探针,并明示当前无 ruleset 故 cutover 现被禁止满足;F5 由「R 在 witness DAG 前构造并作为被见证 SHA、witness 后不再新增内容提交」满足;F6 由「仅显式候选 eager witness、14 天到期 fail-closed、不主张无限复用」满足。(3) 无候选/提案不匹配:decision.proposal_sha256 与 current_proposal_sha256 一致,均指向 P2.md,且 prompt 中「Exact candidate proposal」即该 P2 内容。P2 亦未与 dossier invariant 冲突,并额外移除了未受支持的 concurrency queue:max 字段。三个 BLOCKED 条件均不成立,故判定 LGTM,无 blocker。\",\"blockers\":[]}",
+    "session_id": "f6c06acb-a6d7-65ce-8108-6ccbdf0d5bcb",
+    "stop_reason": "tool_use",
+    "structured_output": {
+      "blockers": [],
+      "summary": "审计对象为决定 ci-only-release-20260718-162536-d5f51ef0 的最终处置账本(state=DECIDED,outcome=revise,current proposal=P2,sha256=70c279e3...)。审计依据 BLOCKED 的三个合法条件逐项核对。(1) 无未解决 invariant:unresolved_finding_ids 为空;唯一 severity=invariant 的 F1 已 accepted、resolved、并由 P2 满足。(2) 处置有效:六项发现(F1–F6)全部 accepted,且每一项都被记录的决定 P2 逐条满足——F1 由 CI ownership map + 分阶段 cutover(先加 CI owner、保留本地 preflight,rollout 第 7 步才移除)满足;F2 由 hosted-runner fidelity gate(显式 provisioning、真实断言、三次连跑、计时、强制失败阻断,否则放弃 cutover)满足;F3 由 Privilege boundary(promoter 不 checkout/不 install/不执行候选代码,固定控制面发布器)满足;F4 由 GitHub enforcement + 负向探针,并明示当前无 ruleset 故 cutover 现被禁止满足;F5 由「R 在 witness DAG 前构造并作为被见证 SHA、witness 后不再新增内容提交」满足;F6 由「仅显式候选 eager witness、14 天到期 fail-closed、不主张无限复用」满足。(3) 无候选/提案不匹配:decision.proposal_sha256 与 current_proposal_sha256 一致,均指向 P2.md,且 prompt 中「Exact candidate proposal」即该 P2 内容。P2 亦未与 dossier invariant 冲突,并额外移除了未受支持的 concurrency queue:max 字段。三个 BLOCKED 条件均不成立,故判定 LGTM,无 blocker。",
+      "verdict": "LGTM"
+    },
+    "subtype": "success",
+    "terminal_reason": "completed",
+    "time_to_request_ms": 39,
+    "total_cost_usd": 0.4019332500000001,
+    "ttft_ms": 4816,
+    "ttft_stream_ms": 3731,
+    "type": "result",
+    "usage": {
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 30697
+      },
+      "cache_creation_input_tokens": 30697,
+      "cache_read_input_tokens": 4854,
+      "inference_geo": "not_available",
+      "input_tokens": 50,
+      "iterations": [],
+      "output_tokens": 8296,
+      "server_tool_use": {
+        "web_fetch_requests": 0,
+        "web_search_requests": 0
+      },
+      "service_tier": "standard",
+      "speed": "standard"
+    },
+    "uuid": "6280437f-34eb-4cb7-b7c8-81cd19bd4631"
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "name": "@yansircc/pi-chrome",
+  "version": "0.3.0",
+  "description": "Let Pi use your existing signed-in Chrome profile through Agent-first tools.",
+  "keywords": [
+    "agent",
+    "agentic",
+    "ai-agent",
+    "authenticated-session",
+    "automation-tools",
+    "browser",
+    "browser-automation",
+    "browser-control",
+    "browser-use",
+    "cdp-alternative",
+    "chrome",
+    "chrome-extension",
+    "llm-agent",
+    "llm-tools",
+    "pi",
+    "pi-agent",
+    "pi-extension",
+    "pi-package",
+    "playwright-alternative",
+    "puppeteer-alternative",
+    "real-profile",
+    "screenshot",
+    "selenium-alternative",
+    "stagehand-alternative",
+    "web-automation",
+    "web-debugging",
+    "web-scraping"
+  ],
+  "homepage": "https://github.com/yansircc/pi-suite/tree/main/extensions/chrome#readme",
+  "bugs": {
+    "url": "https://github.com/yansircc/pi-suite/issues"
+  },
+  "license": "MIT",
+  "author": "yansircc",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yansircc/pi-suite.git",
+    "directory": "extensions/chrome"
+  },
+  "files": [
+    "dist/pi",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "dist/browser-extension",
+    "docs",
+    "skills"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "scan:effect": "effect-scan . --strict --output gate-json --evidence .effect-scan --fail-on-suppression-drift",
+    "verify": "pnpm run repo:verify && pnpm run pi:verify",
+    "repo:verify": "vp run ci:verify",
+    "pi:assets-build": "node scripts/build.ts",
+    "pi:domain-check": "node scripts/domain/verify-extension.mjs",
+    "release:check": "node scripts/release-check.ts",
+    "pi:build": "pnpm run pi:assets-build && node ../../tooling/pi-extension/build.mjs .",
+    "pi:bundle-check": "node ../../tooling/pi-extension/verify-distribution.mjs . bundle",
+    "pi:distribution-check": "node ../../tooling/pi-extension/verify-distribution.mjs . package",
+    "pi:verify": "pnpm run pi:build && pnpm run pi:bundle-check",
+    "release:archive-check": "node ../../tooling/pi-extension/verify-distribution.mjs . archive",
+    "release:platform-check": "node ../../tooling/pi-extension/verify-distribution.mjs . platform"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@pi-suite/companion-contracts": "workspace:*",
+    "@pi-suite/extension-kit": "workspace:*",
+    "@puppeteer/browsers": "3.0.6",
+    "@types/chrome": "0.1.36",
+    "@types/cross-spawn": "catalog:",
+    "@types/node": "22.20.1",
+    "@yansircc/effect-scan": "catalog:",
+    "cross-spawn": "7.0.6",
+    "effect": "catalog:",
+    "knip": "6.26.0",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:",
+    "yauzl": "3.4.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "overrides": {
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.11.0"
+  },
+  "packageManager": "pnpm@11.13.1",
+  "pi": {
+    "extensions": [
+      "./dist/pi/extension.js"
+    ],
+    "skills": [
+      "./skills/pi-chrome"
+    ]
+  }
+}
