@@ -129,16 +129,14 @@ const verifyWithPiLoader = async (packageRoot, harnessRoot) => {
   const hostEntry = hostManifest.exports?.["."]?.import ?? hostManifest.main;
   assert.equal(typeof hostEntry, "string", `${loaderModule} has no import entry`);
   const host = await import(pathToFileURL(resolve(hostDirectory, hostEntry)).href);
-  assert.equal(
-    typeof host.discoverAndLoadExtensions,
-    "function",
-    `${loaderModule} does not export discoverAndLoadExtensions`,
-  );
-  const result = await host.discoverAndLoadExtensions(
-    [packageRoot],
-    harnessRoot,
-    resolve(harnessRoot, ".pi-agent-test"),
-  );
+  assert.equal(typeof host.DefaultResourceLoader, "function", `${loaderModule} does not export DefaultResourceLoader`);
+  const loader = new host.DefaultResourceLoader({
+    cwd: harnessRoot,
+    agentDir: resolve(harnessRoot, ".pi-agent-test"),
+    additionalExtensionPaths: [packageRoot],
+  });
+  await loader.reload();
+  const result = loader.getExtensions();
   assert.deepEqual(result.errors, [], "Pi extension loader reported errors");
   assert.equal(result.extensions.length, 1, "Pi loader must load exactly one extension");
   const extension = result.extensions[0];
@@ -152,11 +150,16 @@ const verifyWithPiLoader = async (packageRoot, harnessRoot) => {
   for (const handler of config.expected.handlers) {
     assert.ok(extension.handlers.has(handler), `archive did not register ${String(handler)}`);
   }
+  const discoveredSkills = loader.getSkills().skills.map((skill) => skill.name);
+  for (const skill of config.expected.skills) {
+    assert.ok(discoveredSkills.includes(skill), `archive did not discover skill ${String(skill)}`);
+  }
   return {
     errors: result.errors,
     commands: [...config.expected.commands],
     tools: [...config.expected.tools],
     handlers: [...config.expected.handlers],
+    skills: [...config.expected.skills],
   };
 };
 

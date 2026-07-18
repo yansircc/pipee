@@ -9,8 +9,9 @@ import {
 } from "@/api/contract"
 import { extensionStructuredStatusOrUndefined } from "@/lib/extension-status"
 import { decodeExtensionImageWidget } from "@/lib/extension-widget"
+import { capabilitySlotKey, makeExtensionHostCapabilities } from "@pi-suite/host-runtime/extension-capabilities"
+import { PI_SUITE_CAPABILITY_METHOD } from "@pi-suite/companion-contracts/host-capabilities"
 import { Cause, Context, Crypto, Data, Deferred, Effect, Exit, FiberSet, Option, Semaphore } from "effect"
-import { makeRuntimeRetention } from "./runtime-retention"
 
 export class PiInteractionConflictError extends Data.TaggedError("PiInteractionConflictError")<{
   readonly interactionId: string
@@ -75,7 +76,6 @@ export const makeExtensionUiRuntime = (
   customUnavailable: () => unknown,
 ) =>
   Effect.gen(function* () {
-    const runtimeRetention = yield* makeRuntimeRetention
     let projection = ExtensionUiProjection.make({
       revision: 0,
       pendingInteraction: null,
@@ -122,6 +122,39 @@ export const makeExtensionUiRuntime = (
       projection = ExtensionUiProjection.make({ ...update(projection), revision: projection.revision + 1 })
       publish(SessionScopedEvent.make({ _tag: "ExtensionUiChanged", projection }))
     }
+
+    const extensionCapabilities = makeExtensionHostCapabilities({
+      replaceStructuredView: (ownerId, slot, value) => {
+        const key = capabilitySlotKey(ownerId, slot)
+        const status = value === undefined ? undefined : extensionStructuredStatusOrUndefined(value)
+        if (value !== undefined && status === undefined) {
+          runCallback(Effect.logWarning("Ignored non-JSON extension status projection", { ownerId, slot }))
+          return
+        }
+        commit((current) => ({
+          ...current,
+          statuses: [
+            ...current.statuses.filter((item) => item.key !== key),
+            ...(status === undefined ? [] : [ExtensionStatusContribution.make({ _tag: "Structured", key, ...status })]),
+          ],
+        }))
+      },
+      replaceMediaView: (ownerId, slot, image) => {
+        const key = capabilitySlotKey(ownerId, slot)
+        const content = image === undefined ? undefined : Option.getOrUndefined(decodeExtensionImageWidget(image))
+        if (image !== undefined && content === undefined) {
+          runCallback(Effect.logWarning("Ignored invalid extension image widget", { ownerId, slot }))
+          return
+        }
+        commit((current) => ({
+          ...current,
+          widgets: [
+            ...current.widgets.filter((item) => item.key !== key),
+            ...(content === undefined ? [] : [ExtensionWidgetItem.make({ key, content, placement: "aboveEditor" })]),
+          ],
+        }))
+      },
+    })
 
     const emitNotice = (message: string, notifyType: "info" | "warning" | "error" = "info") =>
       runCallback(
@@ -245,26 +278,6 @@ export const makeExtensionUiRuntime = (
           ],
         }))
       },
-      setStructuredStatus: (key: string, value?: unknown) => {
-        if (lifecycle !== "Open") return
-        const retention = runtimeRetention.update(key, value)
-        if (retention._tag === "RetentionHandled") {
-          if (!retention.valid) runCallback(Effect.logWarning("Ignored invalid runtime lease projection", { key }))
-          return
-        }
-        const status = value === undefined ? undefined : extensionStructuredStatusOrUndefined(value)
-        if (value !== undefined && status === undefined) {
-          runCallback(Effect.logWarning("Ignored non-JSON extension status projection", { key }))
-          return
-        }
-        commit((current) => ({
-          ...current,
-          statuses: [
-            ...current.statuses.filter((item) => item.key !== key),
-            ...(status === undefined ? [] : [ExtensionStatusContribution.make({ _tag: "Structured", key, ...status })]),
-          ],
-        }))
-      },
       setWorkingMessage: () => undefined,
       setWorkingVisible: () => undefined,
       setWorkingIndicator: () => undefined,
@@ -290,32 +303,6 @@ export const makeExtensionUiRuntime = (
           ],
         }))
       },
-      setImageWidget: (
-        key: string,
-        image?: unknown,
-        options?: { readonly placement?: "aboveEditor" | "belowEditor" },
-      ) => {
-        const content = image === undefined ? undefined : Option.getOrUndefined(decodeExtensionImageWidget(image))
-        if (image !== undefined && content === undefined) {
-          runCallback(Effect.logWarning("Ignored invalid extension image widget", { key }))
-          return
-        }
-        commit((current) => ({
-          ...current,
-          widgets: [
-            ...current.widgets.filter((item) => item.key !== key),
-            ...(content === undefined
-              ? []
-              : [
-                  ExtensionWidgetItem.make({
-                    key,
-                    content,
-                    placement: options?.placement ?? "aboveEditor",
-                  }),
-                ]),
-          ],
-        }))
-      },
       setFooter: () => undefined,
       setHeader: () => undefined,
       setTitle: () => undefined,
@@ -332,6 +319,8 @@ export const makeExtensionUiRuntime = (
       setTheme: () => ({ success: false, error: "Theme switching is not supported in pi-web" }),
       getToolsExpanded: () => false,
       setToolsExpanded: () => undefined,
+      [PI_SUITE_CAPABILITY_METHOD]: <T>(ownerId: string, id: string): T | undefined =>
+        extensionCapabilities.providers.get(id)?.forExtension(ownerId) as T | undefined,
     }
 
     const resolveInteraction = (interactionId: string, response: ExtensionInteractionResponseValue) =>
@@ -377,13 +366,14 @@ export const makeExtensionUiRuntime = (
       })
       yield* Effect.yieldNow
       yield* FiberSet.clear(fibers)
+      extensionCapabilities.dispose()
       lifecycle = "Closed"
     })
 
     return {
       uiContext,
       projection: () => projection,
-      hasRetention: runtimeRetention.hasRetention,
+      hasRetention: Effect.sync(extensionCapabilities.hasRetention),
       resolveInteraction,
       dispose,
     }

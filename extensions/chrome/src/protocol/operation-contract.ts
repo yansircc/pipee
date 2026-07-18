@@ -55,11 +55,8 @@ const screenshotResult: ResultContract = {
   schemas: ScreenshotResultSchemas,
 };
 
-export type AtomicToolProfile = "core" | "tabs" | "page" | "network" | "capture" | "interaction";
-
 type AtomicToolContract = {
   readonly name: `chrome_${string}`;
-  readonly profile: AtomicToolProfile;
   readonly description: string;
   readonly promptSnippet: string;
   readonly actionVerb?: ActionVerb | undefined;
@@ -71,11 +68,10 @@ type AtomicToolContract = {
 
 const atomicTool = (
   name: AtomicToolContract["name"],
-  profile: AtomicToolProfile,
   description: string,
   promptSnippet: string,
   options: Pick<AtomicToolContract, "actionVerb" | "parameters" | "project"> = {},
-): AtomicToolContract => ({ name, profile, description, promptSnippet, ...options });
+): AtomicToolContract => ({ name, description, promptSnippet, ...options });
 
 type OperationContractsFor<
   Calls extends Readonly<Record<string, Schema.ConstraintDecoder<unknown>>>,
@@ -214,7 +210,6 @@ const OPERATION_CONTRACTS = {
       Deadline.default,
       atomicTool(
         "chrome_tab_list",
-        "tabs",
         "List Chrome tabs visible to this Pi session.",
         "List Chrome tabs and their exact ids.",
       ),
@@ -225,7 +220,6 @@ const OPERATION_CONTRACTS = {
       Deadline.default,
       atomicTool(
         "chrome_tab_new",
-        "tabs",
         "Create another session-owned Chrome tab.",
         "Create a session-owned Chrome tab.",
       ),
@@ -236,7 +230,6 @@ const OPERATION_CONTRACTS = {
       Deadline.default,
       atomicTool(
         "chrome_tab_activate",
-        "tabs",
         "Activate one exact Chrome tab.",
         "Activate an exact Chrome tab.",
       ),
@@ -245,12 +238,7 @@ const OPERATION_CONTRACTS = {
       TabCalls.close,
       result(Schema.Struct({ closed: Schema.Int })),
       Deadline.default,
-      atomicTool(
-        "chrome_tab_close",
-        "tabs",
-        "Close one exact Chrome tab.",
-        "Close an exact Chrome tab.",
-      ),
+      atomicTool("chrome_tab_close", "Close one exact Chrome tab.", "Close an exact Chrome tab."),
     ),
     group: defineOperation(
       TabCalls.group,
@@ -258,7 +246,6 @@ const OPERATION_CONTRACTS = {
       Deadline.default,
       atomicTool(
         "chrome_tab_group",
-        "tabs",
         "Place one exact Chrome tab in the Pi session group.",
         "Group an exact Chrome tab under the Pi session.",
       ),
@@ -269,7 +256,6 @@ const OPERATION_CONTRACTS = {
       Deadline.default,
       atomicTool(
         "chrome_tab_ungroup",
-        "tabs",
         "Remove one exact Chrome tab from its group.",
         "Ungroup an exact Chrome tab.",
       ),
@@ -282,7 +268,6 @@ const OPERATION_CONTRACTS = {
       Deadline.default,
       atomicTool(
         "chrome_snapshot",
-        "core",
         "Observe the page and return a compact Action Graph. Use its refs for actions.",
         "Observe a page and obtain fresh action refs.",
       ),
@@ -293,7 +278,6 @@ const OPERATION_CONTRACTS = {
       Deadline.default,
       atomicTool(
         "chrome_read",
-        "core",
         "Read bounded rendered content from the current page without loading the Action Graph.",
         "Read current rendered page content or expand a content frontier.",
       ),
@@ -304,7 +288,6 @@ const OPERATION_CONTRACTS = {
       Deadline.default,
       atomicTool(
         "chrome_inspect",
-        "page",
         "Inspect one page element and its local context.",
         "Inspect one page element in detail.",
       ),
@@ -315,7 +298,6 @@ const OPERATION_CONTRACTS = {
       Deadline.navigate,
       atomicTool(
         "chrome_navigate",
-        "core",
         "Navigate the session-owned page or one explicitly selected tab.",
         "Navigate a Chrome page.",
       ),
@@ -326,7 +308,6 @@ const OPERATION_CONTRACTS = {
       Deadline.default,
       atomicTool(
         "chrome_evaluate",
-        "page",
         "Evaluate one JavaScript expression in the page and return bounded JSON.",
         "Evaluate a bounded page expression.",
       ),
@@ -335,12 +316,7 @@ const OPERATION_CONTRACTS = {
       PageCalls.wait,
       result(WaitResult),
       Deadline.wait,
-      atomicTool(
-        "chrome_wait",
-        "page",
-        "Wait for one typed page condition.",
-        "Wait for a page condition.",
-      ),
+      atomicTool("chrome_wait", "Wait for one typed page condition.", "Wait for a page condition."),
     ),
     console: defineOperation(
       PageCalls.console,
@@ -348,7 +324,6 @@ const OPERATION_CONTRACTS = {
       Deadline.default,
       atomicTool(
         "chrome_console",
-        "network",
         "Read captured page console entries.",
         "Read or clear captured console entries.",
       ),
@@ -359,7 +334,6 @@ const OPERATION_CONTRACTS = {
       Deadline.default,
       atomicTool(
         "chrome_network_list",
-        "network",
         "List captured page network requests.",
         "List or clear captured network requests.",
       ),
@@ -370,7 +344,6 @@ const OPERATION_CONTRACTS = {
       Deadline.default,
       atomicTool(
         "chrome_network_get",
-        "network",
         "Read one captured network request and response body.",
         "Read one captured network record.",
       ),
@@ -382,7 +355,6 @@ const OPERATION_CONTRACTS = {
       Deadline.screenshot,
       atomicTool(
         "chrome_screenshot",
-        "capture",
         "Capture the viewport or a bounded full-page tile set.",
         "Capture a Chrome screenshot.",
       ),
@@ -394,7 +366,6 @@ const OPERATION_CONTRACTS = {
       Deadline.default,
       atomicTool(
         "chrome_click",
-        "core",
         "Click a fresh Action Graph ref, selector, or viewport coordinate with real Chrome input.",
         "Click a fresh action ref with real Chrome input.",
         {
@@ -409,7 +380,6 @@ const OPERATION_CONTRACTS = {
       Deadline.textInput,
       atomicTool(
         "chrome_type",
-        "interaction",
         "Type text with real Chrome keyboard input, optionally into an element.",
         "Type text with real Chrome keyboard input.",
       ),
@@ -419,7 +389,6 @@ const OPERATION_CONTRACTS = {
       Deadline.textInput,
       atomicTool(
         "chrome_fill",
-        "core",
         "Replace the value of a fresh Action Graph ref or selector with real Chrome input.",
         "Fill a fresh editable action ref.",
         {
@@ -434,7 +403,6 @@ const OPERATION_CONTRACTS = {
       Deadline.default,
       atomicTool(
         "chrome_press",
-        "core",
         "Press one key with real Chrome input, optionally after focusing a fresh Action Graph ref.",
         "Press a key, optionally on a fresh action ref.",
         {
@@ -448,7 +416,6 @@ const OPERATION_CONTRACTS = {
       "hover",
       atomicTool(
         "chrome_hover",
-        "interaction",
         "Move the real Chrome pointer over an element or coordinate.",
         "Hover with the real Chrome pointer.",
       ),
@@ -457,7 +424,6 @@ const OPERATION_CONTRACTS = {
       "drag",
       atomicTool(
         "chrome_drag",
-        "interaction",
         "Drag between two elements or coordinates with real Chrome input.",
         "Drag with real Chrome pointer input.",
       ),
@@ -466,7 +432,6 @@ const OPERATION_CONTRACTS = {
       "tap",
       atomicTool(
         "chrome_tap",
-        "interaction",
         "Send a real Chrome touch tap to an element or coordinate.",
         "Tap with real Chrome touch input.",
       ),
@@ -475,7 +440,6 @@ const OPERATION_CONTRACTS = {
       "scroll",
       atomicTool(
         "chrome_scroll",
-        "interaction",
         "Scroll the page or one element with real Chrome wheel input.",
         "Scroll with real Chrome wheel input.",
       ),
@@ -484,7 +448,6 @@ const OPERATION_CONTRACTS = {
       "upload",
       atomicTool(
         "chrome_upload",
-        "interaction",
         "Upload workspace files through a fresh file-input Action Graph ref or selector.",
         "Upload workspace files through a file input.",
         {
@@ -607,7 +570,6 @@ export type AtomicToolDescriptor = {
   readonly label: string;
   readonly domain: "tab" | "page" | "input";
   readonly operation: string;
-  readonly profile: AtomicToolProfile;
   readonly description: string;
   readonly promptSnippet: string;
   readonly actionVerb?: ActionVerb | undefined;
@@ -632,7 +594,6 @@ export const ATOMIC_TOOL_DESCRIPTORS: ReadonlyArray<AtomicToolDescriptor> =
           .join(" "),
         domain,
         operation,
-        profile: metadata.profile,
         description: metadata.description,
         promptSnippet: metadata.promptSnippet,
         actionVerb: metadata.actionVerb,
@@ -641,15 +602,6 @@ export const ATOMIC_TOOL_DESCRIPTORS: ReadonlyArray<AtomicToolDescriptor> =
       };
     }),
   );
-
-export const ATOMIC_TOOL_PROFILES = Object.fromEntries(
-  [...new Set(ATOMIC_TOOL_DESCRIPTORS.map(({ profile }) => profile))].map((profile) => [
-    profile,
-    ATOMIC_TOOL_DESCRIPTORS.filter((descriptor) => descriptor.profile === profile).map(
-      ({ name }) => name,
-    ),
-  ]),
-) as unknown as Readonly<Record<AtomicToolProfile, ReadonlyArray<string>>>;
 
 export const ACTION_TOOL_NAME_BY_VERB = Object.fromEntries(
   ATOMIC_TOOL_DESCRIPTORS.flatMap(({ actionVerb, name }) =>

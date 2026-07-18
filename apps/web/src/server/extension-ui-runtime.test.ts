@@ -2,6 +2,15 @@ import { it } from "@effect/vitest"
 import { Deferred, Effect, Fiber } from "effect"
 import { expect } from "vite-plus/test"
 import type { SessionScopedEvent } from "@/api/contract"
+import {
+  MEDIA_VIEW_CAPABILITY,
+  RUNTIME_RETENTION_CAPABILITY,
+  STRUCTURED_VIEW_CAPABILITY,
+  type MediaViewPort,
+  type RuntimeRetentionPort,
+  type StructuredViewPort,
+} from "@pi-suite/companion-contracts/host-capabilities"
+import { capabilitySlotKey } from "@pi-suite/host-runtime/extension-capabilities"
 import { makeExtensionUiRuntime, PiExtensionUiClosedError } from "./extension-ui-runtime"
 
 it.effect("closes admission atomically with an interaction entering the runtime", () =>
@@ -61,4 +70,48 @@ it.effect("interrupts callback fibers instead of waiting forever during close", 
       yield* runtime.dispose
     }),
   ),
+)
+
+it.effect("keeps structured views and retention on independent owner-bound ports", () =>
+  Effect.gen(function* () {
+    const runtime = yield* makeExtensionUiRuntime(
+      { randomUUIDv4: Effect.succeed("00000000-0000-4000-8000-000000000001") },
+      () => undefined,
+      {},
+      () => new Error("unavailable"),
+    )
+    const structured = runtime.uiContext.getPiSuiteCapability<StructuredViewPort>("alpha", STRUCTURED_VIEW_CAPABILITY)!
+    const retention = runtime.uiContext.getPiSuiteCapability<RuntimeRetentionPort>(
+      "alpha",
+      RUNTIME_RETENTION_CAPABILITY,
+    )!
+    const media = runtime.uiContext.getPiSuiteCapability<MediaViewPort>("alpha", MEDIA_VIEW_CAPABILITY)!
+
+    structured.replace("status", { kind: "alpha/status", version: 1, ready: true })
+    expect(runtime.projection().statuses[0]).toMatchObject({
+      key: capabilitySlotKey("alpha", "status"),
+      kind: "alpha/status",
+      version: 1,
+    })
+    expect(yield* runtime.hasRetention).toBe(false)
+
+    media.replace("preview", {
+      dataUrl: "data:image/png;base64,AA==",
+      alt: "preview",
+      width: 1,
+      height: 1,
+    })
+    expect(runtime.projection().widgets[0]?.key).toBe(capabilitySlotKey("alpha", "preview"))
+
+    const handle = retention.acquire("runtime", { reason: "running" })
+    expect(yield* runtime.hasRetention).toBe(true)
+    expect(runtime.projection().statuses).toHaveLength(1)
+    media.replace("preview", undefined)
+    expect(runtime.projection().widgets).toHaveLength(0)
+    expect(yield* runtime.hasRetention).toBe(true)
+    handle.release()
+    expect(yield* runtime.hasRetention).toBe(false)
+    expect(runtime.projection().statuses).toHaveLength(1)
+    yield* runtime.dispose
+  }),
 )

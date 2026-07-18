@@ -52,6 +52,7 @@
   "dependencies": {
     "@earendil-works/pi-ai": "catalog:",
     "@earendil-works/pi-coding-agent": "catalog:",
+    "@pi-suite/host-runtime": "workspace:*",
     "fflate": "0.8.2"
   },
   "devDependencies": {

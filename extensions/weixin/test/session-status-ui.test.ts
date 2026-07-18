@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import type { StructuredView } from "@pi-suite/companion-contracts/host-capabilities";
 import {
   publishSessionStatus,
   type WeixinStatusProjection,
@@ -20,15 +21,19 @@ it("publishes structured connection state when the host supports it", () => {
   const structured: Array<WeixinStatusProjection | undefined> = [];
   const text: Array<string | undefined> = [];
   const ui: WeixinStatusUi = {
-    setStructuredStatus: (_key, value) => structured.push(value),
     setStatus: (_key, value) => text.push(value),
   };
+  const view = {
+    replace: <T extends StructuredView>(_slot: string, value?: T): void => {
+      structured.push(value as WeixinStatusProjection | undefined);
+    },
+  };
 
-  publishSessionStatus(ui, status(true));
-  publishSessionStatus(ui, status(false));
+  publishSessionStatus(ui, view, status(true));
+  publishSessionStatus(ui, view, status(false));
 
   expect(structured).toEqual([status(true), status(false)]);
-  expect(text).toEqual([]);
+  expect(text).toEqual(["微信已连接", "微信未连接"]);
 });
 
 it("publishes the text projection through Pi's public terminal UI contract", () => {
@@ -37,8 +42,8 @@ it("publishes the text projection through Pi's public terminal UI contract", () 
     setStatus: (_key, value) => text.push(value),
   };
 
-  publishSessionStatus(ui, status(true));
-  publishSessionStatus(ui, status(false));
+  publishSessionStatus(ui, undefined, status(true));
+  publishSessionStatus(ui, undefined, status(false));
 
   expect(text).toEqual(["微信已连接", "微信未连接"]);
 });

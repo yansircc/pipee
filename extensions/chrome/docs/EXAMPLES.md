@@ -1,6 +1,6 @@
 # Examples
 
-Calls use atomic tools. The core tools are active by default; call `chrome_enable` before using an advanced profile.
+Calls use the directly registered atomic tools.
 
 ## Observe, then act
 
@@ -84,11 +84,7 @@ navigation changes its URL or title. The default stops at that generation's docu
 agent can observe an SPA without waiting for every resource. Set `waitUntilLoad: true` only when the
 matching load event is required.
 
-Enable the `tabs` profile, create a second owned tab with `chrome_tab_new`, then address both tabs by the exact ids returned by navigation/new:
-
-```json
-{ "profile": "tabs" }
-```
+Call `chrome_tab_new` to create a second owned tab, then address both tabs by the exact ids returned by navigation/new:
 
 ```json
 { "url": "https://example.com/comparison" }
@@ -108,12 +104,6 @@ last-used target is stored.
 ```
 
 ## Wait under strict CSP
-
-Enable the `page` profile, then call `chrome_wait`:
-
-```json
-{ "profile": "page" }
-```
 
 ```json
 {
@@ -144,12 +134,6 @@ The corresponding fields have markers such as
 
 ## Console and network evidence
 
-Enable the `network` profile, then use the three network tools:
-
-```json
-{ "profile": "network" }
-```
-
 Call `chrome_console`:
 
 ```json
@@ -169,12 +153,6 @@ Call `chrome_network_get`:
 ```
 
 ## Screenshot
-
-Enable the `capture` profile, then call `chrome_screenshot`:
-
-```json
-{ "profile": "capture" }
-```
 
 Capture the exact target tab's current viewport to one image artifact:
 

@@ -3,7 +3,13 @@ export default Object.freeze({
   hostModules: Object.freeze(["@earendil-works/pi-coding-agent"]),
   profile: Object.freeze({
     kind: "multi-file",
-    assets: Object.freeze(["CHANGELOG.md", "CONTRIBUTING.md", "dist/browser-extension", "docs"]),
+    assets: Object.freeze([
+      "CHANGELOG.md",
+      "CONTRIBUTING.md",
+      "dist/browser-extension",
+      "docs",
+      "skills",
+    ]),
   }),
   expected: Object.freeze({
     commands: Object.freeze([]),
@@ -11,7 +17,6 @@ export default Object.freeze({
       "chrome_click",
       "chrome_console",
       "chrome_drag",
-      "chrome_enable",
       "chrome_evaluate",
       "chrome_fill",
       "chrome_hover",
@@ -36,11 +41,7 @@ export default Object.freeze({
       "chrome_upload",
       "chrome_wait",
     ]),
-    handlers: Object.freeze([
-      "before_agent_start",
-      "session_shutdown",
-      "session_start",
-      "session_tree",
-    ]),
+    handlers: Object.freeze(["session_shutdown", "session_start", "session_tree"]),
+    skills: Object.freeze(["pi-chrome"]),
   }),
 });

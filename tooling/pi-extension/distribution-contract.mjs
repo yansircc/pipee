@@ -36,7 +36,7 @@ export const readDistributionContract = (root, config) => {
     Array.isArray(config.hostModules) && config.hostModules.length > 0,
     "hostModules must not be empty",
   );
-  for (const key of ["commands", "tools", "handlers"]) {
+  for (const key of ["commands", "tools", "handlers", "skills"]) {
     assert.ok(Array.isArray(config.expected?.[key]), `expected.${key} must be an array`);
   }
 

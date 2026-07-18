@@ -43,6 +43,7 @@
     "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@pi-suite/companion-contracts": "workspace:*",
+    "@pi-suite/extension-kit": "workspace:*",
     "@pi-suite/host-runtime": "workspace:*",
     "@sinclair/typebox": "0.34.41",
     "@types/cross-spawn": "catalog:",

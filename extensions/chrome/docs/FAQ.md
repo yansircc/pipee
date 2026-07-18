@@ -21,10 +21,10 @@ connector is offline; it does not silently switch profiles.
 Not implicitly. Page and input operations use session-owned tabs unless the agent supplies an exact
 tagged tab selector. More than one matching tab is an error.
 
-## Why are some tools absent from the prompt?
+## Who controls which tools are active?
 
-All tools are registered, but only the core set is active by default. The agent calls
-`chrome_enable` to add one advanced capability profile and Pi rebuilds the model context.
+Pi does. Chrome registers all typed tools and never reads or rewrites the global active-tool list.
+This keeps Chrome independent from every other Extension's tool contribution.
 
 ## What survives a browser restart?
 
