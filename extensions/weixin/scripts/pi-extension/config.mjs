@@ -7,7 +7,15 @@ export default Object.freeze({
   }),
   expected: Object.freeze({
     commands: Object.freeze([]),
-    tools: Object.freeze(["weixin_connect", "weixin_disconnect", "weixin_logout", "weixin_status"]),
+    tools: Object.freeze([
+      "weixin_connect",
+      "weixin_disconnect",
+      "weixin_logout",
+      "weixin_send",
+      "weixin_set_default",
+      "weixin_status",
+    ]),
     handlers: Object.freeze(["session_shutdown", "session_start"]),
+    skills: Object.freeze([]),
   }),
 });

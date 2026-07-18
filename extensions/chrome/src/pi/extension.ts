@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { layer as nodeServicesLayer, type NodeServices } from "@effect/platform-node/NodeServices";
+import { structuredView } from "@pi-suite/extension-kit";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -19,21 +20,11 @@ import {
   type BridgeStatusSnapshot,
   type ChromeStatusProjection,
 } from "./status-projection.js";
-import {
-  activateChromeTools,
-  enableChromeProfile,
-  registerChromeTools,
-  type AdvancedChromeProfile,
-  type ToolResult,
-} from "./tools.js";
+import { registerChromeTools, type ToolResult } from "./tools.js";
 
 const EXTENSION_PATH = fileURLToPath(new URL("../../dist/browser-extension/", import.meta.url));
 const registrations = new WeakSet<object>();
 const effectRuntime = ManagedRuntime.make(Layer.empty);
-
-type StructuredStatusUi = ExtensionContext["ui"] & {
-  setStructuredStatus?: (key: string, status: ChromeStatusProjection | undefined) => void;
-};
 
 const provideNode = <A, E>(effect: Effect.Effect<A, E, NodeServices>) =>
   effect.pipe(Effect.provide(nodeServicesLayer));
@@ -58,10 +49,6 @@ const resolveSessionIdentity = (
       groupTitle: projectSessionGroupTitle(id, name, context.sessionManager.getBranch()),
     });
   });
-
-const AGENT_INSTRUCTIONS = `<pi-chrome>
-Chrome tools operate the single compatible local Chrome connector automatically. Start with chrome_snapshot before acting and use returned Action Graph refs. If a tool reports that the extension is unavailable, ask the user to load the unpacked extension directory reported by chrome_status, then retry. Use chrome_enable only when an advanced capability profile is required.
-</pi-chrome>`;
 
 export default function piChrome(pi: ExtensionAPI): void {
   if (registrations.has(pi as object)) return;
@@ -109,8 +96,7 @@ export default function piChrome(pi: ExtensionAPI): void {
   const publishStatus = (scope: ChromeToolScope, status: ChromeStatusProjection) =>
     Effect.sync(() => {
       if (!sameScope(scope)) return;
-      const ui = scope.context.ui as StructuredStatusUi;
-      ui.setStructuredStatus?.("chrome", status);
+      structuredView(scope.context.ui, packageJson.name)?.replace("chrome", status);
       const label =
         status.state === "ready"
           ? "Chrome ready"
@@ -189,32 +175,6 @@ export default function piChrome(pi: ExtensionAPI): void {
       signal,
     );
 
-  const enableToolProfile = (
-    profile: AdvancedChromeProfile,
-    _signal: AbortSignal | undefined,
-    _context: ExtensionContext,
-  ): Promise<ToolResult> =>
-    effectRuntime.runPromise(
-      Effect.sync(() => {
-        const previous = pi.getActiveTools();
-        const active = enableChromeProfile(previous, profile);
-        const enabled = active.filter((name) => !previous.includes(name));
-        pi.setActiveTools(active);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text:
-                enabled.length === 0
-                  ? `Chrome ${profile} capabilities are already enabled.`
-                  : `Enabled Chrome ${profile} capabilities: ${enabled.join(", ")}`,
-            },
-          ],
-          details: { profile, enabled, active },
-        } satisfies ToolResult;
-      }),
-    );
-
   const readStatus = (
     signal: AbortSignal | undefined,
     context: ExtensionContext,
@@ -248,7 +208,6 @@ export default function piChrome(pi: ExtensionAPI): void {
   const activateSession = (context: ExtensionContext) =>
     Effect.gen(function* () {
       yield* bridge.start;
-      yield* Effect.sync(() => pi.setActiveTools(activateChromeTools(pi.getActiveTools())));
       const identity = yield* resolveSessionIdentity(context);
       const previous = activeScope;
       const scope = { context, identity } satisfies ChromeToolScope;
@@ -260,7 +219,7 @@ export default function piChrome(pi: ExtensionAPI): void {
       yield* Effect.sync(() => startStatusRefresh(scope));
     });
 
-  registerChromeTools(pi, executeTool, enableToolProfile, readStatus);
+  registerChromeTools(pi, executeTool, readStatus);
 
   pi.on("session_start", (_event, context) =>
     run(sessionTransitions.withPermits(1)(activateSession(context))),
@@ -268,14 +227,6 @@ export default function piChrome(pi: ExtensionAPI): void {
 
   pi.on("session_tree", (_event, context) =>
     run(sessionTransitions.withPermits(1)(activateSession(context))),
-  );
-
-  pi.on("before_agent_start", (event, context) =>
-    run(
-      requireScope(context).pipe(
-        Effect.map(() => ({ systemPrompt: `${event.systemPrompt}\n${AGENT_INSTRUCTIONS}` })),
-      ),
-    ),
   );
 
   pi.on("session_shutdown", (event) =>

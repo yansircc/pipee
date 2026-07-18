@@ -6,7 +6,13 @@ import type {
 import { layer as nodeServicesLayer, type NodeServices } from "@effect/platform-node/NodeServices";
 import { Type, type Static } from "@sinclair/typebox";
 import { Clock, Data, Effect, Exit, ManagedRuntime, Scope } from "effect";
-import { RuntimeLeaseProjection } from "@pi-suite/companion-contracts/runtime";
+import {
+  makeRuntimeRetentionSlot,
+  structuredView,
+  type RuntimeRetentionSlot,
+} from "@pi-suite/extension-kit";
+import type { StructuredViewPort } from "@pi-suite/companion-contracts/host-capabilities";
+import packageJson from "../../package.json" with { type: "json" };
 import { loadLoopConfig } from "../application/config.js";
 import { makeLoopOperations, type LoopOperations } from "../application/operations.js";
 import { makeLoopRepository, type LoopRepository } from "../application/repository.js";
@@ -25,6 +31,8 @@ type Session = {
   readonly operations: LoopOperations;
   readonly scheduler: Scheduler;
   readonly scope: Scope.Closeable;
+  readonly statusView: StructuredViewPort | undefined;
+  readonly retention: RuntimeRetentionSlot;
 };
 
 export class SessionUnavailable extends Data.TaggedError("SessionUnavailable")<{
@@ -85,32 +93,21 @@ const refreshStatus = (active: Session) =>
       Clock.currentTimeMillis.pipe(Effect.map((observedAt) => ({ loops, observedAt }))),
     ),
     Effect.flatMap(({ loops, observedAt }) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         if (!active.context.hasUI) return;
-        const ui = active.context.ui as typeof active.context.ui & {
-          setStructuredStatus?: (key: string, value?: unknown) => void;
-        };
         active.context.ui.setStatus(
           "pi-loop",
           loops.length === 0 ? undefined : `${loops.length} loop${loops.length === 1 ? "" : "s"}`,
         );
-        ui.setStructuredStatus?.("pi-loop", {
+        active.statusView?.replace("status", {
           kind: "pi-loop/status",
           version: 1,
           sessionId: active.context.sessionManager.getSessionId(),
           observedAt,
           loops: projectLoops(loops),
         });
-        ui.setStructuredStatus?.(
-          "pi-loop/runtime-lease",
-          loops[0]
-            ? RuntimeLeaseProjection.make({
-                kind: "pi/runtime-lease",
-                version: 1,
-                owner: "pi-loop",
-                reason: "automation-present",
-              })
-            : undefined,
+        yield* Effect.sync(() =>
+          active.retention.replace(loops[0] ? { reason: "automation-present" } : undefined),
         );
       }),
     ),
@@ -147,6 +144,7 @@ const startSession = (pi: ExtensionAPI, context: ExtensionContext) =>
           ),
         );
       const scheduler = yield* makeScheduler(repository, deliver, config);
+      const retention = yield* makeRuntimeRetentionSlot(context.ui, packageJson.name, "automation");
       yield* scheduler.run.pipe(
         Effect.catch((error) =>
           Effect.logError("pi-loop scheduler stopped", { cause: error }).pipe(
@@ -155,7 +153,16 @@ const startSession = (pi: ExtensionAPI, context: ExtensionContext) =>
         ),
         Effect.forkIn(scope),
       );
-      const active: Session = { context, config, repository, operations, scheduler, scope };
+      const active: Session = {
+        context,
+        config,
+        repository,
+        operations,
+        scheduler,
+        scope,
+        statusView: structuredView(context.ui, packageJson.name),
+        retention,
+      };
       yield* Effect.sync(() => sessions.set(pi as object, active));
       yield* refreshStatus(active);
       if (context.hasUI && (yield* repository.projectAccess) === "follower") {

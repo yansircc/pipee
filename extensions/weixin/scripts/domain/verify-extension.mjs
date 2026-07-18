@@ -31,8 +31,11 @@ const context = {
   ui: {
     notify: (message) => notifications.push(message),
     setStatus: (key, value) => statuses.set(key, value),
-    setStructuredStatus: (key, value) => statuses.set(key, value),
     setWidget: () => undefined,
+    getPiSuiteCapability: (_ownerId, id) =>
+      id === "pi-suite/runtime-retention@1"
+        ? { acquire: () => ({ release: () => undefined }) }
+        : { replace: (slot, value) => statuses.set(slot, value) },
   },
   sessionManager: {
     getSessionId: () => "release-domain-check",
@@ -53,7 +56,10 @@ try {
 
   await start({}, context);
   const initial = await status.execute("release-status", {}, undefined, undefined, context);
-  assert.match(initial.content[0].text, /已停止，未登录，未绑定 session/);
+  assert.match(initial.content[0].text, /已停止，未登录/);
+  assert.equal(initial.details.phase, "Stopped");
+  assert.equal(initial.details.accountId, undefined);
+  assert.equal(initial.details.defaultSessionId, undefined);
   assert.equal(
     notifications.some((message) => message.includes("运行中")),
     false,
@@ -61,7 +67,8 @@ try {
   );
 
   const stopped = await disconnect.execute("release-disconnect", {}, undefined, undefined, context);
-  assert.match(stopped.content[0].text, /已停止，未登录，未绑定 session/);
+  assert.match(stopped.content[0].text, /已停止，未登录/);
+  assert.equal(stopped.details.phase, "Stopped");
   await shutdown({}, context);
 
   assert.equal(

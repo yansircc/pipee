@@ -7,6 +7,10 @@ import type {
 import { layer as nodeServicesLayer } from "@effect/platform-node/NodeServices";
 import { Data, Effect } from "effect";
 import { FileSystem } from "effect/FileSystem";
+import {
+  capabilitySlotKey,
+  makeExtensionHostCapabilities,
+} from "@pi-suite/host-runtime/extension-capabilities";
 import { setTimeout as delay } from "node:timers/promises";
 import piLoop from "../src/pi/extension.js";
 
@@ -53,6 +57,14 @@ it.effect("gates the real Pi callback path until the agent becomes idle", () =>
       const messages: Array<string> = [];
       const entries: Array<unknown> = [];
       const statuses = new Map<string, unknown>();
+      const capabilities = makeExtensionHostCapabilities({
+        replaceStructuredView: (ownerId, slot, value) => {
+          const key = capabilitySlotKey(ownerId, slot);
+          if (value === undefined) statuses.delete(key);
+          else statuses.set(key, value);
+        },
+        replaceMediaView: () => undefined,
+      });
       const pi = {
         on: (name: string, handler: Handler) => handlers.set(name, handler),
         registerTool: (tool: ToolDefinition) => tools.set(tool.name, tool),
@@ -68,10 +80,8 @@ it.effect("gates the real Pi callback path until the agent becomes idle", () =>
         ui: {
           notify: () => undefined,
           setStatus: () => undefined,
-          setStructuredStatus: (key: string, value?: unknown) => {
-            if (value === undefined) statuses.delete(key);
-            else statuses.set(key, value);
-          },
+          getPiSuiteCapability: (ownerId: string, id: string) =>
+            capabilities.providers.get(id)?.forExtension(ownerId),
         },
         sessionManager: {
           getSessionId: () => "session-automation",
@@ -138,17 +148,13 @@ it.effect("gates the real Pi callback path until the agent becomes idle", () =>
         ),
       );
       expect(messages).toEqual(["inspect build", "immediate probe"]);
-      expect(statuses.get("pi-loop")).toMatchObject({
+      expect(statuses.get(capabilitySlotKey("@yansircc/pi-loop", "status"))).toMatchObject({
         kind: "pi-loop/status",
         version: 1,
         sessionId: "session-automation",
         loops: [{ prompt: "inspect build" }, { prompt: "immediate probe" }],
       });
-      expect(statuses.get("pi-loop/runtime-lease")).toMatchObject({
-        kind: "pi/runtime-lease",
-        version: 1,
-        owner: "pi-loop",
-      });
+      expect(capabilities.hasRetention()).toBe(true);
 
       yield* invoke("run-now", () =>
         runNow?.execute("run-missing", { id: "missing" }, undefined, undefined, context),
@@ -156,6 +162,7 @@ it.effect("gates the real Pi callback path until the agent becomes idle", () =>
       expect(messages).toEqual(["inspect build", "immediate probe"]);
 
       yield* invoke("session_shutdown", () => shutdown?.({}, context));
+      expect(capabilities.hasRetention()).toBe(false);
       yield* invoke("session_restart", () => start?.({}, context));
       yield* invoke("agent_idle", () => idle?.({}, context));
       yield* wait(20);

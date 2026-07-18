@@ -4,9 +4,16 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { Effect, Exit, Stream } from "effect";
+import { Effect, Exit, Scope, Stream } from "effect";
 import QRCode from "qrcode";
-import { RuntimeLeaseProjection } from "@pi-suite/companion-contracts/runtime";
+import packageJson from "../package.json" with { type: "json" };
+import type { MediaViewPort } from "@pi-suite/companion-contracts/host-capabilities";
+import {
+  makeRuntimeRetentionSlot,
+  mediaView,
+  structuredView,
+  type RuntimeRetentionSlot,
+} from "@pi-suite/extension-kit";
 import { Bridge, type BridgeStatus } from "../src/bridge.ts";
 import { BridgeConfigurationError, QrCodeError } from "../src/errors.ts";
 import type { LoginEvent } from "../src/ilink.ts";
@@ -23,21 +30,6 @@ import {
   sameSessionStatus,
 } from "../src/session-status.ts";
 import { makeStatusSync } from "../src/status-sync.ts";
-
-interface ImageWidgetUi {
-  setImageWidget?: (
-    key: string,
-    image:
-      | {
-          dataUrl: string;
-          alt: string;
-          width: number;
-          height: number;
-        }
-      | undefined,
-    options?: { placement?: "aboveEditor" | "belowEditor" },
-  ) => void;
-}
 
 const sessionFrom = (ctx: ExtensionContext) => ({
   sessionId: ctx.sessionManager.getSessionId(),
@@ -63,10 +55,10 @@ const formatStatus = (status: BridgeStatus): string => {
   return `${state}${account}${session}${send}${error}`;
 };
 
-const clearLoginWidget = (ctx: ExtensionContext, imageUi: ImageWidgetUi) =>
+const clearLoginWidget = (ctx: ExtensionContext, image: MediaViewPort | undefined) =>
   Effect.sync(() => {
     ctx.ui.setWidget("weixin-login", undefined);
-    imageUi.setImageWidget?.("weixin-login", undefined);
+    image?.replace("login", undefined);
   });
 
 const login = (ctx: ExtensionContext) =>
@@ -75,7 +67,7 @@ const login = (ctx: ExtensionContext) =>
       return yield* new BridgeConfigurationError({ reason: "微信登录需要可交互 UI" });
     }
     const bridge = yield* Bridge;
-    const imageUi = ctx.ui as typeof ctx.ui & ImageWidgetUi;
+    const image = mediaView(ctx.ui, packageJson.name);
     const eventMessages: Record<LoginEvent["_tag"], (event: LoginEvent) => string> = {
       AwaitingScan: () => "等待微信扫码",
       Scanned: () => "已扫码，请在微信确认",
@@ -110,7 +102,7 @@ const login = (ctx: ExtensionContext) =>
               Effect.asVoid,
             )
           : Effect.gen(function* () {
-              if (!imageUi.setImageWidget) {
+              if (!image) {
                 return yield* new BridgeConfigurationError({
                   reason: "当前宿主不支持图片 Widget，请更新 pi-web",
                 });
@@ -125,16 +117,12 @@ const login = (ctx: ExtensionContext) =>
                 catch: (cause) => new QrCodeError({ cause }),
               });
               yield* Effect.sync(() => {
-                imageUi.setImageWidget?.(
-                  "weixin-login",
-                  {
-                    dataUrl,
-                    alt: "微信登录二维码",
-                    width: 384,
-                    height: 384,
-                  },
-                  { placement: "aboveEditor" },
-                );
+                image.replace("login", {
+                  dataUrl,
+                  alt: "微信登录二维码",
+                  width: 384,
+                  height: 384,
+                });
               });
             }),
       onEvent: (event: LoginEvent) =>
@@ -154,7 +142,7 @@ const login = (ctx: ExtensionContext) =>
     };
     const auth = yield* bridge
       .connect(callbacks, sessionFrom(ctx))
-      .pipe(Effect.ensuring(clearLoginWidget(ctx, imageUi)));
+      .pipe(Effect.ensuring(clearLoginWidget(ctx, image)));
     return auth;
   });
 
@@ -179,6 +167,7 @@ const toolResult = (text: string, details: unknown): AgentToolResult<unknown> =>
 export default function weixinExtension(pi: ExtensionAPI): void {
   let runtime: PiWeixinRuntime | undefined;
   let activeSessionId: string | undefined;
+  let retentionScope: Scope.Closeable | undefined;
   const statusSync = makeStatusSync();
 
   const requireRuntime = (): PiWeixinRuntime => {
@@ -189,6 +178,7 @@ export default function weixinExtension(pi: ExtensionAPI): void {
     statusSync.replace(
       Effect.gen(function* () {
         const bridge = yield* Bridge;
+        const statusView = structuredView(ctx.ui, packageJson.name);
         yield* bridge.statusChanges.pipe(
           Stream.map(
             Exit.match({
@@ -199,7 +189,7 @@ export default function weixinExtension(pi: ExtensionAPI): void {
           Stream.changesWith(sameSessionStatus),
           Stream.runForEach((status) =>
             Effect.sync(() => setPiWeixinRetention(status.enabled)).pipe(
-              Effect.andThen(Effect.sync(() => publishSessionStatus(ctx.ui, status))),
+              Effect.andThen(Effect.sync(() => publishSessionStatus(ctx.ui, statusView, status))),
             ),
           ),
         );
@@ -343,39 +333,52 @@ export default function weixinExtension(pi: ExtensionAPI): void {
 
   pi.on("session_start", (_event, ctx) => {
     const sessionId = ctx.sessionManager.getSessionId();
+    let retained = false;
+    let retention: RuntimeRetentionSlot | undefined;
+    let scope: Scope.Closeable | undefined;
     const value = acquirePiWeixinRuntime({
       sessionId,
-      setRetained: (retained) => {
-        const ui = ctx.ui as typeof ctx.ui & {
-          setStructuredStatus?: (key: string, value?: unknown) => void;
-        };
-        ui.setStructuredStatus?.(
-          "pi-weixin/runtime-lease",
-          retained
-            ? RuntimeLeaseProjection.make({
-                kind: "pi/runtime-lease",
-                version: 1,
-                owner: "pi-weixin",
-                reason: "global-bridge-enabled",
-              })
-            : undefined,
-        );
+      setRetained: (next) => {
+        retained = next;
+        retention?.replace(next ? { reason: "global-bridge-enabled" } : undefined);
       },
     });
     runtime = value;
     activeSessionId = sessionId;
-    return value.runPromise(
-      Effect.gen(function* () {
-        const bridge = yield* Bridge;
-        yield* startStatusSync(ctx);
-        yield* bridge.start;
-      }),
-    );
+    return value
+      .runPromise(
+        Effect.gen(function* () {
+          scope = yield* Scope.make("sequential");
+          retention = yield* makeRuntimeRetentionSlot(
+            ctx.ui,
+            packageJson.name,
+            "global-bridge",
+          ).pipe(Effect.provideService(Scope.Scope, scope));
+          retentionScope = scope;
+          retention.replace(retained ? { reason: "global-bridge-enabled" } : undefined);
+          const bridge = yield* Bridge;
+          yield* startStatusSync(ctx);
+          yield* bridge.start;
+        }).pipe(
+          Effect.tapCause((cause) =>
+            Effect.gen(function* () {
+              if (scope) yield* Scope.close(scope, Exit.failCause(cause));
+              runtime = undefined;
+              activeSessionId = undefined;
+              retentionScope = undefined;
+            }),
+          ),
+        ),
+      )
+      .catch((error) =>
+        Promise.resolve(releasePiWeixinRuntime(sessionId)).then(() => Promise.reject(error)),
+      );
   });
 
   pi.on("session_shutdown", () => {
     const currentRuntime = runtime;
     const sessionId = activeSessionId;
+    const scope = retentionScope;
     if (!currentRuntime || !sessionId) return;
     return currentRuntime
       .runPromise(
@@ -383,12 +386,12 @@ export default function weixinExtension(pi: ExtensionAPI): void {
           const bridge = yield* Bridge;
           yield* statusSync.close;
           yield* bridge.releaseSession(sessionId);
+          if (scope) yield* Scope.close(scope, Exit.succeed(undefined));
+          runtime = undefined;
+          activeSessionId = undefined;
+          retentionScope = undefined;
         }),
       )
-      .finally(() => {
-        runtime = undefined;
-        activeSessionId = undefined;
-        return releasePiWeixinRuntime(sessionId);
-      });
+      .finally(() => releasePiWeixinRuntime(sessionId));
   });
 }

@@ -13,15 +13,8 @@ Load the package's `dist/browser-extension` directory from `chrome://extensions`
 mode enabled. The popup is read-only. Once loaded, the extension connects to the local Pi bridge
 automatically.
 
-Ask Pi to use Chrome normally. Core tools are active immediately:
-
-```text
-chrome_navigate chrome_snapshot chrome_read chrome_click chrome_fill chrome_press
-chrome_status chrome_enable
-```
-
-All other atomic tools are registered but stay out of the default model context. The agent calls
-`chrome_enable` when it needs a tabs, page, network, capture, or interaction profile.
+Ask Pi to use Chrome normally. All 25 typed atomic tools and `chrome_status` are registered directly;
+the Extension never reads or rewrites Pi's active-tool selection.
 
 `chrome_status` reports one of `ready`, `waiting-for-extension`, `offline`, or `error`, plus the
 extension directory when setup is incomplete. This status is read-only in Pi Web and in the Chrome
@@ -29,7 +22,7 @@ popup.
 
 ## Operation model
 
-One operation descriptor map owns every atomic tool name, profile, public schema, wire projection,
+One operation descriptor map owns every atomic tool name, public schema, wire projection,
 result contract, and deadline. Tool registration and browser dispatch derive from that map; there
 are no aliases or generic command runners.
 
@@ -67,7 +60,7 @@ pnpm verify
 vp run smoke:connector
 ```
 
-The package contains a self-contained Pi bundle and the built browser extension. Candidate checks
+The package contains a self-contained Pi Extension bundle and the built browser extension. Candidate checks
 load the raw npm archive without installing package-local dependencies.
 
 See [Architecture](./docs/ARCHITECTURE.md), [Examples](./docs/EXAMPLES.md), and

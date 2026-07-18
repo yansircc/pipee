@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Removed profile-based disclosure and global active-tool mutation. All typed Chrome tools now
+  register directly, leaving active-tool selection entirely to Pi.
+- Added the on-demand `pi-chrome` workflow Skill and removed permanent agent-instruction injection.
+
 ## 0.1.2
 
 - Added verified npm publication for version-matched `v*` tags, including provenance and a

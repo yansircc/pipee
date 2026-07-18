@@ -1,11 +1,11 @@
 import type { WeixinStatusProjection } from "@pi-suite/companion-contracts/weixin";
+import type { StructuredViewPort } from "@pi-suite/companion-contracts/host-capabilities";
 import type { BridgeStatus } from "./bridge.ts";
 
 export type { WeixinStatusProjection };
 
 export interface WeixinStatusUi {
   setStatus(key: string, text: string | undefined): void;
-  setStructuredStatus?(key: string, status: WeixinStatusProjection | undefined): void;
 }
 
 export const projectSessionStatus = (status: BridgeStatus | undefined): WeixinStatusProjection => ({
@@ -32,10 +32,11 @@ export const sameSessionStatus = (
   left.defaultSessionId === right.defaultSessionId &&
   left.error === right.error;
 
-export const publishSessionStatus = (ui: WeixinStatusUi, status: WeixinStatusProjection): void => {
-  if (typeof ui.setStructuredStatus === "function") {
-    ui.setStructuredStatus("weixin", status);
-    return;
-  }
+export const publishSessionStatus = (
+  ui: WeixinStatusUi,
+  view: StructuredViewPort | undefined,
+  status: WeixinStatusProjection,
+): void => {
+  view?.replace("status", status);
   ui.setStatus("weixin", status.connected ? "微信已连接" : "微信未连接");
 };

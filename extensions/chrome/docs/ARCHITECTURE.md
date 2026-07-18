@@ -13,11 +13,11 @@ the unpacked extension. After that, the browser connector registers itself with 
 ## Stable and changing axes
 
 The stable axis is the wire domain: `tab`, `page`, `input`, and internal `system`. The changing axis
-is which generated atomic tools are present in the model context. `chrome_enable` changes disclosure,
-not execution semantics.
+is the typed operation chosen for the next browser action. Pi alone owns active-tool selection;
+Chrome registers its complete tool surface and never reads or rewrites that selection.
 
 `src/protocol/operation-contract.ts` is the single source for operation schemas, result contracts,
-deadlines, tool names, descriptions, profiles, and tool-to-wire projection. The Pi registrar and the
+deadlines, tool names, descriptions, and tool-to-wire projection. The Pi registrar and the
 browser interpreter consume that algebra exhaustively.
 
 ## Pi runtime
@@ -27,10 +27,9 @@ bridge, captures the current SDK context, publishes status, and cleans the previ
 when identity changes. Scope replacement and shutdown are serialized. The status polling fiber and
 bridge are stopped on shutdown.
 
-All atomic tools, `chrome_enable`, and `chrome_status` are registered at extension load. Core tools
-are activated immediately. Tool admission checks only two runtime facts: the invoking Pi session
-identity is active, and the compatible connector is live. It never consults permission or approval
-state.
+All 25 atomic tools and `chrome_status` are registered at extension load. Tool admission checks only
+two runtime facts: the invoking Pi session identity is active, and the compatible connector is live.
+It never consults permission, approval, profile, or Extension-owned visibility state.
 
 ## Bridge and browser runtime
 

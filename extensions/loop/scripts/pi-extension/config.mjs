@@ -18,5 +18,6 @@ export default Object.freeze({
       "schedule_wakeup",
     ]),
     handlers: Object.freeze(["agent_end", "agent_start", "session_shutdown", "session_start"]),
+    skills: Object.freeze([]),
   }),
 });

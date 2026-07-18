@@ -5,8 +5,8 @@
   "type": "module",
   "exports": {
     "./chrome": "./src/chrome.ts",
+    "./host-capabilities": "./src/host-capabilities.ts",
     "./loop": "./src/loop.ts",
-    "./runtime": "./src/runtime.ts",
     "./weixin": "./src/weixin.ts"
   },
   "dependencies": {

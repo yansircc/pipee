@@ -67,7 +67,7 @@ vi.mock("../../src/pi/node-bridge.js", async () => {
 });
 
 import piChrome from "../../src/pi/extension.js";
-import { CHROME_DEFAULT_TOOL_NAMES, CHROME_TOOL_NAMES } from "../../src/pi/tools.js";
+import { CHROME_TOOL_NAMES } from "../../src/pi/tools.js";
 
 type EventHandler = (event: unknown, context: ExtensionContext) => unknown;
 
@@ -76,17 +76,12 @@ const fixture = () => {
   const tools = new Map<string, ToolDefinition>();
   const statuses: Array<unknown> = [];
   let commands = 0;
-  let activeTools = ["read"];
   let sessionId = "runtime-session";
   const pi = {
     on: (event: string, handler: EventHandler) => handlers.set(event, handler),
     registerTool: (tool: ToolDefinition) => tools.set(tool.name, tool),
     registerCommand: () => {
       commands += 1;
-    },
-    getActiveTools: () => activeTools,
-    setActiveTools: (names: Array<string>) => {
-      activeTools = names;
     },
   } as unknown as ExtensionAPI;
   const context = {
@@ -100,7 +95,9 @@ const fixture = () => {
     },
     ui: {
       setStatus: () => undefined,
-      setStructuredStatus: (_key: string, status: unknown) => statuses.push(status),
+      getPiSuiteCapability: () => ({
+        replace: (_slot: string, status: unknown) => statuses.push(status),
+      }),
     },
   } as unknown as ExtensionContext;
   return {
@@ -110,7 +107,6 @@ const fixture = () => {
     tools,
     statuses,
     commandCount: () => commands,
-    activeTools: () => activeTools,
     setSessionId: (value: string) => {
       sessionId = value;
     },
@@ -129,22 +125,12 @@ it("admits same-session Agent Chrome tools across lifecycle context wrappers", a
   piChrome(test.pi);
 
   expect([...test.tools.keys()]).toEqual(CHROME_TOOL_NAMES);
-  expect(test.activeTools()).toEqual(["read"]);
   expect(test.commandCount()).toBe(0);
 
   await handler(test.handlers, "session_start")({}, test.context);
-  expect(test.activeTools()).toEqual(["read", ...CHROME_DEFAULT_TOOL_NAMES]);
   expect(test.statuses.at(-1)).toMatchObject({ version: 3, state: "ready" });
 
   const callbackContext = { ...test.context } as ExtensionContext;
-  const start = await handler(test.handlers, "before_agent_start")(
-    { systemPrompt: "base" },
-    callbackContext,
-  );
-  expect(start).toMatchObject({
-    systemPrompt: expect.stringContaining("operate the single compatible local Chrome connector"),
-  });
-
   const status = test.tools.get("chrome_status")!;
   const result = await status.execute("status", {}, undefined, undefined, callbackContext);
   expect(result).toMatchObject({ details: { status: { state: "ready" } } });

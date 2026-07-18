@@ -47,7 +47,8 @@
     "CHANGELOG.md",
     "CONTRIBUTING.md",
     "dist/browser-extension",
-    "docs"
+    "docs",
+    "skills"
   ],
   "type": "module",
   "publishConfig": {
@@ -72,6 +73,7 @@
     "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@pi-suite/companion-contracts": "workspace:*",
+    "@pi-suite/extension-kit": "workspace:*",
     "@puppeteer/browsers": "3.0.6",
     "@types/chrome": "0.1.36",
     "@types/cross-spawn": "catalog:",
@@ -104,6 +106,9 @@
   "pi": {
     "extensions": [
       "./dist/pi/extension.js"
+    ],
+    "skills": [
+      "./skills/pi-chrome"
     ]
   }
 }

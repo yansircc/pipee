@@ -28,7 +28,6 @@ const context = {
   ui: {
     notify: () => undefined,
     setStatus: () => undefined,
-    setStructuredStatus: () => undefined,
   },
   sessionManager: {
     getSessionId: () => "release-domain-check",
