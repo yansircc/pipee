@@ -11,6 +11,7 @@ import { extensionStructuredStatusOrUndefined } from "@/lib/extension-status"
 import { decodeExtensionImageWidget } from "@/lib/extension-widget"
 import { capabilitySlotKey, makeExtensionHostCapabilities } from "@pi-suite/host-runtime/extension-capabilities"
 import { PI_SUITE_CAPABILITY_METHOD } from "@pi-suite/companion-contracts/host-capabilities"
+import type { CandidateHash, WebSurfaceActionRequest } from "@pi-suite/companion-contracts/web-surface"
 import { Cause, Context, Crypto, Data, Deferred, Effect, Exit, FiberSet, Option, Semaphore } from "effect"
 
 export class PiInteractionConflictError extends Data.TaggedError("PiInteractionConflictError")<{
@@ -74,6 +75,7 @@ export const makeExtensionUiRuntime = (
   publish: (event: typeof SessionScopedEvent.Type) => void,
   theme: unknown,
   customUnavailable: () => unknown,
+  webSurfaceCandidates: ReadonlyMap<string, CandidateHash>,
 ) =>
   Effect.gen(function* () {
     let projection = ExtensionUiProjection.make({
@@ -81,6 +83,7 @@ export const makeExtensionUiRuntime = (
       pendingInteraction: null,
       statuses: [],
       widgets: [],
+      webSurfaces: [],
     })
     let pending: PendingUi | null = null
     const requests = new Map<string, PendingUi>()
@@ -124,6 +127,16 @@ export const makeExtensionUiRuntime = (
     }
 
     const extensionCapabilities = makeExtensionHostCapabilities({
+      webSurfaceCandidates,
+      replaceWebSurface: (packageName, surface) => {
+        commit((current) => ({
+          ...current,
+          webSurfaces: [
+            ...current.webSurfaces.filter((item) => item.packageName !== packageName),
+            ...(surface === undefined ? [] : [surface]),
+          ],
+        }))
+      },
       replaceStructuredView: (ownerId, slot, value) => {
         const key = capabilitySlotKey(ownerId, slot)
         const status = value === undefined ? undefined : extensionStructuredStatusOrUndefined(value)
@@ -375,6 +388,8 @@ export const makeExtensionUiRuntime = (
       projection: () => projection,
       hasRetention: Effect.sync(extensionCapabilities.hasRetention),
       resolveInteraction,
+      dispatchWebSurface: (packageName: string, candidateHash: CandidateHash, request: WebSurfaceActionRequest) =>
+        extensionCapabilities.dispatchWebSurface(packageName, candidateHash, request),
       dispose,
     }
   })

@@ -1,10 +1,11 @@
 import type { ReactNode } from "react"
 import * as stylex from "@stylexjs/stylex"
-import { HeadContent, Link, Outlet, Scripts, createRootRoute } from "@tanstack/react-router"
+import { HeadContent, Link, Scripts, createRootRoute } from "@tanstack/react-router"
 import "katex/dist/katex.min.css"
 import { I18nProvider } from "@/lib/i18n"
 import { BrowserPreferencesProvider } from "@/browser/preferences-react"
 import appCss from "@/styles/app.css?url"
+import { ApplicationFrame } from "@/components/ApplicationFrame"
 
 export const Route = createRootRoute({
   head: () => ({
@@ -29,7 +30,7 @@ function Root() {
     <RootDocument>
       <BrowserPreferencesProvider>
         <I18nProvider>
-          <Outlet />
+          <ApplicationFrame />
         </I18nProvider>
       </BrowserPreferencesProvider>
     </RootDocument>

@@ -77,6 +77,7 @@ export const initialSessionUiState: SessionUiState = {
     pendingInteraction: null,
     statuses: [],
     widgets: [],
+    webSurfaces: [],
   }),
   isCompacting: false,
   compactResult: null,

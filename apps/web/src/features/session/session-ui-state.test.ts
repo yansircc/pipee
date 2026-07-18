@@ -39,6 +39,7 @@ const runtime = (runId: string | null, streaming: boolean, runtimeIdentityValue 
       pendingInteraction: null,
       statuses: [],
       widgets: [],
+      webSurfaces: [],
     },
   })
 
@@ -831,6 +832,7 @@ test("projects extension interaction without a run and rejects stale projection 
     },
     statuses: [],
     widgets: [],
+    webSurfaces: [],
   }
   const projected = sessionUiReducer(idle, {
     _tag: "RuntimeEvent",

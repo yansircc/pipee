@@ -43,6 +43,7 @@ export interface RuntimeHandle {
   readonly runtime: PiRuntime
   readonly scope: Scope.Closeable
   readonly activity: Queue.Queue<void>
+  readonly options: PiRuntimeCreateOptions
 }
 
 export interface ActiveRuntimeSession {
@@ -85,6 +86,8 @@ export class SessionRuntimeRegistry extends Context.Service<
     readonly active: (sessionId: string) => Effect.Effect<RuntimeHandle, RuntimeRegistryError>
     readonly activeOption: (sessionId: string) => Effect.Effect<RuntimeHandle | null>
     readonly close: (sessionId: string) => Effect.Effect<void>
+    readonly restart: (sessionId: string) => Effect.Effect<RuntimeHandle, RuntimeRegistryError>
+    readonly invalidatePackageChanges: Effect.Effect<void, RuntimeRegistryError>
     readonly nextRunId: Effect.Effect<RunId, RuntimeRegistryError>
     readonly promptRequest: (
       sessionId: string,
@@ -131,6 +134,7 @@ export class SessionRuntimeRegistry extends Context.Service<
 export interface SessionRuntimeAdapter {
   readonly createRuntime: Context.Service.Shape<typeof PiAgentAdapter>["createRuntime"]
   readonly createFork: Context.Service.Shape<typeof PiAgentAdapter>["createFork"]
+  readonly packageFingerprint: Context.Service.Shape<typeof PiAgentAdapter>["packageFingerprint"]
 }
 
 export interface RunIdGenerator {
@@ -219,6 +223,7 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
       runtime: PiRuntime,
       identity: typeof RuntimeIdentity.Type,
       scope: Scope.Closeable,
+      options: PiRuntimeCreateOptions,
     ) =>
       Effect.gen(function* () {
         const activity = yield* Queue.sliding<void>(1)
@@ -228,6 +233,7 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
           runtime,
           scope,
           activity,
+          options,
         }
         const activeSlot: Slot = { _tag: "Active", handle }
 
@@ -323,7 +329,7 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
         const startup = adapter.createRuntime(options, identity).pipe(
           Effect.provideService(Scope.Scope, scope),
           Effect.mapError((cause) => new RuntimeRegistryError({ operation: "runtime.start", message: cause.message })),
-          Effect.flatMap((runtime) => installHandle(requestedId, decision.starting, runtime, identity, scope)),
+          Effect.flatMap((runtime) => installHandle(requestedId, decision.starting, runtime, identity, scope, options)),
           Effect.matchCauseEffect({
             onFailure: (cause) =>
               Effect.gen(function* () {
@@ -350,6 +356,34 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
       Effect.map((value) => RunId.make(value)),
       Effect.mapError((cause) => new RuntimeRegistryError({ operation: "runtime.runId", message: String(cause) })),
     )
+
+    const restart = (sessionId: string) =>
+      Effect.gen(function* () {
+        const handle = yield* active(sessionId)
+        const options = handle.options
+        yield* closeHandle(handle)
+        return yield* start(sessionId, options)
+      })
+
+    const invalidatePackageChanges = Effect.gen(function* () {
+      const current = yield* SynchronizedRef.get(table)
+      const handles = [...current.slots.values()].flatMap((slot) => (slot._tag === "Active" ? [slot.handle] : []))
+      const changedHandles = yield* Effect.forEach(
+        handles,
+        (handle) =>
+          adapter.packageFingerprint(handle.runtime.cwd).pipe(
+            Effect.map((fingerprint) => (fingerprint === handle.runtime.packageFingerprint ? null : handle)),
+            Effect.mapError(
+              (error) => new RuntimeRegistryError({ operation: "runtime.packageFingerprint", message: error.message }),
+            ),
+          ),
+        { concurrency: "unbounded" },
+      )
+      yield* Effect.forEach(changedHandles, (handle) => (handle === null ? Effect.void : closeHandle(handle)), {
+        concurrency: "unbounded",
+        discard: true,
+      })
+    })
 
     const operationError = (operation: string) => (cause: { readonly message: string }) =>
       cause instanceof PiPromptIdempotencyError
@@ -570,6 +604,8 @@ export const makeSessionRuntimeRegistry = (adapter: SessionRuntimeAdapter, idGen
       active,
       activeOption,
       close,
+      restart,
+      invalidatePackageChanges,
       nextRunId,
       promptRequest,
       compact,

@@ -42,6 +42,7 @@ const runtimeSnapshot = (sessionId: string, sessionFile: string) =>
       pendingInteraction: null,
       statuses: [],
       widgets: [],
+      webSurfaces: [],
     },
   })
 
@@ -58,6 +59,7 @@ const makeRuntime = (
       sessionId,
       sessionFile,
       cwd: "/repo",
+      packageFingerprint: "packages-v1",
       created: "2026-07-15T00:00:00.000Z",
       firstMessage: Ref.get(firstMessage),
       isConversationEmpty: Ref.get(firstMessage).pipe(Effect.map((message) => message === null)),
@@ -96,6 +98,7 @@ const makeRuntime = (
       setTools: () => Effect.void,
       invokeSlashCommand: () => Effect.void,
       resolveInteraction: () => Effect.void,
+      dispatchWebSurface: () => Effect.succeed({ _tag: "Rejected", reason: "closed" }),
       reload: Effect.void,
       dispose: Ref.update(disposeCount, (count) => count + 1).pipe(Effect.andThen(PubSub.shutdown(events))),
     }
@@ -115,6 +118,7 @@ it.effect("shares one runtime across concurrent starts", () =>
     const adapter: SessionRuntimeAdapter = {
       createRuntime: () =>
         Ref.update(createCount, (count) => count + 1).pipe(Effect.andThen(Deferred.await(gate)), Effect.as(runtime)),
+      packageFingerprint: () => Effect.succeed("packages-v1"),
       createFork: () => Effect.succeed({ cancelled: true }),
     }
     const registry = yield* makeSessionRuntimeRegistry(adapter, runIds)
@@ -146,6 +150,7 @@ it.effect("clears failed Starting state and allows retry", () =>
               : Effect.succeed(runtime),
           ),
         ),
+      packageFingerprint: () => Effect.succeed("packages-v1"),
       createFork: () => Effect.succeed({ cancelled: true }),
     }
     const registry = yield* makeSessionRuntimeRegistry(adapter, runIds)
@@ -166,6 +171,7 @@ it.effect("projects active sessions before persistence", () =>
     const runtime = yield* makeRuntime("session-transient", disposeCount)
     const adapter: SessionRuntimeAdapter = {
       createRuntime: () => Effect.succeed(runtime),
+      packageFingerprint: () => Effect.succeed("packages-v1"),
       createFork: () => Effect.succeed({ cancelled: true }),
     }
     const registry = yield* makeSessionRuntimeRegistry(adapter, runIds)
@@ -192,6 +198,7 @@ it.effect("projects the accepted first prompt before the run finishes", () =>
     const runtime = yield* makeRuntime("session-title", disposeCount, Deferred.await(release))
     const adapter: SessionRuntimeAdapter = {
       createRuntime: () => Effect.succeed(runtime),
+      packageFingerprint: () => Effect.succeed("packages-v1"),
       createFork: () => Effect.succeed({ cancelled: true }),
     }
     const registry = yield* makeSessionRuntimeRegistry(adapter, runIds)
@@ -222,6 +229,7 @@ it.effect("returns prompt request identity before its completion", () =>
     const registry = yield* makeSessionRuntimeRegistry(
       {
         createRuntime: () => Effect.succeed(runtime),
+        packageFingerprint: () => Effect.succeed("packages-v1"),
         createFork: () => Effect.succeed({ cancelled: true }),
       },
       runIds,
@@ -274,6 +282,7 @@ it.effect("invalidates running sessions after prompt finalizers clear busy state
     const registry = yield* makeSessionRuntimeRegistry(
       {
         createRuntime: () => Effect.succeed(runtime),
+        packageFingerprint: () => Effect.succeed("packages-v1"),
         createFork: () => Effect.succeed({ cancelled: true }),
       },
       runIds,
@@ -314,6 +323,7 @@ it.effect("keeps startup owned by the registry when the first waiter is interrup
     const adapter: SessionRuntimeAdapter = {
       createRuntime: () =>
         Ref.update(createCount, (count) => count + 1).pipe(Effect.andThen(Deferred.await(gate)), Effect.as(runtime)),
+      packageFingerprint: () => Effect.succeed("packages-v1"),
       createFork: () => Effect.succeed({ cancelled: true }),
     }
     const registry = yield* makeSessionRuntimeRegistry(adapter, runIds)
@@ -346,6 +356,7 @@ it.effect("interrupts Starting work and prevents resurrection after shutdown", (
     const adapter: SessionRuntimeAdapter = {
       createRuntime: () =>
         Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(gate)), Effect.as(runtime)),
+      packageFingerprint: () => Effect.succeed("packages-v1"),
       createFork: () => Effect.succeed({ cancelled: true }),
     }
     const registry = yield* makeSessionRuntimeRegistry(adapter, runIds)
@@ -381,6 +392,7 @@ it.effect("closes the old handle after a successful fork", () =>
     const runtime = yield* makeRuntime("session-3", disposeCount)
     const adapter: SessionRuntimeAdapter = {
       createRuntime: () => Effect.succeed(runtime),
+      packageFingerprint: () => Effect.succeed("packages-v1"),
       createFork: () =>
         Effect.succeed({ cancelled: false, newSessionId: "forked", newSessionFile: "/sessions/forked.jsonl" }),
     }
@@ -398,6 +410,7 @@ it.effect("expires idle runtime scopes with TestClock", () =>
     const runtime = yield* makeRuntime("session-4", disposeCount)
     const adapter: SessionRuntimeAdapter = {
       createRuntime: () => Effect.succeed(runtime),
+      packageFingerprint: () => Effect.succeed("packages-v1"),
       createFork: () => Effect.succeed({ cancelled: true }),
     }
     const registry = yield* makeSessionRuntimeRegistry(adapter, runIds)
@@ -419,6 +432,7 @@ it.effect("keeps a runtime alive while an extension owns a runtime lease", () =>
     }
     const adapter: SessionRuntimeAdapter = {
       createRuntime: () => Effect.succeed(leased),
+      packageFingerprint: () => Effect.succeed("packages-v1"),
       createFork: () => Effect.succeed({ cancelled: true }),
     }
     const registry = yield* makeSessionRuntimeRegistry(adapter, runIds)
@@ -442,6 +456,7 @@ it.effect("retention is independent from public snapshot availability", () =>
     }
     const adapter: SessionRuntimeAdapter = {
       createRuntime: () => Effect.succeed(runtime),
+      packageFingerprint: () => Effect.succeed("packages-v1"),
       createFork: () => Effect.succeed({ cancelled: true }),
     }
     const registry = yield* makeSessionRuntimeRegistry(adapter, runIds)
@@ -477,6 +492,7 @@ it.effect("returns bash run identity before completion and redacts background fa
     }
     const adapter: SessionRuntimeAdapter = {
       createRuntime: () => Effect.succeed(runtime),
+      packageFingerprint: () => Effect.succeed("packages-v1"),
       createFork: () => Effect.succeed({ cancelled: true }),
     }
     const registry = yield* makeSessionRuntimeRegistry(adapter, runIds)
@@ -521,6 +537,7 @@ it.effect("rejects an unadmitted bash operation synchronously", () =>
     const registry = yield* makeSessionRuntimeRegistry(
       {
         createRuntime: () => Effect.succeed(runtime),
+        packageFingerprint: () => Effect.succeed("packages-v1"),
         createFork: () => Effect.succeed({ cancelled: true }),
       },
       runIds,
@@ -542,6 +559,7 @@ it.effect("replays pre-SSE events and releases disconnected subscriptions", () =
     const runtime = yield* makeRuntime("session-6", disposeCount)
     const adapter: SessionRuntimeAdapter = {
       createRuntime: () => Effect.succeed(runtime),
+      packageFingerprint: () => Effect.succeed("packages-v1"),
       createFork: () => Effect.succeed({ cancelled: true }),
     }
     const registry = yield* makeSessionRuntimeRegistry(adapter, runIds)
@@ -572,6 +590,7 @@ it.effect("closes every active handle on registry shutdown", () =>
     const runtime = yield* makeRuntime("session-7", disposeCount)
     const adapter: SessionRuntimeAdapter = {
       createRuntime: () => Effect.succeed(runtime),
+      packageFingerprint: () => Effect.succeed("packages-v1"),
       createFork: () => Effect.succeed({ cancelled: true }),
     }
     const registry = yield* makeSessionRuntimeRegistry(adapter, runIds)

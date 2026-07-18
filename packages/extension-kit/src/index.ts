@@ -3,12 +3,19 @@ import {
   PI_SUITE_CAPABILITY_METHOD,
   RUNTIME_RETENTION_CAPABILITY,
   STRUCTURED_VIEW_CAPABILITY,
+  WEB_SURFACE_RUNTIME_CAPABILITY,
   type MediaViewPort,
   type RuntimeRetentionClaim,
   type RuntimeRetentionPort,
   type StructuredViewPort,
 } from "@pi-suite/companion-contracts/host-capabilities";
-import { Effect, Scope } from "effect";
+import {
+  type JsonValue,
+  type WebSurfaceDispatch,
+  type WebSurfaceRuntimeHandle,
+  type WebSurfaceRuntimePort,
+} from "@pi-suite/companion-contracts/web-surface";
+import { Data, Effect, Scope } from "effect";
 
 interface HostCapabilityLookup {
   readonly [PI_SUITE_CAPABILITY_METHOD]?: <T = unknown>(
@@ -32,6 +39,29 @@ export const mediaView = (
   host: HostCapabilityCarrier,
   ownerId: string,
 ): MediaViewPort | undefined => capability<MediaViewPort>(host, ownerId, MEDIA_VIEW_CAPABILITY);
+
+export class WebSurfaceCapabilityUnavailable extends Data.TaggedError(
+  "WebSurfaceCapabilityUnavailable",
+)<{
+  readonly ownerId: string;
+}> {}
+
+export interface WebSurfaceSlot {
+  readonly replace: (view?: JsonValue) => void;
+}
+
+export const webSurface = (
+  host: HostCapabilityCarrier,
+  ownerId: string,
+  dispatch: WebSurfaceDispatch,
+): Effect.Effect<WebSurfaceSlot, WebSurfaceCapabilityUnavailable, Scope.Scope> => {
+  const port = capability<WebSurfaceRuntimePort>(host, ownerId, WEB_SURFACE_RUNTIME_CAPABILITY);
+  if (port === undefined) return Effect.fail(new WebSurfaceCapabilityUnavailable({ ownerId }));
+  return Effect.acquireRelease(
+    Effect.sync(() => port.register({ dispatch })),
+    (handle: WebSurfaceRuntimeHandle) => Effect.sync(() => handle.release()),
+  ).pipe(Effect.map((handle) => ({ replace: handle.replace })));
+};
 
 export const retainRuntime = (
   host: HostCapabilityCarrier,

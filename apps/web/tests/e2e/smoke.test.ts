@@ -122,6 +122,42 @@ test("preserves the normalized visual foundation", async ({ page }) => {
   })
 })
 
+test("loads a raw-archive Web Surface through the session runtime and opaque iframe", async ({ page, request }) => {
+  const browserErrors: string[] = []
+  page.on("console", (message) => {
+    if (message.type() === "error") browserErrors.push(message.text())
+  })
+  page.on("pageerror", (error) => browserErrors.push(error.message))
+  page.on("requestfailed", (failed) =>
+    browserErrors.push(`${failed.url()}: ${failed.failure()?.errorText ?? "failed"}`),
+  )
+  const sessionId = "00000000-0000-4000-8000-000000000001"
+  const catalogResponse = await request.get(`/api/sessions/${sessionId}/web-surfaces`)
+  expect(catalogResponse.ok()).toBe(true)
+  const catalog = await catalogResponse.json()
+  expect(catalog.surfaces).toEqual([
+    expect.objectContaining({ packageName: "pi-web-e2e-extension", title: "E2E Surface" }),
+  ])
+  const asset = await request.get(catalog.surfaces[0].documentUrl)
+  expect(asset.ok()).toBe(true)
+  expect(asset.headers()["content-security-policy"]).toContain("connect-src 'none'")
+  expect(asset.headers()["access-control-allow-origin"]).toBe("*")
+  const scriptAsset = await request.get(catalog.surfaces[0].documentUrl.replace(/index\.html$/, "app.js"))
+  expect(scriptAsset.ok()).toBe(true)
+  expect(scriptAsset.headers()["access-control-allow-origin"]).toBe("*")
+
+  await page.goto(`/extensions?session=${sessionId}`)
+  await page.getByRole("link", { name: /E2E Surface/ }).click()
+  const frame = page.frameLocator('iframe[title="E2E Surface"]')
+  await expect(frame.getByText("E2E Surface", { exact: true })).toBeVisible()
+  await expect(frame.locator("#isolation"), browserErrors.join("\n")).toHaveText("parent access blocked")
+  await expect(frame.locator("#result")).toHaveText("42")
+  await page.waitForTimeout(400)
+  await expect(page.getByRole("link", { name: "对话" })).toBeVisible()
+  await page.getByRole("link", { name: "对话" }).click()
+  await expect(page.locator("textarea").first()).toBeVisible()
+})
+
 test("persists visible locale and theme preferences", async ({ page }) => {
   await page.goto("/")
   await page.getByRole("button", { name: "切换语言" }).click()

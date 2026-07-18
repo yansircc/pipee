@@ -9,12 +9,30 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ExtensionsRouteImport } from './routes/extensions'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ExtensionsSurfaceIdRouteImport } from './routes/extensions_.$surfaceId'
+import { Route as ExtensionAssetsSplatRouteImport } from './routes/extension-assets.$'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
 
+const ExtensionsRoute = ExtensionsRouteImport.update({
+  id: '/extensions',
+  path: '/extensions',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExtensionsSurfaceIdRoute = ExtensionsSurfaceIdRouteImport.update({
+  id: '/extensions_/$surfaceId',
+  path: '/extensions/$surfaceId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExtensionAssetsSplatRoute = ExtensionAssetsSplatRouteImport.update({
+  id: '/extension-assets/$',
+  path: '/extension-assets/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSplatRoute = ApiSplatRouteImport.update({
@@ -25,37 +43,86 @@ const ApiSplatRoute = ApiSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/extensions': typeof ExtensionsRoute
   '/api/$': typeof ApiSplatRoute
+  '/extension-assets/$': typeof ExtensionAssetsSplatRoute
+  '/extensions/$surfaceId': typeof ExtensionsSurfaceIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/extensions': typeof ExtensionsRoute
   '/api/$': typeof ApiSplatRoute
+  '/extension-assets/$': typeof ExtensionAssetsSplatRoute
+  '/extensions/$surfaceId': typeof ExtensionsSurfaceIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/extensions': typeof ExtensionsRoute
   '/api/$': typeof ApiSplatRoute
+  '/extension-assets/$': typeof ExtensionAssetsSplatRoute
+  '/extensions_/$surfaceId': typeof ExtensionsSurfaceIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/$'
+  fullPaths:
+    | '/'
+    | '/extensions'
+    | '/api/$'
+    | '/extension-assets/$'
+    | '/extensions/$surfaceId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/$'
-  id: '__root__' | '/' | '/api/$'
+  to:
+    | '/'
+    | '/extensions'
+    | '/api/$'
+    | '/extension-assets/$'
+    | '/extensions/$surfaceId'
+  id:
+    | '__root__'
+    | '/'
+    | '/extensions'
+    | '/api/$'
+    | '/extension-assets/$'
+    | '/extensions_/$surfaceId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ExtensionsRoute: typeof ExtensionsRoute
   ApiSplatRoute: typeof ApiSplatRoute
+  ExtensionAssetsSplatRoute: typeof ExtensionAssetsSplatRoute
+  ExtensionsSurfaceIdRoute: typeof ExtensionsSurfaceIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/extensions': {
+      id: '/extensions'
+      path: '/extensions'
+      fullPath: '/extensions'
+      preLoaderRoute: typeof ExtensionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/extensions_/$surfaceId': {
+      id: '/extensions_/$surfaceId'
+      path: '/extensions/$surfaceId'
+      fullPath: '/extensions/$surfaceId'
+      preLoaderRoute: typeof ExtensionsSurfaceIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/extension-assets/$': {
+      id: '/extension-assets/$'
+      path: '/extension-assets/$'
+      fullPath: '/extension-assets/$'
+      preLoaderRoute: typeof ExtensionAssetsSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/$': {
@@ -70,7 +137,10 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ExtensionsRoute: ExtensionsRoute,
   ApiSplatRoute: ApiSplatRoute,
+  ExtensionAssetsSplatRoute: ExtensionAssetsSplatRoute,
+  ExtensionsSurfaceIdRoute: ExtensionsSurfaceIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

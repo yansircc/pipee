@@ -5,7 +5,7 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite"
 import stylex from "@stylexjs/unplugin"
 import react from "@vitejs/plugin-react"
 import { nitro } from "nitro/vite"
-import { defineConfig } from "vite-plus"
+import { defineConfig, type Plugin } from "vite-plus"
 import pkg from "./package.json" with { type: "json" }
 
 const root = fileURLToPath(new URL(".", import.meta.url))
@@ -15,6 +15,36 @@ const piPackage = JSON.parse(
     "utf8",
   ),
 ) as { readonly version: string }
+
+const extensionAssetDevForwarder = {
+  name: "pi-web:extension-asset-dev-forwarder",
+  configureServer(server) {
+    server.middlewares.use((request, response, next) => {
+      const url = request.url as string | undefined
+      if (
+        url === undefined ||
+        !url.startsWith("/extension-assets/") ||
+        new URL(url, "http://pi-web.local").pathname.endsWith("/")
+      ) {
+        next()
+        return
+      }
+      const host = request.headers.host as string | undefined
+      if (host === undefined) {
+        next()
+        return
+      }
+      void fetch(`http://${host}${url}/`, { headers: { accept: request.headers.accept ?? "*/*" } }).then(
+        async (forwarded) => {
+          response.statusCode = forwarded.status
+          forwarded.headers.forEach((value, key) => response.setHeader(key, value))
+          response.end(Buffer.from(await forwarded.arrayBuffer()))
+        },
+        () => next(),
+      )
+    })
+  },
+} satisfies Plugin
 
 export default defineConfig(({ mode }) => ({
   fmt: {
@@ -79,6 +109,7 @@ export default defineConfig(({ mode }) => ({
     external: ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent"],
   },
   plugins: [
+    extensionAssetDevForwarder,
     ...(mode === "test"
       ? []
       : [
