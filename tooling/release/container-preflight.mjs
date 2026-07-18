@@ -6,9 +6,9 @@ import { dirname, join, resolve } from "node:path";
 import { root, run } from "./lib.mjs";
 import {
   preflightBaseImage,
+  preflightFileHash,
   preflightImageFile,
   preflightImageHash,
-  preflightLockHash,
   preflightStoreVolume,
 } from "./preflight-cache.mjs";
 
@@ -71,8 +71,9 @@ if (spawnSync("container", ["image", "inspect", image]).status !== 0) {
   ]);
 }
 
-const lockHash = preflightLockHash(resolve(root, "pnpm-lock.yaml"));
-const storeVolume = preflightStoreVolume({ architecture, lockHash, imageHash });
+const lockHash = preflightFileHash(resolve(root, "pnpm-lock.yaml"));
+const workspaceHash = preflightFileHash(resolve(root, "pnpm-workspace.yaml"));
+const storeVolume = preflightStoreVolume({ architecture, lockHash, workspaceHash, imageHash });
 if (spawnSync("container", ["volume", "inspect", storeVolume]).status !== 0)
   run("container", ["volume", "create", storeVolume]);
 
@@ -91,7 +92,7 @@ if test ! -f /pnpm-store/.fetch-complete; then
   pnpm fetch --frozen-lockfile
   touch /pnpm-store/.fetch-complete
 fi
-pnpm install --offline --frozen-lockfile
+pnpm install --offline --frozen-lockfile --trust-lockfile
 PI_SUITE_RELEASE_PREVIEW=1 node tooling/release/candidate-pipeline.mjs full "$SOURCE_SHA"
 `;
 
