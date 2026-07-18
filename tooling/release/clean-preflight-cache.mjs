@@ -4,9 +4,9 @@ import { resolve } from "node:path";
 import {
   obsoletePreflightVolumes,
   preflightBaseImage,
+  preflightFileHash,
   preflightImageFile,
   preflightImageHash,
-  preflightLockHash,
   preflightStoreVolume,
 } from "./preflight-cache.mjs";
 import { root, run } from "./lib.mjs";
@@ -16,7 +16,8 @@ assert.equal(process.platform, "darwin", "release:preflight:gc requires Apple co
 const platform = process.env.PI_SUITE_PREFLIGHT_PLATFORM ?? "linux/arm64";
 assert.match(platform, /^linux\/(?:arm64|amd64)$/, "unsupported preflight platform");
 const architecture = platform.slice("linux/".length);
-const lockHash = preflightLockHash(resolve(root, "pnpm-lock.yaml"));
+const lockHash = preflightFileHash(resolve(root, "pnpm-lock.yaml"));
+const workspaceHash = preflightFileHash(resolve(root, "pnpm-workspace.yaml"));
 const inspectedBaseImage = spawnSync("container", ["image", "inspect", preflightBaseImage], {
   encoding: "utf8",
 });
@@ -25,6 +26,7 @@ const currentVolume =
     ? preflightStoreVolume({
         architecture,
         lockHash,
+        workspaceHash,
         imageHash: preflightImageHash({
           imageFile: preflightImageFile(root),
           baseImageDigest: JSON.parse(inspectedBaseImage.stdout)[0].configuration.descriptor.digest,

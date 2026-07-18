@@ -138,11 +138,19 @@ it("shares one candidate pipeline between clean Linux preflight and Actions", ()
   assert.match(containerPreflight, /target=\/input,readonly/);
   assert.doesNotMatch(containerPreflight, /target=\/source,readonly/);
   assert.match(containerPreflight, /pnpm fetch --frozen-lockfile/);
-  assert.match(containerPreflight, /pnpm install --offline --frozen-lockfile/);
+  assert.match(containerPreflight, /pnpm install --offline --frozen-lockfile --trust-lockfile/);
+  assert.ok(
+    containerPreflight.indexOf("pnpm fetch --frozen-lockfile") <
+      containerPreflight.indexOf("touch /pnpm-store/.fetch-complete") &&
+      containerPreflight.indexOf("touch /pnpm-store/.fetch-complete") <
+        containerPreflight.indexOf("pnpm install --offline --frozen-lockfile --trust-lockfile"),
+    "the verified fetch must commit the marker before trusted offline install",
+  );
+  assert.match(containerPreflight, /preflightFileHash\(resolve\(root, "pnpm-workspace\.yaml"\)\)/);
   assert.match(preflightCache, /preflight-image/);
   assert.match(
     containerPreflight,
-    /preflightStoreVolume\(\{ architecture, lockHash, imageHash \}\)/,
+    /preflightStoreVolume\(\{ architecture, lockHash, workspaceHash, imageHash \}\)/,
   );
   assert.match(containerPreflight, /candidate-pipeline\.mjs full/);
 });

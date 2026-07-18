@@ -3,10 +3,17 @@ import { describe, it } from "node:test";
 import { obsoletePreflightVolumes, preflightStoreVolume } from "./preflight-cache.mjs";
 
 describe("preflight download cache", () => {
-  it("binds the store identity to platform, lockfile, and preflight image", () => {
-    assert.equal(
-      preflightStoreVolume({ architecture: "arm64", lockHash: "lock", imageHash: "image" }),
-      "pi-suite-pnpm-arm64-lock-image",
+  it("binds the store identity to platform, lockfile, workspace policy, and image", () => {
+    const identity = {
+      architecture: "arm64",
+      lockHash: "lock",
+      workspaceHash: "policy",
+      imageHash: "image",
+    };
+    assert.equal(preflightStoreVolume(identity), "pi-suite-pnpm-arm64-lock-policy-image");
+    assert.notEqual(
+      preflightStoreVolume(identity),
+      preflightStoreVolume({ ...identity, workspaceHash: "changed-policy" }),
     );
   });
 

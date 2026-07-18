@@ -7,8 +7,8 @@ export const preflightBaseImage = "node:24-bookworm";
 export const preflightImageFile = (root) =>
   resolve(root, "tooling/release/preflight-image/Dockerfile");
 
-export const preflightLockHash = (lockFile) =>
-  createHash("sha256").update(readFileSync(lockFile)).digest("hex").slice(0, 20);
+export const preflightFileHash = (file) =>
+  createHash("sha256").update(readFileSync(file)).digest("hex").slice(0, 20);
 
 export const preflightImageHash = ({ imageFile, baseImageDigest }) =>
   createHash("sha256")
@@ -18,8 +18,8 @@ export const preflightImageHash = ({ imageFile, baseImageDigest }) =>
     .digest("hex")
     .slice(0, 16);
 
-export const preflightStoreVolume = ({ architecture, lockHash, imageHash }) =>
-  `${preflightCachePrefix}${architecture}-${lockHash}-${imageHash}`;
+export const preflightStoreVolume = ({ architecture, lockHash, workspaceHash, imageHash }) =>
+  `${preflightCachePrefix}${architecture}-${lockHash}-${workspaceHash}-${imageHash}`;
 
 export const obsoletePreflightVolumes = ({ volumeNames, currentVolume, referencedVolumes }) =>
   volumeNames
