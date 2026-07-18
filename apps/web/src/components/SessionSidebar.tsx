@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react"
 import { DateTime, Duration, Effect, Option } from "effect"
-import type { SessionInfo, WeixinBindingStatus } from "@/api/contract"
+import type { SessionInfo } from "@/api/contract"
 import { FileExplorer } from "./FileExplorer"
 import { useI18n, type Locale } from "@/lib/i18n"
 import { withApi, runApi, runBrowser, type Cancel } from "@/browser/api-client"
@@ -20,7 +20,6 @@ import { observeRunningSessions } from "@/features/session/session-controller"
 
 interface Props {
   selectedSessionId: string | null
-  weixinBindings: ReadonlyArray<WeixinBindingStatus>
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void
   onNewSession?: (cwd: string) => void
   newSessionPending?: boolean
@@ -338,7 +337,6 @@ function PiAgentTitle() {
 
 export function SessionSidebar({
   selectedSessionId,
-  weixinBindings,
   onSelectSession,
   onNewSession,
   newSessionPending = false,
@@ -355,10 +353,6 @@ export function SessionSidebar({
   const { t } = useI18n()
   const { preferences, updatePreferences } = useBrowserPreferences()
   const unreadSessionIds = useMemo(() => new Set(preferences.unreadSessionIds), [preferences.unreadSessionIds])
-  const weixinBindingBySession = useMemo(
-    () => new Map(weixinBindings.map((binding) => [binding.sessionId, binding])),
-    [weixinBindings],
-  )
   const updateUnreadSessionIds = useCallback(
     (update: (current: Set<string>) => Set<string>) => {
       updatePreferences((current) => ({
@@ -1776,7 +1770,6 @@ export function SessionSidebar({
             key={node.session.id}
             node={node}
             selectedSessionId={selectedSessionId}
-            weixinBindingBySession={weixinBindingBySession}
             runningSessionIds={runningSessionIds}
             unreadSessionIds={unreadSessionIds}
             currentTimeMillis={currentTimeMillis}
@@ -1932,7 +1925,6 @@ export function SessionSidebar({
 function SessionTreeItem({
   node,
   selectedSessionId,
-  weixinBindingBySession,
   runningSessionIds,
   unreadSessionIds,
   currentTimeMillis,
@@ -1943,7 +1935,6 @@ function SessionTreeItem({
 }: {
   node: SessionTreeNode
   selectedSessionId: string | null
-  weixinBindingBySession: ReadonlyMap<string, WeixinBindingStatus>
   runningSessionIds: Set<string>
   unreadSessionIds: Set<string>
   currentTimeMillis: number
@@ -1975,7 +1966,6 @@ function SessionTreeItem({
         <SessionItem
           session={node.session}
           isSelected={node.session.id === selectedSessionId}
-          weixinBinding={weixinBindingBySession.get(node.session.id)}
           isRunning={runningSessionIds.has(node.session.id)}
           isUnread={unreadSessionIds.has(node.session.id)}
           currentTimeMillis={currentTimeMillis}
@@ -1995,7 +1985,6 @@ function SessionTreeItem({
               key={child.session.id}
               node={child}
               selectedSessionId={selectedSessionId}
-              weixinBindingBySession={weixinBindingBySession}
               runningSessionIds={runningSessionIds}
               unreadSessionIds={unreadSessionIds}
               currentTimeMillis={currentTimeMillis}
@@ -2071,46 +2060,9 @@ function UnreadSessionIndicator() {
   )
 }
 
-function WeixinStatusIcon({ binding }: { binding: WeixinBindingStatus }) {
-  const { t } = useI18n()
-  const label = `${t(binding.connected ? "Weixin connected" : "Weixin disconnected")}${binding.accountId ? ` · ${binding.accountId}` : ""}`
-  return (
-    <span
-      role="img"
-      aria-label={label}
-      title={label}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        width: 18,
-        height: 18,
-        flex: "0 0 auto",
-        color: binding.connected ? "#07c160" : "var(--text-dim)",
-      }}
-    >
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path
-          d="M9.35 3C4.74 3 1 5.96 1 9.62c0 2.08 1.22 3.95 3.16 5.17l-.72 2.24 2.6-1.28c1 .32 2.12.5 3.31.5.47 0 .94-.03 1.39-.09a5.3 5.3 0 0 1-.34-1.86c0-3.14 2.84-5.72 6.49-6.05C16.08 5.25 13.02 3 9.35 3Z"
-          fill="currentColor"
-        />
-        <path
-          d="M23 14.34c0-2.87-2.75-5.2-6.15-5.2s-6.15 2.33-6.15 5.2 2.75 5.2 6.15 5.2c.79 0 1.55-.13 2.24-.36l2.13 1.04-.6-1.83c1.45-.95 2.38-2.42 2.38-4.05Z"
-          fill="currentColor"
-        />
-        <circle cx="6.55" cy="8.8" r=".72" fill="var(--bg-selected)" />
-        <circle cx="11.75" cy="8.8" r=".72" fill="var(--bg-selected)" />
-        <circle cx="14.65" cy="13.78" r=".62" fill="var(--bg-selected)" />
-        <circle cx="19.05" cy="13.78" r=".62" fill="var(--bg-selected)" />
-      </svg>
-    </span>
-  )
-}
-
 function SessionItem({
   session,
   isSelected,
-  weixinBinding,
   isRunning,
   isUnread,
   onClick,
@@ -2124,7 +2076,6 @@ function SessionItem({
 }: {
   session: SessionInfo
   isSelected: boolean
-  weixinBinding?: WeixinBindingStatus
   isRunning?: boolean
   isUnread?: boolean
   onClick: () => void
@@ -2414,11 +2365,6 @@ function SessionItem({
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {session.worktreeBranch}
                   </span>
-                </span>
-              )}
-              {weixinBinding !== undefined && (
-                <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center" }}>
-                  <WeixinStatusIcon binding={weixinBinding} />
                 </span>
               )}
             </div>

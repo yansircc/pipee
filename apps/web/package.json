@@ -51,7 +51,8 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "catalog:",
-    "@earendil-works/pi-coding-agent": "catalog:"
+    "@earendil-works/pi-coding-agent": "catalog:",
+    "fflate": "0.8.2"
   },
   "devDependencies": {
     "@effect/platform-browser": "catalog:",

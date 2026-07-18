@@ -297,4 +297,7 @@ it("declares only the Chrome APIs owned by the browser runtime", () => {
     "alarms",
     "debugger",
   ]);
+  expect(manifest.externally_connectable).toEqual({
+    matches: ["http://localhost/*", "http://127.0.0.1/*"],
+  });
 });

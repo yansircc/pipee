@@ -1,8 +1,44 @@
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
+import { makeStateStore } from "../src/state.ts";
 import { withTestStore } from "./runtime.ts";
 
 const hasPosixFileModes = process.platform !== "win32";
+
+it.effect("migrates v2 binding to the v3 default session without losing auth", () =>
+  withTestStore((store) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.writeFileString(
+        store.path,
+        JSON.stringify({
+          version: 2,
+          enabled: true,
+          cursor: "cursor",
+          processedMessageIds: ["message-1"],
+          auth: {
+            token: "secret",
+            baseUrl: "https://example.test",
+            accountId: "bot",
+            userId: "user",
+            savedAt: "now",
+          },
+          binding: { sessionId: "session-v2", cwd: "/tmp" },
+        }),
+      );
+      const migrated = yield* makeStateStore(store.path);
+      const state = yield* migrated.read;
+      expect(state).toMatchObject({
+        version: 3,
+        enabled: true,
+        cursor: "cursor",
+        defaultSession: { sessionId: "session-v2", cwd: "/tmp" },
+        auth: { accountId: "bot" },
+      });
+      expect(JSON.parse(yield* fs.readFileString(store.path)).version).toBe(3);
+    }),
+  ),
+);
 
 it.effect("state store persists auth and bounds processed ids", () =>
   withTestStore(
@@ -16,7 +52,7 @@ it.effect("state store persists auth and bounds processed ids", () =>
           userId: "user",
           savedAt: "now",
         });
-        yield* store.bind({ sessionId: "session", cwd: "/tmp" });
+        yield* store.setDefaultSession({ sessionId: "session", cwd: "/tmp" });
         yield* store.markProcessed("one");
         yield* store.markProcessed("two");
         yield* store.markProcessed("three");
@@ -32,7 +68,7 @@ it.effect("state store persists auth and bounds processed ids", () =>
   ),
 );
 
-it.effect("clearing stale credentials preserves the session binding and enabled intent", () =>
+it.effect("clearing stale credentials preserves the default session and enabled intent", () =>
   withTestStore((store) =>
     Effect.gen(function* () {
       yield* store.saveAuth({
@@ -42,13 +78,14 @@ it.effect("clearing stale credentials preserves the session binding and enabled 
         userId: "user",
         savedAt: "now",
       });
-      yield* store.bind({ sessionId: "session", cwd: "/tmp" });
+      yield* store.setDefaultSession({ sessionId: "session", cwd: "/tmp" });
+      yield* store.setEnabled(true);
       yield* store.saveCursor("cursor");
       yield* store.markProcessed("message-1");
 
       const state = yield* store.clearAuth;
       expect(state.auth).toBeUndefined();
-      expect(state.binding?.sessionId).toBe("session");
+      expect(state.defaultSession?.sessionId).toBe("session");
       expect(state.enabled).toBe(true);
       expect(state.cursor).toBe("");
       expect(state.processedMessageIds).toEqual([]);

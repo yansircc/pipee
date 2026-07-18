@@ -55,6 +55,7 @@
     "cross-spawn": "7.0.6",
     "effect": "catalog:",
     "jiti": "catalog:",
+    "json-bigint": "1.0.0",
     "qrcode": "^1.5.4",
     "vite-plus": "catalog:"
   },

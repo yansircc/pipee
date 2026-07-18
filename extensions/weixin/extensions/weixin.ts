@@ -6,10 +6,17 @@ import type {
 import { Type } from "@sinclair/typebox";
 import { Effect, Exit, Stream } from "effect";
 import QRCode from "qrcode";
+import { RuntimeLeaseProjection } from "@pi-suite/companion-contracts/runtime";
 import { Bridge, type BridgeStatus } from "../src/bridge.ts";
 import { BridgeConfigurationError, QrCodeError } from "../src/errors.ts";
 import type { LoginEvent } from "../src/ilink.ts";
-import { getPiWeixinRuntime } from "../src/runtime.ts";
+import { proactiveClientId } from "../src/message.ts";
+import {
+  acquirePiWeixinRuntime,
+  releasePiWeixinRuntime,
+  setPiWeixinRetention,
+  type PiWeixinRuntime,
+} from "../src/runtime.ts";
 import {
   publishSessionStatus,
   projectSessionStatus,
@@ -32,7 +39,7 @@ interface ImageWidgetUi {
   ) => void;
 }
 
-const bindingFrom = (ctx: ExtensionContext) => ({
+const sessionFrom = (ctx: ExtensionContext) => ({
   sessionId: ctx.sessionManager.getSessionId(),
   sessionFile: ctx.sessionManager.getSessionFile(),
   cwd: ctx.cwd,
@@ -48,9 +55,12 @@ const formatStatus = (status: BridgeStatus): string => {
   };
   const state = labels[status.connection._tag];
   const account = status.accountId ? `，微信 ${status.accountId}` : "，未登录";
-  const session = status.sessionId ? `，session ${status.sessionId}` : "，未绑定 session";
+  const session = status.defaultSessionId
+    ? `，默认 session ${status.defaultSessionId}`
+    : "，未设置默认 session";
+  const send = status.sendReady ? "，可主动发送" : "，尚不可主动发送";
   const error = status.lastError ? `，错误：${status.lastError}` : "";
-  return `${state}${account}${session}${error}`;
+  return `${state}${account}${session}${send}${error}`;
 };
 
 const clearLoginWidget = (ctx: ExtensionContext, imageUi: ImageWidgetUi) =>
@@ -143,7 +153,7 @@ const login = (ctx: ExtensionContext) =>
         ),
     };
     const auth = yield* bridge
-      .loginAndBind(callbacks, bindingFrom(ctx))
+      .connect(callbacks, sessionFrom(ctx))
       .pipe(Effect.ensuring(clearLoginWidget(ctx, imageUi)));
     return auth;
   });
@@ -155,7 +165,7 @@ const connect = (ctx: ExtensionContext) =>
     if (!current.accountId) {
       yield* login(ctx);
     } else {
-      yield* bridge.bind(bindingFrom(ctx));
+      if (!current.defaultSessionId) yield* bridge.setDefaultSession(sessionFrom(ctx));
       yield* bridge.setEnabled(true);
     }
     return yield* bridge.status;
@@ -167,15 +177,18 @@ const toolResult = (text: string, details: unknown): AgentToolResult<unknown> =>
 });
 
 export default function weixinExtension(pi: ExtensionAPI): void {
-  const runtime = getPiWeixinRuntime();
+  let runtime: PiWeixinRuntime | undefined;
   let activeSessionId: string | undefined;
   const statusSync = makeStatusSync();
+
+  const requireRuntime = (): PiWeixinRuntime => {
+    return runtime!;
+  };
 
   const startStatusSync = (ctx: ExtensionContext) =>
     statusSync.replace(
       Effect.gen(function* () {
         const bridge = yield* Bridge;
-        const sessionId = ctx.sessionManager.getSessionId();
         yield* bridge.statusChanges.pipe(
           Stream.map(
             Exit.match({
@@ -185,9 +198,9 @@ export default function weixinExtension(pi: ExtensionAPI): void {
           ),
           Stream.changesWith(sameSessionStatus),
           Stream.runForEach((status) =>
-            Effect.sync(() => {
-              publishSessionStatus(ctx.ui, status, sessionId);
-            }),
+            Effect.sync(() => setPiWeixinRetention(status.enabled)).pipe(
+              Effect.andThen(Effect.sync(() => publishSessionStatus(ctx.ui, status))),
+            ),
           ),
         );
       }),
@@ -197,15 +210,16 @@ export default function weixinExtension(pi: ExtensionAPI): void {
     name: "weixin_connect",
     label: "Connect Weixin",
     description:
-      "Ensure Weixin is logged in, bound to this Pi session, and running. Shows a QR code when login is required.",
+      "Ensure the global Weixin account is logged in and running. The current session becomes the default only when none exists.",
     parameters: Type.Object({}),
     execute(_id, _parameters, signal, _onUpdate, context) {
-      return runtime.runPromise(
+      return requireRuntime().runPromise(
         connect(context).pipe(
           Effect.map((status) =>
             toolResult(`Weixin connected: ${formatStatus(status)}`, {
               accountId: status.accountId,
-              sessionId: status.sessionId,
+              defaultSessionId: status.defaultSessionId,
+              sendReady: status.sendReady,
               phase: status.connection._tag,
             }),
           ),
@@ -216,12 +230,56 @@ export default function weixinExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
+    name: "weixin_set_default",
+    label: "Set Default Weixin Session",
+    description: "Make the current Pi session the destination for unquoted Weixin messages.",
+    parameters: Type.Object({}),
+    execute(_id, _parameters, signal, _onUpdate, context) {
+      return requireRuntime().runPromise(
+        Effect.gen(function* () {
+          const bridge = yield* Bridge;
+          yield* bridge.setDefaultSession(sessionFrom(context));
+          const status = yield* bridge.status;
+          return toolResult(`Default Weixin session set to ${status.defaultSessionId}.`, {
+            defaultSessionId: status.defaultSessionId,
+          });
+        }),
+        { signal },
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: "weixin_send",
+    label: "Send Weixin Message",
+    description:
+      "Send text to the global Weixin account. A quoted reply returns to the current Pi session.",
+    parameters: Type.Object({ text: Type.String({ minLength: 1 }) }),
+    execute(id, parameters, signal, _onUpdate, context) {
+      return requireRuntime().runPromise(
+        Effect.gen(function* () {
+          const bridge = yield* Bridge;
+          const sessionId = context.sessionManager.getSessionId();
+          const serverMessageId = yield* bridge.sendText(
+            sessionId,
+            parameters.text ?? "",
+            proactiveClientId(sessionId, id),
+          );
+          return toolResult("Weixin message sent.", { serverMessageId });
+        }),
+        { signal },
+      );
+    },
+  });
+
+  pi.registerTool({
     name: "weixin_disconnect",
     label: "Disconnect Weixin",
-    description: "Stop the Weixin bridge while preserving login credentials and session binding.",
+    description:
+      "Stop the global Weixin bridge while preserving credentials, default session, and routes.",
     parameters: Type.Object({}),
     execute(_id, _parameters, signal) {
-      return runtime.runPromise(
+      return requireRuntime().runPromise(
         Effect.gen(function* () {
           const bridge = yield* Bridge;
           yield* bridge.setEnabled(false);
@@ -238,14 +296,20 @@ export default function weixinExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "weixin_logout",
     label: "Log Out Weixin",
-    description: "Stop Weixin and clear the stored account, cursor, and Pi session binding.",
+    description:
+      "Stop Weixin and clear the account, cursor, and send context while preserving the default session.",
     parameters: Type.Object({}),
     execute(_id, _parameters, signal) {
-      return runtime.runPromise(
+      return requireRuntime().runPromise(
         Effect.gen(function* () {
           const bridge = yield* Bridge;
           yield* bridge.logout;
-          return toolResult("Weixin logged out and local binding cleared.", { loggedIn: false });
+          return toolResult(
+            "Weixin logged out. Default session and route history were preserved.",
+            {
+              loggedIn: false,
+            },
+          );
         }),
         { signal },
       );
@@ -255,16 +319,18 @@ export default function weixinExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "weixin_status",
     label: "Inspect Weixin Status",
-    description: "Read the current Weixin account, session binding, and connection status.",
+    description:
+      "Read the global Weixin account, default session, proactive-send readiness, and connection status.",
     parameters: Type.Object({}),
     execute(_id, _parameters, signal) {
-      return runtime.runPromise(
+      return requireRuntime().runPromise(
         Effect.gen(function* () {
           const bridge = yield* Bridge;
           const status = yield* bridge.status;
           return toolResult(formatStatus(status), {
             accountId: status.accountId,
-            sessionId: status.sessionId,
+            defaultSessionId: status.defaultSessionId,
+            sendReady: status.sendReady,
             enabled: status.enabled,
             phase: status.connection._tag,
             lastError: status.lastError,
@@ -275,25 +341,54 @@ export default function weixinExtension(pi: ExtensionAPI): void {
     },
   });
 
-  pi.on("session_start", (_event, ctx) =>
-    runtime.runPromise(
+  pi.on("session_start", (_event, ctx) => {
+    const sessionId = ctx.sessionManager.getSessionId();
+    const value = acquirePiWeixinRuntime({
+      sessionId,
+      setRetained: (retained) => {
+        const ui = ctx.ui as typeof ctx.ui & {
+          setStructuredStatus?: (key: string, value?: unknown) => void;
+        };
+        ui.setStructuredStatus?.(
+          "pi-weixin/runtime-lease",
+          retained
+            ? RuntimeLeaseProjection.make({
+                kind: "pi/runtime-lease",
+                version: 1,
+                owner: "pi-weixin",
+                reason: "global-bridge-enabled",
+              })
+            : undefined,
+        );
+      },
+    });
+    runtime = value;
+    activeSessionId = sessionId;
+    return value.runPromise(
       Effect.gen(function* () {
-        activeSessionId = ctx.sessionManager.getSessionId();
         const bridge = yield* Bridge;
         yield* startStatusSync(ctx);
         yield* bridge.start;
       }),
-    ),
-  );
+    );
+  });
 
-  pi.on("session_shutdown", () =>
-    runtime.runPromise(
-      Effect.gen(function* () {
-        const bridge = yield* Bridge;
-        yield* statusSync.close;
-        if (activeSessionId !== undefined) yield* bridge.releaseSession(activeSessionId);
+  pi.on("session_shutdown", () => {
+    const currentRuntime = runtime;
+    const sessionId = activeSessionId;
+    if (!currentRuntime || !sessionId) return;
+    return currentRuntime
+      .runPromise(
+        Effect.gen(function* () {
+          const bridge = yield* Bridge;
+          yield* statusSync.close;
+          yield* bridge.releaseSession(sessionId);
+        }),
+      )
+      .finally(() => {
+        runtime = undefined;
         activeSessionId = undefined;
-      }),
-    ),
-  );
+        return releasePiWeixinRuntime(sessionId);
+      });
+  });
 }

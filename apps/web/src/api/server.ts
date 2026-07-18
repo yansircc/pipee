@@ -31,7 +31,7 @@ import { SessionRepository, SessionRepositoryError, SessionRepositoryLive } from
 import { WorkspaceIo, WorkspaceIoError, WorkspaceIoLive } from "@/server/workspace-io"
 import { WorkspaceError, WorkspaceService, WorkspaceServiceLive } from "@/server/workspace-service"
 import { activeSessionInfo, mergeSessionIndex } from "@/server/session-index"
-import { isLocalPackageSource } from "@/lib/plugin-package-settings"
+import { PI_COMPANION_PACKAGE_NAMES, isLocalPackageSource } from "@/lib/plugin-package-settings"
 
 const ok = { ok: true as const }
 
@@ -670,6 +670,16 @@ const PackagesLive = HttpApiBuilder.group(PiWebApi, "packages", (handlers) =>
     const path = yield* Path.Path
     const policy = yield* FileAccessPolicy
     const workspace = yield* WorkspaceIo
+    const readGlobalChromePlugin = adapter
+      .plugins(config.home)
+      .pipe(
+        Effect.map(
+          (projection) =>
+            projection.packages.find(
+              (pkg) => pkg.scope === "global" && pkg.packageName === PI_COMPANION_PACKAGE_NAMES.chrome,
+            ) ?? null,
+        ),
+      )
     const admitLocalPackageInstall = (cwd: string, action: PluginAction, source: string | undefined) => {
       const normalized = source?.trim()
       if (action !== "install" || normalized === undefined || !isLocalPackageSource(normalized)) return Effect.void
@@ -682,6 +692,23 @@ const PackagesLive = HttpApiBuilder.group(PiWebApi, "packages", (handlers) =>
       return policy.admitExistingRoot(target)
     }
     return handlers
+      .handle("globalChromePlugin", () => expose(readGlobalChromePlugin).pipe(Effect.map((pkg) => ({ package: pkg }))))
+      .handle("downloadChromeExtension", () =>
+        expose(readGlobalChromePlugin).pipe(
+          Effect.flatMap((pkg) =>
+            pkg?.chromeExtensionDirectory === undefined
+              ? Effect.fail(
+                  new NotFound({
+                    resource: "package",
+                    id: PI_COMPANION_PACKAGE_NAMES.chrome,
+                    message: "The installed pi-chrome package has no browser extension artifact",
+                  }),
+                )
+              : expose(packageIo.archiveDirectory(pkg.chromeExtensionDirectory)),
+          ),
+          Effect.map(Stream.make),
+        ),
+      )
       .handle("plugins", ({ query }) =>
         workspace.validateCwd(query.cwd).pipe(
           Effect.flatMap((cwd) => adapter.plugins(cwd)),
@@ -689,14 +716,16 @@ const PackagesLive = HttpApiBuilder.group(PiWebApi, "packages", (handlers) =>
         ),
       )
       .handle("pluginAction", ({ payload }) =>
-        workspace.validateCwd(payload.cwd).pipe(
-          Effect.flatMap((cwd) =>
-            admitLocalPackageInstall(cwd, payload.action, payload.source).pipe(
-              Effect.andThen(adapter.pluginAction(cwd, payload.action, payload.source, payload.scope)),
-            ),
-          ),
-          expose,
-        ),
+        Effect.gen(function* () {
+          const cwd =
+            payload.cwd !== undefined
+              ? yield* expose(workspace.validateCwd(payload.cwd))
+              : payload.scope === "global"
+                ? config.home
+                : yield* new InvalidInput({ field: "cwd", message: "Project plugin actions require a workspace" })
+          yield* expose(admitLocalPackageInstall(cwd, payload.action, payload.source))
+          return yield* expose(adapter.pluginAction(cwd, payload.action, payload.source, payload.scope))
+        }),
       )
       .handle("skills", ({ query }) =>
         workspace.validateCwd(query.cwd).pipe(

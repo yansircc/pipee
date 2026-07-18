@@ -10,17 +10,24 @@ const structured = (kind: string, version: number, value: JsonValue) => {
 }
 
 test("registers each known companion discriminator exactly once", () => {
-  expect(companionRendererKeys).toEqual(["pi-loop/status@1", "pi-weixin/status@2", "pi-chrome/status@3"])
+  expect(companionRendererKeys).toEqual(["pi-loop/status@1", "pi-weixin/status@3", "pi-chrome/status@3"])
   expect(new Set(companionRendererKeys).size).toBe(companionRendererKeys.length)
 })
 
 test("separates known, incompatible, and unknown companion projections", () => {
   expect(
     inspectCompanionContribution(
-      structured("pi-weixin/status", 2, { kind: "pi-weixin/status", version: 2, bindings: [] }),
+      structured("pi-weixin/status", 3, {
+        kind: "pi-weixin/status",
+        version: 3,
+        enabled: true,
+        connected: true,
+        phase: "Connected",
+        sendReady: true,
+      }),
     ),
   ).toBe("known")
-  expect(inspectCompanionContribution(structured("pi-weixin/status", 2, { missing: "bindings" }))).toBe("incompatible")
+  expect(inspectCompanionContribution(structured("pi-weixin/status", 3, { missing: "phase" }))).toBe("incompatible")
   expect(inspectCompanionContribution(structured("third-party/status", 1, { state: "ready" }))).toBe("unknown")
 })
 
@@ -28,7 +35,7 @@ test("renders explicit incompatible and unknown fallbacks", () => {
   const html = renderToStaticMarkup(
     <CompanionRendererRegistry
       statuses={[
-        structured("pi-weixin/status", 2, { missing: "bindings" }),
+        structured("pi-weixin/status", 3, { missing: "phase" }),
         structured("third-party/status", 1, { state: "ready" }),
       ]}
       sessionId="session-1"

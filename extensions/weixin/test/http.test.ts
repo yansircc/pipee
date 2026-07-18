@@ -13,6 +13,31 @@ const responseClient = (...chunks: ReadonlyArray<Uint8Array>) =>
     } as unknown as HttpClientResponse.HttpClientResponse),
   );
 
+const jsonResponseClient = (body: string) =>
+  HttpClient.make((request) =>
+    Effect.succeed({
+      request,
+      status: 200,
+      headers: {},
+      stream: Stream.succeed(new TextEncoder().encode(body)),
+      text: Effect.succeed(body),
+    } as unknown as HttpClientResponse.HttpClientResponse),
+  );
+
+it.effect("preserves 64-bit JSON identifiers as decimal strings", () =>
+  Effect.gen(function* () {
+    const http = makeJsonHttpClient(
+      jsonResponseClient('{"ret":0,"message_id":7483914874329324552}'),
+    );
+    const body = (yield* http.request({
+      operation: "test.lossless",
+      method: "GET",
+      url: "https://example.test/message",
+    })) as { readonly ret: number; readonly message_id: string };
+    expect(body).toEqual({ ret: 0, message_id: "7483914874329324552" });
+  }),
+);
+
 it.effect("collects byte streams in wire order", () =>
   Effect.gen(function* () {
     const http = makeJsonHttpClient(

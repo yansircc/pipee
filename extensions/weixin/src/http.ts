@@ -1,6 +1,7 @@
 import { Effect, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import JsonBigInt from "json-bigint";
 import { HttpRequestError } from "./errors.ts";
 
 export interface JsonHttpRequest {
@@ -27,6 +28,7 @@ interface ByteChunkNode {
 }
 
 export const makeJsonHttpClient = (client: HttpClient.HttpClient): JsonHttpClient => {
+  const losslessJson = JsonBigInt({ storeAsString: true, strict: true });
   const execute = (input: JsonHttpRequest) => {
     const request =
       input.method === "GET"
@@ -64,7 +66,19 @@ export const makeJsonHttpClient = (client: HttpClient.HttpClient): JsonHttpClien
   };
 
   const decodeJson = (input: JsonHttpRequest, response: HttpClientResponse.HttpClientResponse) =>
-    HttpClientResponse.schemaBodyJson(Schema.Unknown)(response).pipe(
+    response.text.pipe(
+      Effect.flatMap((text) =>
+        Effect.try({
+          try: () => losslessJson.parse(text),
+          catch: (cause) =>
+            new HttpRequestError({
+              operation: input.operation,
+              url: input.url,
+              cause,
+              status: response.status,
+            }),
+        }),
+      ),
       Effect.mapError(
         (cause) =>
           new HttpRequestError({

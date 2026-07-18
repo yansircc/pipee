@@ -60,14 +60,15 @@ export function getLoopStatusProjection(
 }
 
 export function sameWeixinStatusProjection(left: WeixinStatusProjection, right: WeixinStatusProjection): boolean {
-  if (left.bindings.length !== right.bindings.length) return false
-  const rightBySession = new Map(right.bindings.map((binding) => [binding.sessionId, binding]))
-  return left.bindings.every((binding) => {
-    const candidate = rightBySession.get(binding.sessionId)
-    return (
-      candidate !== undefined && candidate.accountId === binding.accountId && candidate.connected === binding.connected
-    )
-  })
+  return (
+    left.enabled === right.enabled &&
+    left.connected === right.connected &&
+    left.phase === right.phase &&
+    left.sendReady === right.sendReady &&
+    left.accountId === right.accountId &&
+    left.defaultSessionId === right.defaultSessionId &&
+    left.error === right.error
+  )
 }
 
 export const chromeStatusOrUndefined = (value: unknown): ChromeStatusProjection | undefined =>

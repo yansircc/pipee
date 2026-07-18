@@ -251,9 +251,7 @@ export {
   type ChromeStatusProjection as ChromeStatusProjectionType,
 } from "@pi-suite/companion-contracts/chrome"
 export {
-  WeixinBindingStatus,
   WeixinStatusProjection,
-  type WeixinBindingStatus as WeixinBindingStatusType,
   type WeixinStatusProjection as WeixinStatusProjectionType,
 } from "@pi-suite/companion-contracts/weixin"
 export const ExtensionStatusContribution = Schema.Union([
@@ -808,6 +806,10 @@ export const PluginsResponse = Schema.Struct({
   diagnostics: Schema.Array(PluginDiagnostic),
 })
 export type PluginsResponse = typeof PluginsResponse.Type
+export const GlobalChromePluginResponse = Schema.Struct({
+  package: Schema.NullOr(PluginPackageInfo),
+})
+export type GlobalChromePluginResponse = typeof GlobalChromePluginResponse.Type
 
 export const ToolEntry = Schema.Struct({
   name: Schema.String,
@@ -1235,6 +1237,14 @@ const AuthApi = HttpApiGroup.make("auth").add(
 )
 
 const PackagesApi = HttpApiGroup.make("packages").add(
+  HttpApiEndpoint.get("globalChromePlugin", "/api/packages/plugins/pi-chrome", {
+    success: GlobalChromePluginResponse,
+    error: CommonErrors,
+  }),
+  HttpApiEndpoint.get("downloadChromeExtension", "/api/packages/plugins/pi-chrome/browser-extension.zip", {
+    success: HttpApiSchema.StreamUint8Array({ contentType: "application/zip" }),
+    error: CommonErrors,
+  }),
   HttpApiEndpoint.get("plugins", "/api/packages/plugins", {
     query: { cwd: Schema.String },
     success: PluginsResponse,
@@ -1242,7 +1252,7 @@ const PackagesApi = HttpApiGroup.make("packages").add(
   }),
   HttpApiEndpoint.post("pluginAction", "/api/packages/plugins/actions", {
     payload: Schema.Struct({
-      cwd: Schema.String,
+      cwd: Schema.optionalKey(Schema.String),
       action: Schema.Literals(["install", "remove", "update", "disable", "enable"]),
       source: Schema.optionalKey(Schema.String),
       scope: Schema.optionalKey(PluginScope),

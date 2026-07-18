@@ -6,6 +6,19 @@ export class StateStoreError extends Data.TaggedError("StateStoreError")<{
   readonly cause: unknown;
 }> {}
 
+export class RouteStoreError extends Data.TaggedError("RouteStoreError")<{
+  readonly operation: "open" | "record" | "resolve" | "close";
+  readonly path: string;
+  readonly cause: unknown;
+}> {}
+
+export class RouteConflictError extends Data.TaggedError("RouteConflictError")<{
+  readonly accountId: string;
+  readonly serverMessageId: string;
+  readonly expectedSessionId: string;
+  readonly actualSessionId: string;
+}> {}
+
 export class HttpRequestError extends Data.TaggedError("HttpRequestError")<{
   readonly operation: string;
   readonly url: string;

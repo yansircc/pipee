@@ -2,6 +2,7 @@ import { expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import { TestClock } from "effect/testing";
 import {
+  GatewayError,
   GatewayIdempotencyConflictError,
   HttpRequestError,
   IlinkMediaError,
@@ -14,6 +15,9 @@ import { makeStateStore, type StateStore } from "../src/state.ts";
 import { configureStore, withTestStore } from "./runtime.ts";
 
 const unusedLogin: WeixinTransport["login"] = () => Effect.never;
+let outboundSequence = 0;
+const outboundReceipt = (clientId = `client-${outboundSequence + 1}`) =>
+  Effect.sync(() => ({ serverMessageId: String(++outboundSequence), clientId }));
 
 const imageMessage = (messageId: number, imageId: string) => ({
   message_id: messageId,
@@ -51,7 +55,7 @@ const imageDependencies = (
           data: image.media?.encrypt_query_param ?? "missing",
           mimeType: "image/png",
         }),
-      sendText: () => Effect.void,
+      sendText: (_auth, _to, _text, _context, clientId) => outboundReceipt(clientId),
     },
   }) satisfies { store: StateStore; gateway: PiGateway; transport: WeixinTransport };
 
@@ -93,6 +97,7 @@ it.effect("authorized messages reach Pi once and use deterministic ids for every
         sendText: (_auth, _to, text, _context, clientId) =>
           Effect.sync(() => {
             replies.push({ text, clientId });
+            return { serverMessageId: String(++outboundSequence), clientId };
           }),
       };
       const response = {
@@ -121,6 +126,194 @@ it.effect("authorized messages reach Pi once and use deterministic ids for every
       expect(new Set(replies.map((reply) => reply.clientId))).toHaveLength(3);
       expect(typing).toEqual(["start", "stop"]);
       expect((yield* store.read).cursor).toBe("cursor-2");
+      expect((yield* store.read).contextToken).toBe("context");
+    }),
+  ),
+);
+
+it.effect("routes a quoted server message id to its exact source session", () =>
+  withTestStore((store) =>
+    Effect.gen(function* () {
+      yield* configureStore(store);
+      yield* store.routes.record({
+        accountId: "bot",
+        serverMessageId: "7483914874329324552",
+        sourceSessionId: "source-session",
+        clientId: "source-client",
+        createdAt: 1,
+      });
+      const promptedSessions: string[] = [];
+      const transport: WeixinTransport = {
+        login: unusedLogin,
+        getUpdates: () => Effect.succeed({}),
+        startTyping: (_auth, userId) => Effect.succeed({ userId, ticket: "ticket" }),
+        stopTyping: () => Effect.void,
+        notifyStart: () => Effect.void,
+        notifyStop: () => Effect.void,
+        downloadImage: () => Effect.die("unused"),
+        sendText: (_auth, _to, _text, _context, clientId) => outboundReceipt(clientId),
+      };
+      yield* processUpdateBatch(
+        {
+          msgs: [
+            {
+              message_id: "9007199254740993",
+              message_type: 1,
+              from_user_id: "allowed-user",
+              context_token: "quoted-context",
+              item_list: [
+                {
+                  type: 1,
+                  text_item: { text: "继续处理" },
+                  ref_msg: {
+                    title: "引用",
+                    message_item: {
+                      msg_id: "7483914874329324552",
+                      type: 1,
+                      text_item: { text: "原消息" },
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        {
+          store,
+          transport,
+          gateway: {
+            promptAndWait: (sessionId) =>
+              Effect.sync(() => {
+                promptedSessions.push(sessionId);
+                return "完成";
+              }),
+          },
+        },
+      );
+      expect(promptedSessions).toEqual(["source-session"]);
+    }),
+  ),
+);
+
+it.effect("fails closed for an unknown quoted server message id", () =>
+  withTestStore((store) =>
+    Effect.gen(function* () {
+      yield* configureStore(store);
+      const replies: string[] = [];
+      let prompted = false;
+      yield* processUpdateBatch(
+        {
+          msgs: [
+            {
+              message_id: "9007199254740994",
+              message_type: 1,
+              from_user_id: "allowed-user",
+              context_token: "quoted-context",
+              item_list: [
+                {
+                  type: 1,
+                  text_item: { text: "继续处理" },
+                  ref_msg: { message_item: { msg_id: "7483914874329324999", type: 1 } },
+                },
+              ],
+            },
+          ],
+        },
+        {
+          store,
+          gateway: {
+            promptAndWait: () =>
+              Effect.sync(() => {
+                prompted = true;
+                return "unexpected";
+              }),
+          },
+          transport: {
+            login: unusedLogin,
+            getUpdates: () => Effect.succeed({}),
+            startTyping: (_auth, userId) => Effect.succeed({ userId, ticket: "ticket" }),
+            stopTyping: () => Effect.void,
+            notifyStart: () => Effect.void,
+            notifyStop: () => Effect.void,
+            downloadImage: () => Effect.die("unused"),
+            sendText: (_auth, _to, text, _context, clientId) =>
+              Effect.sync(() => {
+                replies.push(text);
+                return { serverMessageId: String(++outboundSequence), clientId };
+              }),
+          },
+        },
+      );
+      expect(prompted).toBe(false);
+      expect(replies).toEqual(["无法识别这条引用消息的来源。请取消引用后重新发送。"]);
+    }),
+  ),
+);
+
+it.effect("reports a deleted target session without falling back to the default", () =>
+  withTestStore((store) =>
+    Effect.gen(function* () {
+      yield* configureStore(store);
+      yield* store.routes.record({
+        accountId: "bot",
+        serverMessageId: "7483914874329324552",
+        sourceSessionId: "deleted-session",
+        clientId: "deleted-client",
+        createdAt: 1,
+      });
+      const replies: string[] = [];
+      yield* processUpdateBatch(
+        {
+          msgs: [
+            {
+              message_id: "9007199254740995",
+              message_type: 1,
+              from_user_id: "allowed-user",
+              context_token: "context",
+              item_list: [
+                {
+                  type: 1,
+                  text_item: { text: "继续" },
+                  ref_msg: { message_item: { msg_id: "7483914874329324552", type: 1 } },
+                },
+              ],
+            },
+          ],
+        },
+        {
+          store,
+          gateway: {
+            promptAndWait: (sessionId) =>
+              Effect.fail(
+                new GatewayError({
+                  sessionId,
+                  cause: new HttpRequestError({
+                    operation: "pi.prompt",
+                    url: "http://127.0.0.1/session",
+                    cause: "HTTP 404",
+                    status: 404,
+                  }),
+                }),
+              ),
+          },
+          transport: {
+            login: unusedLogin,
+            getUpdates: () => Effect.succeed({}),
+            startTyping: (_auth, userId) => Effect.succeed({ userId, ticket: "ticket" }),
+            stopTyping: () => Effect.void,
+            notifyStart: () => Effect.void,
+            notifyStop: () => Effect.void,
+            downloadImage: () => Effect.die("unused"),
+            sendText: (_auth, _to, text, _context, clientId) =>
+              Effect.sync(() => {
+                replies.push(text);
+                return { serverMessageId: String(++outboundSequence), clientId };
+              }),
+          },
+        },
+      );
+      expect(replies).toEqual(["引用对应的 Pi 会话已不可用。请取消引用后发送到默认会话。"]);
+      expect(yield* store.routes.resolve("bot", String(outboundSequence))).toBe("deleted-session");
     }),
   ),
 );
@@ -162,6 +355,10 @@ it.effect("messages from an unbound user are acknowledged without reaching Pi", 
             sendText: () =>
               Effect.sync(() => {
                 replied = true;
+                return {
+                  serverMessageId: String(++outboundSequence),
+                  clientId: `client-${outboundSequence}`,
+                };
               }),
           },
         },
@@ -217,7 +414,7 @@ it.effect("stale credentials from typing stop the batch before Pi is prompted", 
             notifyStart: () => Effect.void,
             notifyStop: () => Effect.void,
             downloadImage: () => Effect.die("unused image download"),
-            sendText: () => Effect.void,
+            sendText: (_auth, _to, _text, _context, clientId) => outboundReceipt(clientId),
           },
         },
       ).pipe(Effect.exit);
@@ -266,7 +463,11 @@ it.effect(
               notifyStart: () => Effect.void,
               notifyStop: () => Effect.void,
               downloadImage: () => Effect.die("unused image download"),
-              sendText: (_auth, _to, text) => Effect.sync(() => replies.push(text)),
+              sendText: (_auth, _to, text, _context, clientId) =>
+                Effect.sync(() => {
+                  replies.push(text);
+                  return { serverMessageId: String(++outboundSequence), clientId };
+                }),
             },
           },
         );
@@ -308,7 +509,11 @@ it.effect("text flushes all collected and inline images as one deterministic bat
             data: image.media?.encrypt_query_param ?? "missing",
             mimeType: "image/png",
           }),
-        sendText: (_auth, _to, text) => Effect.sync(() => replies.push(text)),
+        sendText: (_auth, _to, text, _context, clientId) =>
+          Effect.sync(() => {
+            replies.push(text);
+            return { serverMessageId: String(++outboundSequence), clientId };
+          }),
       };
 
       yield* processUpdateBatch(
@@ -508,7 +713,11 @@ it.effect("permanent image errors reply once and become processed", () =>
               cause: "bad key",
             }),
           ),
-        sendText: (_auth, _to, text) => Effect.sync(() => replies.push(text)),
+        sendText: (_auth, _to, text, _context, clientId) =>
+          Effect.sync(() => {
+            replies.push(text);
+            return { serverMessageId: String(++outboundSequence), clientId };
+          }),
       };
       const gateway: PiGateway = {
         promptAndWait: () =>
@@ -562,9 +771,10 @@ it.effect("transient image download failures preserve Dispatching for retry", ()
                 cause: "connection reset",
               }),
             ),
-          sendText: () =>
+          sendText: (_auth, _to, _text, _context, clientId) =>
             Effect.sync(() => {
               replied = true;
+              return { serverMessageId: String(++outboundSequence), clientId };
             }),
         },
       } satisfies { store: typeof store; gateway: PiGateway; transport: WeixinTransport };
@@ -638,7 +848,11 @@ it.effect("untranscribed Weixin voice gets one friendly terminal reply", () =>
         notifyStart: () => Effect.void,
         notifyStop: () => Effect.void,
         downloadImage: () => Effect.die("image download must not start"),
-        sendText: (_auth, _to, text) => Effect.sync(() => replies.push(text)),
+        sendText: (_auth, _to, text, _context, clientId) =>
+          Effect.sync(() => {
+            replies.push(text);
+            return { serverMessageId: String(++outboundSequence), clientId };
+          }),
       };
       const gateway: PiGateway = {
         promptAndWait: () =>

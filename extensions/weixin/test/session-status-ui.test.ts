@@ -7,15 +7,13 @@ import {
 
 const status = (connected: boolean): WeixinStatusProjection => ({
   kind: "pi-weixin/status",
-  version: 2,
-  bindings: [
-    {
-      sessionId: "session-a",
-      accountId: "wx-bot-1",
-      connected,
-      phase: connected ? "Connected" : "Stopped",
-    },
-  ],
+  version: 3,
+  enabled: connected,
+  accountId: "wx-bot-1",
+  defaultSessionId: "session-a",
+  connected,
+  sendReady: connected,
+  phase: connected ? "Connected" : "Stopped",
 });
 
 it("publishes structured connection state when the host supports it", () => {
@@ -26,8 +24,8 @@ it("publishes structured connection state when the host supports it", () => {
     setStatus: (_key, value) => text.push(value),
   };
 
-  publishSessionStatus(ui, status(true), "session-a");
-  publishSessionStatus(ui, status(false), "session-a");
+  publishSessionStatus(ui, status(true));
+  publishSessionStatus(ui, status(false));
 
   expect(structured).toEqual([status(true), status(false)]);
   expect(text).toEqual([]);
@@ -39,8 +37,8 @@ it("publishes the text projection through Pi's public terminal UI contract", () 
     setStatus: (_key, value) => text.push(value),
   };
 
-  publishSessionStatus(ui, status(true), "session-a");
-  publishSessionStatus(ui, status(false), "session-a");
+  publishSessionStatus(ui, status(true));
+  publishSessionStatus(ui, status(false));
 
   expect(text).toEqual(["微信已连接", "微信未连接"]);
 });

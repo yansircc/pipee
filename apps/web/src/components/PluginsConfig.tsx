@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useIsMobile } from "@/hooks/useIsMobile"
-import type { PluginPackageInfo, PluginsResponse } from "@/api/contract"
+import type { PluginPackageInfo, PluginsResponse, WeixinStatusProjection } from "@/api/contract"
 import { useI18n } from "@/lib/i18n"
 import { withApi, runApi } from "@/browser/api-client"
+import { apiUrls, runBrowser } from "@/browser/api-client"
+import { BrowserPlatform } from "@/browser/browser-platform"
+import { Effect } from "effect"
+import type { ChromeExtensionHealth } from "@/lib/chrome-extension-installation"
+import { PI_COMPANION_PACKAGE_NAMES } from "@/lib/plugin-package-settings"
 
 type PluginScope = PluginPackageInfo["scope"]
 type PluginAction = "install" | "remove" | "update" | "disable" | "enable"
@@ -52,8 +57,8 @@ function versionSummary(pkg: PluginPackageInfo): string {
   return parts.length ? parts.join(" · ") : "Unknown"
 }
 
-function installLocation(scope: PluginScope, cwd: string): string {
-  return scope === "project" ? `${shortenPath(cwd)}/.pi/agent/{npm,git}` : "~/.pi/agent/{npm,git}"
+function installLocation(scope: PluginScope, cwd: string | null): string {
+  return scope === "project" && cwd !== null ? `${shortenPath(cwd)}/.pi/agent/{npm,git}` : "~/.pi/agent/{npm,git}"
 }
 
 function findInstalledPackage(
@@ -248,7 +253,15 @@ function Toggle({
   )
 }
 
-function SegmentedScope({ value, onChange }: { value: PluginScope; onChange: (scope: PluginScope) => void }) {
+function SegmentedScope({
+  value,
+  onChange,
+  allowProject = true,
+}: {
+  value: PluginScope
+  onChange: (scope: PluginScope) => void
+  allowProject?: boolean
+}) {
   return (
     <div
       style={{
@@ -261,9 +274,11 @@ function SegmentedScope({ value, onChange }: { value: PluginScope; onChange: (sc
     >
       {(["global", "project"] as PluginScope[]).map((scope) => {
         const active = value === scope
+        const disabled = scope === "project" && !allowProject
         return (
           <button
             key={scope}
+            disabled={disabled}
             onClick={() => onChange(scope)}
             style={{
               width: 76,
@@ -271,7 +286,8 @@ function SegmentedScope({ value, onChange }: { value: PluginScope; onChange: (sc
               borderRight: scope === "global" ? "1px solid var(--border)" : "none",
               background: active ? "var(--bg-selected)" : "none",
               color: active ? "var(--text)" : "var(--text-muted)",
-              cursor: "pointer",
+              cursor: disabled ? "not-allowed" : "pointer",
+              opacity: disabled ? 0.45 : 1,
               fontSize: 12,
             }}
           >
@@ -293,7 +309,7 @@ function AddPluginPanel({
   onScopeChange,
   onInstall,
 }: {
-  cwd: string
+  cwd: string | null
   source: string
   scope: PluginScope
   busy: boolean
@@ -348,7 +364,7 @@ function AddPluginPanel({
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <SegmentedScope value={scope} onChange={onScopeChange} />
+        <SegmentedScope value={scope} onChange={onScopeChange} allowProject={cwd !== null} />
         <button
           type="button"
           onClick={onInstall}
@@ -414,24 +430,124 @@ function PackageDetail({
   sessionId,
   onAction,
   onReloadSession,
+  chromeHealth,
+  weixinStatus,
 }: {
   pkg: PluginPackageInfo
-  cwd: string
+  cwd: string | null
   busyKey: string | null
   actionError: string | null
   actionMessage: string | null
   sessionId: string | null
   onAction: (action: PluginAction, pkg: PluginPackageInfo) => void
   onReloadSession: () => void
+  chromeHealth: ChromeExtensionHealth | null
+  weixinStatus: WeixinStatusProjection | undefined
 }) {
   const { t } = useI18n()
   const key = packageKey(pkg)
   const busy = busyKey?.endsWith(key) ?? false
   const reloadBusy = busyKey === "reload"
   const enabled = !pkg.disabled
+  const isChrome = pkg.scope === "global" && pkg.packageName === PI_COMPANION_PACKAGE_NAMES.chrome
+  const isWeixin = pkg.scope === "global" && pkg.packageName === PI_COMPANION_PACKAGE_NAMES.weixin
+
+  const openChromeInstallationGuide = () => {
+    runBrowser(
+      BrowserPlatform.pipe(
+        Effect.flatMap((browser) =>
+          browser.openExternal(
+            "https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked",
+          ),
+        ),
+      ),
+      { onSuccess: () => undefined },
+    )
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 680 }}>
+      {isChrome && chromeHealth !== null && chromeHealth._tag !== "Ready" && chromeHealth._tag !== "NotInstalled" && (
+        <div
+          style={{
+            padding: 16,
+            border: "1px solid rgba(239,68,68,0.45)",
+            borderRadius: 8,
+            background: "rgba(239,68,68,0.07)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>
+              {t(
+                chromeHealth._tag === "Missing"
+                  ? "Chrome browser extension required"
+                  : "Chrome browser extension needs updating",
+              )}
+            </div>
+            <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.55, color: "var(--text-muted)" }}>
+              {t(
+                "Download the ZIP, extract it, then open Chrome Extensions, enable Developer mode, and choose Load unpacked.",
+              )}
+            </div>
+          </div>
+          <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12, lineHeight: 1.7, color: "var(--text-muted)" }}>
+            <li>{t("Download and extract the browser extension ZIP.")}</li>
+            <li>{t("Open chrome://extensions and enable Developer mode.")}</li>
+            <li>{t("Choose Load unpacked and select the extracted folder.")}</li>
+          </ol>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" onClick={openChromeInstallationGuide} style={buttonStyle()}>
+              {t("Open installation guide")}
+            </button>
+            <a
+              href={apiUrls.packages.downloadChromeExtension()}
+              download={`pi-chrome-extension-${pkg.chromeExtensionDisplayVersion ?? pkg.version ?? "latest"}.zip`}
+              style={{
+                ...buttonStyle(),
+                background: "var(--accent)",
+                borderColor: "var(--accent)",
+                color: "white",
+                textDecoration: "none",
+              }}
+            >
+              {t("Download browser extension ZIP")}
+            </a>
+          </div>
+        </div>
+      )}
+      {isWeixin && (
+        <div
+          data-weixin-global-status
+          style={{
+            padding: 16,
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            background: "var(--bg-secondary)",
+            display: "grid",
+            gridTemplateColumns: "max-content minmax(0, 1fr)",
+            gap: "8px 14px",
+            fontSize: 12,
+          }}
+        >
+          <div style={{ gridColumn: "1 / -1", fontSize: 14, fontWeight: 700 }}>{t("Global Weixin status")}</div>
+          <div style={{ color: "var(--text-dim)" }}>{t("Connection")}</div>
+          <div>{weixinStatus?.phase ?? t("Unavailable until a session loads")}</div>
+          <div style={{ color: "var(--text-dim)" }}>{t("Account")}</div>
+          <div style={{ overflowWrap: "anywhere" }}>{weixinStatus?.accountId ?? t("Not logged in")}</div>
+          <div style={{ color: "var(--text-dim)" }}>{t("Default session")}</div>
+          <div style={{ overflowWrap: "anywhere", fontFamily: "var(--font-mono)" }}>
+            {weixinStatus?.defaultSessionId ?? t("Not configured")}
+          </div>
+          <div style={{ color: "var(--text-dim)" }}>{t("Proactive send")}</div>
+          <div>{weixinStatus?.sendReady ? t("Ready") : t("Waiting for an inbound Weixin message")}</div>
+          {weixinStatus?.error && (
+            <div style={{ gridColumn: "1 / -1", color: "#ef4444", overflowWrap: "anywhere" }}>{weixinStatus.error}</div>
+          )}
+        </div>
+      )}
       <div
         style={{
           display: "flex",
@@ -546,10 +662,12 @@ function PackageDetail({
         >
           {pkg.installedPath ? shortenPath(pkg.installedPath) : t("Not found")}
         </div>
-        <div style={{ color: "var(--text-dim)" }}>CWD</div>
-        <div style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
-          {shortenPath(cwd)}
-        </div>
+        {cwd !== null && <div style={{ color: "var(--text-dim)" }}>CWD</div>}
+        {cwd !== null && (
+          <div style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
+            {shortenPath(cwd)}
+          </div>
+        )}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -568,11 +686,17 @@ export function PluginsConfig({
   sessionId,
   onClose,
   onReloaded,
+  initialPackageName,
+  chromeHealth,
+  weixinStatus,
 }: {
-  cwd: string
+  cwd: string | null
   sessionId: string | null
   onClose: () => void
   onReloaded?: () => void
+  initialPackageName?: string
+  chromeHealth: ChromeExtensionHealth | null
+  weixinStatus: WeixinStatusProjection | undefined
 }) {
   const { t, locale } = useI18n()
   const isMobile = useIsMobile()
@@ -599,26 +723,36 @@ export function PluginsConfig({
   const loadPlugins = useCallback(() => {
     setLoading(true)
     setError(null)
-    runApi(
-      withApi((api) => api.packages.plugins({ query: { cwd } })),
-      {
-        onSuccess: (response) => {
-          const next = clonePlugins(response)
-          setData(next)
-          setAddMode((current) => next.packages.length === 0 || current)
-          setSelected((current) => {
-            if (current && next.packages.some((pkg) => packageKey(pkg) === current)) return current
-            return next.packages[0] ? packageKey(next.packages[0]) : null
-          })
-          setLoading(false)
-        },
-        onFailure: (failure) => {
-          setError(failure instanceof Error ? failure.message : String(failure))
-          setLoading(false)
-        },
+    const request =
+      cwd === null
+        ? withApi((api) => api.packages.globalChromePlugin()).pipe(
+            Effect.map(
+              (response): PluginsResponse => ({
+                packages: response.package === null ? [] : [response.package],
+                totals: response.package?.counts ?? { extensions: 0, skills: 0, prompts: 0, themes: 0 },
+                diagnostics: [],
+              }),
+            ),
+          )
+        : withApi((api) => api.packages.plugins({ query: { cwd } }))
+    runApi(request, {
+      onSuccess: (response) => {
+        const next = clonePlugins(response)
+        setData(next)
+        setAddMode((current) => next.packages.length === 0 || current)
+        setSelected((current) => {
+          if (current && next.packages.some((pkg) => packageKey(pkg) === current)) return current
+          const initial = next.packages.find((pkg) => pkg.packageName === initialPackageName)
+          return initial ? packageKey(initial) : next.packages[0] ? packageKey(next.packages[0]) : null
+        })
+        setLoading(false)
       },
-    )
-  }, [cwd])
+      onFailure: (failure) => {
+        setError(failure instanceof Error ? failure.message : String(failure))
+        setLoading(false)
+      },
+    })
+  }, [cwd, initialPackageName])
 
   useEffect(() => {
     loadPlugins()
@@ -633,7 +767,7 @@ export function PluginsConfig({
       runApi(
         withApi((api) =>
           api.packages.pluginAction({
-            payload: { action, source: pkg.source, scope: pkg.scope, cwd },
+            payload: { action, source: pkg.source, scope: pkg.scope, ...(cwd === null ? {} : { cwd }) },
           }),
         ),
         {
@@ -675,7 +809,7 @@ export function PluginsConfig({
     runApi(
       withApi((api) =>
         api.packages.pluginAction({
-          payload: { action: "install", source, scope: installScope, cwd },
+          payload: { action: "install", source, scope: installScope, ...(cwd === null ? {} : { cwd }) },
         }),
       ),
       {
@@ -773,7 +907,7 @@ export function PluginsConfig({
                 whiteSpace: "nowrap",
               }}
             >
-              {shortenPath(cwd)}
+              {cwd === null ? t("Global packages") : shortenPath(cwd)}
             </code>
           </div>
           <button
@@ -982,6 +1116,8 @@ export function PluginsConfig({
                 sessionId={sessionId}
                 onAction={runAction}
                 onReloadSession={reloadSession}
+                chromeHealth={chromeHealth}
+                weixinStatus={weixinStatus}
               />
             ) : (
               <div

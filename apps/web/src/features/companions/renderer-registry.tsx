@@ -45,16 +45,16 @@ const renderers = {
   "pi-loop/status@1": defineRenderer(LoopStatusProjection, (status, props) =>
     status.sessionId === props.sessionId ? <SessionAutomationBar status={status} /> : null,
   ),
-  "pi-weixin/status@2": defineRenderer(WeixinStatusProjection, (status, props) => {
-    const binding = status.bindings.find((item) => item.sessionId === props.sessionId)
-    return (
-      <div style={panelStyle} data-companion-renderer="pi-weixin/status@2">
-        <div>Weixin · {binding?.phase ?? "Not bound"}</div>
-        {binding?.accountId && <div style={{ marginTop: 4, color: "var(--text-muted)" }}>{binding.accountId}</div>}
-        {binding?.error && <div style={{ marginTop: 4, color: "#d14343" }}>{binding.error}</div>}
-      </div>
-    )
-  }),
+  "pi-weixin/status@3": defineRenderer(WeixinStatusProjection, (status) => (
+    <div style={panelStyle} data-companion-renderer="pi-weixin/status@3">
+      <div>Weixin · {status.phase}</div>
+      {status.accountId && <div style={{ marginTop: 4, color: "var(--text-muted)" }}>{status.accountId}</div>}
+      {status.defaultSessionId && (
+        <div style={{ marginTop: 4, color: "var(--text-muted)" }}>Default · {status.defaultSessionId}</div>
+      )}
+      {status.error && <div style={{ marginTop: 4, color: "#d14343" }}>{status.error}</div>}
+    </div>
+  )),
   "pi-chrome/status@3": defineRenderer(ChromeStatusProjection, (status) => (
     <div style={panelStyle} data-companion-renderer="pi-chrome/status@3">
       <div>Chrome · {status.state}</div>
