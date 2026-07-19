@@ -811,6 +811,30 @@ const PackagesLive = HttpApiBuilder.group(PiWebApi, "packages", (handlers) =>
           return ok
         }),
       )
+      .handle("deleteSkill", ({ payload }) =>
+        Effect.gen(function* () {
+          const cwd = yield* expose(workspace.validateCwd(payload.cwd))
+          const projection = yield* expose(adapter.skills(cwd))
+          const skill = projection.skills.find((candidate) => candidate.filePath === payload.filePath)
+          if (skill === undefined) {
+            return yield* new Forbidden({ message: "Skill is not owned by the selected workspace" })
+          }
+          const scope = skill.sourceInfo.scope
+          if (scope !== "user" && scope !== "project") {
+            return yield* new Forbidden({
+              message: "Package and path-provided skills must be removed through their owner",
+            })
+          }
+          if (
+            path.basename(skill.filePath).toLowerCase() !== "skill.md" ||
+            path.dirname(skill.filePath) !== skill.baseDir
+          ) {
+            return yield* new Forbidden({ message: "Skill projection has an invalid ownership boundary" })
+          }
+          yield* expose(adapter.deleteSkill(skill.baseDir))
+          return ok
+        }),
+      )
       .handle("searchSkills", ({ payload }) => {
         const query = payload.query.trim()
         if (!query) return Effect.fail(new InvalidInput({ field: "query", message: "Search query is required" }))

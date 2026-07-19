@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import * as stylex from "@stylexjs/stylex"
 import { Effect } from "effect"
-import { Link, useNavigate } from "@tanstack/react-router"
+import { useNavigate } from "@tanstack/react-router"
 import type { SessionInfo } from "@/api/contract"
 import { runApi, runBrowser, withApi } from "@/browser/api-client"
 import { connectWebSurface } from "@/browser/web-surface-channel"
@@ -12,9 +12,8 @@ import {
   type ExtensionCatalogState,
   type ResolvedWebSurfaceCatalog,
 } from "@/lib/web-surface-catalog-group"
-import { PluginsConfig } from "./PluginsConfig"
 
-const readCatalogs = Effect.gen(function* () {
+export const readWebSurfaceCatalogs = Effect.gen(function* () {
   const index = yield* withApi((api) => api.sessions.list({}))
   const representativeByCwd = new Map<string, SessionInfo>()
   for (const session of index.sessions) {
@@ -55,7 +54,7 @@ export function ExtensionShell({ surfaceId }: { readonly surfaceId?: string }) {
 
   const refresh = useCallback(() => {
     setError(null)
-    return runApi(readCatalogs, {
+    return runApi(readWebSurfaceCatalogs, {
       onSuccess: (next) => {
         runningFingerprintRef.current = [...next.index.runningSessionIds].sort().join("\0")
         setCatalog(next)
@@ -124,88 +123,44 @@ export function ExtensionShell({ surfaceId }: { readonly surfaceId?: string }) {
     )
   }, [loadEpoch, navigate, selected, sessions])
 
-  const projectCwds = useMemo(() => {
-    return [...new Set((catalog?.index.sessions ?? []).map((session) => session.cwd))].sort()
-  }, [catalog])
-
   return (
     <section {...stylex.props(styles.shell)}>
-      <aside {...stylex.props(styles.catalog)}>
-        <div {...stylex.props(styles.catalogHeader)}>
-          <h1 {...stylex.props(styles.catalogTitle)}>拓展</h1>
-        </div>
-        <div {...stylex.props(styles.catalogLabel)}>插件管理</div>
-        <Link
-          to="/extensions"
-          {...stylex.props(styles.surfaceLink, surfaceId === undefined && styles.surfaceLinkActive)}
-        >
-          <span {...stylex.props(styles.surfaceIcon, styles.managerIcon)}>田</span>
-          <span {...stylex.props(styles.surfaceCopy)}>
-            <b>已安装拓展</b>
-            <span>增删查改 · 激活与禁用</span>
-          </span>
-        </Link>
-        <div {...stylex.props(styles.catalogLabel)}>拓展页面</div>
-        <div {...stylex.props(styles.surfaceList)}>
-          {catalog?.groups.map((group) => (
-            <Link
-              key={group.item.surfaceId}
-              to="/extensions/$surfaceId"
-              params={{ surfaceId: group.item.surfaceId }}
-              {...stylex.props(styles.surfaceLink, group.item.surfaceId === surfaceId && styles.surfaceLinkActive)}
-            >
-              <span {...stylex.props(styles.surfaceIcon)}>{group.item.title.slice(0, 1)}</span>
-              <span {...stylex.props(styles.surfaceCopy)}>
-                <b>{group.item.title}</b>
-                <span>{group.item.packageName}</span>
-              </span>
-              <i {...stylex.props(styles.surfaceDot)} />
-            </Link>
-          ))}
-          {catalog !== null && catalog.groups.length === 0 && (
-            <p {...stylex.props(styles.emptyCatalog)}>当前 Pi 没有可用 Web Surface。</p>
+      <div {...stylex.props(styles.workspace)}>
+        <header {...stylex.props(styles.header)}>
+          <button type="button" onClick={() => void navigate({ to: "/" })} {...stylex.props(styles.backButton)}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            返回主页面
+          </button>
+          <div {...stylex.props(styles.heading)}>
+            <strong>{selected?.item.title ?? "拓展页面"}</strong>
+            {selected && <span>{selected.item.packageName}</span>}
+          </div>
+        </header>
+        <div {...stylex.props(styles.surfaceWorkspace)}>
+          {surfaceId === undefined || selected === null ? (
+            <div {...stylex.props(styles.emptyWorkspace)}>这个 Web Surface 当前不可用。</div>
+          ) : (
+            <>
+              <iframe
+                key={`${selected.item.surfaceId}:${selected.item.candidateHash}`}
+                ref={iframeRef}
+                title={selected.item.title}
+                src={selected.item.documentUrl}
+                sandbox="allow-scripts"
+                {...stylex.props(styles.frame)}
+                onLoad={() => {
+                  setFrameState({ state: "connecting" })
+                  setLoadEpoch((value) => value + 1)
+                }}
+              />
+              {frameState.state !== "ready" && (
+                <div {...stylex.props(styles.frameState)}>{frameState.message ?? "正在连接拓展…"}</div>
+              )}
+            </>
           )}
         </div>
-      </aside>
-      <div {...stylex.props(styles.workspace)}>
-        {surfaceId === undefined ? (
-          <PluginsConfig
-            presentation="page"
-            cwd={null}
-            sessionId={null}
-            projectCwds={projectCwds}
-            chromeHealth={null}
-            weixinStatus={undefined}
-            onClose={() => undefined}
-            onOpenPackage={(packageName) => {
-              const group = catalog?.groups.find((candidate) => candidate.item.packageName === packageName)
-              if (group) {
-                void navigate({
-                  to: "/extensions/$surfaceId",
-                  params: { surfaceId: group.item.surfaceId },
-                })
-              }
-            }}
-            onReloaded={refresh}
-          />
-        ) : selected === null ? (
-          <div {...stylex.props(styles.emptyWorkspace)}>这个 Web Surface 当前不可用。</div>
-        ) : (
-          <>
-            <iframe
-              key={`${selected.item.surfaceId}:${selected.item.candidateHash}`}
-              ref={iframeRef}
-              title={selected.item.title}
-              src={selected.item.documentUrl}
-              sandbox="allow-scripts"
-              {...stylex.props(styles.frame)}
-              onLoad={() => setLoadEpoch((value) => value + 1)}
-            />
-            {frameState.state !== "ready" && (
-              <div {...stylex.props(styles.frameState)}>{frameState.message ?? "正在连接拓展…"}</div>
-            )}
-          </>
-        )}
         {error && <div {...stylex.props(styles.error)}>{error}</div>}
         {notice && <div {...stylex.props(styles.notice)}>{notice}</div>}
       </div>
@@ -243,95 +198,46 @@ export function ExtensionShell({ surfaceId }: { readonly surfaceId?: string }) {
 
 const styles = stylex.create({
   shell: { backgroundColor: "var(--bg)", display: "flex", height: "100%", minHeight: 0 },
-  catalog: {
-    backgroundColor: "var(--bg-panel)",
-    borderRight: "1px solid var(--border)",
-    display: "flex",
-    flexDirection: "column",
-    flexShrink: 0,
-    width: { default: 224, "@media (max-width: 720px)": 76 },
-  },
-  catalogHeader: {
+  header: {
     alignItems: "center",
     borderBottom: "1px solid var(--border)",
     display: "flex",
-    height: 64,
-    paddingInline: 16,
-  },
-  catalogTitle: { fontSize: 17, margin: 0 },
-  catalogLabel: { color: "var(--text-dim)", fontSize: 10, fontWeight: 700, paddingBlock: 10, paddingInline: 14 },
-  surfaceList: { display: "flex", flexDirection: "column", gap: 3, paddingInline: 7 },
-  surfaceLink: {
-    alignItems: "center",
-    borderRadius: 10,
-    color: "var(--text-muted)",
-    display: "flex",
-    gap: 10,
-    marginInline: 7,
-    minHeight: 56,
-    paddingBlock: 8,
-    paddingInline: 10,
-    textDecoration: "none",
-    backgroundColor: { default: "transparent", ":hover": "var(--bg-hover)" },
-  },
-  surfaceLinkActive: { backgroundColor: "var(--bg-selected)", color: "var(--text)" },
-  surfaceIcon: {
-    alignItems: "center",
-    backgroundColor: "var(--accent)",
-    borderRadius: 9,
-    color: "white",
-    display: "flex",
     flexShrink: 0,
-    fontSize: 12,
-    fontWeight: 700,
-    height: 34,
-    justifyContent: "center",
-    width: 34,
+    gap: 18,
+    height: 58,
+    paddingInline: 18,
   },
-  managerIcon: { backgroundColor: "#3478f6" },
-  surfaceCopy: {
-    display: { default: "flex", "@media (max-width: 720px)": "none" },
-    flex: 1,
+  backButton: {
+    alignItems: "center",
+    backgroundColor: "var(--bg-hover)",
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    display: "flex",
+    fontSize: 12,
+    gap: 5,
+    height: 32,
+    paddingInline: 10,
+  },
+  heading: {
+    color: "var(--text)",
+    display: "flex",
     flexDirection: "column",
-    fontSize: 11,
-    gap: 3,
+    fontSize: 13,
+    gap: 2,
     minWidth: 0,
   },
-  surfaceDot: { backgroundColor: "#22c55e", borderRadius: "50%", height: 7, width: 7 },
-  emptyCatalog: { color: "var(--text-muted)", fontSize: 12, padding: 12 },
-  workspace: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", position: "relative" },
-  manager: { display: "flex", flexDirection: "column", height: "100%" },
-  managerHeader: {
-    alignItems: "center",
-    backgroundColor: "var(--bg-panel)",
-    borderBottom: "1px solid var(--border)",
-    display: "flex",
-    justifyContent: "space-between",
-    minHeight: 64,
-    paddingInline: 24,
-  },
-  managerTitle: { fontSize: 18, margin: 0 },
-  managerSubtitle: { color: "var(--text-muted)", fontSize: 11, marginBlock: 4 },
-  managerBody: {
-    alignItems: "flex-start",
+  surfaceWorkspace: { flex: 1, minHeight: 0, position: "relative" },
+  workspace: {
     display: "flex",
     flex: 1,
     flexDirection: "column",
-    gap: 14,
-    overflow: "auto",
-    padding: 24,
+    minHeight: 0,
+    minWidth: 0,
+    overflow: "hidden",
+    position: "relative",
   },
-  managerIntro: { color: "var(--text-muted)", fontSize: 13, margin: 0 },
-  manageButton: {
-    backgroundColor: "var(--bg-panel)",
-    border: "1px solid var(--border)",
-    borderRadius: 8,
-    color: "var(--text)",
-    cursor: "pointer",
-    paddingBlock: 9,
-    paddingInline: 13,
-  },
-  diagnostics: { color: "#d97706", fontSize: 11, whiteSpace: "pre-wrap" },
   emptyWorkspace: {
     alignItems: "center",
     color: "var(--text-muted)",

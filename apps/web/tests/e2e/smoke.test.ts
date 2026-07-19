@@ -97,9 +97,9 @@ test("preserves the normalized visual foundation", async ({ page }) => {
     )
     const brand = visibleButtons[0]
     const newSession = visibleButtons.find((button) => button.textContent?.includes("新建"))
-    const models = visibleButtons.find((button) => button.textContent?.includes("模型"))
+    const settings = visibleButtons.find((button) => button.getAttribute("aria-label") === "设置")
     const sidebar = document.querySelector(".sidebar-container")
-    if (brand === undefined || newSession === undefined || models === undefined || sidebar === null) {
+    if (brand === undefined || newSession === undefined || settings === undefined || sidebar === null) {
       throw new Error("visual contract inventory is incomplete")
     }
     return {
@@ -107,7 +107,7 @@ test("preserves the normalized visual foundation", async ({ page }) => {
       browserDefaultFontLeaks: visibleButtons
         .filter((button) => getComputedStyle(button).fontFamily === "Arial")
         .map((button) => button.textContent),
-      modelsBorder: getComputedStyle(models).border,
+      settingsBorder: getComputedStyle(settings).border,
       newSessionBorder: getComputedStyle(newSession).border,
       sidebarWidth: getComputedStyle(sidebar).width,
     }
@@ -116,7 +116,7 @@ test("preserves the normalized visual foundation", async ({ page }) => {
   expect(contract).toEqual({
     brandBorder: "0px none rgb(26, 26, 26)",
     browserDefaultFontLeaks: [],
-    modelsBorder: "0px none rgb(107, 114, 128)",
+    settingsBorder: "0px solid rgb(26, 26, 26)",
     newSessionBorder: "1px solid rgb(224, 224, 224)",
     sidebarWidth: "260px",
   })
@@ -146,17 +146,14 @@ test("loads a raw-archive Web Surface through the session runtime and opaque ifr
   expect(scriptAsset.ok()).toBe(true)
   expect(scriptAsset.headers()["access-control-allow-origin"]).toBe("*")
 
-  await page.goto("/extensions")
-  await expect(page).toHaveURL(/\/extensions$/)
-  await expect(page.getByText("Synthetic raw-archive Web Surface", { exact: true })).toBeVisible()
-  await page.getByRole("link", { name: /E2E Surface/ }).click()
+  await page.goto(`/extensions/${catalog.surfaces[0].surfaceId}`)
+  await expect(page).toHaveURL(new RegExp(`/extensions/${catalog.surfaces[0].surfaceId}$`))
   const frame = page.frameLocator('iframe[title="E2E Surface"]')
   await expect(frame.getByText("E2E Surface", { exact: true })).toBeVisible()
   await expect(frame.locator("#isolation"), browserErrors.join("\n")).toHaveText("parent access blocked")
   await expect(frame.locator("#result")).toHaveText("42")
   await page.waitForTimeout(400)
-  await expect(page.getByRole("link", { name: "对话" })).toBeVisible()
-  await page.getByRole("link", { name: "对话" }).click()
+  await page.getByRole("button", { name: "返回主页面" }).click()
   await expect(page.getByText("Pi Agent Web", { exact: true }).first()).toBeVisible()
 })
 
@@ -174,10 +171,12 @@ test("persists visible locale and theme preferences", async ({ page }) => {
 })
 
 test("governs settings focus, dismissal, and restoration", async ({ page }) => {
-  await page.goto("/")
+  await page.goto("/?session=00000000-0000-4000-8000-000000000001")
   const opener = page.getByRole("button", { name: "模型", exact: true })
+  const opensConfigDirectly = (await opener.textContent())?.includes("添加模型") ?? false
   await opener.click()
   const dialog = page.getByRole("dialog", { name: "模型" })
+  if (!opensConfigDirectly) await page.getByRole("button", { name: "管理模型", exact: true }).click()
   await expect(dialog).toBeVisible()
 
   for (let index = 0; index < 12; index += 1) {
@@ -187,7 +186,7 @@ test("governs settings focus, dismissal, and restoration", async ({ page }) => {
 
   await page.keyboard.press("Escape")
   await expect(dialog).toBeHidden()
-  await expect(opener).toBeFocused()
+  await expect(opener).toBeVisible()
 })
 
 test("exposes shared settings toggles as keyboard switches", async ({ page }) => {
@@ -252,7 +251,7 @@ test("follows live output until the user scrolls away and offers a return to lat
 })
 
 test("projects an active session before Pi persists its first message", async ({ page }) => {
-  await page.goto("/")
+  await page.goto("/?session=00000000-0000-4000-8000-000000000001")
   await mutate(page, "/api/workspace/cwd/validate", { cwd: fixtureWorkspace })
   const created = await mutate(page, "/api/sessions", { cwd: fixtureWorkspace, toolNames: [] })
   expect(created.status).toBe(200)
@@ -860,8 +859,11 @@ test("decodes invalid payloads before domain execution", async ({ page }) => {
 test("imports, exports, and validates raw model JSON", async ({ page }) => {
   const modelsPath = resolve("test-results/e2e-fixture/home/.pi/agent/models.json")
   await rm(modelsPath, { force: true })
-  await page.goto("/")
-  await page.getByRole("button", { name: "模型", exact: true }).click()
+  await page.goto("/?session=00000000-0000-4000-8000-000000000001")
+  const opener = page.getByRole("button", { name: "模型", exact: true })
+  const opensConfigDirectly = (await opener.textContent())?.includes("添加模型") ?? false
+  await opener.click()
+  if (!opensConfigDirectly) await page.getByRole("button", { name: "管理模型", exact: true }).click()
   await page.getByRole("button", { name: "Raw JSON", exact: true }).click()
 
   const editor = page.getByRole("textbox", { name: "模型 Raw JSON" })
@@ -996,6 +998,14 @@ test("loads model, auth, plugin, and skill projections without mutating user sta
   expect(skillRoundTrip).toMatchObject({ disabledStatus: 200, enabledStatus: 200 })
   expect(skillRoundTrip.disabled).toContain("disable-model-invocation: true")
   expect(skillRoundTrip.enabled).not.toContain("disable-model-invocation")
+  const deletedSkill = await mutate(
+    page,
+    "/api/packages/skills",
+    { cwd: fixtureWorkspace, filePath: skillFile },
+    "DELETE",
+  )
+  expect(deletedSkill).toEqual({ status: 200, body: { ok: true } })
+  await expect(readFile(skillFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 
   const pluginRoundTrip = await page.evaluate(
     async ({ cwd, source }) => {

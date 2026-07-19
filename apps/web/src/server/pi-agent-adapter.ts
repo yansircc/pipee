@@ -287,6 +287,7 @@ export class PiAgentAdapter extends Context.Service<
     readonly packageFingerprint: (cwd: string) => Effect.Effect<string, PiAdapterError>
     readonly skills: (cwd: string) => Effect.Effect<typeof SkillsResponse.Type, PiAdapterError>
     readonly toggleSkill: (filePath: string, disabled: boolean) => Effect.Effect<void, PiAdapterError>
+    readonly deleteSkill: (baseDir: string) => Effect.Effect<void, PiAdapterError>
   }
 >()("pi-web/server/PiAgentAdapter") {}
 
@@ -2121,6 +2122,9 @@ const adapterLive = Effect.gen(function* () {
       }
     })
 
+  const deleteSkill = (baseDir: string) =>
+    fs.remove(baseDir, { recursive: true }).pipe(Effect.mapError(adapterError("skills.delete")))
+
   return PiAgentAdapter.of({
     listSessions: Effect.tryPromise({
       try: () =>
@@ -2271,6 +2275,7 @@ const adapterLive = Effect.gen(function* () {
     pluginAction,
     skills,
     toggleSkill,
+    deleteSkill,
   })
 })
 

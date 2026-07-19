@@ -535,6 +535,7 @@ export function PluginsConfig({
   weixinStatus,
   presentation = "dialog",
   onOpenPackage,
+  openablePackageNames,
   projectCwds = [],
 }: {
   cwd: string | null
@@ -546,6 +547,7 @@ export function PluginsConfig({
   weixinStatus: WeixinStatusProjection | undefined
   presentation?: "dialog" | "page"
   onOpenPackage?: (packageName: string) => void
+  openablePackageNames?: ReadonlySet<string>
   projectCwds?: ReadonlyArray<string>
 }) {
   const { t, locale } = useI18n()
@@ -818,7 +820,10 @@ export function PluginsConfig({
               <div {...stylex.props(inlineStyles.pageEmpty)}>没有符合条件的拓展</div>
             ) : (
               visiblePackages.map((pkg) => {
-                const actionable = pkg.packageName !== undefined && onOpenPackage !== undefined
+                const actionable =
+                  pkg.packageName !== undefined &&
+                  onOpenPackage !== undefined &&
+                  (openablePackageNames === undefined || openablePackageNames.has(pkg.packageName))
                 const busy = busyKey !== null && busyKey.endsWith(packageKey(pkg))
                 return (
                   <article
@@ -826,9 +831,14 @@ export function PluginsConfig({
                     tabIndex={actionable ? 0 : undefined}
                     role={actionable ? "link" : undefined}
                     {...stylex.props(inlineStyles.pageRow, !pkg.disabled && inlineStyles.pageRowActive)}
-                    onClick={() => pkg.packageName && onOpenPackage?.(pkg.packageName)}
+                    onClick={() => actionable && pkg.packageName && onOpenPackage?.(pkg.packageName)}
                     onKeyDown={(event) => {
-                      if (event.key === "Enter" && event.target === event.currentTarget && pkg.packageName) {
+                      if (
+                        event.key === "Enter" &&
+                        event.target === event.currentTarget &&
+                        actionable &&
+                        pkg.packageName
+                      ) {
                         onOpenPackage?.(pkg.packageName)
                       }
                     }}
@@ -1606,7 +1616,8 @@ const inlineStyles = stylex.create({
     flexShrink: 0,
     justifyContent: "space-between",
     minHeight: 64,
-    paddingInline: 24,
+    paddingLeft: 24,
+    paddingRight: 62,
   },
   pageTitle: { fontSize: 18, margin: 0 },
   pageSubtitle: { color: "var(--text-muted)", fontSize: 11, marginBlock: 4 },
