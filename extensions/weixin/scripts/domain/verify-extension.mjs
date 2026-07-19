@@ -20,6 +20,8 @@ const handlers = new Map();
 const tools = new Map();
 const notifications = [];
 const statuses = new Map();
+let surfaceProjection;
+let surfaceRegistration;
 const pi = {
   registerTool: (tool) => tools.set(tool.name, tool),
   on: (name, handler) => handlers.set(name, handler),
@@ -35,7 +37,19 @@ const context = {
     getPiSuiteCapability: (_ownerId, id) =>
       id === "pi-suite/runtime-retention@1"
         ? { acquire: () => ({ release: () => undefined }) }
-        : { replace: (slot, value) => statuses.set(slot, value) },
+        : id === "pi-suite/web-surface-runtime@1"
+          ? {
+              register: (registration) => {
+                surfaceRegistration = registration;
+                return {
+                  replace: (value) => {
+                    surfaceProjection = value;
+                  },
+                  release: () => undefined,
+                };
+              },
+            }
+          : { replace: (slot, value) => statuses.set(slot, value) },
   },
   sessionManager: {
     getSessionId: () => "release-domain-check",
@@ -55,6 +69,8 @@ try {
   );
 
   await start({}, context);
+  assert.equal(surfaceProjection.kind, "pi-weixin/web-surface");
+  assert.equal(typeof surfaceRegistration.dispatch, "function");
   const initial = await status.execute("release-status", {}, undefined, undefined, context);
   assert.match(initial.content[0].text, /已停止，未登录/);
   assert.equal(initial.details.phase, "Stopped");

@@ -58,6 +58,7 @@ it.effect("gates the real Pi callback path until the agent becomes idle", () =>
       const entries: Array<unknown> = [];
       const statuses = new Map<string, unknown>();
       const capabilities = makeExtensionHostCapabilities({
+        webSurfaceCandidates: new Map([["@yansircc/pi-loop", "a".repeat(64) as never]]),
         replaceStructuredView: (ownerId, slot, value) => {
           const key = capabilitySlotKey(ownerId, slot);
           if (value === undefined) statuses.delete(key);

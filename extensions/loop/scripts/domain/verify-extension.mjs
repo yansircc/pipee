@@ -15,6 +15,8 @@ const cwd = mkdtempSync(resolve(tmpdir(), "pi-loop-domain-"));
 const handlers = new Map();
 const tools = new Map();
 const entries = [];
+let surfaceProjection;
+let surfaceRegistration;
 const pi = {
   on: (name, handler) => handlers.set(name, handler),
   registerCommand: () => undefined,
@@ -28,6 +30,22 @@ const context = {
   ui: {
     notify: () => undefined,
     setStatus: () => undefined,
+    getPiSuiteCapability: (_ownerId, id) =>
+      id === "pi-suite/runtime-retention@1"
+        ? { acquire: () => ({ release: () => undefined }) }
+        : id === "pi-suite/web-surface-runtime@1"
+          ? {
+              register: (registration) => {
+                surfaceRegistration = registration;
+                return {
+                  replace: (value) => {
+                    surfaceProjection = value;
+                  },
+                  release: () => undefined,
+                };
+              },
+            }
+          : undefined,
   },
   sessionManager: {
     getSessionId: () => "release-domain-check",
@@ -49,6 +67,8 @@ try {
   );
 
   await start({}, context);
+  assert.equal(surfaceProjection.kind, "pi-loop/web-surface");
+  assert.equal(typeof surfaceRegistration.dispatch, "function");
   const created = textOf(
     await create.execute("release-create", {
       prompt: "release domain probe",
@@ -62,6 +82,16 @@ try {
 
   const listed = textOf(await list.execute("release-list", {}));
   assert.match(listed, /release domain probe/, "loop_list did not observe the created loop");
+  const paused = await surfaceRegistration.dispatch(
+    { requestId: "release-pause", payload: { _tag: "SetEnabled", id, enabled: false } },
+    new AbortController().signal,
+  );
+  assert.equal(paused._tag, "Accepted", "Web Surface action did not reach Loop operations");
+  assert.equal(
+    surfaceProjection.loops.find((loop) => loop.id === id)?.enabled,
+    false,
+    "Web Surface action did not update the Runtime projection",
+  );
   const deleted = textOf(await remove.execute("release-delete", { target: { kind: "one", id } }));
   assert.equal(deleted, "Deleted 1 loop.");
   assert.equal(textOf(await list.execute("release-list-empty", {})), "No active loops");

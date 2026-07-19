@@ -20,7 +20,8 @@
     "directory": "extensions/weixin"
   },
   "files": [
-    "dist/pi"
+    "dist/pi",
+    "dist/web"
   ],
   "type": "module",
   "publishConfig": {
@@ -33,7 +34,8 @@
     "typecheck": "vp run ci:typecheck",
     "verify": "pnpm run repo:verify && pnpm run pi:verify",
     "repo:verify": "vp run ci:verify",
-    "pi:build": "node ../../tooling/pi-extension/build.mjs .",
+    "pi:web-build": "node ../../tooling/pi-extension/build-web.mjs .",
+    "pi:build": "pnpm run pi:web-build && node ../../tooling/pi-extension/build.mjs .",
     "pi:bundle-check": "node ../../tooling/pi-extension/verify-distribution.mjs . bundle",
     "pi:distribution-check": "node ../../tooling/pi-extension/verify-distribution.mjs . package",
     "pi:verify": "pnpm run pi:build && pnpm run pi:bundle-check",
@@ -80,5 +82,12 @@
     "extensions": [
       "./dist/pi/extension.js"
     ]
+  },
+  "piSuite": {
+    "web": {
+      "contract": "pi-suite/web-surface@1",
+      "document": "./dist/web/index.html",
+      "title": "微信桥接"
+    }
   }
 }

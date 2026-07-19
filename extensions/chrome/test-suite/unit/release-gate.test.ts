@@ -23,10 +23,16 @@ const lintOptions = (
 it("requires verification and a real connector smoke before publishing", () => {
   expect(packageJson.files).toContain("dist/browser-extension");
   expect(packageJson.files).toContain("dist/pi");
+  expect(packageJson.files).toContain("dist/web");
   expect(packageJson.files).not.toContain("dist");
   expect(packageJson.files.filter((path) => path === "src" || path.startsWith("src/"))).toEqual([]);
   expect(packageJson).not.toHaveProperty("dependencies");
   expect(packageJson.pi.extensions).toEqual(["./dist/pi/extension.js"]);
+  expect(packageJson.piSuite.web).toEqual({
+    contract: "pi-suite/web-surface@1",
+    document: "./dist/web/index.html",
+    title: "Chrome 自动化",
+  });
   expect(packageJson.scripts.verify).toBe("pnpm run repo:verify && pnpm run pi:verify");
   expect(packageJson.scripts["pi:assets-build"]).toBe("node scripts/build.ts");
   expect(packageJson.scripts["release:check"]).toBe("node scripts/release-check.ts");

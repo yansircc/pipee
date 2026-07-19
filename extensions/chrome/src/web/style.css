@@ -1,0 +1,279 @@
+:root {
+  font-family: Inter, "PingFang SC", system-ui, sans-serif;
+  color: #202738;
+  background: #f6f7f9;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+.top {
+  height: 76px;
+  padding: 0 32px;
+  background: #fff;
+  border-bottom: 1px solid #e5e8ed;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.top h1 {
+  margin: 0;
+  font-size: 19px;
+}
+.top p,
+.muted {
+  font-size: 12px;
+  color: #8b929f;
+}
+.top p {
+  margin: 5px 0 0;
+}
+.top-actions {
+  display: flex;
+  gap: 8px;
+}
+.content {
+  max-width: 1200px;
+  margin: auto;
+  padding: 28px;
+}
+.hero {
+  display: grid;
+  grid-template-columns: 2fr repeat(3, 1fr);
+  background: #fff;
+  border: 1px solid #e4e7ec;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.connector {
+  display: flex;
+  gap: 16px;
+  padding: 23px;
+}
+.chrome {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 5px solid #3478f6;
+  display: grid;
+  place-items: center;
+  color: #3478f6;
+  font-weight: 700;
+}
+.connector h2 {
+  font-size: 17px;
+  margin: 4px 0;
+}
+.metric {
+  padding: 23px;
+  border-left: 1px solid #ebedf1;
+}
+.metric span {
+  font-size: 12px;
+  color: #8b929f;
+}
+.metric strong {
+  display: block;
+  font-size: 24px;
+  margin: 10px 0 4px;
+}
+.note {
+  margin: 16px 0 24px;
+  padding: 12px 15px;
+  background: #edf4ff;
+  color: #315f9f;
+  border-radius: 9px;
+  font-size: 12px;
+}
+.section {
+  margin-bottom: 11px;
+}
+.section h3 {
+  font-size: 14px;
+  margin: 0;
+}
+.section p {
+  margin: 4px 0 0;
+}
+.layout {
+  display: grid;
+  grid-template-columns: 1.55fr 1fr;
+  gap: 14px;
+}
+.card {
+  background: #fff;
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.tab {
+  display: grid;
+  grid-template-columns: 38px 1fr 90px 160px;
+  align-items: center;
+  padding: 15px 17px;
+  border-bottom: 1px solid #eff1f4;
+}
+.tab:last-child {
+  border: 0;
+}
+.favicon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: #edf4ff;
+  color: #3478f6;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+.tab-copy b {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.state {
+  font-size: 12px;
+  color: #8a919d;
+}
+.state.active {
+  color: #3478f6;
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+}
+.health {
+  padding: 18px;
+}
+.health h4,
+.log h4 {
+  font-size: 13px;
+  margin: 0 0 15px;
+}
+.health-row {
+  display: flex;
+  gap: 11px;
+  padding: 11px 0;
+  border-bottom: 1px solid #eff1f4;
+}
+.health-row:last-child {
+  border: 0;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3478f6;
+  margin-top: 4px;
+}
+.health-row b {
+  font-size: 13px;
+}
+.health-row p {
+  margin: 3px 0 0;
+}
+.log {
+  margin-top: 14px;
+  padding: 18px;
+}
+.receipt {
+  display: grid;
+  grid-template-columns: 100px 150px 1fr 90px;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid #eff1f4;
+  font-size: 12px;
+}
+.op {
+  font-family: ui-monospace, monospace;
+  color: #3478f6;
+}
+button {
+  border: 1px solid #dfe2e8;
+  background: #fff;
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  color: #525b6c;
+}
+button:hover {
+  border-color: #3478f6;
+  color: #3478f6;
+}
+button.primary {
+  background: #3478f6;
+  border-color: #3478f6;
+  color: #fff;
+}
+button.icon {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+button.danger:hover {
+  border-color: #df5656;
+  color: #d43a3a;
+}
+.empty,
+.loading {
+  padding: 38px;
+  text-align: center;
+  color: #8b929f;
+}
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: #11182766;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.modal {
+  width: min(480px, 100%);
+  background: #fff;
+  border-radius: 14px;
+  padding: 22px;
+}
+.modal h2 {
+  font-size: 16px;
+  margin: 0 0 18px;
+}
+.modal input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #dfe2e8;
+  border-radius: 8px;
+  font: inherit;
+}
+.foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+@media (max-width: 850px) {
+  .hero {
+    grid-template-columns: 1fr 1fr;
+  }
+  .connector {
+    grid-column: 1/-1;
+  }
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  .tab {
+    grid-template-columns: 36px 1fr;
+  }
+  .state {
+    display: none;
+  }
+  .actions {
+    grid-column: 2;
+    margin-top: 8px;
+    justify-content: flex-start;
+  }
+}

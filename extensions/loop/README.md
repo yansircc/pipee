@@ -1,7 +1,7 @@
 # pi-loop
 
 Agent-first scheduling tools for Pi. Users describe recurring or delayed work conversationally; the
-agent creates and manages typed loops. There are no slash commands or Web control buttons.
+agent creates and manages typed loops. There are no slash commands.
 
 ## Tools
 
@@ -17,8 +17,9 @@ Session-retained loops disappear with their owning Pi session. Project-retained 
 are leased by one live Pi process. Dynamic loops are session-retained because their next wakeup is
 part of the active agent conversation.
 
-Pi Web renders the structured loop projection as read-only status. All mutations go through the
-typed Agent tools.
+Pi Web renders the session-bound Loop Web Surface from the same Runtime projection. Creation and
+other open-ended intent stay in Chat. The finite `run now`, pause/resume, edit, and delete controls
+dispatch the same typed domain operations used by Agent tools; retention remains read-only.
 
 ## Development
 
@@ -28,8 +29,8 @@ pnpm run verify
 pnpm run pi:pack
 ```
 
-The package gate builds one self-contained Node ESM entry, packs it, extracts it without installing
-dependencies, and loads it through Pi's real extension loader.
+The package gate builds one self-contained Node ESM entry plus `dist/web`, packs them, extracts the
+archive without installing dependencies, and loads it through Pi's real extension loader.
 
 ## Releases
 

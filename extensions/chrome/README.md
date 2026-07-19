@@ -1,7 +1,8 @@
 # pi-chrome
 
-Agent-first Chrome tools for Pi. The agent invokes the tools directly; there is no `/chrome`
-command, authorization prompt, or Web control toggle.
+Agent-first Chrome tools for Pi. Complex browser intent stays in Chat; there is no `/chrome`
+command or authorization control plane. The session-bound Web Surface exposes only exact-tab
+creation, activation, snapshot, screenshot, and close operations.
 
 ## Install
 
@@ -17,8 +18,9 @@ Ask Pi to use Chrome normally. All 25 typed atomic tools and `chrome_status` are
 the Extension never reads or rewrites Pi's active-tool selection.
 
 `chrome_status` reports one of `ready`, `waiting-for-extension`, `offline`, or `error`, plus the
-extension directory when setup is incomplete. This status is read-only in Pi Web and in the Chrome
-popup.
+extension directory when setup is incomplete. The Chrome popup stays read-only. Pi Web combines
+that status with session-owned tab projection and finite typed controls; it never mirrors the DOM
+or falls back to Chrome's active tab.
 
 ## Operation model
 
