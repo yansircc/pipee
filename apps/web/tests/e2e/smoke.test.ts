@@ -100,6 +100,41 @@ test("persists visible locale and theme preferences", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Switch language" })).toHaveText("中文")
 })
 
+test("governs settings focus, dismissal, and restoration", async ({ page }) => {
+  await page.goto("/")
+  const opener = page.getByRole("button", { name: "模型", exact: true })
+  await opener.click()
+  const dialog = page.getByRole("dialog", { name: "模型" })
+  await expect(dialog).toBeVisible()
+
+  for (let index = 0; index < 12; index += 1) {
+    await page.keyboard.press(index === 0 ? "Shift+Tab" : "Tab")
+    await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true)
+  }
+
+  await page.keyboard.press("Escape")
+  await expect(dialog).toBeHidden()
+  await expect(opener).toBeFocused()
+})
+
+test("exposes shared settings toggles as keyboard switches", async ({ page }) => {
+  await page.goto("/?session=00000000-0000-4000-8000-000000000001")
+  await page.getByRole("button", { name: "技能", exact: true }).click()
+  const toggle = page.getByRole("switch").first()
+  await expect(toggle).toBeVisible()
+  await expect(toggle).toHaveAttribute("aria-label", /.+/)
+  const selected = await toggle.isChecked()
+  await toggle.focus()
+  await page.keyboard.press("Space")
+  if (selected) await expect(toggle).not.toBeChecked()
+  else await expect(toggle).toBeChecked()
+  await expect(toggle).toBeEnabled()
+  await toggle.focus()
+  await page.keyboard.press("Space")
+  if (selected) await expect(toggle).toBeChecked()
+  else await expect(toggle).not.toBeChecked()
+})
+
 test("canonicalizes an invalid session URL after the session index loads", async ({ page }) => {
   await page.goto("/?session=missing-session")
   await expect(page).toHaveURL(/\/$/)

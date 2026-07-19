@@ -4,6 +4,8 @@ import { useIsMobile } from "@/hooks/useIsMobile"
 import type { SkillSearchResult } from "@/api/contract"
 import { useI18n } from "@/lib/i18n"
 import { withApi, runApi } from "@/browser/api-client"
+import { SettingsToggle as Toggle } from "@/ui/interaction/SettingsToggle"
+import { SettingsWorkspace } from "@/ui/interaction/SettingsWorkspace"
 interface Skill {
   name: string
   description: string
@@ -26,30 +28,6 @@ function sourceLabel(skill: Skill): string {
   if (scope === "project" || src === "project") return "project"
   return "path"
 }
-function Toggle({ enabled, loading, onToggle }: { enabled: boolean; loading: boolean; onToggle: () => void }) {
-  const { t } = useI18n()
-  return (
-    <button
-      onClick={onToggle}
-      disabled={loading}
-      title={
-        enabled ? t("Visible in model prompt — click to disable") : t("Hidden from model prompt — click to enable")
-      }
-      {...stylex.props(inlineStyles.inline1)}
-      style={{
-        cursor: loading ? "wait" : "pointer",
-        background: enabled ? "var(--accent)" : "var(--border)",
-      }}
-    >
-      <span
-        {...stylex.props(inlineStyles.inline2)}
-        style={{
-          left: enabled ? 21 : 3,
-        }}
-      />
-    </button>
-  )
-}
 function SkillDetail({
   skill,
   cwd,
@@ -63,6 +41,7 @@ function SkillDetail({
   toggling: boolean
   saveError: string | null
 }) {
+  const { t } = useI18n()
   const label = sourceLabel(skill)
   const enabled = !skill.disableModelInvocation
   function displayPath(p: string): string {
@@ -86,7 +65,14 @@ function SkillDetail({
           {label}
         </span>
         <span {...stylex.props(inlineStyles.inline6)}>{displayPath(skill.filePath)}</span>
-        <Toggle enabled={enabled} loading={toggling} onToggle={() => onToggle(skill)} />
+        <Toggle
+          enabled={enabled}
+          label={t(
+            enabled ? "Visible in model prompt — click to disable" : "Hidden from model prompt — click to enable",
+          )}
+          loading={toggling}
+          onToggle={() => onToggle(skill)}
+        />
         {saveError && <span {...stylex.props(inlineStyles.inline7)}>{saveError}</span>}
       </div>
 
@@ -393,206 +379,166 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
   )
   const selectedSkill = skills.find((s) => s.filePath === selected) ?? null
   return (
-    <div
-      {...stylex.props(inlineStyles.inline37)}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
+    <SettingsWorkspace
+      closeLabel={t("Close")}
+      context={<code {...stylex.props(inlineStyles.inline42)}>{shortenPath(cwd)}</code>}
+      height={isMobile ? "calc(100dvh - 16px)" : "78vh"}
+      onClose={onClose}
+      title={t("Skills")}
+      width={isMobile ? "calc(100vw - 16px)" : 860}
     >
       <div
-        {...stylex.props(inlineStyles.inline38)}
+        {...stylex.props(inlineStyles.inline44)}
         style={{
-          width: isMobile ? "calc(100vw - 16px)" : 860,
-          height: isMobile ? "calc(100dvh - 16px)" : "78vh",
+          flexDirection: isMobile ? "column" : "row",
         }}
       >
-        {/* Header */}
-        <div {...stylex.props(inlineStyles.inline39)}>
-          <div {...stylex.props(inlineStyles.inline40)}>
-            <span {...stylex.props(inlineStyles.inline41)}>{t("Skills")}</span>
-            <code {...stylex.props(inlineStyles.inline42)}>{shortenPath(cwd)}</code>
-          </div>
-          <button onClick={onClose} {...stylex.props(inlineStyles.inline43)}>
-            ×
-          </button>
-        </div>
-
-        {/* Body */}
+        {/* Left: skill list */}
         <div
-          {...stylex.props(inlineStyles.inline44)}
+          {...stylex.props(inlineStyles.inline45)}
           style={{
-            flexDirection: isMobile ? "column" : "row",
+            width: isMobile ? "100%" : 210,
+            maxHeight: isMobile ? "40vh" : undefined,
+            borderRight: isMobile ? "none" : "1px solid var(--border)",
+            borderBottom: isMobile ? "1px solid var(--border)" : "none",
           }}
         >
-          {/* Left: skill list */}
-          <div
-            {...stylex.props(inlineStyles.inline45)}
-            style={{
-              width: isMobile ? "100%" : 210,
-              maxHeight: isMobile ? "40vh" : undefined,
-              borderRight: isMobile ? "none" : "1px solid var(--border)",
-              borderBottom: isMobile ? "1px solid var(--border)" : "none",
-            }}
-          >
-            <div {...stylex.props(inlineStyles.inline46)}>
-              {loading ? (
-                <div {...stylex.props(inlineStyles.inline47)}>{t("Loading…")}</div>
-              ) : error ? (
-                <div {...stylex.props(inlineStyles.inline48)}>{error}</div>
-              ) : skills.length === 0 ? (
-                <div {...stylex.props(inlineStyles.inline49)}>{t("No skills found")}</div>
-              ) : (
-                (() => {
-                  const groups: {
-                    label: string
-                    skills: typeof skills
-                  }[] = []
-                  for (const grpLabel of ["project", "global", "path"]) {
-                    const grpSkills = skills.filter((s) => sourceLabel(s) === grpLabel)
-                    if (grpSkills.length > 0)
-                      groups.push({
-                        label: grpLabel,
-                        skills: grpSkills,
-                      })
-                  }
-                  return groups.map(({ label: grpLabel, skills: grpSkills }) => (
-                    <div key={grpLabel} {...stylex.props(inlineStyles.inline50)}>
-                      <div {...stylex.props(inlineStyles.inline51)}>{t(grpLabel)}</div>
-                      {grpSkills.map((skill) => {
-                        const isSelected = !addMode && selected === skill.filePath
-                        const disabled = skill.disableModelInvocation
-                        return (
-                          <div
-                            key={skill.filePath}
-                            onClick={() => {
-                              setSelected(skill.filePath)
-                              setAddMode(false)
-                            }}
-                            {...stylex.props(inlineStyles.inline52)}
+          <div {...stylex.props(inlineStyles.inline46)}>
+            {loading ? (
+              <div {...stylex.props(inlineStyles.inline47)}>{t("Loading…")}</div>
+            ) : error ? (
+              <div {...stylex.props(inlineStyles.inline48)}>{error}</div>
+            ) : skills.length === 0 ? (
+              <div {...stylex.props(inlineStyles.inline49)}>{t("No skills found")}</div>
+            ) : (
+              (() => {
+                const groups: {
+                  label: string
+                  skills: typeof skills
+                }[] = []
+                for (const grpLabel of ["project", "global", "path"]) {
+                  const grpSkills = skills.filter((s) => sourceLabel(s) === grpLabel)
+                  if (grpSkills.length > 0)
+                    groups.push({
+                      label: grpLabel,
+                      skills: grpSkills,
+                    })
+                }
+                return groups.map(({ label: grpLabel, skills: grpSkills }) => (
+                  <div key={grpLabel} {...stylex.props(inlineStyles.inline50)}>
+                    <div {...stylex.props(inlineStyles.inline51)}>{t(grpLabel)}</div>
+                    {grpSkills.map((skill) => {
+                      const isSelected = !addMode && selected === skill.filePath
+                      const disabled = skill.disableModelInvocation
+                      return (
+                        <div
+                          key={skill.filePath}
+                          onClick={() => {
+                            setSelected(skill.filePath)
+                            setAddMode(false)
+                          }}
+                          {...stylex.props(inlineStyles.inline52)}
+                          style={{
+                            background: isSelected ? "var(--bg-selected)" : "none",
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isSelected) e.currentTarget.style.background = "none"
+                          }}
+                        >
+                          <span
+                            {...stylex.props(inlineStyles.inline53)}
                             style={{
-                              background: isSelected ? "var(--bg-selected)" : "none",
+                              background: disabled ? "var(--border)" : "var(--accent)",
+                              boxShadow: disabled ? "none" : "0 0 4px var(--accent)",
                             }}
-                            onMouseEnter={(e) => {
-                              if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"
-                            }}
-                            onMouseLeave={(e) => {
-                              if (!isSelected) e.currentTarget.style.background = "none"
+                          />
+                          <span
+                            {...stylex.props(inlineStyles.inline54)}
+                            style={{
+                              fontWeight: isSelected ? 600 : 400,
+                              color: disabled ? "var(--text-dim)" : "var(--text)",
                             }}
                           >
-                            <span
-                              {...stylex.props(inlineStyles.inline53)}
-                              style={{
-                                background: disabled ? "var(--border)" : "var(--accent)",
-                                boxShadow: disabled ? "none" : "0 0 4px var(--accent)",
-                              }}
-                            />
-                            <span
-                              {...stylex.props(inlineStyles.inline54)}
-                              style={{
-                                fontWeight: isSelected ? 600 : 400,
-                                color: disabled ? "var(--text-dim)" : "var(--text)",
-                              }}
-                            >
-                              {skill.name}
-                            </span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ))
-                })()
-              )}
-            </div>
-            {/* Add skill button */}
-            <div {...stylex.props(inlineStyles.inline55)}>
-              <div
-                onClick={() => setAddMode(true)}
-                {...stylex.props(inlineStyles.inline56)}
-                style={{
-                  background: addMode ? "var(--bg-selected)" : "none",
-                  color: addMode ? "var(--accent)" : "var(--text-dim)",
-                }}
-                onMouseEnter={(e) => {
-                  if (!addMode) e.currentTarget.style.background = "var(--bg-hover)"
-                }}
-                onMouseLeave={(e) => {
-                  if (!addMode) e.currentTarget.style.background = "none"
-                }}
-              >
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                {t("Add skill")}
-              </div>
-            </div>
-          </div>
-
-          {/* Right: detail or add panel */}
-          <div {...stylex.props(inlineStyles.inline57)}>
-            {addMode ? (
-              <AddSkillPanel
-                cwd={cwd}
-                onInstalled={() => {
-                  loadSkills()
-                }}
-              />
-            ) : loading ? null : selectedSkill ? (
-              <SkillDetail
-                key={selectedSkill.filePath}
-                skill={selectedSkill}
-                cwd={cwd}
-                onToggle={toggle}
-                toggling={toggling.has(selectedSkill.filePath)}
-                saveError={saveError}
-              />
-            ) : (
-              <div {...stylex.props(inlineStyles.inline58)}>{t("Select a skill")}</div>
+                            {skill.name}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))
+              })()
             )}
           </div>
+          {/* Add skill button */}
+          <div {...stylex.props(inlineStyles.inline55)}>
+            <div
+              onClick={() => setAddMode(true)}
+              {...stylex.props(inlineStyles.inline56)}
+              style={{
+                background: addMode ? "var(--bg-selected)" : "none",
+                color: addMode ? "var(--accent)" : "var(--text-dim)",
+              }}
+              onMouseEnter={(e) => {
+                if (!addMode) e.currentTarget.style.background = "var(--bg-hover)"
+              }}
+              onMouseLeave={(e) => {
+                if (!addMode) e.currentTarget.style.background = "none"
+              }}
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              {t("Add skill")}
+            </div>
+          </div>
         </div>
 
-        {/* Footer */}
-        <div {...stylex.props(inlineStyles.inline59)}>
-          <button onClick={onClose} {...stylex.props(inlineStyles.inline60)}>
-            {t("Close")}
-          </button>
+        {/* Right: detail or add panel */}
+        <div {...stylex.props(inlineStyles.inline57)}>
+          {addMode ? (
+            <AddSkillPanel
+              cwd={cwd}
+              onInstalled={() => {
+                loadSkills()
+              }}
+            />
+          ) : loading ? null : selectedSkill ? (
+            <SkillDetail
+              key={selectedSkill.filePath}
+              skill={selectedSkill}
+              cwd={cwd}
+              onToggle={toggle}
+              toggling={toggling.has(selectedSkill.filePath)}
+              saveError={saveError}
+            />
+          ) : (
+            <div {...stylex.props(inlineStyles.inline58)}>{t("Select a skill")}</div>
+          )}
         </div>
       </div>
-    </div>
+
+      <div {...stylex.props(inlineStyles.inline59)}>
+        <button onClick={onClose} {...stylex.props(inlineStyles.inline60)}>
+          {t("Close")}
+        </button>
+      </div>
+    </SettingsWorkspace>
   )
 }
 const inlineStyles = stylex.create({
-  inline1: {
-    flexShrink: 0,
-    width: 40,
-    height: 22,
-    borderRadius: 11,
-    border: "none",
-    padding: 0,
-    position: "relative",
-    transition: "background 0.18s",
-    outline: "none",
-  },
-  inline2: {
-    position: "absolute",
-    top: 3,
-    width: 16,
-    height: 16,
-    borderRadius: "50%",
-    background: "var(--bg)",
-    boxShadow: "0 1px 4px rgba(0,0,0,0.22)",
-    transition: "left 0.18s cubic-bezier(.4,0,.2,1)",
-  },
   inline3: {
     display: "flex",
     flexDirection: "column",
@@ -787,44 +733,6 @@ const inlineStyles = stylex.create({
     color: "var(--accent)",
     textDecoration: "none",
   },
-  inline37: {
-    position: "fixed",
-    inset: 0,
-    zIndex: 1000,
-    background: "rgba(0,0,0,0.35)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  inline38: {
-    maxWidth: "calc(100vw - 16px)",
-    maxHeight: "calc(100dvh - 16px)",
-    background: "var(--bg)",
-    border: "1px solid var(--border)",
-    borderRadius: 10,
-    display: "flex",
-    flexDirection: "column",
-    boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-    overflow: "hidden",
-  },
-  inline39: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "12px 18px",
-    borderBottom: "1px solid var(--border)",
-    flexShrink: 0,
-  },
-  inline40: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 10,
-  },
-  inline41: {
-    fontSize: 15,
-    fontWeight: 700,
-    color: "var(--text)",
-  },
   inline42: {
     fontSize: 11,
     color: "var(--text-muted)",
@@ -833,15 +741,6 @@ const inlineStyles = stylex.create({
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
-  },
-  inline43: {
-    background: "none",
-    border: "none",
-    color: "var(--text-muted)",
-    cursor: "pointer",
-    fontSize: 20,
-    lineHeight: 1,
-    padding: "2px 6px",
   },
   inline44: {
     flex: 1,

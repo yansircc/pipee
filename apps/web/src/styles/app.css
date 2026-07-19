@@ -13,6 +13,7 @@
   --assistant-bg: #ffffff;
   --tool-bg: #f9fafb;
   --bg-subtle: rgba(0, 0, 0, 0.03);
+  --layer-modal: 1000;
 }
 
 html.dark {
