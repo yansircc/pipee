@@ -282,10 +282,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     skillsCount = 0,
     sessionStats,
     contextUsage,
-    onCompact,
-    onAbortCompaction,
-    isCompacting,
-    compactError,
     compactResult,
     toolPreset,
     onToolPresetChange,
@@ -300,8 +296,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     slashCommandsLoading,
     onLoadSlashCommands,
     onBuiltinCommand,
-    soundEnabled,
-    onSoundToggle,
     onAudioUnlock,
     onPromptWithStreamingBehavior,
     draftKey,
@@ -1137,11 +1131,27 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
   useEffect(() => {
     if (!isMobile) setControlsMenuOpen(false)
   }, [isMobile])
+  const insertPromptToken = useCallback(
+    (token: "/" | "@") => {
+      const current = valueRef.current
+      const next = `${current}${current && !current.endsWith(" ") ? " " : ""}${token}`
+      valueRef.current = next
+      setValue(next)
+      onNextAnimationFrame(() => {
+        const textarea = textareaRef.current
+        if (!textarea) return
+        textarea.focus()
+        textarea.setSelectionRange(next.length, next.length)
+        updateAtQuery(next, next.length)
+      })
+    },
+    [updateAtQuery],
+  )
   return (
     <div
       {...stylex.props(inlineStyles.inline4)}
       style={{
-        paddingRight: isMobile ? 16 : 52, // desktop: 16px base + 36px for ChatMinimap alignment
+        paddingRight: isMobile ? 10 : 16,
       }}
     >
       {/* Hidden file input */}
@@ -1434,13 +1444,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
               {
                 display: "flex",
                 gap: 8,
-                alignItems: "center",
-                background: "var(--bg)",
-                border: `1px solid ${isStreaming && (onSteer || onFollowUp) ? "rgba(234,179,8,0.4)" : "color-mix(in srgb, var(--border) 70%, transparent)"}`,
-                borderRadius: 14,
-                padding: "10px 10px 10px 14px",
-                boxShadow: "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
-                transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
+                alignItems: "flex-end",
+                background: "transparent",
+                border: "none",
+                padding: "12px 10px 6px 14px",
               } as React.CSSProperties
             }
           >
@@ -1553,6 +1560,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
               <button
                 onClick={handleSend}
                 disabled={sessionLoading || (!value.trim() && !hasAttachments) || uploadingAttachments > 0}
+                aria-label={sessionLoading ? t("Loading...") : t("Send")}
                 {...stylex.props(inlineStyles.inline55)}
                 style={{
                   background:
@@ -1601,7 +1609,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                     </>
                   )}
                 </svg>
-                {sessionLoading ? t("Loading...") : t("Send")}
               </button>
             )}
           </div>
@@ -1657,6 +1664,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                 <polyline points="21 15 16 10 5 21" />
               </svg>
             </button>
+            <button type="button" onClick={() => insertPromptToken("/")} {...stylex.props(inlineStyles.promptToken)}>
+              / {t("Slash commands")}
+            </button>
+            <button type="button" onClick={() => insertPromptToken("@")} {...stylex.props(inlineStyles.promptToken)}>
+              @ {t("Files")}
+            </button>
             {/* Model selector — visible always, disabled during streaming */}
             {modelOptions.length > 0 && currentName && onModelChange && (
               <div
@@ -1695,7 +1708,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                     padding: isMobile ? "8px 10px" : "8px 12px",
                     width: isMobile ? "100%" : undefined,
                     maxWidth: isMobile ? "100%" : 220,
-                    background: modelDropdownOpen ? "var(--bg-hover)" : "none",
+                    background: modelDropdownOpen ? "var(--bg-selected)" : "var(--bg-hover)",
                     cursor: isStreaming ? "not-allowed" : "pointer",
                     opacity: isStreaming ? 0.5 : 1,
                   }}
@@ -1705,7 +1718,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                     e.currentTarget.style.color = "var(--text)"
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = modelDropdownOpen ? "var(--bg-hover)" : "none"
+                    e.currentTarget.style.background = modelDropdownOpen ? "var(--bg-selected)" : "var(--bg-hover)"
                     e.currentTarget.style.color = "var(--text-muted)"
                   }}
                 >
@@ -2132,68 +2145,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                 </div>
               )}
 
-              {!isStreaming && onCompact && (
-                <div {...stylex.props(inlineStyles.inline88)}>
-                  {compactError && <div {...stylex.props(inlineStyles.inline89)}>{compactError}</div>}
-                  <button
-                    onClick={isCompacting ? onAbortCompaction : onCompact}
-                    disabled={isStreaming && !isCompacting}
-                    {...stylex.props(inlineStyles.inline90)}
-                    style={{
-                      padding: isMobile ? "0 6px" : "8px 12px",
-                      width: isMobile ? "auto" : undefined,
-                      background: isCompacting ? "rgba(239,68,68,0.08)" : "none",
-                      color: isCompacting ? "#ef4444" : "var(--text-muted)",
-                      cursor: isStreaming && !isCompacting ? "not-allowed" : "pointer",
-                      opacity: isStreaming && !isCompacting ? 0.5 : 1,
-                    }}
-                    onMouseEnter={(e) => {
-                      if (isStreaming && !isCompacting) return
-                      e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.16)" : "var(--bg-hover)"
-                      e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text)"
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.08)" : "none"
-                      e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text-muted)"
-                    }}
-                    title={t(isCompacting ? "Stop compaction" : "Compact context")}
-                    aria-label={t(isCompacting ? "Stop compaction" : "Compact context")}
-                  >
-                    {isCompacting ? (
-                      <>
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                          <rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" />
-                        </svg>
-                        {(!isMobile || controlsMenuOpen) && (
-                          <span {...stylex.props(inlineStyles.inline91)}>{t("Compacting…")}</span>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <svg
-                          width="11"
-                          height="11"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <polyline points="4 14 10 14 10 20" />
-                          <polyline points="20 10 14 10 14 4" />
-                          <line x1="10" y1="14" x2="3" y2="21" />
-                          <line x1="21" y1="3" x2="14" y2="10" />
-                        </svg>
-                        {(!isMobile || controlsMenuOpen) && (
-                          <span {...stylex.props(inlineStyles.inline92)}>{t("Compact")}</span>
-                        )}
-                      </>
-                    )}
-                  </button>
-                </div>
-              )}
-
               {!isStreaming && onOpenSkills && (
                 <button
                   type="button"
@@ -2202,11 +2153,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                   aria-label={t("Skills")}
                   {...stylex.props(inlineStyles.metricButton)}
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="m12 3-9 5 9 5 9-5-9-5Z" />
-                    <path d="m3 13 9 5 9-5" />
-                  </svg>
-                  <span>{skillsCount}</span>
+                  <span>
+                    {t("Skills")} · {skillsCount}
+                  </span>
                 </button>
               )}
 
@@ -2281,61 +2230,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                 </button>
               )}
 
-              {onSoundToggle !== undefined && (
-                <button
-                  onClick={onSoundToggle}
-                  title={t(soundEnabled ? "Disable completion sound" : "Enable completion sound")}
-                  aria-label={t(soundEnabled ? "Disable completion sound" : "Enable completion sound")}
-                  {...stylex.props(inlineStyles.inline94)}
-                  style={{
-                    width: isMobile ? 32 : 32,
-                    color: soundEnabled ? "var(--text-muted)" : "var(--text-dim)",
-                    opacity: soundEnabled ? 1 : 0.55,
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--bg-hover)"
-                    e.currentTarget.style.color = "var(--text)"
-                    e.currentTarget.style.opacity = "1"
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "none"
-                    e.currentTarget.style.color = soundEnabled ? "var(--text-muted)" : "var(--text-dim)"
-                    e.currentTarget.style.opacity = soundEnabled ? "1" : "0.55"
-                  }}
-                >
-                  {soundEnabled ? (
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                    </svg>
-                  ) : (
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                      <line x1="23" y1="9" x2="17" y2="15" />
-                      <line x1="17" y1="9" x2="23" y2="15" />
-                    </svg>
-                  )}
-                </button>
-              )}
               {isMobile && controlsMenuOpen && (
                 <button
                   type="button"
@@ -2402,14 +2296,19 @@ const inlineStyles = stylex.create({
   inline4: {
     flexShrink: 0,
     background: "transparent",
-    padding: "0 16px 8px",
+    padding: { default: "0 16px 12px", "@media (max-width: 760px)": "0 10px 10px" },
   },
   inline5: {
     display: "none",
   },
   inline6: {
-    maxWidth: 820,
+    background: "var(--bg-raised)",
+    border: "1px solid var(--border)",
+    borderRadius: 14,
+    boxShadow: "0 1px 2px rgba(20,21,18,.04), 0 12px 34px rgba(20,21,18,.08)",
+    maxWidth: 850,
     margin: "0 auto",
+    overflow: "visible",
   },
   inline7: {
     marginBottom: 8,
@@ -2741,8 +2640,8 @@ const inlineStyles = stylex.create({
     fontSize: 14,
     lineHeight: 1.6,
     fontFamily: "inherit",
-    minHeight: 24,
-    maxHeight: 200,
+    minHeight: 44,
+    maxHeight: 120,
     overflow: "auto",
   },
   inline52: {
@@ -2782,7 +2681,10 @@ const inlineStyles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 6,
-    padding: "7px 14px",
+    height: 34,
+    justifyContent: "center",
+    padding: 0,
+    width: 34,
     border: "none",
     borderRadius: 8,
     fontSize: 13,
@@ -2791,9 +2693,11 @@ const inlineStyles = stylex.create({
     transition: "background 0.15s, box-shadow 0.15s",
   },
   inline56: {
-    marginTop: 8,
+    borderTop: "1px solid var(--border-soft)",
+    minHeight: 42,
     alignItems: "center",
     gap: 6,
+    padding: "4px 7px",
   },
   inline57: {
     minWidth: 0,
@@ -2806,7 +2710,7 @@ const inlineStyles = stylex.create({
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    width: 32,
+    width: 30,
     height: 32,
     padding: 0,
     background: "none",
@@ -2824,8 +2728,9 @@ const inlineStyles = stylex.create({
     gap: 6,
     height: 32,
     overflow: "hidden",
-    border: "none",
-    borderRadius: 9,
+    background: "var(--bg-hover)",
+    border: "1px solid var(--border-soft)",
+    borderRadius: 7,
     color: "var(--text-muted)",
     fontSize: 12,
     transition: "background 0.12s, color 0.12s",
@@ -2866,8 +2771,8 @@ const inlineStyles = stylex.create({
     width: "100%",
   },
   emptyModelButton: {
-    backgroundColor: "transparent",
-    border: "none",
+    backgroundColor: "var(--bg-hover)",
+    border: "1px solid var(--border-soft)",
     borderRadius: 8,
     color: "var(--accent)",
     cursor: "pointer",
@@ -2928,8 +2833,8 @@ const inlineStyles = stylex.create({
     justifyContent: "center",
     gap: 5,
     height: 32,
-    border: "none",
-    borderRadius: 9,
+    border: "1px solid var(--border-soft)",
+    borderRadius: 7,
     color: "var(--text-muted)",
     fontSize: 12,
     transition: "background 0.12s, color 0.12s",
@@ -3116,6 +3021,19 @@ const inlineStyles = stylex.create({
     gap: 4,
     height: 32,
     paddingInline: 8,
+  },
+  promptToken: {
+    background: "var(--bg-hover)",
+    border: "1px solid var(--border-soft)",
+    borderRadius: 7,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    display: { default: "flex", "@media (max-width: 760px)": "none" },
+    fontSize: 11,
+    height: 30,
+    padding: "0 8px",
+    whiteSpace: "nowrap",
+    ":hover": { color: "var(--text)", background: "var(--bg-selected)" },
   },
   metricTooltip: {
     display: "grid",

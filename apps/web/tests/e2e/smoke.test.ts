@@ -102,24 +102,21 @@ test("preserves the normalized visual foundation", async ({ page }) => {
     if (brand === undefined || newSession === undefined || settings === undefined || sidebar === null) {
       throw new Error("visual contract inventory is incomplete")
     }
+    const topbar = sidebar.nextElementSibling?.firstElementChild
     return {
-      brandBorder: getComputedStyle(brand).border,
       browserDefaultFontLeaks: visibleButtons
         .filter((button) => getComputedStyle(button).fontFamily === "Arial")
         .map((button) => button.textContent),
-      settingsBorder: getComputedStyle(settings).border,
-      newSessionBorder: getComputedStyle(newSession).border,
+      newSessionBackground: getComputedStyle(newSession).backgroundColor,
       sidebarWidth: getComputedStyle(sidebar).width,
+      topbarHeight: topbar instanceof HTMLElement ? getComputedStyle(topbar).height : null,
     }
   })
 
-  expect(contract).toEqual({
-    brandBorder: "0px none rgb(26, 26, 26)",
-    browserDefaultFontLeaks: [],
-    settingsBorder: "0px solid rgb(26, 26, 26)",
-    newSessionBorder: "1px solid rgb(224, 224, 224)",
-    sidebarWidth: "260px",
-  })
+  expect(contract.browserDefaultFontLeaks).toEqual([])
+  expect(contract.newSessionBackground).not.toBe("rgba(0, 0, 0, 0)")
+  expect(contract.sidebarWidth).toBe("292px")
+  expect(contract.topbarHeight).toBe("58px")
 })
 
 test("opens a lightweight two-pane Finder with one highlighted file preview", async ({ page }) => {
@@ -130,10 +127,19 @@ test("opens a lightweight two-pane Finder with one highlighted file preview", as
     if (body?.cwd !== undefined) admittedCwds.push(body.cwd)
   })
   await page.goto("/")
-  await page.getByRole("button", { name: "资源管理器", exact: true }).click()
-
+  const primaryModifier = await page.evaluate(() => {
+    const platform = `${navigator.platform} ${navigator.userAgent}`.toLowerCase()
+    return platform.includes("mac") ? "Meta" : "Control"
+  })
   const finder = page.getByRole("dialog", { name: "资源管理器" })
+  await expect(page.getByRole("button", { name: /资源管理器/ })).toBeVisible()
+  await page.keyboard.press(`${primaryModifier}+Shift+E`)
+  if (!(await finder.isVisible())) {
+    await page.keyboard.press(`${primaryModifier === "Meta" ? "Control" : "Meta"}+Shift+E`)
+  }
   await expect(finder).toBeVisible()
+  const search = finder.getByRole("textbox", { name: "搜索文件" })
+  await expect(search).toBeVisible()
   await expect.poll(() => admittedCwds).toContain(fixtureWorkspace)
   await expect(finder.getByText(fixtureWorkspace, { exact: true })).toBeVisible()
   await expect(finder.getByText("选择文件以预览", { exact: true })).toBeVisible()
@@ -143,6 +149,13 @@ test("opens a lightweight two-pane Finder with one highlighted file preview", as
   await expect(file).toHaveAttribute("aria-current", "true")
   await expect(finder).toContainText("hello from the isolated e2e workspace")
   await expect(finder.getByRole("button", { name: "复制", exact: true })).toBeVisible()
+
+  await search.fill("deep-result")
+  const deepFile = finder.getByRole("button", { name: "nested/deep-result.ts", exact: true })
+  await expect(deepFile).toBeVisible()
+  await deepFile.click()
+  await expect(finder).toContainText("deepResult")
+  await search.fill("")
 
   await finder.getByRole("button", { name: "long.txt", exact: true }).click()
   await expect(finder).toContainText("line 240")
@@ -164,7 +177,7 @@ test("opens a lightweight two-pane Finder with one highlighted file preview", as
   expect(previewScroll!.scrollTop).toBeGreaterThan(0)
 
   const layout = await finder.evaluate((element) => {
-    const workspace = element.children[1] as HTMLElement
+    const workspace = element.children[1]?.firstElementChild as HTMLElement
     const columns = getComputedStyle(workspace)
       .gridTemplateColumns.split(" ")
       .map((value) => Number.parseFloat(value))
@@ -207,12 +220,13 @@ test("shows immediate metrics, session prompt, and the extension drawer", async 
   await expect(drawer).toBeHidden()
 
   await page.getByRole("button", { name: "技能", exact: true }).click()
-  const skillLibrary = page.getByRole("dialog", { name: "技能" })
+  const skillLibrary = page.getByRole("dialog", { name: "Skill Library" })
   await expect(skillLibrary).toBeVisible()
-  await expect(skillLibrary.getByText("e2e-skill", { exact: true }).first()).toBeVisible()
-  await expect(skillLibrary.getByRole("button", { name: "· SKILL.md", exact: true })).toBeVisible()
-  await expect(skillLibrary).toContainText("# E2E skill")
-  await skillLibrary.getByRole("button", { name: "关闭", exact: true }).first().click()
+  await skillLibrary.getByRole("button", { name: /e2e-skill/ }).click()
+  const skillFinder = page.getByRole("dialog", { name: "e2e-skill" })
+  await expect(skillFinder.getByRole("button", { name: "· SKILL.md", exact: true })).toBeVisible()
+  await expect(skillFinder).toContainText("# E2E skill")
+  await skillFinder.getByRole("button", { name: "关闭", exact: true }).click()
 
   await page.getByRole("button", { name: "插件", exact: true }).click()
   await page.getByRole("link", { name: /pi-web-e2e-extension/ }).click()
@@ -257,15 +271,43 @@ test("loads a raw-archive Web Surface through the session runtime and opaque ifr
 
 test("persists visible locale and theme preferences", async ({ page }) => {
   await page.goto("/")
-  await page.getByRole("button", { name: "切换语言" }).click()
+  await page.getByRole("button", { name: "设置" }).click()
+  await page.getByRole("button", { name: "简体中文" }).click()
   await expect(page.locator("html")).toHaveAttribute("lang", "en")
-  await page.getByRole("button", { name: "Switch to dark mode" }).click()
+  await page.getByRole("button", { name: "Light", exact: true }).click()
   await expect(page.locator("html")).toHaveClass(/dark/)
 
   await page.reload()
   await expect(page.locator("html")).toHaveAttribute("lang", "en")
   await expect(page.locator("html")).toHaveClass(/dark/)
-  await expect(page.getByRole("button", { name: "Switch language" })).toHaveText("中文")
+  await page.getByRole("button", { name: "Settings" }).click()
+  await expect(page.getByRole("button", { name: "English", exact: true })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Dark", exact: true })).toBeVisible()
+})
+
+test("dismisses application settings outside the popover", async ({ page }) => {
+  await page.goto("/")
+  const opener = page.getByRole("button", { name: "设置" })
+  await opener.click()
+  const settings = page.getByRole("dialog", { name: "设置" })
+  await expect(settings).toBeVisible()
+  await page.locator("main").click({ position: { x: 10, y: 100 } })
+  await expect(settings).toBeHidden()
+  await expect(opener).toHaveAttribute("aria-expanded", "false")
+})
+
+test("keeps runtime and CSS responsive state aligned at 760 and 761 pixels", async ({ page }) => {
+  await page.setViewportSize({ width: 761, height: 720 })
+  await page.goto("/")
+  const sidebar = page.locator(".sidebar-container")
+  await expect(sidebar).toHaveCSS("position", "relative")
+  await expect(sidebar).toHaveCSS("width", "292px")
+  await expect(sidebar).toHaveAttribute("aria-hidden", "false")
+
+  await page.setViewportSize({ width: 760, height: 720 })
+  await expect(sidebar).toHaveCSS("position", "fixed")
+  await expect(sidebar).toHaveAttribute("aria-hidden", "true")
+  await expect(sidebar).toHaveAttribute("inert", "")
 })
 
 test("governs settings focus, dismissal, and restoration", async ({ page }) => {
@@ -290,6 +332,10 @@ test("governs settings focus, dismissal, and restoration", async ({ page }) => {
 test("exposes shared settings toggles as keyboard switches", async ({ page }) => {
   await page.goto("/?session=00000000-0000-4000-8000-000000000001")
   await page.getByRole("button", { name: "技能", exact: true }).click()
+  await page
+    .getByRole("dialog", { name: "Skill Library" })
+    .getByRole("button", { name: /e2e-skill/ })
+    .click()
   const toggle = page.getByRole("switch").first()
   await expect(toggle).toBeVisible()
   await expect(toggle).toHaveAttribute("aria-label", /.+/)

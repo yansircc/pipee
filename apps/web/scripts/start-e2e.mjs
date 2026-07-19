@@ -82,6 +82,8 @@ await mkdir(home, { recursive: true })
 await mkdir(workspace, { recursive: true })
 await writeFile(join(workspace, "hello.txt"), "hello from the isolated e2e workspace\n")
 await writeFile(join(workspace, "long.txt"), Array.from({ length: 240 }, (_, index) => `line ${index + 1}`).join("\n"))
+await mkdir(join(workspace, "nested"), { recursive: true })
+await writeFile(join(workspace, "nested", "deep-result.ts"), "export const deepResult = 42\n")
 const fixtureSkillDirectory = join(workspace, ".agents", "skills", "e2e-skill")
 await mkdir(fixtureSkillDirectory, { recursive: true })
 await writeFile(

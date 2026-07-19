@@ -4,35 +4,30 @@ import { Effect, Schedule } from "effect"
 import { getRouteApi } from "@tanstack/react-router"
 import { SessionSidebar } from "./SessionSidebar"
 import { ChatWindow } from "./ChatWindow"
-import { FileExplorer } from "./FileExplorer"
+import { WorkspaceFinder } from "./WorkspaceFinder"
+import { ApplicationSettingsPopover } from "./ApplicationSettingsPopover"
+import { ExtensionDrawer } from "./ExtensionDrawer"
+import { SessionInspector, type SessionContextUsage, type SystemPromptState } from "./SessionInspector"
 import { readWebSurfaceCatalogs } from "./ExtensionShell"
 import { BranchNavigator } from "./BranchNavigator"
-import { useTheme } from "@/hooks/useTheme"
 import { useIsMobile } from "@/hooks/useIsMobile"
-import { copyText } from "@/lib/clipboard"
 import { getFileName } from "@/lib/file-paths"
 import { buildAtMentionText } from "@/lib/file-fuzzy"
 import type { SessionBranchNode, SessionInfo, SessionStats, WeixinStatusProjection } from "@/api/contract"
 import { ChatInput, type ChatInputHandle } from "./ChatInput"
 import { useI18n } from "@/lib/i18n"
-import { withApi, apiUrls, runApi, runBrowser, type Cancel } from "@/browser/api-client"
+import { withApi, apiUrls, runApi, runBrowser } from "@/browser/api-client"
 import { BrowserPlatform } from "@/browser/browser-platform"
-import { FileViewer, ModelsConfig, PluginsConfig, SkillsConfig } from "@/browser/code-split"
+import { ModelsConfig, SkillsConfig } from "@/browser/code-split"
 import { sessionController } from "@/features/session/session-controller"
 import { DEFAULT_TOOL_PRESET, getToolNamesForPreset } from "@/lib/tool-presets"
 import { probeChromeExtension, type ChromeExtensionHealth } from "@/lib/chrome-extension-installation"
-import { useBrowserPreferences } from "@/browser/preferences-react"
 import type { ExtensionCatalogState } from "@/lib/web-surface-catalog-group"
-type SessionCopyField = "file" | "id"
+import { useApplicationHotkeys } from "@/ui/interaction/Hotkeys"
 type SelectedFinderFile = {
   readonly filePath: string
   readonly sourceSessionId?: string | null
 }
-type SystemPromptState =
-  | { readonly status: "none" }
-  | { readonly sessionId: string; readonly status: "loading" }
-  | { readonly error: string; readonly sessionId: string; readonly status: "error" }
-  | { readonly prompt: string; readonly sessionId: string; readonly status: "ready" }
 type SettingsSurface =
   | { readonly kind: "general" }
   | { readonly kind: "models" }
@@ -41,11 +36,9 @@ type SettingsSurface =
   | null
 const indexRoute = getRouteApi("/")
 export function AppShell() {
-  const { locale, setLocale, t: tr } = useI18n()
+  const { t: tr } = useI18n()
   const navigate = indexRoute.useNavigate()
   const search = indexRoute.useSearch()
-  const { isDark, toggleTheme } = useTheme()
-  const { preferences, updatePreferences } = useBrowserPreferences()
   const isMobile = useIsMobile()
   const [sessionCollection, setSessionCollection] = useState<SessionInfo[]>([])
   const selectedSession = useMemo(
@@ -64,6 +57,7 @@ export function AppShell() {
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0)
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0)
   const [settingsSurface, setSettingsSurface] = useState<SettingsSurface>(null)
+  const [resourceManagerOpen, setResourceManagerOpen] = useState(false)
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0)
   const [skillsCount, setSkillsCount] = useState(0)
   const [activeExtensionCount, setActiveExtensionCount] = useState(0)
@@ -129,33 +123,8 @@ export function AppShell() {
   const handleWeixinStatusChange = useCallback((status: WeixinStatusProjection) => {
     setWeixinStatus(status)
   }, [])
-  const [copiedSessionField, setCopiedSessionField] = useState<SessionCopyField | null>(null)
-  const sessionCopyTimerRef = useRef<Cancel | null>(null)
-  const handleCopySessionField = useCallback((field: SessionCopyField, value: string) => {
-    sessionCopyTimerRef.current?.()
-    sessionCopyTimerRef.current = runBrowser(
-      copyText(value).pipe(
-        Effect.tap(() => Effect.sync(() => setCopiedSessionField(field))),
-        Effect.andThen(Effect.sleep("1400 millis")),
-        Effect.tap(() => Effect.sync(() => setCopiedSessionField(null))),
-      ),
-      {
-        onSuccess: () => undefined,
-      },
-    )
-  }, [])
-  useEffect(() => {
-    return () => {
-      sessionCopyTimerRef.current?.()
-    }
-  }, [])
-
   // Context usage — populated by ChatWindow, displayed in top bar
-  const [contextUsage, setContextUsage] = useState<{
-    percent: number | null
-    contextWindow: number
-    tokens: number | null
-  } | null>(null)
+  const [contextUsage, setContextUsage] = useState<SessionContextUsage | null>(null)
   const handleContextUsageChange = useCallback(
     (
       usage: {
@@ -199,10 +168,11 @@ export function AppShell() {
     if (!activeTopPanel || !topBarRef.current) return
     const update = () => {
       const rect = topBarRef.current!.getBoundingClientRect()
+      const width = isMobile ? Math.max(0, rect.width - 14) : Math.min(370, Math.max(0, rect.width - 24))
       setTopPanelPos({
-        top: rect.bottom,
-        left: rect.left,
-        width: rect.width,
+        top: rect.height,
+        left: isMobile ? 7 : rect.width - width - 48,
+        width,
       })
     }
     return runBrowser(
@@ -211,7 +181,7 @@ export function AppShell() {
         onSuccess: () => undefined,
       },
     )
-  }, [activeTopPanel])
+  }, [activeTopPanel, isMobile])
   useEffect(() => {
     if (activeTopPanel !== "session") return
     const close = (event: MouseEvent) => {
@@ -221,24 +191,8 @@ export function AppShell() {
       onSuccess: () => undefined,
     })
   }, [activeTopPanel])
-  useEffect(() => {
-    if (settingsSurface?.kind !== "plugins") return
-    return runBrowser(
-      BrowserPlatform.pipe(
-        Effect.flatMap((browser) =>
-          browser.onDocumentKeyDown((event) => {
-            if (event.key === "Escape") setSettingsSurface(null)
-          }),
-        ),
-      ),
-      { onSuccess: () => undefined },
-    )
-  }, [settingsSurface?.kind])
-
   // Finder owns one selected file; workspace APIs remain the only content source.
   const [selectedFinderFile, setSelectedFinderFile] = useState<SelectedFinderFile | null>(null)
-  const [resourceManagerOpen, setResourceManagerOpen] = useState(false)
-
   // Same @mention format as the chat input's @ autocomplete, so the agent's
   // read tool resolves it the same way (it strips the @ prefix).
   const handleAtMention = useCallback((relativePath: string, isDir: boolean) => {
@@ -247,6 +201,40 @@ export function AppShell() {
   const [initialSessionId] = useState<string | null>(() => search.session ?? null)
   const [activeCwd, setActiveCwd] = useState<string | null>(null)
   const managementCwd = activeCwd ?? selectedSession?.cwd ?? null
+  const openFinder = useCallback(() => {
+    setSettingsSurface(null)
+    setActiveTopPanel(null)
+    setResourceManagerOpen(true)
+  }, [])
+  const openSettingsSurface = useCallback((surface: Exclude<SettingsSurface, null>) => {
+    setResourceManagerOpen(false)
+    setActiveTopPanel(null)
+    setSettingsSurface(surface)
+  }, [])
+  useApplicationHotkeys(
+    [
+      {
+        hotkey: "Mod+Shift+E",
+        callback: openFinder,
+        options: { enabled: managementCwd !== null, preventDefault: true },
+      },
+      {
+        hotkey: "Escape",
+        callback: () => {
+          if (settingsSurface !== null) setSettingsSurface(null)
+          else if (resourceManagerOpen) setResourceManagerOpen(false)
+          else if (activeTopPanel !== null) setActiveTopPanel(null)
+          else if (isMobile && sidebarOpen) setSidebarOpen(false)
+        },
+        options: {
+          enabled:
+            settingsSurface !== null || resourceManagerOpen || activeTopPanel !== null || (isMobile && sidebarOpen),
+          preventDefault: true,
+        },
+      },
+    ],
+    { eventType: "keydown" },
+  )
   useEffect(() => {
     setSelectedFinderFile(null)
   }, [managementCwd])
@@ -477,11 +465,11 @@ export function AppShell() {
   const handleOpenFile = useCallback(
     (filePath: string, _fileName: string, sourceSessionId?: string | null) => {
       setSelectedFinderFile({ filePath, sourceSessionId })
-      setResourceManagerOpen(true)
+      openFinder()
       // On mobile the file panel is full-screen; close the drawer so it shows.
       if (isMobile) setSidebarOpen(false)
     },
-    [isMobile],
+    [isMobile, openFinder],
   )
   const handleOpenLinkedFile = useCallback(
     (filePath: string) => {
@@ -509,6 +497,14 @@ export function AppShell() {
     )
   }, [selectedSession])
   const showChat = selectedSession !== null
+  const selectedSessionTitle = selectedSession
+    ? selectedSession.name || selectedSession.firstMessage.slice(0, 64) || selectedSession.id.slice(0, 12)
+    : tr("Pi Agent Web")
+  const selectedSessionContext = selectedSession
+    ? `${getFileName(selectedSession.cwd)} · ${selectedSession.worktreeBranch ?? "main"}`
+    : managementCwd
+      ? getFileName(managementCwd)
+      : ""
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat
   const sidebarContent = (
@@ -523,8 +519,11 @@ export function AppShell() {
       onSessionDeleted={handleSessionDeleted}
       selectedCwd={selectedSession?.cwd ?? creatingSessionCwd ?? null}
       onCwdChange={handleCwdChange}
-      onOpenExplorer={() => setResourceManagerOpen(true)}
-      onOpenSettings={() => setSettingsSurface({ kind: "general" })}
+      onOpenExplorer={openFinder}
+      onOpenSettings={() =>
+        settingsSurface?.kind === "general" ? setSettingsSurface(null) : openSettingsSurface({ kind: "general" })
+      }
+      settingsOpen={settingsSurface?.kind === "general"}
     />
   )
   return (
@@ -601,7 +600,7 @@ export function AppShell() {
         }
         .extension-drawer { animation: none; }
       }
-      @media (max-width: 640px) {
+      @media (max-width: 760px) {
         .sidebar-overlay-backdrop.sidebar-mobile-pending {
           opacity: 0 !important;
           pointer-events: none !important;
@@ -615,6 +614,7 @@ export function AppShell() {
       <div {...stylex.props(inlineStyles.inline5)}>
         {/* Mobile overlay backdrop */}
         <div
+          aria-hidden={!sidebarOpen}
           className={`${stylex.props(inlineStyles.inline6).className} sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
           onClick={() => setSidebarOpen(false)}
           style={{
@@ -625,7 +625,9 @@ export function AppShell() {
 
         {/* Left sidebar */}
         <div
+          aria-hidden={!sidebarOpen}
           className={`${stylex.props(inlineStyles.inline7).className} sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
+          inert={sidebarOpen ? undefined : true}
         >
           {sidebarContent}
         </div>
@@ -634,19 +636,13 @@ export function AppShell() {
         <div {...stylex.props(inlineStyles.inline8)}>
           {/* Top bar with sidebar toggle */}
           <div ref={topBarRef} {...stylex.props(inlineStyles.inline9)}>
-            <button
-              onClick={handleSidebarToggle}
-              title={tr(sidebarOpen ? "Hide sidebar" : "Show sidebar")}
-              aria-label={tr(sidebarOpen ? "Hide sidebar" : "Show sidebar")}
-              {...stylex.props(inlineStyles.inline10)}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = "var(--text)"
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--text-muted)"
-              }}
-            >
-              {sidebarOpen ? (
+            <div {...stylex.props(inlineStyles.topbarTitleArea)}>
+              <button
+                onClick={handleSidebarToggle}
+                title={tr(sidebarOpen ? "Hide sidebar" : "Show sidebar")}
+                aria-label={tr(sidebarOpen ? "Hide sidebar" : "Show sidebar")}
+                {...stylex.props(inlineStyles.inline10)}
+              >
                 <svg
                   width="16"
                   height="16"
@@ -657,139 +653,17 @@ export function AppShell() {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <line x1="9" y1="3" x2="9" y2="21" />
+                  <rect x="3" y="4" width="18" height="16" rx="3" />
+                  <line x1="9" y1="4" x2="9" y2="20" />
                 </svg>
-              ) : (
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                >
-                  <line x1="3" y1="6" x2="21" y2="6" />
-                  <line x1="3" y1="12" x2="21" y2="12" />
-                  <line x1="3" y1="18" x2="21" y2="18" />
-                </svg>
-              )}
-            </button>
-            <button
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect()
-                toggleTheme({
-                  x: rect.left + rect.width / 2,
-                  y: rect.top + rect.height / 2,
-                })
-              }}
-              title={tr(isDark ? "Switch to light mode" : "Switch to dark mode")}
-              aria-label={tr(isDark ? "Switch to light mode" : "Switch to dark mode")}
-              aria-pressed={isDark}
-              {...stylex.props(inlineStyles.inline11)}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = "var(--text)"
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--text-muted)"
-              }}
-            >
-              {isDark ? (
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <circle cx="12" cy="12" r="5" />
-                  <line x1="12" y1="1" x2="12" y2="3" />
-                  <line x1="12" y1="21" x2="12" y2="23" />
-                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                  <line x1="1" y1="12" x2="3" y2="12" />
-                  <line x1="21" y1="12" x2="23" y2="12" />
-                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-                </svg>
-              ) : (
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                </svg>
-              )}
-            </button>
-            <button
-              onClick={() => setLocale(locale === "zh-CN" ? "en" : "zh-CN")}
-              title={tr("Switch language")}
-              aria-label={tr("Switch language")}
-              {...stylex.props(inlineStyles.inline12)}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = "var(--text)"
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--text-muted)"
-              }}
-            >
-              {locale === "zh-CN" ? "EN" : "中文"}
-            </button>
-            {showChat && (
-              <div {...stylex.props(inlineStyles.inline13)}>
-                <button
-                  onClick={handleExportSession}
-                  disabled={!selectedSession}
-                  title={tr(selectedSession ? "Export HTML" : "Export is available after the session is saved")}
-                  aria-label={tr("Export HTML")}
-                  {...stylex.props(inlineStyles.inline14)}
-                  style={{
-                    color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
-                    cursor: selectedSession ? "pointer" : "not-allowed",
-                    opacity: selectedSession ? 1 : 0.45,
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!selectedSession) return
-                    e.currentTarget.style.color = "var(--text)"
-                    e.currentTarget.style.background = "var(--bg-hover)"
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.color = selectedSession ? "var(--text-muted)" : "var(--text-dim)"
-                    e.currentTarget.style.background = "none"
-                  }}
-                >
-                  <span
-                    {...stylex.props(inlineStyles.inline15)}
-                    style={{
-                      color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
-                    }}
-                  >
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="7 10 12 15 17 10" />
-                      <line x1="12" y1="15" x2="12" y2="3" />
-                    </svg>
-                  </span>
-                </button>
+              </button>
+              <div {...stylex.props(inlineStyles.topbarIdentity)}>
+                <strong {...stylex.props(inlineStyles.topbarTitle)}>{selectedSessionTitle}</strong>
+                {selectedSessionContext && (
+                  <small {...stylex.props(inlineStyles.topbarContext)}>{selectedSessionContext}</small>
+                )}
+              </div>
+              {showChat && (
                 <BranchNavigator
                   branchNodes={branchNodes}
                   activeLeafId={branchActiveLeafId}
@@ -801,166 +675,51 @@ export function AppShell() {
                   onToggle={() => toggleTopPanel("branches")}
                   hasSession
                 />
-              </div>
-            )}
-            {/* Session stats — right-aligned in top bar */}
-            {showChat &&
-              (sessionStats || contextUsage) &&
-              (() => {
-                const t = sessionStats?.tokens
-                const c = sessionStats?.cost ?? 0
-                const fmt = (n: number) =>
-                  n >= 1_000_000
-                    ? `${(n / 1_000_000).toFixed(1)}M`
-                    : n >= 1000
-                      ? `${(n / 1000).toFixed(0)}k`
-                      : String(n)
-                const costStr = c > 0 ? (c >= 0.01 ? `$${c.toFixed(2)}` : `<$0.01`) : null
-                let ctxColor = "var(--text-muted)"
-                let ctxStr: string | null = null
-                if (contextUsage?.contextWindow) {
-                  const pct = contextUsage.percent
-                  if (pct !== null && pct > 90) ctxColor = "#ef4444"
-                  else if (pct !== null && pct > 70) ctxColor = "rgba(234,179,8,0.95)"
-                  ctxStr =
-                    pct !== null
-                      ? `${pct.toFixed(0)}% / ${fmt(contextUsage.contextWindow)}`
-                      : `? / ${fmt(contextUsage.contextWindow)}`
-                }
-                return (
-                  <button
-                    className={`${stylex.props(inlineStyles.inline18).className} debug-control`}
-                    type="button"
-                    onClick={() => toggleTopPanel("session")}
-                    title={tr("Debug information")}
-                    aria-label={tr("Debug information")}
-                    aria-pressed={activeTopPanel === "session"}
-                    style={{
-                      paddingInline: 10,
-                      background: activeTopPanel === "session" ? "var(--bg-selected)" : "none",
-                      borderTop: activeTopPanel === "session" ? "2px solid var(--accent)" : "2px solid transparent",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.color = "var(--text)"
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color = activeTopPanel === "session" ? "var(--text)" : "var(--text-muted)"
-                    }}
-                  >
-                    <svg
-                      className="debug-icon"
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path d="M8 2h8M9 9h6M12 2v4M7 13H3M21 13h-4M7 17l-3 2M17 17l3 2" />
-                      <rect x="7" y="6" width="10" height="16" rx="5" />
-                    </svg>
-                    {isMobile && (
-                      <svg
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                      >
-                        <circle cx="12" cy="12" r="10" />
-                        <line x1="12" y1="16" x2="12" y2="12" />
-                        <line x1="12" y1="8" x2="12.01" y2="8" />
-                      </svg>
-                    )}
-                    {!isMobile && t && t.input > 0 && (
-                      <span {...stylex.props(inlineStyles.inline19)}>
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 10 10"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <line x1="5" y1="8.5" x2="5" y2="1.5" />
-                          <polyline points="2 4 5 1.5 8 4" />
-                        </svg>
-                        {fmt(t.input)}
-                      </span>
-                    )}
-                    {!isMobile && t && t.output > 0 && (
-                      <span {...stylex.props(inlineStyles.inline20)}>
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 10 10"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <line x1="5" y1="1.5" x2="5" y2="8.5" />
-                          <polyline points="2 6 5 8.5 8 6" />
-                        </svg>
-                        {fmt(t.output)}
-                      </span>
-                    )}
-                    {!isMobile && t && t.cacheRead > 0 && (
-                      <span {...stylex.props(inlineStyles.inline21)}>
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 10 10"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M8.5 5a3.5 3.5 0 1 1-1-2.45" />
-                          <polyline points="6.5 1.5 8.5 2.5 7.5 4.5" />
-                        </svg>
-                        {fmt(t.cacheRead)}
-                      </span>
-                    )}
-                    {!isMobile && costStr && (
-                      <span {...stylex.props(inlineStyles.inline22)}>
-                        {tr("Session total")} {costStr}
-                      </span>
-                    )}
-                    {ctxStr && (
-                      <span
-                        {...stylex.props(inlineStyles.inline23)}
-                        style={{
-                          color: ctxColor,
-                        }}
-                      >
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 10 10"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M1 9 L1 5 Q1 1 5 1 Q9 1 9 5 L9 9" />
-                          <line x1="1" y1="9" x2="9" y2="9" />
-                        </svg>
-                        {ctxStr}
-                      </span>
-                    )}
-                  </button>
-                )
-              })()}
+              )}
+            </div>
+            <div {...stylex.props(inlineStyles.topbarActions)}>
+              {showChat && (
+                <button
+                  onClick={handleExportSession}
+                  title={tr("Export HTML")}
+                  aria-label={tr("Export HTML")}
+                  {...stylex.props(inlineStyles.topbarIconButton)}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 3v12m-4-4 4 4 4-4M4 20h16" />
+                  </svg>
+                </button>
+              )}
+              {showChat && (
+                <button
+                  type="button"
+                  onClick={() => toggleTopPanel("session")}
+                  title={tr("Debug information")}
+                  aria-label={tr("Debug information")}
+                  aria-pressed={activeTopPanel === "session"}
+                  {...stylex.props(
+                    inlineStyles.topbarIconButton,
+                    activeTopPanel === "session" && inlineStyles.topbarIconButtonActive,
+                  )}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M8 8h8v8a4 4 0 0 1-8 0Z" />
+                    <path d="M9 8V6a3 3 0 0 1 6 0v2M4 13h4m8 0h4M5 7l3 2m8 0 3-2M5 19l3-2m8 0 3 2" />
+                  </svg>
+                </button>
+              )}
+              <button
+                onClick={() => openSettingsSurface({ kind: "plugins" })}
+                title={tr("Plugins")}
+                aria-label={tr("Plugins")}
+                {...stylex.props(inlineStyles.inline58)}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path d="M8 3h3a2 2 0 1 1 4 0h3a2 2 0 0 1 2 2v4h-3a2 2 0 1 0 0 4h3v4a2 2 0 0 1-2 2h-4v-3a2 2 0 1 0-4 0v3H6a2 2 0 0 1-2-2v-4h3a2 2 0 1 0 0-4H4V5a2 2 0 0 1 2-2Z" />
+                </svg>
+                <span {...stylex.props(inlineStyles.extensionCount)}>{activeExtensionCount}</span>
+              </button>
+            </div>
             {/* Top panel dropdown — shared, only one active at a time */}
             {activeTopPanel && topPanelPos && (
               <div
@@ -973,241 +732,14 @@ export function AppShell() {
                 }}
               >
                 {activeTopPanel === "session" && (
-                  <div className={`${stylex.props(inlineStyles.inline29).className} session-info-popover`}>
-                    <button
-                      type="button"
-                      {...stylex.props(inlineStyles.copyDebug)}
-                      onClick={() =>
-                        runBrowser(
-                          copyText(
-                            JSON.stringify(
-                              {
-                                cwd: managementCwd,
-                                session: sessionStats,
-                                context: contextUsage,
-                                weixin: weixinStatus,
-                                systemPrompt: systemPromptState,
-                              },
-                              null,
-                              2,
-                            ),
-                          ),
-                          { onSuccess: () => undefined },
-                        )
-                      }
-                    >
-                      {tr("Copy debug information")}
-                    </button>
-                    <section {...stylex.props(inlineStyles.systemPromptInspector)}>
-                      <div {...stylex.props(inlineStyles.systemPromptHeader)}>
-                        <strong>{tr("System prompt")}</strong>
-                        {systemPromptState.status === "ready" &&
-                          systemPromptState.sessionId === selectedSession?.id && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                runBrowser(copyText(systemPromptState.prompt), { onSuccess: () => undefined })
-                              }
-                            >
-                              {tr("Copy")}
-                            </button>
-                          )}
-                      </div>
-                      {selectedSession === null || systemPromptState.status === "none" ? (
-                        <span>{tr("No session selected")}</span>
-                      ) : systemPromptState.sessionId !== selectedSession.id ||
-                        systemPromptState.status === "loading" ? (
-                        <span>{tr("Loading…")}</span>
-                      ) : systemPromptState.status === "error" ? (
-                        <span {...stylex.props(inlineStyles.systemPromptError)}>{systemPromptState.error}</span>
-                      ) : (
-                        <pre {...stylex.props(inlineStyles.systemPromptPreview)}>{systemPromptState.prompt}</pre>
-                      )}
-                    </section>
-                    {sessionStats ? (
-                      (() => {
-                        const sessionRows = [
-                          ...(sessionStats.sessionName
-                            ? [
-                                {
-                                  label: "Name",
-                                  value: sessionStats.sessionName,
-                                  copyField: null,
-                                },
-                              ]
-                            : []),
-                          {
-                            label: "File",
-                            value: sessionStats.sessionFile ?? "In-memory",
-                            copyField: "file" as const,
-                          },
-                          {
-                            label: "ID",
-                            value: sessionStats.sessionId,
-                            copyField: "id" as const,
-                          },
-                        ]
-                        const messageRows = [
-                          [tr("User"), sessionStats.userMessages.toLocaleString()],
-                          [tr("Assistant"), sessionStats.assistantMessages.toLocaleString()],
-                          [tr("Tool Calls"), sessionStats.toolCalls.toLocaleString()],
-                          [tr("Tool Results"), sessionStats.toolResults.toLocaleString()],
-                          [tr("Total"), sessionStats.totalMessages.toLocaleString()],
-                        ]
-                        const tokenRows = [
-                          [tr("Input"), sessionStats.tokens.input.toLocaleString()],
-                          [tr("Output"), sessionStats.tokens.output.toLocaleString()],
-                          ...(sessionStats.tokens.cacheRead > 0
-                            ? [[tr("Cache Read"), sessionStats.tokens.cacheRead.toLocaleString()]]
-                            : []),
-                          ...(sessionStats.tokens.cacheWrite > 0
-                            ? [[tr("Cache Write"), sessionStats.tokens.cacheWrite.toLocaleString()]]
-                            : []),
-                          [tr("Total"), sessionStats.tokens.total.toLocaleString()],
-                        ]
-                        const ctx = contextUsage ?? sessionStats.contextUsage
-                        const formatCompact = (n: number) =>
-                          n >= 1_000_000
-                            ? `${(n / 1_000_000).toFixed(1)}M`
-                            : n >= 1000
-                              ? `${(n / 1000).toFixed(0)}k`
-                              : String(n)
-                        const extraTokenRows = [
-                          ...(sessionStats.cost > 0 ? [["Cost", `$${sessionStats.cost.toFixed(4)}`]] : []),
-                          ...(ctx?.contextWindow
-                            ? [
-                                [
-                                  "Context",
-                                  `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`,
-                                ],
-                              ]
-                            : []),
-                        ]
-                        const section = (
-                          title: string,
-                          sectionRows: string[][],
-                          valueAlign: "left" | "right" = "left",
-                          compact = false,
-                        ) => (
-                          <div {...stylex.props(inlineStyles.inline30)}>
-                            <div {...stylex.props(inlineStyles.inline31)}>{title}</div>
-                            <div
-                              {...stylex.props(inlineStyles.inline32)}
-                              style={{
-                                gridTemplateColumns: compact ? "max-content max-content" : "auto minmax(0, 1fr)",
-                                columnGap: compact ? 14 : 12,
-                                justifyContent: compact ? "start" : undefined,
-                              }}
-                            >
-                              {sectionRows.map(([label, value]) => (
-                                <div key={`${title}:${label}`} {...stylex.props(inlineStyles.inline33)}>
-                                  <div {...stylex.props(inlineStyles.inline34)}>{label}</div>
-                                  <div
-                                    {...stylex.props(inlineStyles.inline35)}
-                                    style={{
-                                      overflowWrap: compact ? "normal" : "anywhere",
-                                      textAlign: valueAlign,
-                                      whiteSpace: valueAlign === "right" ? "nowrap" : "normal",
-                                    }}
-                                  >
-                                    {value}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )
-                        const copyButton = (field: SessionCopyField, value: string) => {
-                          const copied = copiedSessionField === field
-                          return (
-                            <button
-                              type="button"
-                              title={copied ? "Copied" : `Copy ${field === "file" ? "file path" : "session ID"}`}
-                              onClick={() => handleCopySessionField(field, value)}
-                              {...stylex.props(inlineStyles.inline36)}
-                              style={{
-                                color: copied ? "var(--accent)" : "var(--text-dim)",
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.color = "var(--accent)"
-                                e.currentTarget.style.borderColor = "var(--accent)"
-                                e.currentTarget.style.background = "var(--bg-hover)"
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.color = copied ? "var(--accent)" : "var(--text-dim)"
-                                e.currentTarget.style.borderColor = "var(--border)"
-                                e.currentTarget.style.background = "transparent"
-                              }}
-                            >
-                              {copied ? (
-                                <svg
-                                  width="12"
-                                  height="12"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  aria-hidden="true"
-                                >
-                                  <polyline points="20 6 9 17 4 12" />
-                                </svg>
-                              ) : (
-                                <svg
-                                  width="12"
-                                  height="12"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  aria-hidden="true"
-                                >
-                                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                </svg>
-                              )}
-                            </button>
-                          )
-                        }
-                        const sessionInfoSection = (
-                          <div {...stylex.props(inlineStyles.inline37)}>
-                            <div {...stylex.props(inlineStyles.inline38)}>{tr("Session Info")}</div>
-                            <div {...stylex.props(inlineStyles.inline39)}>
-                              {sessionRows.map((row) => (
-                                <div key={`session-info:${row.label}`} {...stylex.props(inlineStyles.inline40)}>
-                                  <div {...stylex.props(inlineStyles.inline41)}>{row.label}</div>
-                                  <div {...stylex.props(inlineStyles.inline42)}>{row.value}</div>
-                                  <div>{row.copyField ? copyButton(row.copyField, row.value) : null}</div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )
-                        return (
-                          <div
-                            {...stylex.props(inlineStyles.inline43)}
-                            style={{
-                              gridTemplateColumns: isMobile
-                                ? "1fr"
-                                : "minmax(360px, 1.7fr) minmax(140px, 0.55fr) minmax(190px, 0.75fr)",
-                              gap: isMobile ? 16 : 24,
-                            }}
-                          >
-                            {sessionInfoSection}
-                            {section(tr("Messages"), messageRows)}
-                            {section(tr("Tokens"), [...tokenRows, ...extraTokenRows], "right", true)}
-                          </div>
-                        )
-                      })()
-                    ) : (
-                      <div {...stylex.props(inlineStyles.inline44)}>
-                        {tr("Send a message or run /session to load session info")}
-                      </div>
-                    )}
-                  </div>
+                  <SessionInspector
+                    contextUsage={contextUsage}
+                    cwd={managementCwd}
+                    selectedSessionId={selectedSessionId}
+                    sessionStats={sessionStats}
+                    systemPromptState={systemPromptState}
+                    weixinStatus={weixinStatus}
+                  />
                 )}
               </div>
             )}
@@ -1232,8 +764,8 @@ export function AppShell() {
                 onContextUsageChange={handleContextUsageChange}
                 onWeixinStatusChange={handleWeixinStatusChange}
                 onOpenFile={handleOpenLinkedFile}
-                onOpenModels={() => setSettingsSurface({ kind: "models" })}
-                onOpenSkills={() => setSettingsSurface({ kind: "skills" })}
+                onOpenModels={() => openSettingsSurface({ kind: "models" })}
+                onOpenSkills={() => openSettingsSurface({ kind: "skills" })}
                 skillsCount={skillsCount}
               />
             ) : creatingSessionCwd !== null ? (
@@ -1285,78 +817,15 @@ export function AppShell() {
           </div>
         </div>
       </div>
-      {/* Extension launcher — the single plugin-management entry point. */}
-      <button
-        onClick={() => setSettingsSurface({ kind: "plugins" })}
-        title={tr("Plugins")}
-        aria-label={tr("Plugins")}
-        {...stylex.props(inlineStyles.inline58)}
-      >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M9 7V2M15 7V2M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0ZM12 19v3" />
-        </svg>
-        <span {...stylex.props(inlineStyles.extensionCount)}>{activeExtensionCount}</span>
-      </button>
       {resourceManagerOpen && managementCwd && (
-        <div {...stylex.props(inlineStyles.modalBackdrop)} onMouseDown={() => setResourceManagerOpen(false)}>
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label={tr("Resource manager")}
-            {...stylex.props(inlineStyles.resourceDialog)}
-            onMouseDown={(event) => event.stopPropagation()}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") setResourceManagerOpen(false)
-            }}
-          >
-            <header {...stylex.props(inlineStyles.modalHeader)}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
-                <strong>{tr("Resource manager")}</strong>
-                <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
-                  {managementCwd}
-                </span>
-              </div>
-              <button type="button" onClick={() => setResourceManagerOpen(false)} aria-label={tr("Close")}>
-                ×
-              </button>
-            </header>
-            <div {...stylex.props(inlineStyles.resourceWorkspace)}>
-              <aside {...stylex.props(inlineStyles.resourceTree)}>
-                <FileExplorer
-                  cwd={managementCwd}
-                  onOpenFile={handleOpenFile}
-                  refreshKey={explorerRefreshKey}
-                  onAtMention={handleAtMention}
-                  selectedFilePath={selectedFinderFile?.filePath ?? null}
-                />
-              </aside>
-              <div {...stylex.props(inlineStyles.resourceViewer)}>
-                <div {...stylex.props(inlineStyles.resourceContent)}>
-                  {selectedFinderFile ? (
-                    <Suspense fallback={null}>
-                      <FileViewer
-                        filePath={selectedFinderFile.filePath}
-                        cwd={managementCwd}
-                        sourceSessionId={selectedFinderFile.sourceSessionId}
-                      />
-                    </Suspense>
-                  ) : (
-                    <div {...stylex.props(inlineStyles.inline57)}>{tr("Select a file to preview")}</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
+        <WorkspaceFinder
+          cwd={managementCwd}
+          onAtMention={handleAtMention}
+          onClose={() => setResourceManagerOpen(false)}
+          onOpenFile={handleOpenFile}
+          refreshKey={explorerRefreshKey}
+          selectedFile={selectedFinderFile}
+        />
       )}
       <Suspense fallback={null}>
         {settingsSurface?.kind === "models" && (
@@ -1371,90 +840,23 @@ export function AppShell() {
           <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd)!} onClose={() => setSettingsSurface(null)} />
         )}
         {settingsSurface?.kind === "plugins" && (
-          <div {...stylex.props(inlineStyles.extensionBackdrop)} onMouseDown={() => setSettingsSurface(null)}>
-            <section
-              className={`${stylex.props(inlineStyles.extensionDialog).className} extension-drawer`}
-              role="dialog"
-              aria-modal="true"
-              aria-label={tr("Plugins")}
-              tabIndex={-1}
-              autoFocus
-              onKeyDown={(event) => {
-                if (event.key === "Escape") setSettingsSurface(null)
-              }}
-              onMouseDown={(event) => event.stopPropagation()}
-            >
-              <button
-                type="button"
-                onClick={() => setSettingsSurface(null)}
-                aria-label={tr("Close")}
-                {...stylex.props(inlineStyles.modalClose)}
-              >
-                ×
-              </button>
-              <PluginsConfig
-                presentation="page"
-                cwd={null}
-                sessionId={null}
-                projectCwds={[...new Set(sessionCollection.map((session) => session.cwd))].sort()}
-                initialPackageName={settingsSurface.initialPackageName}
-                chromeHealth={chromeExtensionHealth}
-                weixinStatus={weixinStatus}
-                onClose={() => setSettingsSurface(null)}
-                openablePackageNames={new Set(extensionCatalog?.groups.map((group) => group.item.packageName) ?? [])}
-                onOpenPackage={(packageName) => {
-                  const surface = extensionCatalog?.groups.find((group) => group.item.packageName === packageName)
-                  if (!surface) return
-                  setSettingsSurface(null)
-                  void navigate({ to: "/extensions/$surfaceId", params: { surfaceId: surface.item.surfaceId } })
-                }}
-                onReloaded={() => setSessionRefreshKey((key) => key + 1)}
-              />
-            </section>
-          </div>
+          <ExtensionDrawer
+            chromeHealth={chromeExtensionHealth}
+            initialPackageName={settingsSurface.initialPackageName}
+            onClose={() => setSettingsSurface(null)}
+            onOpenPackage={(packageName) => {
+              const surface = extensionCatalog?.groups.find((group) => group.item.packageName === packageName)
+              if (!surface) return
+              setSettingsSurface(null)
+              void navigate({ to: "/extensions/$surfaceId", params: { surfaceId: surface.item.surfaceId } })
+            }}
+            onReloaded={() => setSessionRefreshKey((key) => key + 1)}
+            openablePackageNames={new Set(extensionCatalog?.groups.map((group) => group.item.packageName) ?? [])}
+            projectCwds={[...new Set(sessionCollection.map((session) => session.cwd))].sort()}
+            weixinStatus={weixinStatus}
+          />
         )}
-        {settingsSurface?.kind === "general" && (
-          <div {...stylex.props(inlineStyles.modalBackdrop)} onMouseDown={() => setSettingsSurface(null)}>
-            <section {...stylex.props(inlineStyles.settingsDialog)} onMouseDown={(event) => event.stopPropagation()}>
-              <header {...stylex.props(inlineStyles.modalHeader)}>
-                <strong>{tr("Settings")}</strong>
-                <button type="button" onClick={() => setSettingsSurface(null)} aria-label={tr("Close")}>
-                  ×
-                </button>
-              </header>
-              <div {...stylex.props(inlineStyles.settingsBody)}>
-                <div {...stylex.props(inlineStyles.settingRow)}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                    <strong>{tr("Completion sound")}</strong>
-                    <span>{tr("Play a sound when the agent finishes")}</span>
-                  </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={preferences.soundEnabled}
-                    onClick={() =>
-                      updatePreferences((current) => ({ ...current, soundEnabled: !current.soundEnabled }))
-                    }
-                    {...stylex.props(inlineStyles.settingsToggle)}
-                    style={{ background: preferences.soundEnabled ? "var(--accent)" : "var(--border)" }}
-                  >
-                    <i
-                      style={{
-                        background: "white",
-                        borderRadius: "50%",
-                        display: "block",
-                        height: 20,
-                        transition: "transform .15s",
-                        width: 20,
-                        transform: preferences.soundEnabled ? "translateX(16px)" : "translateX(0)",
-                      }}
-                    />
-                  </button>
-                </div>
-              </div>
-            </section>
-          </div>
-        )}
+        {settingsSurface?.kind === "general" && <ApplicationSettingsPopover onClose={() => setSettingsSurface(null)} />}
       </Suspense>
     </>
   )
@@ -1526,12 +928,13 @@ const inlineStyles = stylex.create({
     background: "var(--bg)",
   },
   inline6: {
-    display: { "@media (min-width: 641px)": "none" },
+    display: { "@media (min-width: 761px)": "none" },
     position: "fixed",
     inset: 0,
     zIndex: 199,
     background: "rgba(0,0,0,0.4)",
-    transition: "opacity 0.25s ease",
+    backdropFilter: "blur(2px)",
+    transition: "opacity var(--motion-surface) ease",
   },
   inline7: {
     background: "var(--bg-panel)",
@@ -1540,6 +943,7 @@ const inlineStyles = stylex.create({
     flexDirection: "column",
     flexShrink: 0,
     zIndex: 200,
+    transition: "transform var(--motion-surface) cubic-bezier(.2,.8,.2,1), opacity var(--motion-fast) ease",
   },
   inline8: {
     flex: 1,
@@ -1551,25 +955,84 @@ const inlineStyles = stylex.create({
   inline9: {
     display: "flex",
     alignItems: "center",
+    justifyContent: "space-between",
     flexShrink: 0,
     borderBottom: "1px solid var(--border)",
-    height: 36,
-    background: "var(--bg-panel)",
+    height: "var(--topbar-height)",
+    padding: "0 15px 0 12px",
+    background: "color-mix(in srgb, var(--bg) 91%, transparent)",
+    backdropFilter: "blur(18px)",
+    position: "relative",
+    zIndex: 6,
   },
   inline10: {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    width: 36,
-    height: 36,
+    width: 33,
+    height: 33,
     padding: 0,
     background: "none",
     border: "none",
-    borderRight: "1px solid var(--border)",
+    borderRadius: 8,
     color: "var(--text-muted)",
     cursor: "pointer",
     flexShrink: 0,
-    transition: "color 0.12s",
+    transition: "color var(--motion-fast), background var(--motion-fast)",
+    ":hover": { color: "var(--text)", background: "var(--bg-hover)" },
+  },
+  topbarTitleArea: {
+    alignItems: "center",
+    display: "flex",
+    gap: 7,
+    minWidth: 0,
+  },
+  topbarIdentity: {
+    display: "flex",
+    flexDirection: "column",
+    minWidth: 0,
+    maxWidth: { default: 420, "@media (max-width: 760px)": 220 },
+  },
+  topbarTitle: {
+    color: "var(--text)",
+    fontSize: 13,
+    fontWeight: 650,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  topbarContext: {
+    color: "var(--text-dim)",
+    display: { default: "block", "@media (max-width: 760px)": "none" },
+    fontFamily: "var(--font-mono)",
+    fontSize: 10,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  topbarActions: {
+    alignItems: "center",
+    display: "flex",
+    gap: 2,
+    flexShrink: 0,
+  },
+  topbarIconButton: {
+    alignItems: "center",
+    background: "transparent",
+    border: "none",
+    borderRadius: 8,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    display: "flex",
+    height: 33,
+    justifyContent: "center",
+    padding: 0,
+    width: 33,
+    ":hover": { background: "var(--bg-hover)", color: "var(--text)" },
+  },
+  topbarIconButtonActive: {
+    background: "var(--bg-selected)",
+    color: "var(--text)",
   },
   inline11: {
     display: "flex",
@@ -1695,7 +1158,12 @@ const inlineStyles = stylex.create({
   inline24: {
     position: "fixed",
     overflowY: "auto",
-    zIndex: 500,
+    zIndex: "var(--layer-popover)",
+    marginTop: 7,
+    border: "1px solid var(--border)",
+    borderRadius: 12,
+    boxShadow: "var(--shadow-surface)",
+    maxHeight: "calc(100dvh - var(--topbar-height) - 14px)",
   },
   inline25: {
     background: "var(--bg-panel)",
@@ -1719,92 +1187,6 @@ const inlineStyles = stylex.create({
   },
   inline28: {
     padding: "10px 16px",
-    fontSize: 12,
-    color: "var(--text-muted)",
-    fontStyle: "italic",
-  },
-  inline29: {
-    background: "var(--bg-panel)",
-    borderBottom: "1px solid var(--border)",
-    boxShadow: "0 10px 28px rgba(0,0,0,0.10)",
-    padding: "12px 16px",
-  },
-  inline30: {
-    minWidth: 0,
-  },
-  inline31: {
-    fontSize: 11,
-    fontWeight: 700,
-    color: "var(--text)",
-    marginBottom: 6,
-  },
-  inline32: {
-    display: "grid",
-    rowGap: 4,
-  },
-  inline33: {
-    display: "contents",
-  },
-  inline34: {
-    color: "var(--text-dim)",
-    whiteSpace: "nowrap",
-  },
-  inline35: {
-    color: "var(--text-muted)",
-    minWidth: 0,
-  },
-  inline36: {
-    alignSelf: "start",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: 22,
-    height: 22,
-    marginTop: -2,
-    background: "transparent",
-    border: "1px solid var(--border)",
-    borderRadius: 4,
-    cursor: "pointer",
-    flex: "0 0 auto",
-    transition: "color 0.12s, border-color 0.12s, background 0.12s",
-  },
-  inline37: {
-    minWidth: 0,
-  },
-  inline38: {
-    fontSize: 11,
-    fontWeight: 700,
-    color: "var(--text)",
-    marginBottom: 6,
-  },
-  inline39: {
-    display: "grid",
-    gridTemplateColumns: "auto minmax(0, 1fr) auto",
-    columnGap: 12,
-    rowGap: 8,
-    alignItems: "start",
-  },
-  inline40: {
-    display: "contents",
-  },
-  inline41: {
-    color: "var(--text-dim)",
-    whiteSpace: "nowrap",
-  },
-  inline42: {
-    color: "var(--text-muted)",
-    minWidth: 0,
-    overflowWrap: "anywhere",
-    wordBreak: "break-word",
-    whiteSpace: "normal",
-  },
-  inline43: {
-    display: "grid",
-    fontSize: 12,
-    lineHeight: 1.5,
-    fontFamily: "var(--font-mono)",
-  },
-  inline44: {
     fontSize: 12,
     color: "var(--text-muted)",
     fontStyle: "italic",
@@ -1855,53 +1237,21 @@ const inlineStyles = stylex.create({
     color: "var(--text-dim)",
     marginRight: 6,
   },
-  inline53: {
-    display: "flex",
-    flexDirection: "column",
-    borderLeft: "1px solid var(--border)",
-    background: "var(--bg)",
-  },
-  inline54: {
-    display: "flex",
-    alignItems: "center",
-    flexShrink: 0,
-    background: "var(--bg-panel)",
-    borderBottom: "1px solid var(--border)",
-    height: 36,
-  },
-  inline55: {
-    flex: 1,
-    overflow: "hidden",
-  },
-  inline56: {
-    flex: 1,
-    overflow: "hidden",
-  },
-  inline57: {
-    height: "100%",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "var(--text-dim)",
-    fontSize: 12,
-  },
   inline58: {
-    position: "fixed",
-    top: 0,
-    right: 0,
-    zIndex: 300,
+    position: "relative",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    width: 36,
-    height: 36,
+    width: 33,
+    height: 33,
     padding: 0,
-    background: "var(--bg-panel)",
+    background: "transparent",
     border: "none",
-    borderLeft: "1px solid var(--border)",
-    borderBottom: "1px solid var(--border)",
+    borderRadius: 8,
+    color: "var(--text-muted)",
     cursor: "pointer",
-    transition: "color 0.12s",
+    transition: "color var(--motion-fast), background var(--motion-fast)",
+    ":hover": { background: "var(--bg-hover)", color: "var(--text)" },
   },
   extensionCount: {
     alignItems: "center",
@@ -1916,148 +1266,8 @@ const inlineStyles = stylex.create({
     minWidth: 15,
     paddingInline: 3,
     position: "absolute",
-    right: 2,
-    top: 2,
+    right: -3,
+    top: -2,
+    border: "2px solid var(--bg)",
   },
-  copyDebug: {
-    backgroundColor: "var(--accent)",
-    border: "none",
-    borderRadius: 6,
-    color: "white",
-    cursor: "pointer",
-    fontSize: 11,
-    paddingBlock: 6,
-    paddingInline: 10,
-    position: "absolute",
-    right: 14,
-    top: 10,
-    zIndex: 2,
-  },
-  modalBackdrop: {
-    alignItems: "center",
-    backdropFilter: "blur(4px)",
-    backgroundColor: "rgba(0, 0, 0, 0.42)",
-    display: "flex",
-    inset: 0,
-    justifyContent: "center",
-    padding: { default: 26, "@media (max-width: 720px)": 0 },
-    position: "fixed",
-    zIndex: 700,
-  },
-  resourceDialog: {
-    backgroundColor: "var(--bg)",
-    border: "1px solid var(--border)",
-    borderRadius: { default: 14, "@media (max-width: 720px)": 0 },
-    boxShadow: "0 24px 80px rgba(0,0,0,.28)",
-    display: "grid",
-    gridTemplateRows: "52px minmax(0, 1fr)",
-    height: { default: "min(720px, 82dvh)", "@media (max-width: 720px)": "100dvh" },
-    maxWidth: 960,
-    overflow: "hidden",
-    width: { default: "min(960px, 90vw)", "@media (max-width: 720px)": "100vw" },
-  },
-  extensionDialog: {
-    backgroundColor: "var(--bg)",
-    borderLeft: "1px solid var(--border)",
-    boxShadow: "-18px 0 56px rgba(0,0,0,.22)",
-    height: "100dvh",
-    maxWidth: 460,
-    overflow: "hidden",
-    position: "relative",
-    width: { default: "min(460px, 92vw)", "@media (max-width: 720px)": "100vw" },
-  },
-  extensionBackdrop: {
-    alignItems: "stretch",
-    backgroundColor: "rgba(0, 0, 0, 0.3)",
-    display: "flex",
-    inset: 0,
-    justifyContent: "flex-end",
-    position: "fixed",
-    zIndex: 700,
-  },
-  modalHeader: {
-    alignItems: "center",
-    borderBottom: "1px solid var(--border)",
-    display: "flex",
-    justifyContent: "space-between",
-    minWidth: 0,
-    paddingInline: 18,
-  },
-  resourceWorkspace: {
-    display: "grid",
-    gridTemplateColumns: { default: "220px minmax(0, 1fr)", "@media (max-width: 720px)": "148px minmax(0, 1fr)" },
-    minHeight: 0,
-  },
-  resourceTree: {
-    backgroundColor: "var(--bg-panel)",
-    borderRight: "1px solid var(--border)",
-    minHeight: 0,
-    overflow: "auto",
-  },
-  resourceViewer: { height: "100%", minHeight: 0, minWidth: 0, overflow: "hidden" },
-  resourceContent: { height: "100%", minHeight: 0, overflow: "hidden" },
-  modalClose: {
-    alignItems: "center",
-    backgroundColor: "var(--bg-panel)",
-    border: "1px solid var(--border)",
-    borderRadius: 16,
-    color: "var(--text-muted)",
-    cursor: "pointer",
-    display: "flex",
-    fontSize: 18,
-    height: 30,
-    justifyContent: "center",
-    position: "absolute",
-    right: 14,
-    top: 14,
-    width: 30,
-    zIndex: 4,
-  },
-  settingsDialog: {
-    backgroundColor: "var(--bg)",
-    border: "1px solid var(--border)",
-    borderRadius: 12,
-    boxShadow: "0 24px 80px rgba(0,0,0,.28)",
-    display: "grid",
-    gridTemplateRows: "54px auto",
-    maxHeight: "min(700px, calc(100dvh - 40px))",
-    maxWidth: 680,
-    overflow: "hidden",
-    width: "min(680px, calc(100vw - 32px))",
-  },
-  settingsBody: { display: "flex", flexDirection: "column", gap: 18, overflow: "auto", padding: 20 },
-  settingRow: { alignItems: "center", display: "flex", justifyContent: "space-between" },
-  settingsToggle: {
-    backgroundColor: "var(--border)",
-    border: "none",
-    borderRadius: 12,
-    cursor: "pointer",
-    height: 24,
-    padding: 2,
-    width: 42,
-  },
-  systemPromptInspector: {
-    borderBottom: "1px solid var(--border)",
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-    marginBottom: 14,
-    paddingBottom: 14,
-  },
-  systemPromptHeader: { alignItems: "center", display: "flex", justifyContent: "space-between" },
-  systemPromptPreview: {
-    backgroundColor: "var(--bg-panel)",
-    border: "1px solid var(--border)",
-    borderRadius: 7,
-    fontFamily: "var(--font-mono)",
-    fontSize: 10,
-    lineHeight: 1.5,
-    margin: 0,
-    maxHeight: 220,
-    overflow: "auto",
-    overflowWrap: "anywhere",
-    padding: 10,
-    whiteSpace: "pre-wrap",
-  },
-  systemPromptError: { color: "#ef4444" },
 })

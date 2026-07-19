@@ -30,6 +30,7 @@ interface Props {
   onCwdChange?: (cwd: string | null, projectRoot?: string | null) => void
   onOpenExplorer?: () => void
   onOpenSettings?: () => void
+  settingsOpen?: boolean
 }
 interface WorktreeEntry {
   path: string
@@ -301,15 +302,16 @@ function PiAgentTitle() {
     [],
   )
   return (
-    <button
-      onClick={handleClick}
-      {...stylex.props(inlineStyles.inline2)}
-      style={{
-        color: showVersion ? "var(--accent)" : "var(--text)",
-      }}
-    >
-      {display}
-    </button>
+    <div {...stylex.props(inlineStyles.brand)}>
+      <span {...stylex.props(inlineStyles.brandMark)}>π</span>
+      <button
+        onClick={handleClick}
+        {...stylex.props(inlineStyles.inline2)}
+        style={{ color: showVersion ? "var(--accent)" : "var(--text)" }}
+      >
+        {display}
+      </button>
+    </div>
   )
 }
 export function SessionSidebar({
@@ -325,8 +327,9 @@ export function SessionSidebar({
   onCwdChange,
   onOpenExplorer,
   onOpenSettings,
+  settingsOpen,
 }: Props) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const { preferences, updatePreferences } = useBrowserPreferences()
   const unreadSessionIds = useMemo(() => new Set(preferences.unreadSessionIds), [preferences.unreadSessionIds])
   const updateUnreadSessionIds = useCallback(
@@ -792,6 +795,8 @@ export function SessionSidebar({
           <div {...stylex.props(inlineStyles.inline6)}>
             <button
               onClick={onOpenSettings}
+              aria-expanded={settingsOpen}
+              data-settings-trigger
               title={t("Settings")}
               aria-label={t("Settings")}
               {...stylex.props(inlineStyles.inline8)}
@@ -820,20 +825,24 @@ export function SessionSidebar({
             title={selectedProject ?? selectedCwd ?? ""}
             {...stylex.props(inlineStyles.inline10)}
             style={{
-              background: selectedCwd ? "var(--bg-hover)" : "rgba(37,99,235,0.06)",
-              border: selectedCwd ? "1px solid var(--border)" : "1px solid rgba(37,99,235,0.4)",
+              background: selectedCwd ? "var(--bg-raised)" : "var(--accent-soft)",
+              border: selectedCwd ? "1px solid var(--border)" : "1px solid var(--accent)",
             }}
           >
             {selectedCwd ? (
-              <PathLabel
-                text={displayCwd(selectedProject ?? selectedCwd, homeDir)}
-                style={{
-                  flex: 1,
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 11,
-                  color: "var(--text)",
-                }}
-              />
+              <>
+                <span {...stylex.props(inlineStyles.projectMark)}>
+                  {(selectedProject ?? selectedCwd).split("/").filter(Boolean).at(-1)?.slice(0, 2).toUpperCase() ??
+                    "PI"}
+                </span>
+                <span {...stylex.props(inlineStyles.projectIdentity)}>
+                  <strong>{(selectedProject ?? selectedCwd).split("/").filter(Boolean).at(-1)}</strong>
+                  <PathLabel text={displayCwd(selectedProject ?? selectedCwd, homeDir)} />
+                </span>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="m9 6 6 6-6 6" />
+                </svg>
+              </>
             ) : (
               <span {...stylex.props(inlineStyles.inline11)}>
                 {initialSessionId && !restoredRef.current ? "" : t("Select project…")}
@@ -1389,6 +1398,9 @@ export function SessionSidebar({
       </div>
 
       {/* Session list */}
+      <div {...stylex.props(inlineStyles.sessionLabel)}>
+        <span>{locale === "zh-CN" ? "会话" : "Sessions"}</span>
+      </div>
       <div {...stylex.props(inlineStyles.inline59)}>
         {loading && <div {...stylex.props(inlineStyles.inline60)}>{t("Loading...")}</div>}
         {error && <div {...stylex.props(inlineStyles.inline61)}>{error}</div>}
@@ -1420,6 +1432,7 @@ export function SessionSidebar({
             <path d="M3 5.5A1.5 1.5 0 0 1 4.5 4H9l2 2h8.5A1.5 1.5 0 0 1 21 7.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-13Z" />
           </svg>
           <span>{t("Resource manager")}</span>
+          <kbd {...stylex.props(inlineStyles.shortcutHint)}>⌘⇧E</kbd>
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6">
             <path d="m3 2 3 3-3 3" />
           </svg>
@@ -1668,11 +1681,7 @@ function SessionItem({
             : hovered
               ? "var(--bg-hover)"
               : "transparent",
-        borderLeft: confirmDelete
-          ? "2px solid #ef4444"
-          : isSelected
-            ? "2px solid var(--accent)"
-            : "2px solid transparent",
+        borderLeft: "2px solid transparent",
         opacity: deleting ? 0.5 : 1,
       }}
     >
@@ -1894,25 +1903,42 @@ const inlineStyles = stylex.create({
     fontWeight: 700,
     fontSize: 15,
     letterSpacing: "-0.01em",
-    fontFamily: "var(--font-mono)",
+    fontFamily: "inherit",
     minWidth: "6ch",
   },
   inline3: {
+    background: "var(--bg-panel)",
     display: "flex",
     flexDirection: "column",
     height: "100%",
     overflow: "hidden",
   },
   inline4: {
-    padding: "12px 10px 10px",
-    borderBottom: "1px solid var(--border)",
+    padding: "0 10px 10px",
     flexShrink: 0,
   },
   inline5: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 10,
+    height: 58,
+  },
+  brand: {
+    alignItems: "center",
+    display: "flex",
+    gap: 10,
+  },
+  brandMark: {
+    alignItems: "center",
+    background: "var(--text)",
+    borderRadius: 9,
+    color: "var(--bg-panel)",
+    display: "flex",
+    fontFamily: "Georgia, serif",
+    fontSize: 20,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
   },
   inline6: {
     display: "flex",
@@ -1951,16 +1977,39 @@ const inlineStyles = stylex.create({
     position: "relative",
   },
   inline10: {
+    background: "var(--bg-raised)",
+    border: "1px solid var(--border)",
+    gap: 9,
+    height: 48,
     width: "100%",
     display: "flex",
     alignItems: "center",
-    padding: "6px 10px",
-    borderRadius: 7,
+    padding: "0 10px",
+    borderRadius: 10,
     cursor: "pointer",
     fontSize: 12,
     color: "var(--text)",
     textAlign: "left",
     transition: "border-color 0.15s, background 0.15s",
+  },
+  projectMark: {
+    alignItems: "center",
+    background: "var(--success)",
+    borderRadius: 7,
+    color: "white",
+    display: "flex",
+    flexShrink: 0,
+    fontSize: 9,
+    fontWeight: 800,
+    height: 28,
+    justifyContent: "center",
+    width: 28,
+  },
+  projectIdentity: {
+    display: "flex",
+    flex: 1,
+    flexDirection: "column",
+    minWidth: 0,
   },
   inline11: {
     flex: 1,
@@ -2332,55 +2381,63 @@ const inlineStyles = stylex.create({
   inline59: {
     flex: 1,
     overflowY: "auto",
-    padding: "0",
+    padding: "0 7px",
     minHeight: 80,
+  },
+  sessionLabel: {
+    color: "var(--text-dim)",
+    fontSize: 11,
+    fontWeight: 750,
+    letterSpacing: ".06em",
+    padding: "18px 16px 6px",
+    textTransform: "uppercase",
   },
   sessionActions: {
     display: "flex",
     alignItems: "center",
     gap: 6,
-    padding: "9px 10px",
-    borderBottom: "1px solid var(--border)",
+    padding: "0 10px",
     flexShrink: 0,
   },
   sessionAction: {
     flex: 1,
-    height: 30,
+    height: 35,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
     border: "1px solid var(--border)",
     borderRadius: 7,
-    background: "var(--bg-hover)",
-    color: "var(--text-muted)",
-    fontSize: 11,
+    background: "var(--text)",
+    color: "var(--bg-panel)",
+    fontSize: 12,
+    fontWeight: 650,
     cursor: "pointer",
   },
   sessionActionIcon: {
     width: 30,
-    height: 30,
+    height: 35,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     border: "1px solid var(--border)",
     borderRadius: 7,
-    background: "var(--bg)",
+    background: "var(--bg-raised)",
     color: "var(--text-muted)",
     cursor: "pointer",
   },
   explorerButton: {
     width: "100%",
-    height: 38,
-    padding: "0 12px",
+    height: 44,
+    padding: "0 14px",
     display: "flex",
     alignItems: "center",
     gap: 8,
     border: "none",
     borderTop: "1px solid var(--border)",
-    background: "var(--bg)",
+    background: "var(--bg-panel)",
     color: "var(--text-muted)",
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 600,
     cursor: "pointer",
     flexShrink: 0,
@@ -2493,6 +2550,8 @@ const inlineStyles = stylex.create({
     transition: "background 0.1s",
     gap: 6,
     overflow: "hidden",
+    borderRadius: 8,
+    marginBottom: 2,
   },
   inline76: {
     flex: 1,
@@ -2565,7 +2624,7 @@ const inlineStyles = stylex.create({
     alignItems: "center",
     gap: 5,
     minWidth: 0,
-    fontSize: 12,
+    fontSize: 13,
     lineHeight: 1.4,
     color: "var(--text)",
   },
@@ -2580,7 +2639,7 @@ const inlineStyles = stylex.create({
     display: "flex",
     gap: 8,
     color: "var(--text-dim)",
-    fontSize: 11,
+    fontSize: 10,
     minWidth: 0,
   },
   inline87: {
@@ -2647,5 +2706,11 @@ const inlineStyles = stylex.create({
     cursor: "pointer",
     flexShrink: 0,
     transition: "background 0.12s, color 0.12s, border-color 0.12s",
+  },
+  shortcutHint: {
+    color: "var(--text-dim)",
+    fontFamily: "inherit",
+    fontSize: 10,
+    marginLeft: "auto",
   },
 })

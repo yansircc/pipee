@@ -44,6 +44,12 @@ const clonePlugins = (value: PluginsResponse): PluginsResponse => {
 function shortenPath(path: string): string {
   return path.replace(/^\/(?:Users|home)\/[^/]+/, "~")
 }
+function packageDisplayName(pkg: Pick<PluginPackageInfo, "packageName" | "source">): string {
+  const value = pkg.packageName ?? pkg.source
+  if (!value.startsWith(".") && !value.startsWith("/") && !/^[a-zA-Z]:[\\/]/.test(value)) return value
+  const normalized = value.replace(/[\\/]+$/, "").replace(/\\/g, "/")
+  return normalized.split("/").pop() ?? value
+}
 function packageKey(pkg: Pick<PluginPackageInfo, "source" | "scope" | "ownerCwd">): string {
   return `${pkg.ownerCwd ?? ""}\0${pkg.scope}\0${pkg.source}`
 }
@@ -781,7 +787,7 @@ export function PluginsConfig({
       <div {...stylex.props(inlineStyles.page)}>
         <header {...stylex.props(inlineStyles.pageHeader)}>
           <div>
-            <h2 {...stylex.props(inlineStyles.pageTitle)}>插件管理</h2>
+            <h2 {...stylex.props(inlineStyles.pageTitle)}>拓展</h2>
             <p {...stylex.props(inlineStyles.pageSubtitle)}>
               已激活 {activeCount} / {packages.length} · 当前设备
             </p>
@@ -822,6 +828,7 @@ export function PluginsConfig({
               <div {...stylex.props(inlineStyles.pageEmpty)}>没有符合条件的拓展</div>
             ) : (
               visiblePackages.map((pkg) => {
+                const displayName = packageDisplayName(pkg)
                 const actionable =
                   pkg.packageName !== undefined &&
                   onOpenPackage !== undefined &&
@@ -845,12 +852,10 @@ export function PluginsConfig({
                       }
                     }}
                   >
-                    <span {...stylex.props(inlineStyles.pageLogo)}>
-                      {(pkg.packageName ?? pkg.source).slice(0, 1).toUpperCase()}
-                    </span>
+                    <span {...stylex.props(inlineStyles.pageLogo)}>{displayName.slice(0, 1).toUpperCase()}</span>
                     <div {...stylex.props(inlineStyles.pageMain)}>
                       <div {...stylex.props(inlineStyles.pageName)}>
-                        <h3 {...stylex.props(inlineStyles.pagePackageTitle)}>{pkg.packageName ?? pkg.source}</h3>
+                        <h3 {...stylex.props(inlineStyles.pagePackageTitle)}>{displayName}</h3>
                         <span {...stylex.props(inlineStyles.pageState, !pkg.disabled && inlineStyles.pageStateActive)}>
                           {pkg.disabled ? "已禁用" : "已激活"}
                         </span>
@@ -879,7 +884,7 @@ export function PluginsConfig({
                       {hasUpdate(pkg) && (
                         <button
                           title="立即更新"
-                          aria-label={`更新 ${pkg.packageName ?? pkg.source}`}
+                          aria-label={`更新 ${displayName}`}
                           {...stylex.props(inlineStyles.pageIconButton, inlineStyles.pageUpdateButton)}
                           disabled={busy}
                           onClick={() => runAction("update", pkg)}
@@ -890,7 +895,7 @@ export function PluginsConfig({
                       {pkg.disabled && (
                         <button
                           title="删除插件"
-                          aria-label={`删除 ${pkg.packageName ?? pkg.source}`}
+                          aria-label={`删除 ${displayName}`}
                           {...stylex.props(inlineStyles.pageIconButton, inlineStyles.pageDeleteButton)}
                           disabled={busy}
                           onClick={() => runAction("remove", pkg)}
@@ -901,7 +906,7 @@ export function PluginsConfig({
                       <Toggle
                         enabled={!pkg.disabled}
                         loading={busy}
-                        label={`${pkg.disabled ? "激活" : "禁用"} ${pkg.packageName ?? pkg.source}`}
+                        label={`${pkg.disabled ? "激活" : "禁用"} ${displayName}`}
                         onToggle={() => runAction(pkg.disabled ? "enable" : "disable", pkg)}
                       />
                     </div>
@@ -1604,7 +1609,7 @@ const inlineStyles = stylex.create({
     overflow: "hidden",
   },
   page: {
-    backgroundColor: "var(--bg-secondary)",
+    backgroundColor: "var(--bg-panel)",
     display: "flex",
     flexDirection: "column",
     height: "100%",
@@ -1617,28 +1622,31 @@ const inlineStyles = stylex.create({
     display: "flex",
     flexShrink: 0,
     justifyContent: "space-between",
-    minHeight: 64,
-    paddingLeft: 24,
+    minHeight: 58,
+    paddingLeft: 16,
     paddingRight: 62,
   },
-  pageTitle: { fontSize: 18, margin: 0 },
+  pageTitle: { fontSize: 14, margin: 0 },
   pageSubtitle: { color: "var(--text-muted)", fontSize: 11, marginBlock: 4 },
   pagePrimary: {
-    backgroundColor: "var(--accent)",
-    border: "1px solid var(--accent)",
+    backgroundColor: "var(--text)",
+    border: "1px solid var(--text)",
     borderRadius: 8,
     color: "white",
     cursor: "pointer",
     paddingBlock: 8,
     paddingInline: 12,
   },
-  pageBody: { flex: 1, minHeight: 0, overflowY: "auto", padding: 20 },
+  pageBody: { display: "flex", flex: 1, flexDirection: "column", minHeight: 0, overflow: "hidden", padding: 10 },
   pageToolbar: {
     alignItems: "center",
     display: "flex",
     gap: 14,
     justifyContent: "space-between",
-    marginBottom: 12,
+    borderBottom: "1px solid var(--border-soft)",
+    flexWrap: "wrap",
+    margin: "-10px -10px 8px",
+    padding: "8px 10px",
   },
   pageFilters: { alignItems: "center", display: "flex", gap: 4 },
   pageFilter: {
@@ -1668,7 +1676,8 @@ const inlineStyles = stylex.create({
     gap: 7,
     height: 34,
     paddingInline: 10,
-    width: 230,
+    flex: 1,
+    minWidth: 180,
   },
   pageSearchInput: {
     backgroundColor: "transparent",
@@ -1690,37 +1699,45 @@ const inlineStyles = stylex.create({
     maxWidth: 240,
     paddingInline: 8,
   },
-  pageList: { display: "grid", gap: 8, gridTemplateColumns: "minmax(0, 1fr)" },
+  pageList: {
+    alignContent: "start",
+    display: "grid",
+    flex: 1,
+    gap: 2,
+    gridTemplateColumns: "minmax(0, 1fr)",
+    gridAutoRows: "max-content",
+    overflowY: "auto",
+  },
   pageRow: {
     alignItems: "center",
-    backgroundColor: "var(--bg-panel)",
-    border: "1px solid var(--border)",
-    borderRadius: 12,
+    backgroundColor: "transparent",
+    border: "1px solid transparent",
+    borderRadius: 9,
     cursor: "pointer",
     display: "grid",
-    gap: 15,
-    gridTemplateColumns: "42px minmax(0, 1fr) auto",
-    minHeight: 76,
+    gap: 10,
+    gridTemplateColumns: "32px minmax(0, 1fr) auto",
+    minHeight: 60,
     overflow: "hidden",
-    paddingBlock: 11,
-    paddingInline: 14,
+    paddingBlock: 8,
+    paddingInline: 9,
     position: "relative",
+    ":hover": { backgroundColor: "var(--bg-hover)" },
   },
   pageRowActive: {
-    backgroundColor: "color-mix(in srgb, var(--accent) 3%, var(--bg-panel))",
-    borderLeft: "3px solid var(--accent)",
+    backgroundColor: "transparent",
   },
   pageLogo: {
     alignItems: "center",
-    backgroundColor: "var(--accent)",
-    borderRadius: 10,
-    color: "white",
+    backgroundColor: "var(--success-soft)",
+    borderRadius: 9,
+    color: "var(--success)",
     display: "flex",
-    fontSize: 15,
+    fontSize: 10,
     fontWeight: 800,
-    height: 42,
+    height: 32,
     justifyContent: "center",
-    width: 42,
+    width: 32,
   },
   pageMain: {
     display: "grid",
@@ -1730,7 +1747,7 @@ const inlineStyles = stylex.create({
     rowGap: 6,
   },
   pageName: { alignItems: "center", display: "flex", gap: 7, gridArea: "name", whiteSpace: "nowrap" },
-  pagePackageTitle: { fontSize: 14, margin: 0 },
+  pagePackageTitle: { fontSize: 13, margin: 0 },
   pageState: {
     backgroundColor: "var(--bg-hover)",
     borderRadius: 999,
@@ -1740,7 +1757,7 @@ const inlineStyles = stylex.create({
     paddingBlock: 3,
     paddingInline: 6,
   },
-  pageStateActive: { backgroundColor: "rgba(34,197,94,.1)", color: "#16a34a" },
+  pageStateActive: { backgroundColor: "var(--success-soft)", color: "var(--success)" },
   pageUpdate: {
     backgroundColor: "rgba(245,158,11,.12)",
     borderRadius: 999,
@@ -1752,10 +1769,10 @@ const inlineStyles = stylex.create({
   },
   pageDescription: {
     color: "var(--text-muted)",
-    fontSize: 12,
+    fontSize: 10,
     flexShrink: 1,
     margin: 0,
-    maxWidth: "45%",
+    maxWidth: "60%",
     minWidth: 0,
     overflow: "hidden",
     textOverflow: "ellipsis",
@@ -1800,7 +1817,7 @@ const inlineStyles = stylex.create({
     borderRadius: 9,
     color: "var(--text-muted)",
     fontSize: 11,
-    marginBlock: 12,
+    margin: "8px 0 0",
     padding: 11,
   },
   pageOverlay: {

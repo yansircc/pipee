@@ -32,42 +32,16 @@ function sourceLabel(skill: Skill): string {
   if (scope === "project" || src === "project") return "project"
   return "path"
 }
-function SkillDetail({
-  skill,
-  cwd,
-  onToggle,
-  toggling,
-  saveError,
-  onDelete,
-  deleting,
-}: {
-  skill: Skill
-  cwd: string
-  onToggle: (skill: Skill) => void
-  toggling: boolean
-  saveError: string | null
-  onDelete: (skill: Skill) => void
-  deleting: boolean
-}) {
+function SkillDetail({ skill, cwd }: { skill: Skill; cwd: string }) {
   const { t } = useI18n()
   const { isDark } = useTheme()
   const isMobile = useIsMobile()
-  const label = sourceLabel(skill)
-  const enabled = !skill.disableModelInvocation
   const [files, setFiles] = useState<Array<{ path: string; name: string; kind: "file" | "directory"; size: number }>>(
     [],
   )
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [content, setContent] = useState<string | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  function displayPath(p: string): string {
-    if (label === "project" && p.startsWith(cwd)) {
-      const rel = p.slice(cwd.length).replace(/^[/\\]/, "")
-      return `./${rel}`
-    }
-    return shortenPath(p)
-  }
   useEffect(() => {
     setFiles([])
     setSelectedFile(null)
@@ -117,7 +91,7 @@ function SkillDetail({
   return (
     <div
       {...stylex.props(inlineStyles.skillFinder)}
-      style={{ gridTemplateColumns: isMobile ? "1fr" : "180px minmax(0, 1fr) 220px" }}
+      style={{ gridTemplateColumns: isMobile ? "135px minmax(0, 1fr)" : "210px minmax(0, 1fr)" }}
     >
       <aside {...stylex.props(inlineStyles.skillFileTree)}>
         <div {...stylex.props(inlineStyles.skillPaneTitle)}>
@@ -167,41 +141,6 @@ function SkillDetail({
           )}
         </div>
       </section>
-      <aside {...stylex.props(inlineStyles.skillInspector)}>
-        <div {...stylex.props(inlineStyles.skillPaneTitle)}>INSPECTOR</div>
-        <strong>{skill.name}</strong>
-        <p {...stylex.props(inlineStyles.skillDescription)}>{skill.description}</p>
-        <span {...stylex.props(inlineStyles.inline5)}>{label}</span>
-        <code {...stylex.props(inlineStyles.skillPath)}>{displayPath(skill.filePath)}</code>
-        <div {...stylex.props(inlineStyles.skillToggleRow)}>
-          <span>{t("Model invocation")}</span>
-          <Toggle
-            enabled={enabled}
-            label={t(
-              enabled ? "Visible in model prompt — click to disable" : "Hidden from model prompt — click to enable",
-            )}
-            loading={toggling}
-            onToggle={() => onToggle(skill)}
-          />
-        </div>
-        {saveError && <span {...stylex.props(inlineStyles.inline7)}>{saveError}</span>}
-        {label !== "path" &&
-          (confirmDelete ? (
-            <div {...stylex.props(inlineStyles.deleteConfirm)}>
-              <span>{t("Delete skill")}? </span>
-              <button type="button" onClick={() => onDelete(skill)} disabled={deleting}>
-                {t("Delete")}
-              </button>
-              <button type="button" onClick={() => setConfirmDelete(false)}>
-                {t("Cancel")}
-              </button>
-            </div>
-          ) : (
-            <button type="button" onClick={() => setConfirmDelete(true)} {...stylex.props(inlineStyles.deleteSkill)}>
-              {t("Delete skill")}
-            </button>
-          ))}
-      </aside>
     </div>
   )
 }
@@ -415,6 +354,7 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
   const [saveError, setSaveError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [addMode, setAddMode] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [skillQuery, setSkillQuery] = useState("")
   const [scopeFilter, setScopeFilter] = useState<"all" | "project" | "global" | "path">("all")
   const loadSkills = useCallback(() => {
@@ -437,7 +377,6 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
             },
           }))
           setSkills(list)
-          if (list.length > 0 && !selected) setSelected(list[0].filePath)
           setLoading(false)
         },
         onFailure: (failure) => {
@@ -446,7 +385,7 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
         },
       },
     )
-  }, [cwd, selected])
+  }, [cwd])
   useEffect(() => {
     loadSkills()
   }, [cwd]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -528,14 +467,78 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
     },
     [cwd, deleting, loadSkills],
   )
+  const enabledCount = skills.filter((skill) => !skill.disableModelInvocation).length
+  const libraryMode = !addMode && selectedSkill === null
   return (
     <SettingsWorkspace
+      actions={
+        selectedSkill ? (
+          <>
+            <span {...stylex.props(inlineStyles.skillSourcePill)}>{t(sourceLabel(selectedSkill))}</span>
+            <span {...stylex.props(inlineStyles.modelInvocationAction)}>
+              <span>{t("Model invocation")}</span>
+              <Toggle
+                enabled={!selectedSkill.disableModelInvocation}
+                label={t(
+                  selectedSkill.disableModelInvocation
+                    ? "Hidden from model prompt — click to enable"
+                    : "Visible in model prompt — click to disable",
+                )}
+                loading={toggling.has(selectedSkill.filePath)}
+                onToggle={() => toggle(selectedSkill)}
+              />
+            </span>
+            {sourceLabel(selectedSkill) !== "path" && (
+              <button
+                type="button"
+                disabled={deleting === selectedSkill.filePath}
+                onClick={() => {
+                  if (confirmDelete) deleteSkill(selectedSkill)
+                  else setConfirmDelete(true)
+                }}
+                {...stylex.props(inlineStyles.deleteSkill)}
+              >
+                {confirmDelete ? `${t("Delete")}?` : t("Delete skill")}
+              </button>
+            )}
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAddMode(!addMode)}
+            {...stylex.props(addMode ? inlineStyles.libraryAction : inlineStyles.primaryAction)}
+          >
+            {addMode ? `← ${t("Skills")}` : `＋ ${t("Add skill")}`}
+          </button>
+        )
+      }
       closeLabel={t("Close")}
-      context={<code {...stylex.props(inlineStyles.inline42)}>{shortenPath(cwd)}</code>}
-      height={isMobile ? "calc(100dvh - 16px)" : "82vh"}
+      leading={
+        selectedSkill ? (
+          <button
+            type="button"
+            onClick={() => {
+              setSelected(null)
+              setConfirmDelete(false)
+            }}
+            {...stylex.props(inlineStyles.libraryBack)}
+          >
+            ← Skill Library
+          </button>
+        ) : undefined
+      }
+      context={
+        selectedSkill ? undefined : (
+          <code {...stylex.props(inlineStyles.inline42)}>
+            {skills.length} {t("Skills")} · {enabledCount} {t("Enabled")} · {skills.length - enabledCount}{" "}
+            {t("Disabled")}
+          </code>
+        )
+      }
+      height={isMobile ? "100dvh" : libraryMode ? "min(820px, 92vh)" : "min(720px, 82vh)"}
       onClose={onClose}
-      title={t("Skills")}
-      width={isMobile ? "calc(100vw - 16px)" : 1180}
+      title={selectedSkill?.name ?? (addMode ? t("Add skill") : "Skill Library")}
+      width={isMobile ? "100vw" : libraryMode ? "min(1280px, 96vw)" : "min(960px, 92vw)"}
     >
       <div
         {...stylex.props(inlineStyles.inline44)}
@@ -547,10 +550,11 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
         <div
           {...stylex.props(inlineStyles.inline45)}
           style={{
-            width: isMobile ? "100%" : 250,
-            maxHeight: isMobile ? "40vh" : undefined,
-            borderRight: isMobile ? "none" : "1px solid var(--border)",
-            borderBottom: isMobile ? "1px solid var(--border)" : "none",
+            display: libraryMode ? "flex" : "none",
+            width: "100%",
+            maxHeight: undefined,
+            borderRight: "none",
+            borderBottom: "none",
           }}
         >
           <div {...stylex.props(inlineStyles.skillSummary)}>
@@ -563,35 +567,29 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
               {skills.filter((skill) => skill.disableModelInvocation).length} {t("Disabled")}
             </span>
           </div>
-          <div {...stylex.props(inlineStyles.skillFilters)}>
-            {(["all", "project", "global", "path"] as const).map((scope) => (
-              <button
-                key={scope}
-                type="button"
-                aria-pressed={scopeFilter === scope}
-                onClick={() => setScopeFilter(scope)}
-                style={{ background: scopeFilter === scope ? "var(--bg-selected)" : "transparent" }}
-              >
-                {t(scope)}
-              </button>
-            ))}
-          </div>
-          <div {...stylex.props(inlineStyles.skillSearch)}>
-            <input
-              value={skillQuery}
-              onChange={(event) => setSkillQuery(event.target.value)}
-              placeholder={t("Search skills")}
-              style={{
-                background: "var(--bg)",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                color: "var(--text)",
-                fontSize: 11,
-                outline: "none",
-                padding: "6px 8px",
-                width: "100%",
-              }}
-            />
+          <div {...stylex.props(inlineStyles.skillToolbar)}>
+            <div {...stylex.props(inlineStyles.skillSearch)}>
+              <input
+                value={skillQuery}
+                onChange={(event) => setSkillQuery(event.target.value)}
+                placeholder={t("Search skills")}
+                {...stylex.props(inlineStyles.skillSearchInput)}
+              />
+            </div>
+            <div {...stylex.props(inlineStyles.skillFilters)}>
+              {(["all", "project", "global", "path"] as const).map((scope) => (
+                <button
+                  key={scope}
+                  type="button"
+                  aria-pressed={scopeFilter === scope}
+                  onClick={() => setScopeFilter(scope)}
+                  {...stylex.props(inlineStyles.filterButton)}
+                  style={{ background: scopeFilter === scope ? "var(--bg-selected)" : "transparent" }}
+                >
+                  {t(scope)}
+                </button>
+              ))}
+            </div>
           </div>
           <div {...stylex.props(inlineStyles.inline46)}>
             {loading ? (
@@ -618,43 +616,30 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
                   <div key={grpLabel} {...stylex.props(inlineStyles.inline50)}>
                     <div {...stylex.props(inlineStyles.inline51)}>{t(grpLabel)}</div>
                     {grpSkills.map((skill) => {
-                      const isSelected = !addMode && selected === skill.filePath
                       const disabled = skill.disableModelInvocation
                       return (
-                        <div
+                        <button
                           key={skill.filePath}
+                          type="button"
                           onClick={() => {
                             setSelected(skill.filePath)
                             setAddMode(false)
+                            setConfirmDelete(false)
                           }}
-                          {...stylex.props(inlineStyles.inline52)}
-                          style={{
-                            background: isSelected ? "var(--bg-selected)" : "none",
-                          }}
-                          onMouseEnter={(e) => {
-                            if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!isSelected) e.currentTarget.style.background = "none"
-                          }}
+                          {...stylex.props(inlineStyles.skillCard)}
                         >
-                          <span
-                            {...stylex.props(inlineStyles.inline53)}
-                            style={{
-                              background: disabled ? "var(--border)" : "var(--accent)",
-                              boxShadow: disabled ? "none" : "0 0 4px var(--accent)",
-                            }}
-                          />
-                          <span
-                            {...stylex.props(inlineStyles.inline54)}
-                            style={{
-                              fontWeight: isSelected ? 600 : 400,
-                              color: disabled ? "var(--text-dim)" : "var(--text)",
-                            }}
-                          >
-                            {skill.name}
+                          <span {...stylex.props(inlineStyles.skillMonogram)}>
+                            {skill.name.slice(0, 2).toUpperCase()}
                           </span>
-                        </div>
+                          <span {...stylex.props(inlineStyles.skillCardIdentity)}>
+                            <strong {...stylex.props(inlineStyles.skillCardTitle)}>{skill.name}</strong>
+                            <small {...stylex.props(inlineStyles.skillCardDescription)}>{skill.description}</small>
+                          </span>
+                          <em {...stylex.props(inlineStyles.skillStatus, disabled && inlineStyles.skillStatusDisabled)}>
+                            {t(disabled ? "Disabled" : "Enabled")}
+                          </em>
+                          <span {...stylex.props(inlineStyles.skillChevron)}>›</span>
+                        </button>
                       )
                     })}
                   </div>
@@ -697,7 +682,7 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
         </div>
 
         {/* Right: detail or add panel */}
-        <div {...stylex.props(inlineStyles.inline57)}>
+        <div {...stylex.props(inlineStyles.inline57)} style={{ display: libraryMode ? "none" : "flex" }}>
           {addMode ? (
             <AddSkillPanel
               cwd={cwd}
@@ -706,27 +691,14 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
               }}
             />
           ) : loading ? null : selectedSkill ? (
-            <SkillDetail
-              key={selectedSkill.filePath}
-              skill={selectedSkill}
-              cwd={cwd}
-              onToggle={toggle}
-              toggling={toggling.has(selectedSkill.filePath)}
-              saveError={saveError}
-              onDelete={deleteSkill}
-              deleting={deleting === selectedSkill.filePath}
-            />
+            <SkillDetail key={selectedSkill.filePath} skill={selectedSkill} cwd={cwd} />
           ) : (
             <div {...stylex.props(inlineStyles.inline58)}>{t("Select a skill")}</div>
           )}
         </div>
       </div>
 
-      <div {...stylex.props(inlineStyles.inline59)}>
-        <button onClick={onClose} {...stylex.props(inlineStyles.inline60)}>
-          {t("Close")}
-        </button>
-      </div>
+      {saveError && <div {...stylex.props(inlineStyles.skillError)}>{saveError}</div>}
     </SettingsWorkspace>
   )
 }
@@ -742,23 +714,54 @@ const inlineStyles = stylex.create({
     paddingBlock: 6,
     paddingInline: 10,
   },
-  skillSearch: { borderBottom: "1px solid var(--border)", padding: 8 },
+  skillToolbar: {
+    alignItems: "center",
+    borderBottom: "1px solid var(--border-soft)",
+    display: "flex",
+    gap: 7,
+    padding: "9px 14px",
+  },
+  skillSearch: { flex: "1 1 260px", minWidth: 160 },
+  skillSearchInput: {
+    backgroundColor: "var(--bg)",
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    color: "var(--text)",
+    fontSize: 11,
+    height: 32,
+    outline: "none",
+    paddingInline: 9,
+    width: "100%",
+  },
   skillSummary: {
     alignItems: "baseline",
     borderBottom: "1px solid var(--border)",
-    display: "flex",
+    display: "none",
     flexWrap: "wrap",
     gap: 7,
     padding: 10,
   },
-  skillFilters: { display: "flex", flexWrap: "wrap", gap: 4, padding: "8px 8px 0" },
+  skillFilters: {
+    display: "flex",
+    gap: 4,
+    overflowX: "auto",
+  },
+  filterButton: {
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    fontSize: 11,
+    height: 30,
+    padding: "0 9px",
+  },
   skillFinder: { display: "grid", height: "100%", minHeight: 0, overflow: "hidden" },
   skillFileTree: {
     backgroundColor: "var(--bg-panel)",
     borderRight: "1px solid var(--border)",
     minHeight: 0,
     overflow: "auto",
-    paddingBlock: 8,
+    paddingBlock: 10,
   },
   skillPaneTitle: { color: "var(--text-dim)", fontSize: 10, fontWeight: 700, padding: "6px 9px" },
   skillFileRow: {
@@ -767,9 +770,9 @@ const inlineStyles = stylex.create({
     color: "var(--text-muted)",
     display: "flex",
     fontFamily: "var(--font-mono)",
-    fontSize: 10,
+    fontSize: 12,
     gap: 5,
-    minHeight: 25,
+    minHeight: 32,
     overflow: "hidden",
     paddingRight: 7,
     textAlign: "left",
@@ -1001,6 +1004,56 @@ const inlineStyles = stylex.create({
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
+  libraryBack: {
+    background: "var(--bg-hover)",
+    border: "none",
+    borderRadius: 7,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    fontSize: 12,
+    padding: "6px 8px",
+  },
+  libraryAction: {
+    background: "var(--bg-hover)",
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    fontSize: 12,
+    padding: "7px 10px",
+  },
+  primaryAction: {
+    background: "var(--text)",
+    border: "none",
+    borderRadius: 7,
+    color: "var(--bg-panel)",
+    cursor: "pointer",
+    fontSize: 12,
+    padding: "8px 11px",
+  },
+  skillSourcePill: {
+    background: "var(--success-soft)",
+    borderRadius: 7,
+    color: "var(--success)",
+    fontSize: 11,
+    padding: "4px 7px",
+  },
+  modelInvocationAction: {
+    alignItems: "center",
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    color: "var(--text-muted)",
+    display: "flex",
+    fontSize: 11,
+    gap: 7,
+    padding: "3px 7px 3px 9px",
+  },
+  skillError: {
+    background: "rgba(239,68,68,.08)",
+    color: "#ef4444",
+    fontSize: 11,
+    padding: "6px 10px",
+  },
   inline44: {
     flex: 1,
     display: "flex",
@@ -1015,7 +1068,7 @@ const inlineStyles = stylex.create({
   inline46: {
     flex: 1,
     overflowY: "auto",
-    padding: "8px 6px",
+    padding: "14px 18px 24px",
   },
   inline47: {
     padding: "10px 8px",
@@ -1033,11 +1086,19 @@ const inlineStyles = stylex.create({
     color: "var(--text-dim)",
   },
   inline50: {
-    marginBottom: 6,
+    display: "grid",
+    gap: 9,
+    gridTemplateColumns: {
+      default: "repeat(3, minmax(0, 1fr))",
+      "@media (max-width: 1200px) and (min-width: 761px)": "repeat(2, minmax(0, 1fr))",
+      "@media (max-width: 760px)": "1fr",
+    },
+    marginBottom: 18,
   },
   inline51: {
-    padding: "4px 8px 3px",
-    fontSize: 10,
+    gridColumn: "1 / -1",
+    padding: "4px",
+    fontSize: 11,
     fontWeight: 600,
     color: "var(--text-dim)",
     textTransform: "uppercase",
@@ -1067,9 +1128,7 @@ const inlineStyles = stylex.create({
     whiteSpace: "nowrap",
   },
   inline55: {
-    padding: "8px 6px",
-    borderTop: "1px solid var(--border)",
-    flexShrink: 0,
+    display: "none",
   },
   inline56: {
     display: "flex",
@@ -1082,9 +1141,67 @@ const inlineStyles = stylex.create({
   },
   inline57: {
     flex: 1,
+    flexDirection: "column",
     minHeight: 0,
     overflow: "hidden",
   },
+  skillCard: {
+    alignItems: "center",
+    background: "var(--bg-raised)",
+    border: "1px solid var(--border-soft)",
+    borderRadius: 10,
+    color: "var(--text)",
+    cursor: "pointer",
+    display: "flex",
+    gap: 10,
+    minHeight: 78,
+    padding: 11,
+    textAlign: "left",
+    ":hover": { background: "var(--bg-hover)", borderColor: "var(--border)" },
+  },
+  skillMonogram: {
+    alignItems: "center",
+    background: "var(--success-soft)",
+    borderRadius: 10,
+    color: "var(--success)",
+    display: "flex",
+    flexShrink: 0,
+    fontSize: 10,
+    fontWeight: 800,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  skillCardIdentity: {
+    display: "flex",
+    flex: 1,
+    flexDirection: "column",
+    gap: 3,
+    minWidth: 0,
+  },
+  skillCardTitle: { color: "var(--text)", fontSize: 13, fontWeight: 650 },
+  skillCardDescription: {
+    color: "var(--text-dim)",
+    display: "-webkit-box",
+    fontSize: 11,
+    lineHeight: 1.45,
+    overflow: "hidden",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 2,
+  },
+  skillStatus: {
+    background: "var(--success-soft)",
+    borderRadius: 8,
+    color: "var(--success)",
+    fontSize: 11,
+    fontStyle: "normal",
+    padding: "2px 6px",
+  },
+  skillStatusDisabled: {
+    background: "var(--bg-hover)",
+    color: "var(--text-dim)",
+  },
+  skillChevron: { color: "var(--text-dim)" },
   inline58: {
     height: "100%",
     display: "flex",

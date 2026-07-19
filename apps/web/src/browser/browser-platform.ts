@@ -47,7 +47,6 @@ export class BrowserPlatform extends Context.Service<
     readonly viewportHeight: Effect.Effect<number>
     readonly measure: (element: Element) => Effect.Effect<BrowserRect>
     readonly onDocumentMouseDown: (listener: (event: MouseEvent) => void) => Effect.Effect<never>
-    readonly onDocumentKeyDown: (listener: (event: KeyboardEvent) => void) => Effect.Effect<never>
     readonly observeResize: (elements: ReadonlyArray<Element>, listener: () => void) => Effect.Effect<never>
     readonly onElementScroll: (element: Element, listener: () => void) => Effect.Effect<never>
     readonly watchElementNearViewportEnd: (
@@ -175,13 +174,6 @@ export const BrowserPlatformLive = Layer.succeed(BrowserPlatform, {
       Effect.acquireRelease(
         Effect.sync(() => document.addEventListener("mousedown", listener)),
         () => Effect.sync(() => document.removeEventListener("mousedown", listener)),
-      ).pipe(Effect.andThen(Effect.never)),
-    ),
-  onDocumentKeyDown: (listener) =>
-    Effect.scoped(
-      Effect.acquireRelease(
-        Effect.sync(() => document.addEventListener("keydown", listener)),
-        () => Effect.sync(() => document.removeEventListener("keydown", listener)),
       ).pipe(Effect.andThen(Effect.never)),
     ),
   observeResize: (elements, listener) =>

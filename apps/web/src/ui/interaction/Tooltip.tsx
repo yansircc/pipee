@@ -78,6 +78,6 @@ const styles = stylex.create({
     position: "fixed",
     transform: "translate(-50%, -100%)",
     whiteSpace: "nowrap",
-    zIndex: 1200,
+    zIndex: "var(--layer-tooltip)",
   },
 })
