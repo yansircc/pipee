@@ -47,7 +47,8 @@
     "release:platform-check:windows": "node scripts/test-package.mjs --consumer npm --checks install,bin,health,cleanup,port-release",
     "effect:scan": "vp run ci:effect",
     "verify": "pnpm run check",
-    "check": "vp run ci:verify"
+    "check": "vp run ci:verify",
+    "check:ui-governance": "node scripts/check-ui-governance.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "catalog:",
@@ -78,6 +79,7 @@
     "mermaid": "11.14.0",
     "nitro": "3.0.260610-beta",
     "react": "19.2.4",
+    "react-aria-components": "1.19.0",
     "react-dom": "19.2.4",
     "react-markdown": "10.1.0",
     "react-syntax-highlighter": "16.1.1",

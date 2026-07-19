@@ -18,6 +18,7 @@ import {
   OAuthProvider as OAuthProviderSchema,
   ProviderConfigEntry,
 } from "@/api/contract"
+import { SettingsWorkspace } from "@/ui/interaction/SettingsWorkspace"
 const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   anthropic: "A",
   openai: "OA",
@@ -2030,383 +2031,366 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
   })()
   return (
     <>
-      <div
-        {...stylex.props(inlineStyles.inline99)}
-        onClick={(e) => {
-          if (e.target === e.currentTarget) onClose()
-        }}
-      >
-        <div
-          {...stylex.props(inlineStyles.inline100)}
-          style={{
-            width: isMobile ? "calc(100vw - 16px)" : 860,
-            height: isMobile ? "calc(100dvh - 16px)" : "78vh",
-          }}
-        >
-          {/* Header */}
-          <div {...stylex.props(inlineStyles.inline101)}>
-            <div {...stylex.props(inlineStyles.inline102)}>
-              <span {...stylex.props(inlineStyles.inline103)}>{t("Models")}</span>
-              <code
-                {...stylex.props(inlineStyles.inline104)}
-                style={{
-                  display: isMobile ? "none" : undefined,
-                }}
-              >
-                ~/.pi/agent/models.json
-              </code>
-            </div>
-            <div {...stylex.props(inlineStyles.inline105)}>
-              <input
-                ref={importInputRef}
-                type="file"
-                accept="application/json,.json"
-                {...stylex.props(inlineStyles.inline106)}
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0]
-                  event.currentTarget.value = ""
-                  if (file !== undefined) importModelsConfig(file)
-                }}
-              />
-              <button onClick={() => importInputRef.current?.click()} style={toolbarButtonStyle}>
-                {t("Import")}
-              </button>
-              <button
-                onClick={exportModelsConfig}
-                disabled={rawDraftPending}
-                style={{
-                  ...toolbarButtonStyle,
-                  cursor: rawDraftPending ? "default" : toolbarButtonStyle.cursor,
-                  opacity: rawDraftPending ? 0.5 : 1,
-                }}
-              >
-                {t("Export")}
-              </button>
-              <button
-                onClick={() => {
-                  if (rawMode) setRawMode(false)
-                  else openRawEditor()
-                }}
-                style={{
-                  ...toolbarButtonStyle,
-                  color: rawMode ? "var(--accent)" : toolbarButtonStyle.color,
-                  borderColor: rawMode ? "var(--accent)" : "var(--border)",
-                }}
-              >
-                {t(rawMode ? "Back to form" : "Raw JSON")}
-              </button>
-            </div>
-            <button onClick={onClose} {...stylex.props(inlineStyles.inline107)}>
-              ×
-            </button>
-          </div>
-
-          {/* Body */}
-          <div
-            {...stylex.props(inlineStyles.inline108)}
-            style={{
-              flexDirection: isMobile ? "column" : "row",
-            }}
-          >
-            {/* Left: tree */}
-            <div
-              {...stylex.props(inlineStyles.inline109)}
-              style={{
-                width: isMobile ? "100%" : 210,
-                maxHeight: isMobile ? "40vh" : undefined,
-                borderRight: isMobile ? "none" : "1px solid var(--border)",
-                borderBottom: isMobile ? "1px solid var(--border)" : "none",
+      <SettingsWorkspace
+        actions={
+          <>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="application/json,.json"
+              {...stylex.props(inlineStyles.inline106)}
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0]
+                event.currentTarget.value = ""
+                if (file !== undefined) importModelsConfig(file)
               }}
-            >
-              <div {...stylex.props(inlineStyles.inline110)}>
-                {/* Active OAuth subscriptions */}
-                {activeOAuth.map((p) => {
-                  const isSelected = selection?.type === "oauth" && selection.providerId === p.id
-                  return (
-                    <div
-                      key={p.id}
-                      onClick={() =>
-                        setSelection({
-                          type: "oauth",
-                          providerId: p.id,
-                        })
-                      }
-                      {...stylex.props(inlineStyles.inline111)}
-                      style={{
-                        background: isSelected ? "var(--bg-selected)" : "none",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isSelected) e.currentTarget.style.background = "none"
-                      }}
-                    >
-                      <ProviderBadge id={p.id} size={16} />
-                      <span {...stylex.props(inlineStyles.inline112)}>{p.name}</span>
-                    </div>
-                  )
-                })}
-
-                {/* Active API key providers */}
-                {activeApiKey.map((p) => {
-                  const isSelected = selection?.type === "apikey" && selection.providerId === p.id
-                  return (
-                    <div
-                      key={p.id}
-                      onClick={() =>
-                        setSelection({
-                          type: "apikey",
-                          providerId: p.id,
-                        })
-                      }
-                      {...stylex.props(inlineStyles.inline113)}
-                      style={{
-                        background: isSelected ? "var(--bg-selected)" : "none",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isSelected) e.currentTarget.style.background = "none"
-                      }}
-                    >
-                      <ProviderBadge id={p.id} size={16} />
-                      <span {...stylex.props(inlineStyles.inline114)}>{p.displayName}</span>
-                    </div>
-                  )
-                })}
-
-                {/* Divider before custom providers, only when there are active managed providers */}
-                {(activeOAuth.length > 0 || activeApiKey.length > 0) && providers.length > 0 && (
-                  <div {...stylex.props(inlineStyles.inline115)} />
-                )}
-
-                {/* Custom providers */}
-                {loading ? (
-                  <div {...stylex.props(inlineStyles.inline116)}>{t("Loading…")}</div>
-                ) : (
-                  providers.map(([pName, pData]) => {
-                    const isProviderSelected = selection?.type === "provider" && selection.name === pName
-                    const models = pData.models ?? []
-                    return (
-                      <div key={pName} {...stylex.props(inlineStyles.inline117)}>
-                        {/* Provider row */}
-                        <div
-                          onClick={() =>
-                            setSelection({
-                              type: "provider",
-                              name: pName,
-                            })
-                          }
-                          {...stylex.props(inlineStyles.inline118)}
-                          style={{
-                            background: isProviderSelected ? "var(--bg-selected)" : "none",
-                          }}
-                          onMouseEnter={(e) => {
-                            if (!isProviderSelected) e.currentTarget.style.background = "var(--bg-hover)"
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!isProviderSelected) e.currentTarget.style.background = "none"
-                          }}
-                        >
-                          <svg
-                            width="11"
-                            height="11"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            {...stylex.props(inlineStyles.inline119)}
-                          >
-                            <rect x="4" y="4" width="16" height="16" rx="2" />
-                            <rect x="9" y="9" width="6" height="6" />
-                            <line x1="9" y1="1" x2="9" y2="4" />
-                            <line x1="15" y1="1" x2="15" y2="4" />
-                            <line x1="9" y1="20" x2="9" y2="23" />
-                            <line x1="15" y1="20" x2="15" y2="23" />
-                            <line x1="20" y1="9" x2="23" y2="9" />
-                            <line x1="20" y1="14" x2="23" y2="14" />
-                            <line x1="1" y1="9" x2="4" y2="9" />
-                            <line x1="1" y1="14" x2="4" y2="14" />
-                          </svg>
-                          <span
-                            {...stylex.props(inlineStyles.inline120)}
-                            style={{
-                              fontWeight: isProviderSelected ? 600 : 400,
-                            }}
-                          >
-                            {pName}
-                          </span>
-                        </div>
-
-                        {/* Model rows */}
-                        {models.map((m, i) => {
-                          const isModelSelected =
-                            selection?.type === "model" && selection.providerName === pName && selection.index === i
-                          return (
-                            <div
-                              key={i}
-                              onClick={() =>
-                                setSelection({
-                                  type: "model",
-                                  providerName: pName,
-                                  index: i,
-                                })
-                              }
-                              {...stylex.props(inlineStyles.inline121)}
-                              style={{
-                                background: isModelSelected ? "var(--bg-selected)" : "none",
-                              }}
-                              onMouseEnter={(e) => {
-                                if (!isModelSelected) e.currentTarget.style.background = "var(--bg-hover)"
-                              }}
-                              onMouseLeave={(e) => {
-                                if (!isModelSelected) e.currentTarget.style.background = "none"
-                              }}
-                            >
-                              <span
-                                {...stylex.props(inlineStyles.inline122)}
-                                style={{
-                                  color: m.id ? "var(--text-muted)" : "var(--text-dim)",
-                                }}
-                              >
-                                {m.id || t("new model")}
-                              </span>
-                              {m.reasoning && <span {...stylex.props(inlineStyles.inline123)}>T</span>}
-                            </div>
-                          )
-                        })}
-
-                        {/* Add model button */}
-                        <div
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            addModel(pName)
-                          }}
-                          {...stylex.props(inlineStyles.inline124)}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.color = "var(--accent)"
-                            e.currentTarget.style.background = "var(--bg-hover)"
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.color = "var(--text-dim)"
-                            e.currentTarget.style.background = "none"
-                          }}
-                        >
-                          <span {...stylex.props(inlineStyles.inline125)}>{t("+ model")}</span>
-                        </div>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-
-              {/* Add provider */}
-              <div {...stylex.props(inlineStyles.inline126)}>
-                <button
-                  onClick={() => setPickerOpen(true)}
-                  {...stylex.props(inlineStyles.inline127)}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = "var(--accent)"
-                    e.currentTarget.style.color = "var(--accent)"
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = "var(--border)"
-                    e.currentTarget.style.color = "var(--text-muted)"
-                  }}
-                >
-                  {t("+ Add provider")}
-                </button>
-              </div>
-            </div>
-
-            {/* Right: detail */}
-            <div {...stylex.props(inlineStyles.inline128)}>
-              {loading ? null : rawMode ? (
-                <div {...stylex.props(inlineStyles.inline129)}>
-                  <div {...stylex.props(inlineStyles.inline130)}>{t("Raw models JSON")}</div>
-                  <div {...stylex.props(inlineStyles.inline131)}>
-                    {t("Validate the JSON before saving. Invalid content never replaces models.json.")}
-                  </div>
-                  <textarea
-                    aria-label={t("Raw models JSON")}
-                    value={rawSource}
-                    spellCheck={false}
-                    onChange={(event) => {
-                      setRawSource(event.target.value)
-                      setRawValidation("idle")
-                      setSaveError(null)
-                      setNotice(null)
-                    }}
-                    {...stylex.props(inlineStyles.inline132)}
-                    style={{
-                      border: `1px solid ${rawValidation === "valid" ? "#16a34a" : "var(--border)"}`,
-                    }}
-                  />
-                  <div {...stylex.props(inlineStyles.inline133)}>
-                    {rawValidation === "valid" && (
-                      <span {...stylex.props(inlineStyles.inline134)}>{t("Valid configuration")}</span>
-                    )}
-                    <button
-                      onClick={validateRawEditor}
-                      disabled={rawValidation === "validating"}
-                      style={toolbarButtonStyle}
-                    >
-                      {t(rawValidation === "validating" ? "Validating…" : "Validate")}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                (detailContent ?? (
-                  <div {...stylex.props(inlineStyles.inline135)}>{t("Select a provider or model")}</div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div {...stylex.props(inlineStyles.inline136)}>
-            <div {...stylex.props(inlineStyles.inline137)}>
-              {saveError && <div {...stylex.props(inlineStyles.inline138)}>{saveError}</div>}
-              {!saveError && notice && <div {...stylex.props(inlineStyles.inline139)}>{notice}</div>}
-            </div>
-            <button onClick={onClose} {...stylex.props(inlineStyles.inline140)}>
-              {t("Cancel")}
+            />
+            <button onClick={() => importInputRef.current?.click()} style={toolbarButtonStyle}>
+              {t("Import")}
             </button>
             <button
-              onClick={handleSave}
-              disabled={saveDisabled}
-              {...stylex.props(inlineStyles.inline141)}
+              onClick={exportModelsConfig}
+              disabled={rawDraftPending}
               style={{
-                background: savedOk ? "#16a34a" : saveDisabled ? "var(--bg-panel)" : "var(--accent)",
-                color: savedOk ? "#fff" : saveDisabled ? "var(--text-muted)" : "#fff",
-                cursor: saveDisabled ? "default" : "pointer",
-                animation: savedOk ? "saved-pop 0.45s ease" : undefined,
+                ...toolbarButtonStyle,
+                cursor: rawDraftPending ? "default" : toolbarButtonStyle.cursor,
+                opacity: rawDraftPending ? 0.5 : 1,
               }}
             >
-              {savedOk && (
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  {...stylex.props(inlineStyles.inline142)}
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              )}
-              <span>{t(savedOk ? "Saved" : saving ? "Saving…" : "Save")}</span>
+              {t("Export")}
             </button>
+            <button
+              onClick={() => {
+                if (rawMode) setRawMode(false)
+                else openRawEditor()
+              }}
+              style={{
+                ...toolbarButtonStyle,
+                color: rawMode ? "var(--accent)" : toolbarButtonStyle.color,
+                borderColor: rawMode ? "var(--accent)" : "var(--border)",
+              }}
+            >
+              {t(rawMode ? "Back to form" : "Raw JSON")}
+            </button>
+          </>
+        }
+        closeLabel={t("Close")}
+        context={
+          <code
+            {...stylex.props(inlineStyles.inline104)}
+            style={{
+              display: isMobile ? "none" : undefined,
+            }}
+          >
+            ~/.pi/agent/models.json
+          </code>
+        }
+        height={isMobile ? "calc(100dvh - 16px)" : "78vh"}
+        onClose={onClose}
+        title={t("Models")}
+        width={isMobile ? "calc(100vw - 16px)" : 860}
+      >
+        <div
+          {...stylex.props(inlineStyles.inline108)}
+          style={{
+            flexDirection: isMobile ? "column" : "row",
+          }}
+        >
+          {/* Left: tree */}
+          <div
+            {...stylex.props(inlineStyles.inline109)}
+            style={{
+              width: isMobile ? "100%" : 210,
+              maxHeight: isMobile ? "40vh" : undefined,
+              borderRight: isMobile ? "none" : "1px solid var(--border)",
+              borderBottom: isMobile ? "1px solid var(--border)" : "none",
+            }}
+          >
+            <div {...stylex.props(inlineStyles.inline110)}>
+              {/* Active OAuth subscriptions */}
+              {activeOAuth.map((p) => {
+                const isSelected = selection?.type === "oauth" && selection.providerId === p.id
+                return (
+                  <div
+                    key={p.id}
+                    onClick={() =>
+                      setSelection({
+                        type: "oauth",
+                        providerId: p.id,
+                      })
+                    }
+                    {...stylex.props(inlineStyles.inline111)}
+                    style={{
+                      background: isSelected ? "var(--bg-selected)" : "none",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) e.currentTarget.style.background = "none"
+                    }}
+                  >
+                    <ProviderBadge id={p.id} size={16} />
+                    <span {...stylex.props(inlineStyles.inline112)}>{p.name}</span>
+                  </div>
+                )
+              })}
+
+              {/* Active API key providers */}
+              {activeApiKey.map((p) => {
+                const isSelected = selection?.type === "apikey" && selection.providerId === p.id
+                return (
+                  <div
+                    key={p.id}
+                    onClick={() =>
+                      setSelection({
+                        type: "apikey",
+                        providerId: p.id,
+                      })
+                    }
+                    {...stylex.props(inlineStyles.inline113)}
+                    style={{
+                      background: isSelected ? "var(--bg-selected)" : "none",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) e.currentTarget.style.background = "none"
+                    }}
+                  >
+                    <ProviderBadge id={p.id} size={16} />
+                    <span {...stylex.props(inlineStyles.inline114)}>{p.displayName}</span>
+                  </div>
+                )
+              })}
+
+              {/* Divider before custom providers, only when there are active managed providers */}
+              {(activeOAuth.length > 0 || activeApiKey.length > 0) && providers.length > 0 && (
+                <div {...stylex.props(inlineStyles.inline115)} />
+              )}
+
+              {/* Custom providers */}
+              {loading ? (
+                <div {...stylex.props(inlineStyles.inline116)}>{t("Loading…")}</div>
+              ) : (
+                providers.map(([pName, pData]) => {
+                  const isProviderSelected = selection?.type === "provider" && selection.name === pName
+                  const models = pData.models ?? []
+                  return (
+                    <div key={pName} {...stylex.props(inlineStyles.inline117)}>
+                      {/* Provider row */}
+                      <div
+                        onClick={() =>
+                          setSelection({
+                            type: "provider",
+                            name: pName,
+                          })
+                        }
+                        {...stylex.props(inlineStyles.inline118)}
+                        style={{
+                          background: isProviderSelected ? "var(--bg-selected)" : "none",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isProviderSelected) e.currentTarget.style.background = "var(--bg-hover)"
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isProviderSelected) e.currentTarget.style.background = "none"
+                        }}
+                      >
+                        <svg
+                          width="11"
+                          height="11"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          {...stylex.props(inlineStyles.inline119)}
+                        >
+                          <rect x="4" y="4" width="16" height="16" rx="2" />
+                          <rect x="9" y="9" width="6" height="6" />
+                          <line x1="9" y1="1" x2="9" y2="4" />
+                          <line x1="15" y1="1" x2="15" y2="4" />
+                          <line x1="9" y1="20" x2="9" y2="23" />
+                          <line x1="15" y1="20" x2="15" y2="23" />
+                          <line x1="20" y1="9" x2="23" y2="9" />
+                          <line x1="20" y1="14" x2="23" y2="14" />
+                          <line x1="1" y1="9" x2="4" y2="9" />
+                          <line x1="1" y1="14" x2="4" y2="14" />
+                        </svg>
+                        <span
+                          {...stylex.props(inlineStyles.inline120)}
+                          style={{
+                            fontWeight: isProviderSelected ? 600 : 400,
+                          }}
+                        >
+                          {pName}
+                        </span>
+                      </div>
+
+                      {/* Model rows */}
+                      {models.map((m, i) => {
+                        const isModelSelected =
+                          selection?.type === "model" && selection.providerName === pName && selection.index === i
+                        return (
+                          <div
+                            key={i}
+                            onClick={() =>
+                              setSelection({
+                                type: "model",
+                                providerName: pName,
+                                index: i,
+                              })
+                            }
+                            {...stylex.props(inlineStyles.inline121)}
+                            style={{
+                              background: isModelSelected ? "var(--bg-selected)" : "none",
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isModelSelected) e.currentTarget.style.background = "var(--bg-hover)"
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isModelSelected) e.currentTarget.style.background = "none"
+                            }}
+                          >
+                            <span
+                              {...stylex.props(inlineStyles.inline122)}
+                              style={{
+                                color: m.id ? "var(--text-muted)" : "var(--text-dim)",
+                              }}
+                            >
+                              {m.id || t("new model")}
+                            </span>
+                            {m.reasoning && <span {...stylex.props(inlineStyles.inline123)}>T</span>}
+                          </div>
+                        )
+                      })}
+
+                      {/* Add model button */}
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          addModel(pName)
+                        }}
+                        {...stylex.props(inlineStyles.inline124)}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.color = "var(--accent)"
+                          e.currentTarget.style.background = "var(--bg-hover)"
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.color = "var(--text-dim)"
+                          e.currentTarget.style.background = "none"
+                        }}
+                      >
+                        <span {...stylex.props(inlineStyles.inline125)}>{t("+ model")}</span>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            {/* Add provider */}
+            <div {...stylex.props(inlineStyles.inline126)}>
+              <button
+                onClick={() => setPickerOpen(true)}
+                {...stylex.props(inlineStyles.inline127)}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "var(--accent)"
+                  e.currentTarget.style.color = "var(--accent)"
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "var(--border)"
+                  e.currentTarget.style.color = "var(--text-muted)"
+                }}
+              >
+                {t("+ Add provider")}
+              </button>
+            </div>
+          </div>
+
+          {/* Right: detail */}
+          <div {...stylex.props(inlineStyles.inline128)}>
+            {loading ? null : rawMode ? (
+              <div {...stylex.props(inlineStyles.inline129)}>
+                <div {...stylex.props(inlineStyles.inline130)}>{t("Raw models JSON")}</div>
+                <div {...stylex.props(inlineStyles.inline131)}>
+                  {t("Validate the JSON before saving. Invalid content never replaces models.json.")}
+                </div>
+                <textarea
+                  aria-label={t("Raw models JSON")}
+                  value={rawSource}
+                  spellCheck={false}
+                  onChange={(event) => {
+                    setRawSource(event.target.value)
+                    setRawValidation("idle")
+                    setSaveError(null)
+                    setNotice(null)
+                  }}
+                  {...stylex.props(inlineStyles.inline132)}
+                  style={{
+                    border: `1px solid ${rawValidation === "valid" ? "#16a34a" : "var(--border)"}`,
+                  }}
+                />
+                <div {...stylex.props(inlineStyles.inline133)}>
+                  {rawValidation === "valid" && (
+                    <span {...stylex.props(inlineStyles.inline134)}>{t("Valid configuration")}</span>
+                  )}
+                  <button
+                    onClick={validateRawEditor}
+                    disabled={rawValidation === "validating"}
+                    style={toolbarButtonStyle}
+                  >
+                    {t(rawValidation === "validating" ? "Validating…" : "Validate")}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              (detailContent ?? <div {...stylex.props(inlineStyles.inline135)}>{t("Select a provider or model")}</div>)
+            )}
           </div>
         </div>
-      </div>
+
+        <div {...stylex.props(inlineStyles.inline136)}>
+          <div {...stylex.props(inlineStyles.inline137)}>
+            {saveError && <div {...stylex.props(inlineStyles.inline138)}>{saveError}</div>}
+            {!saveError && notice && <div {...stylex.props(inlineStyles.inline139)}>{notice}</div>}
+          </div>
+          <button onClick={onClose} {...stylex.props(inlineStyles.inline140)}>
+            {t("Cancel")}
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saveDisabled}
+            {...stylex.props(inlineStyles.inline141)}
+            style={{
+              background: savedOk ? "#16a34a" : saveDisabled ? "var(--bg-panel)" : "var(--accent)",
+              color: savedOk ? "#fff" : saveDisabled ? "var(--text-muted)" : "#fff",
+              cursor: saveDisabled ? "default" : "pointer",
+              animation: savedOk ? "saved-pop 0.45s ease" : undefined,
+            }}
+          >
+            {savedOk && (
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                {...stylex.props(inlineStyles.inline142)}
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+            <span>{t(savedOk ? "Saved" : saving ? "Saving…" : "Save")}</span>
+          </button>
+        </div>
+      </SettingsWorkspace>
       {pickerOpen && (
         <AddProviderPicker
           oauthProviders={oauthProviders}
@@ -3076,68 +3060,13 @@ const inlineStyles = stylex.create({
     color: "var(--text-dim)",
     marginTop: 2,
   },
-  inline99: {
-    position: "fixed",
-    inset: 0,
-    zIndex: 1000,
-    background: "rgba(0,0,0,0.35)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  inline100: {
-    maxWidth: "calc(100vw - 16px)",
-    maxHeight: "calc(100dvh - 16px)",
-    background: "var(--bg)",
-    border: "1px solid var(--border)",
-    borderRadius: 10,
-    display: "flex",
-    flexDirection: "column",
-    boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-    overflow: "hidden",
-  },
-  inline101: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    padding: "12px 18px",
-    borderBottom: "1px solid var(--border)",
-    flexShrink: 0,
-  },
-  inline102: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 10,
-    minWidth: 0,
-  },
-  inline103: {
-    fontSize: 15,
-    fontWeight: 700,
-    color: "var(--text)",
-  },
   inline104: {
     fontSize: 11,
     color: "var(--text-muted)",
     fontFamily: "var(--font-mono)",
   },
-  inline105: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 6,
-    flex: 1,
-  },
   inline106: {
     display: "none",
-  },
-  inline107: {
-    background: "none",
-    border: "none",
-    color: "var(--text-muted)",
-    cursor: "pointer",
-    fontSize: 20,
-    lineHeight: 1,
-    padding: "2px 6px",
   },
   inline108: {
     flex: 1,

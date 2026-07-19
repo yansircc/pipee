@@ -9,6 +9,8 @@ import { BrowserPlatform } from "@/browser/browser-platform"
 import { Effect } from "effect"
 import type { ChromeExtensionHealth } from "@/lib/chrome-extension-installation"
 import { PI_COMPANION_PACKAGE_NAMES } from "@/lib/plugin-package-settings"
+import { SettingsToggle as Toggle } from "@/ui/interaction/SettingsToggle"
+import { SettingsWorkspace } from "@/ui/interaction/SettingsWorkspace"
 type PluginScope = PluginPackageInfo["scope"]
 type PluginAction = "install" | "remove" | "update" | "disable" | "enable"
 const clonePlugins = (value: PluginsResponse): PluginsResponse => {
@@ -155,41 +157,6 @@ function buttonStyle(disabled?: boolean, danger?: boolean): React.CSSProperties 
     fontSize: 12,
     opacity: disabled ? 0.5 : 1,
   }
-}
-function Toggle({
-  enabled,
-  loading,
-  onToggle,
-  label,
-}: {
-  enabled: boolean
-  loading: boolean
-  onToggle: () => void
-  label: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      disabled={loading}
-      title={label}
-      aria-label={label}
-      aria-pressed={enabled}
-      {...stylex.props(inlineStyles.inline9)}
-      style={{
-        cursor: loading ? "wait" : "pointer",
-        background: enabled ? "var(--accent)" : "var(--border)",
-        opacity: loading ? 0.65 : 1,
-      }}
-    >
-      <span
-        {...stylex.props(inlineStyles.inline10)}
-        style={{
-          left: enabled ? 21 : 3,
-        }}
-      />
-    </button>
-  )
 }
 function SegmentedScope({
   value,
@@ -708,213 +675,197 @@ export function PluginsConfig({
   }, [loadPlugins, onReloaded, sessionId])
   const addBusy = busyKey?.startsWith("install:") ?? false
   return (
-    <div
-      {...stylex.props(inlineStyles.inline64)}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
+    <SettingsWorkspace
+      closeLabel={t("Close")}
+      context={
+        <code {...stylex.props(inlineStyles.inline69)}>{cwd === null ? t("Global packages") : shortenPath(cwd)}</code>
+      }
+      height={isMobile ? "calc(100dvh - 16px)" : "76vh"}
+      onClose={onClose}
+      title={t("Plugins")}
+      width={isMobile ? "calc(100vw - 16px)" : 860}
     >
       <div
-        {...stylex.props(inlineStyles.inline65)}
+        {...stylex.props(inlineStyles.inline71)}
         style={{
-          width: isMobile ? "calc(100vw - 16px)" : 860,
-          height: isMobile ? "calc(100dvh - 16px)" : "76vh",
+          flexDirection: isMobile ? "column" : "row",
         }}
       >
-        <div {...stylex.props(inlineStyles.inline66)}>
-          <div {...stylex.props(inlineStyles.inline67)}>
-            <span {...stylex.props(inlineStyles.inline68)}>{t("Plugins")}</span>
-            <code {...stylex.props(inlineStyles.inline69)}>
-              {cwd === null ? t("Global packages") : shortenPath(cwd)}
-            </code>
-          </div>
-          <button onClick={onClose} {...stylex.props(inlineStyles.inline70)}>
-            ×
-          </button>
-        </div>
-
         <div
-          {...stylex.props(inlineStyles.inline71)}
+          {...stylex.props(inlineStyles.inline72)}
           style={{
-            flexDirection: isMobile ? "column" : "row",
+            width: isMobile ? "100%" : 245,
+            maxHeight: isMobile ? "40vh" : undefined,
+            borderRight: isMobile ? "none" : "1px solid var(--border)",
+            borderBottom: isMobile ? "1px solid var(--border)" : "none",
           }}
         >
-          <div
-            {...stylex.props(inlineStyles.inline72)}
-            style={{
-              width: isMobile ? "100%" : 245,
-              maxHeight: isMobile ? "40vh" : undefined,
-              borderRight: isMobile ? "none" : "1px solid var(--border)",
-              borderBottom: isMobile ? "1px solid var(--border)" : "none",
-            }}
-          >
-            <div {...stylex.props(inlineStyles.inline73)}>
-              {loading ? (
-                <div {...stylex.props(inlineStyles.inline74)}>{t("Loading...")}</div>
-              ) : error ? (
-                <div {...stylex.props(inlineStyles.inline75)}>{error}</div>
-              ) : packages.length === 0 ? (
-                <div {...stylex.props(inlineStyles.inline76)}>{t("No plugins configured")}</div>
-              ) : (
-                groupedPackages.map((group) => (
-                  <div key={group.scope} {...stylex.props(inlineStyles.inline77)}>
-                    <div {...stylex.props(inlineStyles.inline78)}>{t(group.scope)}</div>
-                    {group.packages.map((pkg) => {
-                      const key = packageKey(pkg)
-                      const isSelected = !addMode && selected === key
-                      return (
-                        <div
-                          key={key}
-                          onClick={() => {
-                            setSelected(key)
-                            setAddMode(false)
-                            setActionError(null)
-                            setActionMessage(null)
-                          }}
-                          {...stylex.props(inlineStyles.inline79)}
-                          style={{
-                            background: isSelected ? "var(--bg-selected)" : "none",
-                          }}
-                          onMouseEnter={(e) => {
-                            if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!isSelected) e.currentTarget.style.background = "none"
-                          }}
-                        >
-                          <span
-                            {...stylex.props(inlineStyles.inline80)}
-                            style={{
-                              background: statusColor(pkg.status),
-                            }}
-                          />
-                          <div {...stylex.props(inlineStyles.inline81)}>
-                            <div
-                              {...stylex.props(inlineStyles.inline82)}
-                              style={{
-                                fontWeight: isSelected ? 600 : 400,
-                              }}
-                            >
-                              {pkg.source}
-                            </div>
-                            <div {...stylex.props(inlineStyles.inline83)}>{resourceSummary(pkg)}</div>
-                            {(pkg.version || pkg.configuredVersion) && (
-                              <div {...stylex.props(inlineStyles.inline84)}>{versionSummary(pkg)}</div>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ))
-              )}
-            </div>
-            <div {...stylex.props(inlineStyles.inline85)}>
-              <button
-                type="button"
-                onClick={() => {
-                  setAddMode(true)
-                  setActionError(null)
-                  setActionMessage(null)
-                }}
-                {...stylex.props(inlineStyles.inline86)}
-                style={{
-                  background: addMode ? "var(--bg-selected)" : "none",
-                  color: addMode ? "var(--accent)" : "var(--text-dim)",
-                }}
-                onMouseEnter={(e) => {
-                  if (!addMode) e.currentTarget.style.background = "var(--bg-hover)"
-                }}
-                onMouseLeave={(e) => {
-                  if (!addMode) e.currentTarget.style.background = "none"
-                }}
-              >
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                {t("Add plugin")}
-              </button>
-            </div>
-          </div>
-
-          <div {...stylex.props(inlineStyles.inline87)}>
-            {addMode ? (
-              <AddPluginPanel
-                cwd={cwd}
-                source={installSource}
-                scope={installScope}
-                busy={addBusy}
-                actionError={actionError}
-                onSourceChange={setInstallSource}
-                onScopeChange={setInstallScope}
-                onInstall={installPlugin}
-              />
-            ) : loading ? null : selectedPackage ? (
-              <PackageDetail
-                key={packageKey(selectedPackage)}
-                pkg={selectedPackage}
-                cwd={cwd}
-                busyKey={busyKey}
-                actionError={actionError}
-                actionMessage={actionMessage}
-                sessionId={sessionId}
-                onAction={runAction}
-                onReloadSession={reloadSession}
-                chromeHealth={chromeHealth}
-                weixinStatus={weixinStatus}
-              />
+          <div {...stylex.props(inlineStyles.inline73)}>
+            {loading ? (
+              <div {...stylex.props(inlineStyles.inline74)}>{t("Loading...")}</div>
+            ) : error ? (
+              <div {...stylex.props(inlineStyles.inline75)}>{error}</div>
+            ) : packages.length === 0 ? (
+              <div {...stylex.props(inlineStyles.inline76)}>{t("No plugins configured")}</div>
             ) : (
-              <div {...stylex.props(inlineStyles.inline88)}>{t("Select a package")}</div>
+              groupedPackages.map((group) => (
+                <div key={group.scope} {...stylex.props(inlineStyles.inline77)}>
+                  <div {...stylex.props(inlineStyles.inline78)}>{t(group.scope)}</div>
+                  {group.packages.map((pkg) => {
+                    const key = packageKey(pkg)
+                    const isSelected = !addMode && selected === key
+                    return (
+                      <div
+                        key={key}
+                        onClick={() => {
+                          setSelected(key)
+                          setAddMode(false)
+                          setActionError(null)
+                          setActionMessage(null)
+                        }}
+                        {...stylex.props(inlineStyles.inline79)}
+                        style={{
+                          background: isSelected ? "var(--bg-selected)" : "none",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)"
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isSelected) e.currentTarget.style.background = "none"
+                        }}
+                      >
+                        <span
+                          {...stylex.props(inlineStyles.inline80)}
+                          style={{
+                            background: statusColor(pkg.status),
+                          }}
+                        />
+                        <div {...stylex.props(inlineStyles.inline81)}>
+                          <div
+                            {...stylex.props(inlineStyles.inline82)}
+                            style={{
+                              fontWeight: isSelected ? 600 : 400,
+                            }}
+                          >
+                            {pkg.source}
+                          </div>
+                          <div {...stylex.props(inlineStyles.inline83)}>{resourceSummary(pkg)}</div>
+                          {(pkg.version || pkg.configuredVersion) && (
+                            <div {...stylex.props(inlineStyles.inline84)}>{versionSummary(pkg)}</div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ))
             )}
+          </div>
+          <div {...stylex.props(inlineStyles.inline85)}>
+            <button
+              type="button"
+              onClick={() => {
+                setAddMode(true)
+                setActionError(null)
+                setActionMessage(null)
+              }}
+              {...stylex.props(inlineStyles.inline86)}
+              style={{
+                background: addMode ? "var(--bg-selected)" : "none",
+                color: addMode ? "var(--accent)" : "var(--text-dim)",
+              }}
+              onMouseEnter={(e) => {
+                if (!addMode) e.currentTarget.style.background = "var(--bg-hover)"
+              }}
+              onMouseLeave={(e) => {
+                if (!addMode) e.currentTarget.style.background = "none"
+              }}
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              {t("Add plugin")}
+            </button>
           </div>
         </div>
 
-        <div {...stylex.props(inlineStyles.inline89)}>
-          <div {...stylex.props(inlineStyles.inline90)}>
-            {data?.diagnostics.length ? (
-              <span
-                title={data.diagnostics
-                  .map((d) => `${d.type}: ${d.source ? `${d.source}: ` : ""}${d.message}`)
-                  .join("\n")}
-                style={{
-                  color: data.diagnostics.some((d) => d.type === "error") ? "#ef4444" : "#d97706",
-                }}
-              >
-                {locale === "zh-CN"
-                  ? `${data.diagnostics.length} 条诊断`
-                  : `${data.diagnostics.length} diagnostic${data.diagnostics.length === 1 ? "" : "s"}`}
-              </span>
-            ) : (
-              <span>
-                {data
-                  ? `${data.totals.extensions} ext · ${data.totals.skills} skills · ${data.totals.prompts} prompts · ${data.totals.themes} themes`
-                  : ""}
-              </span>
-            )}
-          </div>
-          <button
-            onClick={() => loadPlugins()}
-            disabled={loading || busyKey !== null}
-            style={buttonStyle(loading || busyKey !== null)}
-          >
-            {t("Refresh")}
-          </button>
-          <button onClick={onClose} style={buttonStyle(false)}>
-            {t("Close")}
-          </button>
+        <div {...stylex.props(inlineStyles.inline87)}>
+          {addMode ? (
+            <AddPluginPanel
+              cwd={cwd}
+              source={installSource}
+              scope={installScope}
+              busy={addBusy}
+              actionError={actionError}
+              onSourceChange={setInstallSource}
+              onScopeChange={setInstallScope}
+              onInstall={installPlugin}
+            />
+          ) : loading ? null : selectedPackage ? (
+            <PackageDetail
+              key={packageKey(selectedPackage)}
+              pkg={selectedPackage}
+              cwd={cwd}
+              busyKey={busyKey}
+              actionError={actionError}
+              actionMessage={actionMessage}
+              sessionId={sessionId}
+              onAction={runAction}
+              onReloadSession={reloadSession}
+              chromeHealth={chromeHealth}
+              weixinStatus={weixinStatus}
+            />
+          ) : (
+            <div {...stylex.props(inlineStyles.inline88)}>{t("Select a package")}</div>
+          )}
         </div>
       </div>
-    </div>
+
+      <div {...stylex.props(inlineStyles.inline89)}>
+        <div {...stylex.props(inlineStyles.inline90)}>
+          {data?.diagnostics.length ? (
+            <span
+              title={data.diagnostics
+                .map((d) => `${d.type}: ${d.source ? `${d.source}: ` : ""}${d.message}`)
+                .join("\n")}
+              style={{
+                color: data.diagnostics.some((d) => d.type === "error") ? "#ef4444" : "#d97706",
+              }}
+            >
+              {locale === "zh-CN"
+                ? `${data.diagnostics.length} 条诊断`
+                : `${data.diagnostics.length} diagnostic${data.diagnostics.length === 1 ? "" : "s"}`}
+            </span>
+          ) : (
+            <span>
+              {data
+                ? `${data.totals.extensions} ext · ${data.totals.skills} skills · ${data.totals.prompts} prompts · ${data.totals.themes} themes`
+                : ""}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={() => loadPlugins()}
+          disabled={loading || busyKey !== null}
+          style={buttonStyle(loading || busyKey !== null)}
+        >
+          {t("Refresh")}
+        </button>
+        <button onClick={onClose} style={buttonStyle(false)}>
+          {t("Close")}
+        </button>
+      </div>
+    </SettingsWorkspace>
   )
 }
 const inlineStyles = stylex.create({
@@ -964,27 +915,6 @@ const inlineStyles = stylex.create({
     padding: "1px 5px",
     borderRadius: 3,
     flexShrink: 0,
-  },
-  inline9: {
-    flexShrink: 0,
-    width: 40,
-    height: 22,
-    borderRadius: 11,
-    border: "none",
-    padding: 0,
-    position: "relative",
-    transition: "background 0.18s",
-    outline: "none",
-  },
-  inline10: {
-    position: "absolute",
-    top: 3,
-    width: 16,
-    height: 16,
-    borderRadius: "50%",
-    background: "var(--bg)",
-    boxShadow: "0 1px 4px rgba(0,0,0,0.22)",
-    transition: "left 0.18s cubic-bezier(.4,0,.2,1)",
   },
   inline11: {
     display: "inline-flex",
@@ -1268,45 +1198,6 @@ const inlineStyles = stylex.create({
     color: "#ef4444",
     whiteSpace: "pre-wrap",
   },
-  inline64: {
-    position: "fixed",
-    inset: 0,
-    zIndex: 1000,
-    background: "rgba(0,0,0,0.35)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  inline65: {
-    maxWidth: "calc(100vw - 16px)",
-    maxHeight: "calc(100dvh - 16px)",
-    background: "var(--bg)",
-    border: "1px solid var(--border)",
-    borderRadius: 8,
-    display: "flex",
-    flexDirection: "column",
-    boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-    overflow: "hidden",
-  },
-  inline66: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "12px 18px",
-    borderBottom: "1px solid var(--border)",
-    flexShrink: 0,
-  },
-  inline67: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 10,
-    minWidth: 0,
-  },
-  inline68: {
-    fontSize: 15,
-    fontWeight: 700,
-    color: "var(--text)",
-  },
   inline69: {
     fontSize: 11,
     color: "var(--text-muted)",
@@ -1314,15 +1205,6 @@ const inlineStyles = stylex.create({
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
-  },
-  inline70: {
-    background: "none",
-    border: "none",
-    color: "var(--text-muted)",
-    cursor: "pointer",
-    fontSize: 20,
-    lineHeight: 1,
-    padding: "2px 6px",
   },
   inline71: {
     flex: 1,

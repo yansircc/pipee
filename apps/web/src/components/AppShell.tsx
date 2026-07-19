@@ -26,6 +26,11 @@ import {
 } from "@/lib/chrome-extension-installation"
 import { PI_COMPANION_PACKAGE_NAMES } from "@/lib/plugin-package-settings"
 type SessionCopyField = "file" | "id"
+type SettingsSurface =
+  | { readonly kind: "models" }
+  | { readonly kind: "skills" }
+  | { readonly initialPackageName?: string; readonly kind: "plugins" }
+  | null
 const indexRoute = getRouteApi("/")
 export function AppShell() {
   const { locale, setLocale, t: tr } = useI18n()
@@ -48,11 +53,8 @@ export function AppShell() {
   const sessionProjectionOwner = selectedSession === null ? "none" : `session:${selectedSession.id}`
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0)
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0)
-  const [modelsConfigOpen, setModelsConfigOpen] = useState(false)
+  const [settingsSurface, setSettingsSurface] = useState<SettingsSurface>(null)
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0)
-  const [skillsConfigOpen, setSkillsConfigOpen] = useState(false)
-  const [pluginsConfigOpen, setPluginsConfigOpen] = useState(false)
-  const [pluginsInitialPackage, setPluginsInitialPackage] = useState<string | undefined>(undefined)
   const [chromeExtensionHealth, setChromeExtensionHealth] = useState<ChromeExtensionHealth | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false)
@@ -499,7 +501,7 @@ export function AppShell() {
           [
             {
               label: tr("Models"),
-              onClick: () => setModelsConfigOpen(true),
+              onClick: () => setSettingsSurface({ kind: "models" }),
               disabled: false,
               icon: (
                 <svg
@@ -527,7 +529,7 @@ export function AppShell() {
             },
             {
               label: tr("Skills"),
-              onClick: () => setSkillsConfigOpen(true),
+              onClick: () => setSettingsSurface({ kind: "skills" }),
               disabled: !activeCwd && !selectedSession?.cwd,
               icon: (
                 <svg
@@ -549,8 +551,10 @@ export function AppShell() {
             {
               label: tr("Plugins"),
               onClick: () => {
-                setPluginsInitialPackage(chromeExtensionAttention ? PI_COMPANION_PACKAGE_NAMES.chrome : undefined)
-                setPluginsConfigOpen(true)
+                setSettingsSurface({
+                  kind: "plugins",
+                  initialPackageName: chromeExtensionAttention ? PI_COMPANION_PACKAGE_NAMES.chrome : undefined,
+                })
               },
               disabled: false,
               icon: (
@@ -1428,27 +1432,26 @@ export function AppShell() {
         </svg>
       </button>
       <Suspense fallback={null}>
-        {modelsConfigOpen && (
+        {settingsSurface?.kind === "models" && (
           <ModelsConfig
             onClose={() => {
-              setModelsConfigOpen(false)
+              setSettingsSurface(null)
               setModelsRefreshKey((k) => k + 1)
             }}
           />
         )}
-        {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd) && (
-          <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd)!} onClose={() => setSkillsConfigOpen(false)} />
+        {settingsSurface?.kind === "skills" && (activeCwd ?? selectedSession?.cwd) && (
+          <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd)!} onClose={() => setSettingsSurface(null)} />
         )}
-        {pluginsConfigOpen && (
+        {settingsSurface?.kind === "plugins" && (
           <PluginsConfig
             cwd={activeCwd ?? selectedSession?.cwd ?? null}
             sessionId={selectedSession?.id ?? null}
-            initialPackageName={pluginsInitialPackage}
+            initialPackageName={settingsSurface.initialPackageName}
             chromeHealth={chromeExtensionHealth}
             weixinStatus={weixinStatus}
             onClose={() => {
-              setPluginsConfigOpen(false)
-              setPluginsInitialPackage(undefined)
+              setSettingsSurface(null)
             }}
             onReloaded={() => setSessionRefreshKey((key) => key + 1)}
           />
