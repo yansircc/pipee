@@ -87,6 +87,41 @@ test("serves the Start shell and typed health metadata", async ({ page, request 
   await expect(page.getByText("Pi Agent Web", { exact: true }).first()).toBeVisible()
 })
 
+test("preserves the normalized visual foundation", async ({ page }) => {
+  await page.goto("/")
+  await expect(page.getByText("Pi Agent Web", { exact: true }).first()).toBeVisible()
+
+  const contract = await page.evaluate(() => {
+    const visibleButtons = [...document.querySelectorAll("button")].filter(
+      (button) => button.getBoundingClientRect().width > 0,
+    )
+    const brand = visibleButtons[0]
+    const newSession = visibleButtons.find((button) => button.textContent?.includes("新建"))
+    const models = visibleButtons.find((button) => button.textContent?.includes("模型"))
+    const sidebar = document.querySelector(".sidebar-container")
+    if (brand === undefined || newSession === undefined || models === undefined || sidebar === null) {
+      throw new Error("visual contract inventory is incomplete")
+    }
+    return {
+      brandBorder: getComputedStyle(brand).border,
+      browserDefaultFontLeaks: visibleButtons
+        .filter((button) => getComputedStyle(button).fontFamily === "Arial")
+        .map((button) => button.textContent),
+      modelsBorder: getComputedStyle(models).border,
+      newSessionBorder: getComputedStyle(newSession).border,
+      sidebarWidth: getComputedStyle(sidebar).width,
+    }
+  })
+
+  expect(contract).toEqual({
+    brandBorder: "0px none rgb(26, 26, 26)",
+    browserDefaultFontLeaks: [],
+    modelsBorder: "0px none rgb(107, 114, 128)",
+    newSessionBorder: "1px solid rgb(224, 224, 224)",
+    sidebarWidth: "260px",
+  })
+})
+
 test("persists visible locale and theme preferences", async ({ page }) => {
   await page.goto("/")
   await page.getByRole("button", { name: "切换语言" }).click()

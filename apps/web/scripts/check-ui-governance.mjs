@@ -4,6 +4,9 @@ import process from "node:process"
 import { fileURLToPath } from "node:url"
 
 const root = fileURLToPath(new URL("../src/", import.meta.url))
+const viteConfigPath = fileURLToPath(new URL("../vite.config.ts", import.meta.url))
+const appStylesPath = fileURLToPath(new URL("../src/styles/app.css", import.meta.url))
+const preflightPath = fileURLToPath(new URL("../src/styles/preflight.css", import.meta.url))
 const interactionRoot = "ui/interaction/"
 const interactionVendor =
   /^(?:react-aria-components|react-aria|react-stately)(?:\/|$)|^@react-(?:aria|stately|types)\/|^@internationalized\//
@@ -25,6 +28,22 @@ const sources = new Map(
 )
 const failures = []
 
+const [viteConfig, appStyles, preflight] = await Promise.all([
+  readFile(viteConfigPath, "utf8"),
+  readFile(appStylesPath, "utf8"),
+  readFile(preflightPath, "utf8"),
+])
+
+if (!viteConfig.includes('styleResolution: "legacy-expand-shorthands"')) {
+  failures.push("vite.config.ts: StyleX must preserve the existing shorthand visual contract")
+}
+if (!appStyles.startsWith('@import "./preflight.css";')) {
+  failures.push("styles/app.css: Pi Web preflight must load before product styles")
+}
+for (const contract of ["border: 0 solid", "font: inherit", "background-color: transparent"]) {
+  if (!preflight.includes(contract)) failures.push(`styles/preflight.css: missing browser normalization ${contract}`)
+}
+
 for (const [path, source] of sources) {
   const moduleSpecifiers = [...source.matchAll(/(?:from\s*|import\s*\(\s*)["']([^"']+)["']/g)].map(
     ([, specifier]) => specifier,
@@ -38,6 +57,12 @@ for (const [path, source] of sources) {
     /(?:document|window|globalThis|visualViewport)\??\.addEventListener\(/.test(source)
   ) {
     failures.push(`${path}: global browser listener registration bypasses BrowserPlatform or the interaction owner`)
+  }
+  if (
+    /<[A-Za-z][^>]*className\s*=[^>]*\{\.\.\.stylex\.props\(/s.test(source) ||
+    /<[A-Za-z][^>]*\{\.\.\.stylex\.props\([^>]*className\s*=/s.test(source)
+  ) {
+    failures.push(`${path}: JSX prop ordering drops either the semantic class or the StyleX class`)
   }
 }
 

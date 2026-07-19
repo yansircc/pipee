@@ -1158,9 +1158,8 @@ function NoticeShelf({
         return (
           <section
             key={notice.id}
-            className="notice-shelf-item"
+            className={`${stylex.props(inlineStyles.inline38).className} notice-shelf-item`}
             role={notice.type === "error" || notice.type === "warning" ? "alert" : "status"}
-            {...stylex.props(inlineStyles.inline38)}
             style={{
               border: `1px solid color-mix(in srgb, ${visual.color} 22%, var(--border))`,
               background: `color-mix(in srgb, var(--bg) 96%, ${visual.color})`,
@@ -1196,11 +1195,10 @@ function NoticeShelf({
             <div {...stylex.props(inlineStyles.inline45)}>
               <button
                 type="button"
-                className="notice-shelf-action"
+                className={`${stylex.props(inlineStyles.inline46).className} notice-shelf-action`}
                 onClick={() => copyNotice(notice)}
                 aria-label={t(copied ? "Copied" : "Copy")}
                 title={t(copied ? "Copied" : "Copy")}
-                {...stylex.props(inlineStyles.inline46)}
                 style={{
                   background: copied ? "var(--bg-selected)" : "transparent",
                   color: copied ? visual.color : "var(--text-dim)",
@@ -1239,11 +1237,10 @@ function NoticeShelf({
               </button>
               <button
                 type="button"
-                className="notice-shelf-action"
+                className={`${stylex.props(inlineStyles.inline47).className} notice-shelf-action`}
                 onClick={() => onDismiss(notice.id)}
                 aria-label={t("Dismiss")}
                 title={t("Dismiss")}
-                {...stylex.props(inlineStyles.inline47)}
               >
                 <svg
                   width="14"

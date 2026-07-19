@@ -1,3 +1,5 @@
+@import "./preflight.css";
+
 :root {
   --bg: #ffffff;
   --bg-panel: #f5f5f5;
