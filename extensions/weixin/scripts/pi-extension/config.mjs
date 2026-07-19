@@ -2,8 +2,8 @@ export default Object.freeze({
   source: "extensions/weixin.ts",
   hostModules: Object.freeze(["@earendil-works/pi-coding-agent"]),
   profile: Object.freeze({
-    kind: "single-file",
-    assets: Object.freeze([]),
+    kind: "multi-file",
+    assets: Object.freeze(["dist/web"]),
   }),
   expected: Object.freeze({
     commands: Object.freeze([]),

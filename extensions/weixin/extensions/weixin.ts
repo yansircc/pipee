@@ -4,7 +4,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { Effect, Exit, Scope, Stream } from "effect";
+import { Effect, Exit, Schema, Scope, Stream } from "effect";
 import QRCode from "qrcode";
 import packageJson from "../package.json" with { type: "json" };
 import type { MediaViewPort } from "@pi-suite/companion-contracts/host-capabilities";
@@ -12,7 +12,9 @@ import {
   makeRuntimeRetentionSlot,
   mediaView,
   structuredView,
+  webSurface,
   type RuntimeRetentionSlot,
+  type WebSurfaceSlot,
 } from "@pi-suite/extension-kit";
 import { Bridge, type BridgeStatus } from "../src/bridge.ts";
 import { BridgeConfigurationError, QrCodeError } from "../src/errors.ts";
@@ -30,6 +32,11 @@ import {
   sameSessionStatus,
 } from "../src/session-status.ts";
 import { makeStatusSync } from "../src/status-sync.ts";
+import {
+  projectWeixinWebView,
+  WeixinWebAction,
+  type WeixinLoginProjection,
+} from "../src/web-surface.ts";
 
 const sessionFrom = (ctx: ExtensionContext) => ({
   sessionId: ctx.sessionManager.getSessionId(),
@@ -61,7 +68,7 @@ const clearLoginWidget = (ctx: ExtensionContext, image: MediaViewPort | undefine
     image?.replace("login", undefined);
   });
 
-const login = (ctx: ExtensionContext) =>
+const login = (ctx: ExtensionContext, projectLogin?: (projection: WeixinLoginProjection) => void) =>
   Effect.gen(function* () {
     if (!ctx.hasUI) {
       return yield* new BridgeConfigurationError({ reason: "微信登录需要可交互 UI" });
@@ -83,50 +90,65 @@ const login = (ctx: ExtensionContext) =>
     };
     const callbacks = {
       onQr: (content: string) =>
-        ctx.mode === "tui"
+        projectLogin !== undefined
           ? Effect.tryPromise({
-              try: () => QRCode.toString(content, { type: "utf8" }),
+              try: () =>
+                QRCode.toDataURL(content, { errorCorrectionLevel: "M", margin: 4, width: 384 }),
               catch: (cause) => new QrCodeError({ cause }),
             }).pipe(
-              Effect.tap((qr) =>
-                Effect.sync(() => {
-                  ctx.ui.setWidget(
-                    "weixin-login",
-                    ["请用微信扫描：", ...qr.trimEnd().split("\n")],
-                    {
-                      placement: "aboveEditor",
-                    },
-                  );
-                }),
+              Effect.tap((qrDataUrl) =>
+                Effect.sync(() => projectLogin({ phase: "等待微信扫码", qrDataUrl })),
               ),
               Effect.asVoid,
             )
-          : Effect.gen(function* () {
-              if (!image) {
-                return yield* new BridgeConfigurationError({
-                  reason: "当前宿主不支持图片 Widget，请更新 pi-web",
-                });
-              }
-              const dataUrl = yield* Effect.tryPromise({
-                try: () =>
-                  QRCode.toDataURL(content, {
-                    errorCorrectionLevel: "M",
-                    margin: 4,
-                    width: 384,
-                  }),
+          : ctx.mode === "tui"
+            ? Effect.tryPromise({
+                try: () => QRCode.toString(content, { type: "utf8" }),
                 catch: (cause) => new QrCodeError({ cause }),
-              });
-              yield* Effect.sync(() => {
-                image.replace("login", {
-                  dataUrl,
-                  alt: "微信登录二维码",
-                  width: 384,
-                  height: 384,
+              }).pipe(
+                Effect.tap((qr) =>
+                  Effect.sync(() => {
+                    ctx.ui.setWidget(
+                      "weixin-login",
+                      ["请用微信扫描：", ...qr.trimEnd().split("\n")],
+                      {
+                        placement: "aboveEditor",
+                      },
+                    );
+                  }),
+                ),
+                Effect.asVoid,
+              )
+            : Effect.gen(function* () {
+                if (!image) {
+                  return yield* new BridgeConfigurationError({
+                    reason: "当前宿主不支持图片 Widget，请更新 pi-web",
+                  });
+                }
+                const dataUrl = yield* Effect.tryPromise({
+                  try: () =>
+                    QRCode.toDataURL(content, {
+                      errorCorrectionLevel: "M",
+                      margin: 4,
+                      width: 384,
+                    }),
+                  catch: (cause) => new QrCodeError({ cause }),
                 });
-              });
-            }),
+                yield* Effect.sync(() => {
+                  image.replace("login", {
+                    dataUrl,
+                    alt: "微信登录二维码",
+                    width: 384,
+                    height: 384,
+                  });
+                });
+              }),
       onEvent: (event: LoginEvent) =>
-        Effect.sync(() => ctx.ui.notify(eventMessages[event._tag](event), "info")),
+        Effect.sync(() => {
+          const message = eventMessages[event._tag](event);
+          projectLogin?.({ phase: message });
+          ctx.ui.notify(message, "info");
+        }),
       requestVerifyCode: (retry: boolean) =>
         Effect.tryPromise({
           try: () =>
@@ -168,6 +190,9 @@ export default function weixinExtension(pi: ExtensionAPI): void {
   let runtime: PiWeixinRuntime | undefined;
   let activeSessionId: string | undefined;
   let retentionScope: Scope.Closeable | undefined;
+  let surfaceSlot: WebSurfaceSlot | undefined;
+  let latestStatus: BridgeStatus | undefined;
+  let loginProjection: WeixinLoginProjection | undefined;
   const statusSync = makeStatusSync();
 
   const requireRuntime = (): PiWeixinRuntime => {
@@ -182,13 +207,30 @@ export default function weixinExtension(pi: ExtensionAPI): void {
         yield* bridge.statusChanges.pipe(
           Stream.map(
             Exit.match({
-              onFailure: () => projectSessionStatus(undefined),
-              onSuccess: projectSessionStatus,
+              onFailure: () => {
+                latestStatus = undefined;
+                return projectSessionStatus(undefined);
+              },
+              onSuccess: (status) => {
+                latestStatus = status;
+                return projectSessionStatus(status);
+              },
             }),
           ),
           Stream.changesWith(sameSessionStatus),
           Stream.runForEach((status) =>
-            Effect.sync(() => setPiWeixinRetention(status.enabled)).pipe(
+            Effect.sync(() => {
+              if (status.connected) loginProjection = undefined;
+              surfaceSlot?.replace(
+                projectWeixinWebView(
+                  latestStatus,
+                  ctx.sessionManager.getSessionId(),
+                  ctx.cwd,
+                  loginProjection,
+                ),
+              );
+              setPiWeixinRetention(status.enabled);
+            }).pipe(
               Effect.andThen(Effect.sync(() => publishSessionStatus(ctx.ui, statusView, status))),
             ),
           ),
@@ -356,6 +398,66 @@ export default function weixinExtension(pi: ExtensionAPI): void {
           ).pipe(Effect.provideService(Scope.Scope, scope));
           retentionScope = scope;
           retention.replace(retained ? { reason: "global-bridge-enabled" } : undefined);
+          surfaceSlot = yield* webSurface(ctx.ui, packageJson.name, (request, signal) =>
+            value.runPromise(
+              Schema.decodeUnknownEffect(WeixinWebAction)(request.payload).pipe(
+                Effect.flatMap((action) => {
+                  const bridgeEffect = Effect.gen(function* () {
+                    const bridge = yield* Bridge;
+                    switch (action._tag) {
+                      case "Scan":
+                        loginProjection = { phase: "正在获取二维码" };
+                        surfaceSlot?.replace(
+                          projectWeixinWebView(
+                            latestStatus,
+                            ctx.sessionManager.getSessionId(),
+                            ctx.cwd,
+                            loginProjection,
+                          ),
+                        );
+                        yield* login(ctx, (projection) => {
+                          loginProjection = projection;
+                          surfaceSlot?.replace(
+                            projectWeixinWebView(
+                              latestStatus,
+                              ctx.sessionManager.getSessionId(),
+                              ctx.cwd,
+                              projection,
+                            ),
+                          );
+                        });
+                        break;
+                      case "SetEnabled":
+                        yield* bridge.setEnabled(action.enabled);
+                        break;
+                      case "SetDefault":
+                        yield* bridge.setDefaultSession(sessionFrom(ctx));
+                        break;
+                      case "SendTest":
+                        yield* bridge.sendText(
+                          ctx.sessionManager.getSessionId(),
+                          "这是一条 Web Surface 触发的测试消息",
+                          proactiveClientId(ctx.sessionManager.getSessionId(), request.requestId),
+                        );
+                        break;
+                      case "Logout":
+                        yield* bridge.logout;
+                        break;
+                    }
+                  });
+                  return bridgeEffect;
+                }),
+                Effect.match({
+                  onFailure: (error) => ({ _tag: "Failed" as const, message: String(error) }),
+                  onSuccess: () => ({ _tag: "Accepted" as const, payload: null }),
+                }),
+              ),
+              { signal },
+            ),
+          ).pipe(Effect.provideService(Scope.Scope, scope));
+          surfaceSlot.replace(
+            projectWeixinWebView(undefined, ctx.sessionManager.getSessionId(), ctx.cwd),
+          );
           const bridge = yield* Bridge;
           yield* startStatusSync(ctx);
           yield* bridge.start;
@@ -366,6 +468,7 @@ export default function weixinExtension(pi: ExtensionAPI): void {
               runtime = undefined;
               activeSessionId = undefined;
               retentionScope = undefined;
+              surfaceSlot = undefined;
             }),
           ),
         ),
@@ -390,6 +493,7 @@ export default function weixinExtension(pi: ExtensionAPI): void {
           runtime = undefined;
           activeSessionId = undefined;
           retentionScope = undefined;
+          surfaceSlot = undefined;
         }),
       )
       .finally(() => releasePiWeixinRuntime(sessionId));

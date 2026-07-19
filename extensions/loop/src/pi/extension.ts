@@ -5,11 +5,13 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { layer as nodeServicesLayer, type NodeServices } from "@effect/platform-node/NodeServices";
 import { Type, type Static } from "@sinclair/typebox";
-import { Clock, Data, Effect, Exit, ManagedRuntime, Scope } from "effect";
+import { Clock, Data, Effect, Exit, ManagedRuntime, Schema, Scope } from "effect";
 import {
   makeRuntimeRetentionSlot,
   structuredView,
+  webSurface,
   type RuntimeRetentionSlot,
+  type WebSurfaceSlot,
 } from "@pi-suite/extension-kit";
 import type { StructuredViewPort } from "@pi-suite/companion-contracts/host-capabilities";
 import packageJson from "../../package.json" with { type: "json" };
@@ -21,6 +23,7 @@ import { cronToHuman } from "../domain/cron.js";
 import type { Loop, LoopConfig, Occurrence } from "../domain/model.js";
 import { projectLoops } from "./status.js";
 import { makeSessionLoopPersistence } from "./session-state.js";
+import { LoopWebAction, projectLoopWebView } from "./web-surface.js";
 
 const runtime = ManagedRuntime.make(nodeServicesLayer);
 
@@ -33,6 +36,7 @@ type Session = {
   readonly scope: Scope.Closeable;
   readonly statusView: StructuredViewPort | undefined;
   readonly retention: RuntimeRetentionSlot;
+  readonly surface: WebSurfaceSlot;
 };
 
 export class SessionUnavailable extends Data.TaggedError("SessionUnavailable")<{
@@ -106,6 +110,9 @@ const refreshStatus = (active: Session) =>
           observedAt,
           loops: projectLoops(loops),
         });
+        active.surface.replace(
+          projectLoopWebView(loops, active.context.sessionManager.getSessionId(), observedAt),
+        );
         yield* Effect.sync(() =>
           active.retention.replace(loops[0] ? { reason: "automation-present" } : undefined),
         );
@@ -153,7 +160,42 @@ const startSession = (pi: ExtensionAPI, context: ExtensionContext) =>
         ),
         Effect.forkIn(scope),
       );
-      const active: Session = {
+      let active!: Session;
+      const surface = yield* webSurface(context.ui, packageJson.name, (request, signal) =>
+        runtime.runPromise(
+          Schema.decodeUnknownEffect(LoopWebAction)(request.payload).pipe(
+            Effect.flatMap((action): Effect.Effect<void, unknown> => {
+              switch (action._tag) {
+                case "RunNow":
+                  return active.scheduler.runNow(action.id);
+                case "SetEnabled":
+                  return active.operations
+                    .setEnabled(action.id, action.enabled)
+                    .pipe(Effect.asVoid);
+                case "Delete":
+                  return active.operations.remove(action.id).pipe(Effect.asVoid);
+                case "Update":
+                  return active.operations
+                    .update({
+                      id: action.id,
+                      prompt: action.prompt,
+                      label: action.label,
+                      schedule: action.schedule,
+                    })
+                    .pipe(Effect.asVoid);
+              }
+            }),
+            Effect.tap(() => active.scheduler.drain),
+            Effect.tap(() => refreshStatus(active)),
+            Effect.match({
+              onFailure: (error) => ({ _tag: "Failed" as const, message: String(error) }),
+              onSuccess: () => ({ _tag: "Accepted" as const, payload: null }),
+            }),
+          ),
+          { signal },
+        ),
+      );
+      active = {
         context,
         config,
         repository,
@@ -162,6 +204,7 @@ const startSession = (pi: ExtensionAPI, context: ExtensionContext) =>
         scope,
         statusView: structuredView(context.ui, packageJson.name),
         retention,
+        surface,
       };
       yield* Effect.sync(() => sessions.set(pi as object, active));
       yield* refreshStatus(active);

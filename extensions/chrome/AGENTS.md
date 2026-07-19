@@ -27,4 +27,4 @@ Use concise Conventional Commit subjects such as `fix:`, `feat:`, `build:`, `sty
 
 ## Security & Compatibility
 
-Preserve existing-profile operation, automatic connector ownership, bounded JSON transport, and Chrome 120 compatibility. The product surface is Agent-first: no authorization commands, confirmation controls, or mutable Web UI. Never commit credentials, tokens, or profile data.
+Preserve existing-profile operation, automatic connector ownership, bounded JSON transport, and Chrome 120 compatibility. The product surface is Agent-first: complex browser intent remains in Chat. The session-bound Web Surface may execute only finite typed operations derived from `src/protocol/operation-contract.ts`; it must bind every operation to an exact session-owned tab id and use host confirmation for destructive actions. Do not add a generic operation runner, authorization commands, active-tab fallback, or browser/DOM mirror. Never commit credentials, tokens, or profile data.

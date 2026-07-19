@@ -22,10 +22,15 @@ vi.mock("../../src/pi/node-bridge.js", async () => {
         Effect.sync(() => {
           const record: BridgeRecord = { starts: 0, stops: 0, sends: [] };
           bridgeState.instances.push(record);
-          const send = (_request: unknown, session: { key: string }) =>
+          const send = (request: unknown, session: { key: string }) =>
             Effect.sync(() => {
               record.sends.push(session.key);
-              return {};
+              return typeof request === "object" &&
+                request !== null &&
+                "domain" in request &&
+                request.domain === "tab"
+                ? []
+                : {};
             });
           return {
             start: Effect.sync(() => {
@@ -95,9 +100,17 @@ const fixture = () => {
     },
     ui: {
       setStatus: () => undefined,
-      getPiSuiteCapability: () => ({
-        replace: (_slot: string, status: unknown) => statuses.push(status),
-      }),
+      getPiSuiteCapability: (_ownerId: string, id: string) =>
+        id === "pi-suite/web-surface-runtime@1"
+          ? {
+              register: () => ({
+                replace: () => undefined,
+                release: () => undefined,
+              }),
+            }
+          : {
+              replace: (_slot: string, status: unknown) => statuses.push(status),
+            },
     },
   } as unknown as ExtensionContext;
   return {
@@ -149,6 +162,13 @@ it("cleans the previous session target on identity change and shutdown", async (
   expect(bridgeState.instances[0]).toMatchObject({
     starts: 2,
     stops: 1,
-    sends: ["session:runtime-session", "session:next-session"],
+    sends: [
+      "session:runtime-session",
+      "session:runtime-session",
+      "session:runtime-session",
+      "session:next-session",
+      "session:next-session",
+      "session:next-session",
+    ],
   });
 });

@@ -3,12 +3,14 @@
 The product invariant is:
 
 ```text
-User intent -> Agent -> typed Chrome tool -> exact wire operation -> exact profile -> exact tab
-Runtime state -> read-only structured projection -> Pi Web and Chrome popup
+Complex intent -> Agent -> typed Chrome tool -> exact wire operation -> exact profile -> exact tab
+Finite Web intent -> Web Surface action -> existing typed Chrome tool -> exact tab
+Runtime state -> read-only projection -> Pi Web Surface and Chrome popup
 ```
 
-There is no user-operated Chrome command or control plane. The only setup interaction is loading
-the unpacked extension. After that, the browser connector registers itself with the loopback bridge.
+There is no generic user-operated Chrome command or authorization control plane. The only setup
+interaction is loading the unpacked extension. The Web Surface may invoke a closed set of exact-tab
+operations; navigation, input, waiting, and open-ended browser tasks remain Agent-owned.
 
 ## Stable and changing axes
 
@@ -58,11 +60,13 @@ extensionDirectory: string
 errorMessage?: string
 ```
 
-Pi Web and the popup render this projection without mutation controls.
+The popup renders this projection without mutation controls. Pi Web additionally derives the exact
+session-owned tab list and bounded receipts through the existing operation algebra. Its finite
+controls never introduce a parallel Chrome operation descriptor map.
 
 ## Delivery boundary
 
 The monorepo root owns the lockfile, candidate builder, and release workflow. The Chrome candidate
-contains the self-contained Pi bundle plus `dist/browser-extension`. Host Pi APIs stay external;
+contains the self-contained Pi bundle plus `dist/browser-extension` and `dist/web`. Host Pi APIs stay external;
 ordinary runtime dependencies are bundled. Verification loads the exact raw archive and checks the
 browser-extension evidence against the package version and protocol fingerprint.

@@ -19,8 +19,9 @@ missing or expired, it shows the QR widget and waits for the scan. Existing cred
 without a prompt.
 
 Proactive send becomes ready after the connected user has sent at least one inbound message, which
-provides the iLink context token. Pi Web renders the structured Weixin projection as read-only
-global status in the plugin page. All mutations go through typed Agent tools.
+provides the iLink context token. Pi Web renders the session-bound Weixin Web Surface from the same
+Bridge projection. Scan/re-scan, pause/resume, logout, default-session selection, and test send are
+finite typed actions against that Bridge; they do not create a second account or routing owner.
 
 ## Development
 
@@ -30,7 +31,7 @@ pnpm verify
 pnpm build
 ```
 
-`pnpm verify` 依次执行格式与 lint、Effect language service 类型检查、测试、锁定版本的 `effect-scan` 语义检查、自包含构建、tarball 内容检查，以及零安装目录中的 Pi extension loader 验收。Pi 加载的唯一构建入口是 `dist/pi/extension.js`。
+`pnpm verify` 依次执行格式与 lint、Effect language service 类型检查、测试、锁定版本的 `effect-scan` 语义检查、自包含构建、tarball 内容检查，以及零安装目录中的 Pi extension loader 验收。Pi Runtime 的唯一入口是 `dist/pi/extension.js`；浏览器页面从归档内 `dist/web` 加载。
 
 ## 分发
 

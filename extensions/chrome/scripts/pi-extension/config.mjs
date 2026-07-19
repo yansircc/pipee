@@ -7,6 +7,7 @@ export default Object.freeze({
       "CHANGELOG.md",
       "CONTRIBUTING.md",
       "dist/browser-extension",
+      "dist/web",
       "docs",
       "skills",
     ]),

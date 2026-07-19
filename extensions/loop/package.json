@@ -20,7 +20,8 @@
     "directory": "extensions/loop"
   },
   "files": [
-    "dist/pi"
+    "dist/pi",
+    "dist/web"
   ],
   "type": "module",
   "publishConfig": {
@@ -30,7 +31,8 @@
     "verify": "pnpm run repo:quality && pnpm run pi:verify",
     "repo:quality": "vp run quality",
     "test": "vp test",
-    "pi:build": "node ../../tooling/pi-extension/build.mjs .",
+    "pi:web-build": "node ../../tooling/pi-extension/build-web.mjs .",
+    "pi:build": "pnpm run pi:web-build && node ../../tooling/pi-extension/build.mjs .",
     "pi:bundle-check": "node ../../tooling/pi-extension/verify-distribution.mjs . bundle",
     "pi:distribution-check": "node ../../tooling/pi-extension/verify-distribution.mjs . package",
     "pi:verify": "pnpm run pi:build && pnpm run pi:bundle-check",
@@ -72,5 +74,12 @@
     "extensions": [
       "./dist/pi/extension.js"
     ]
+  },
+  "piSuite": {
+    "web": {
+      "contract": "pi-suite/web-surface@1",
+      "document": "./dist/web/index.html",
+      "title": "Loop 自动化"
+    }
   }
 }
