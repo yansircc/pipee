@@ -122,6 +122,104 @@ test("preserves the normalized visual foundation", async ({ page }) => {
   })
 })
 
+test("opens a lightweight two-pane Finder with one highlighted file preview", async ({ page }) => {
+  const admittedCwds: string[] = []
+  page.on("request", (request) => {
+    if (!request.url().endsWith("/api/workspace/cwd/validate")) return
+    const body = request.postDataJSON() as { cwd?: string } | null
+    if (body?.cwd !== undefined) admittedCwds.push(body.cwd)
+  })
+  await page.goto("/")
+  await page.getByRole("button", { name: "资源管理器", exact: true }).click()
+
+  const finder = page.getByRole("dialog", { name: "资源管理器" })
+  await expect(finder).toBeVisible()
+  await expect.poll(() => admittedCwds).toContain(fixtureWorkspace)
+  await expect(finder.getByText(fixtureWorkspace, { exact: true })).toBeVisible()
+  await expect(finder.getByText("选择文件以预览", { exact: true })).toBeVisible()
+
+  const file = finder.getByRole("button", { name: "hello.txt", exact: true })
+  await file.click()
+  await expect(file).toHaveAttribute("aria-current", "true")
+  await expect(finder).toContainText("hello from the isolated e2e workspace")
+  await expect(finder.getByRole("button", { name: "复制", exact: true })).toBeVisible()
+
+  await finder.getByRole("button", { name: "long.txt", exact: true }).click()
+  await expect(finder).toContainText("line 240")
+  const previewScroll = await finder.evaluate((element) => {
+    const scrollable = [...element.querySelectorAll<HTMLElement>("*")].find((candidate) => {
+      const overflow = getComputedStyle(candidate).overflowY
+      return (overflow === "auto" || overflow === "scroll") && candidate.scrollHeight > candidate.clientHeight
+    })
+    if (scrollable === undefined) return null
+    scrollable.scrollTop = 120
+    return {
+      clientHeight: scrollable.clientHeight,
+      scrollHeight: scrollable.scrollHeight,
+      scrollTop: scrollable.scrollTop,
+    }
+  })
+  expect(previewScroll).not.toBeNull()
+  expect(previewScroll!.scrollHeight).toBeGreaterThan(previewScroll!.clientHeight)
+  expect(previewScroll!.scrollTop).toBeGreaterThan(0)
+
+  const layout = await finder.evaluate((element) => {
+    const workspace = element.children[1] as HTMLElement
+    const columns = getComputedStyle(workspace)
+      .gridTemplateColumns.split(" ")
+      .map((value) => Number.parseFloat(value))
+    return { columns, width: element.getBoundingClientRect().width }
+  })
+  expect(layout.width).toBeLessThanOrEqual(960)
+  expect(layout.columns[0]).toBeGreaterThanOrEqual(200)
+  expect(layout.columns[0]).toBeLessThanOrEqual(240)
+
+  await page.setViewportSize({ width: 390, height: 780 })
+  await expect(finder.getByRole("button", { name: "复制", exact: true })).toBeInViewport()
+  await expect(finder.locator('a[download="long.txt"]')).toBeInViewport()
+
+  await page.keyboard.press("Escape")
+  await expect(finder).toBeHidden()
+})
+
+test("shows immediate metrics, session prompt, and the extension drawer", async ({ page }) => {
+  await page.goto("/?session=00000000-0000-4000-8000-000000000001")
+
+  const cost = page.getByRole("button", { name: "会话累计", exact: true })
+  await expect(cost).toBeVisible()
+  await expect(cost).not.toHaveAttribute("title")
+  await cost.hover()
+  await expect(page.getByRole("tooltip")).toContainText("Cost")
+
+  await page.getByRole("button", { name: "调试信息", exact: true }).click()
+  const sessionInspector = page.locator(".session-info-popover")
+  await expect(sessionInspector.getByText("系统提示词", { exact: true })).toBeVisible()
+  await expect(sessionInspector).not.toContainText("发送消息后加载系统提示词")
+
+  await page.getByRole("button", { name: "插件", exact: true }).click()
+  const drawer = page.getByRole("dialog", { name: "插件" })
+  await expect(drawer).toBeVisible()
+  const viewportWidth = await page.evaluate(() => innerWidth)
+  await expect.poll(() => drawer.evaluate((element) => element.getBoundingClientRect().right)).toBe(viewportWidth)
+  const geometry = await drawer.evaluate((element) => ({ width: element.getBoundingClientRect().width }))
+  expect(geometry.width).toBeLessThanOrEqual(460)
+  await page.keyboard.press("Escape")
+  await expect(drawer).toBeHidden()
+
+  await page.getByRole("button", { name: "技能", exact: true }).click()
+  const skillLibrary = page.getByRole("dialog", { name: "技能" })
+  await expect(skillLibrary).toBeVisible()
+  await expect(skillLibrary.getByText("e2e-skill", { exact: true }).first()).toBeVisible()
+  await expect(skillLibrary.getByRole("button", { name: "· SKILL.md", exact: true })).toBeVisible()
+  await expect(skillLibrary).toContainText("# E2E skill")
+  await skillLibrary.getByRole("button", { name: "关闭", exact: true }).first().click()
+
+  await page.getByRole("button", { name: "插件", exact: true }).click()
+  await page.getByRole("link", { name: /pi-web-e2e-extension/ }).click()
+  await expect(page).toHaveURL(/\/extensions\//)
+  await expect(page.getByText("E2E Surface", { exact: true }).first()).toBeVisible()
+})
+
 test("loads a raw-archive Web Surface through the session runtime and opaque iframe", async ({ page, request }) => {
   const browserErrors: string[] = []
   page.on("console", (message) => {
@@ -856,6 +954,59 @@ test("decodes invalid payloads before domain execution", async ({ page }) => {
   expect(query.body).toMatchObject({ _tag: "InvalidInput", field: "query" })
 })
 
+test("resolves configured models through the session runtime for creation and switching", async ({ page }) => {
+  const modelsPath = resolve("test-results/e2e-fixture/home/.pi/agent/models.json")
+  const previousModels = await readFile(modelsPath, "utf8").catch(() => null)
+  const previousSettings = await readFile(fixtureSettingsPath, "utf8").catch(() => null)
+  await mkdir(dirname(modelsPath), { recursive: true })
+  await writeFile(
+    modelsPath,
+    JSON.stringify({
+      providers: {
+        fixture: {
+          baseUrl: "https://example.test/v1",
+          api: "openai-completions",
+          apiKey: "fixture-key",
+          models: [{ id: "model-a" }, { id: "model-b" }],
+        },
+      },
+    }),
+  )
+  await page.goto("/")
+
+  let sessionId: string | null = null
+  try {
+    const created = await mutate(page, "/api/sessions", {
+      cwd: fixtureWorkspace,
+      model: { provider: "fixture", modelId: "model-a" },
+    })
+    expect(created.status, JSON.stringify(created.body)).toBe(200)
+    sessionId = (created.body as { id: string }).id
+
+    const switched = await mutate(page, `/api/sessions/${sessionId}/actions/model`, {
+      provider: "fixture",
+      modelId: "model-b",
+    })
+    expect(switched).toEqual({ status: 200, body: { id: "model-b", provider: "fixture" } })
+
+    const snapshot = await page.evaluate(async (id) => {
+      const response = await fetch(`/api/sessions/${id}`)
+      return { status: response.status, body: await response.json() }
+    }, sessionId)
+    expect(snapshot).toMatchObject({
+      status: 200,
+      body: { runtime: { model: { id: "model-b", provider: "fixture" } } },
+    })
+  } finally {
+    if (sessionId !== null) await mutate(page, `/api/sessions/${sessionId}`, {}, "DELETE")
+    await page.waitForTimeout(100)
+    if (previousModels === null) await rm(modelsPath, { force: true })
+    else await writeFile(modelsPath, previousModels)
+    if (previousSettings === null) await rm(fixtureSettingsPath, { force: true })
+    else await writeFile(fixtureSettingsPath, previousSettings)
+  }
+})
+
 test("imports, exports, and validates raw model JSON", async ({ page }) => {
   const modelsPath = resolve("test-results/e2e-fixture/home/.pi/agent/models.json")
   await rm(modelsPath, { force: true })
@@ -973,6 +1124,38 @@ test("loads model, auth, plugin, and skill projections without mutating user sta
   expect(projections.skills.status).toBe(200)
 
   const skillFile = resolve(fixtureWorkspace, ".agents", "skills", "e2e-skill", "SKILL.md")
+  const skillBrowse = await page.evaluate(
+    async ({ cwd, skillPath }) => {
+      const query = new URLSearchParams({ cwd, skillPath })
+      const filesResponse = await fetch(`/api/packages/skills/files?${query}`)
+      const files = await filesResponse.json()
+      const fileQuery = new URLSearchParams({ cwd, skillPath, path: "references/guide.md" })
+      const fileResponse = await fetch(`/api/packages/skills/file?${fileQuery}`)
+      const file = await fileResponse.json()
+      const escapeQuery = new URLSearchParams({ cwd, skillPath, path: "../hello.txt" })
+      const escapeResponse = await fetch(`/api/packages/skills/file?${escapeQuery}`)
+      return {
+        files: { status: filesResponse.status, body: files },
+        file: { status: fileResponse.status, body: file },
+        escapeStatus: escapeResponse.status,
+      }
+    },
+    { cwd: fixtureWorkspace, skillPath: skillFile },
+  )
+  expect(skillBrowse.files).toMatchObject({
+    status: 200,
+    body: {
+      entries: expect.arrayContaining([
+        expect.objectContaining({ path: "SKILL.md", kind: "file" }),
+        expect.objectContaining({ path: "references/guide.md", kind: "file" }),
+      ]),
+    },
+  })
+  expect(skillBrowse.file).toMatchObject({
+    status: 200,
+    body: { path: "references/guide.md", content: expect.stringContaining("Skill-owned reference") },
+  })
+  expect(skillBrowse.escapeStatus).not.toBe(200)
   const skillRoundTrip = await page.evaluate(
     async ({ cwd, filePath }) => {
       const toggle = async (disableModelInvocation: boolean) => {

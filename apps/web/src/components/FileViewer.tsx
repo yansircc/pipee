@@ -10,7 +10,8 @@ import { DOCX_PREVIEW_MAX_BYTES, getFileExt, isAudioPath, isDocumentPreviewPath,
 import { getFileName, getRelativeFilePath } from "@/lib/file-paths"
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins } from "@/lib/markdown"
 import { useI18n } from "@/lib/i18n"
-import { withApi, apiUrls, runApi, runApiStream, type Cancel } from "@/browser/api-client"
+import { copyText } from "@/lib/clipboard"
+import { withApi, apiUrls, runApi, runApiStream, runBrowser, type Cancel } from "@/browser/api-client"
 interface Props {
   filePath: string
   cwd?: string
@@ -699,8 +700,8 @@ function TextFileViewer({ filePath, cwd, sourceSessionId }: Props) {
           {getRelativeFilePath(filePath, cwd)}
         </span>
         <span {...stylex.props(inlineStyles.inline42)}>{data.language}</span>
-        {viewMode === "source" && <span>{lines.length} lines</span>}
-        <span>{formatSize(data.size)}</span>
+        {viewMode === "source" && <span {...stylex.props(inlineStyles.inline59)}>{lines.length} lines</span>}
+        <span {...stylex.props(inlineStyles.inline59)}>{formatSize(data.size)}</span>
 
         {/* Live watch indicator */}
         <span
@@ -819,6 +820,18 @@ function TextFileViewer({ filePath, cwd, sourceSessionId }: Props) {
             </button>
           </div>
         )}
+        <button
+          type="button"
+          title={t("Copy")}
+          aria-label={t("Copy")}
+          onClick={() => runBrowser(copyText(data.content), { onSuccess: () => undefined })}
+          {...stylex.props(inlineStyles.inline1)}
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+          </svg>
+        </button>
         <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
       </div>
 
@@ -1130,8 +1143,8 @@ const inlineStyles = stylex.create({
   inline40: {
     display: "flex",
     alignItems: "center",
-    gap: 12,
-    padding: "4px 16px",
+    gap: { default: 12, "@media (max-width: 520px)": 6 },
+    padding: { default: "4px 16px", "@media (max-width: 520px)": "4px 8px" },
     borderBottom: "1px solid var(--border)",
     fontSize: 11,
     color: "var(--text-dim)",
@@ -1139,13 +1152,19 @@ const inlineStyles = stylex.create({
     flexShrink: 0,
   },
   inline41: {
+    flex: 1,
     fontFamily: "var(--font-mono)",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
   inline42: {
     marginLeft: "auto",
+    display: { default: "inline", "@media (max-width: 520px)": "none" },
   },
   inline43: {
-    display: "flex",
+    display: { default: "flex", "@media (max-width: 520px)": "none" },
     alignItems: "center",
     gap: 4,
   },
@@ -1237,5 +1256,8 @@ const inlineStyles = stylex.create({
   inline58: {
     padding: "24px 32px",
     maxWidth: 800,
+  },
+  inline59: {
+    display: { default: "inline", "@media (max-width: 520px)": "none" },
   },
 })

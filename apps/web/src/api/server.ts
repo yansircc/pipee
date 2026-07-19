@@ -799,6 +799,29 @@ const PackagesLive = HttpApiBuilder.group(PiWebApi, "packages", (handlers) =>
           expose,
         ),
       )
+      .handle("skillFiles", ({ query }) =>
+        Effect.gen(function* () {
+          const cwd = yield* expose(workspace.validateCwd(query.cwd))
+          const projection = yield* expose(adapter.skills(cwd))
+          const skill = projection.skills.find((candidate) => candidate.filePath === query.skillPath)
+          if (skill === undefined) {
+            return yield* new Forbidden({ message: "Skill is not owned by the selected workspace" })
+          }
+          const entries = yield* expose(adapter.skillFiles(skill.baseDir))
+          return { entries }
+        }),
+      )
+      .handle("skillFile", ({ query }) =>
+        Effect.gen(function* () {
+          const cwd = yield* expose(workspace.validateCwd(query.cwd))
+          const projection = yield* expose(adapter.skills(cwd))
+          const skill = projection.skills.find((candidate) => candidate.filePath === query.skillPath)
+          if (skill === undefined) {
+            return yield* new Forbidden({ message: "Skill is not owned by the selected workspace" })
+          }
+          return yield* expose(adapter.skillFile(skill.baseDir, query.path))
+        }),
+      )
       .handle("toggleSkill", ({ payload }) =>
         Effect.gen(function* () {
           const cwd = yield* expose(workspace.validateCwd(payload.cwd))

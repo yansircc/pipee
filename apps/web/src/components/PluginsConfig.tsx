@@ -782,7 +782,9 @@ export function PluginsConfig({
         <header {...stylex.props(inlineStyles.pageHeader)}>
           <div>
             <h2 {...stylex.props(inlineStyles.pageTitle)}>插件管理</h2>
-            <p {...stylex.props(inlineStyles.pageSubtitle)}>Pi package settings · 当前设备</p>
+            <p {...stylex.props(inlineStyles.pageSubtitle)}>
+              已激活 {activeCount} / {packages.length} · 当前设备
+            </p>
           </div>
           <button {...stylex.props(inlineStyles.pagePrimary)} onClick={() => setAddMode(true)}>
             ＋ 添加拓展

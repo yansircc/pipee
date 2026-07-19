@@ -25,6 +25,7 @@ import { withApi, runApi, runBrowser } from "@/browser/api-client"
 import { BrowserPlatform } from "@/browser/browser-platform"
 import { prepareDrop, prepareImages } from "@/features/chat/attachment-controller"
 import type { SessionStats } from "@/api/contract"
+import { Tooltip } from "@/ui/interaction/Tooltip"
 const onNextAnimationFrame = (action: () => void) =>
   runBrowser(
     BrowserPlatform.pipe(
@@ -2210,37 +2211,55 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
               )}
 
               {sessionStats && (
-                <button
-                  type="button"
-                  {...stylex.props(inlineStyles.metricButton)}
-                  title={`${t("Input")}\n${sessionStats.tokens.input.toLocaleString()}\n${t("Output")}\n${sessionStats.tokens.output.toLocaleString()}\n${t("Cache Read")}\n${sessionStats.tokens.cacheRead.toLocaleString()}\n${t("Total")}\n${sessionStats.tokens.total.toLocaleString()}\nCost\n$${sessionStats.cost.toFixed(4)}`}
+                <Tooltip
+                  content={
+                    <span {...stylex.props(inlineStyles.metricTooltip)}>
+                      <span>{t("Input")}</span>
+                      <b>{sessionStats.tokens.input.toLocaleString()}</b>
+                      <span>{t("Output")}</span>
+                      <b>{sessionStats.tokens.output.toLocaleString()}</b>
+                      <span>{t("Cache Read")}</span>
+                      <b>{sessionStats.tokens.cacheRead.toLocaleString()}</b>
+                      <span>{t("Total")}</span>
+                      <b>{sessionStats.tokens.total.toLocaleString()}</b>
+                      <span>Cost</span>
+                      <b>${sessionStats.cost.toFixed(4)}</b>
+                    </span>
+                  }
                 >
-                  ${sessionStats.cost.toFixed(2)}
-                </button>
+                  <button type="button" aria-label={t("Session total")} {...stylex.props(inlineStyles.metricButton)}>
+                    ${sessionStats.cost.toFixed(2)}
+                  </button>
+                </Tooltip>
               )}
 
               {contextUsage?.contextWindow ? (
-                <button
-                  type="button"
-                  {...stylex.props(inlineStyles.contextRingButton)}
-                  title={`${contextUsage.percent === null ? "?" : contextUsage.percent.toFixed(1) + "%"} · ${(contextUsage.tokens ?? 0).toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()}`}
-                  aria-label={t("Context usage")}
+                <Tooltip
+                  content={`${contextUsage.percent === null ? "?" : contextUsage.percent.toFixed(1) + "%"} · ${(contextUsage.tokens ?? 0).toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()}`}
                 >
-                  <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
-                    <circle cx="11" cy="11" r="8" fill="none" stroke="var(--border)" strokeWidth="2.5" />
-                    <circle
-                      cx="11"
-                      cy="11"
-                      r="8"
-                      fill="none"
-                      stroke={contextUsage.percent !== null && contextUsage.percent > 90 ? "#ef4444" : "var(--accent)"}
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeDasharray={`${Math.min(100, contextUsage.percent ?? 0) * 0.5027} 50.27`}
-                      transform="rotate(-90 11 11)"
-                    />
-                  </svg>
-                </button>
+                  <button
+                    type="button"
+                    {...stylex.props(inlineStyles.contextRingButton)}
+                    aria-label={t("Context usage")}
+                  >
+                    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+                      <circle cx="11" cy="11" r="8" fill="none" stroke="var(--border)" strokeWidth="2.5" />
+                      <circle
+                        cx="11"
+                        cy="11"
+                        r="8"
+                        fill="none"
+                        stroke={
+                          contextUsage.percent !== null && contextUsage.percent > 90 ? "#ef4444" : "var(--accent)"
+                        }
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeDasharray={`${Math.min(100, contextUsage.percent ?? 0) * 0.5027} 50.27`}
+                        transform="rotate(-90 11 11)"
+                      />
+                    </svg>
+                  </button>
+                </Tooltip>
               ) : null}
 
               {isStreaming && (
@@ -3097,6 +3116,12 @@ const inlineStyles = stylex.create({
     gap: 4,
     height: 32,
     paddingInline: 8,
+  },
+  metricTooltip: {
+    display: "grid",
+    gap: "2px 12px",
+    gridTemplateColumns: "auto auto",
+    textAlign: "left",
   },
   contextRingButton: {
     alignItems: "center",

@@ -1,9 +1,13 @@
 import * as stylex from "@stylexjs/stylex"
 import { useState, useEffect, useCallback, useRef } from "react"
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
+import { vs, vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism"
 import { useIsMobile } from "@/hooks/useIsMobile"
+import { useTheme } from "@/hooks/useTheme"
 import type { SkillSearchResult } from "@/api/contract"
 import { useI18n } from "@/lib/i18n"
-import { withApi, runApi } from "@/browser/api-client"
+import { copyText } from "@/lib/clipboard"
+import { withApi, runApi, runBrowser } from "@/browser/api-client"
 import { SettingsToggle as Toggle } from "@/ui/interaction/SettingsToggle"
 import { SettingsWorkspace } from "@/ui/interaction/SettingsWorkspace"
 interface Skill {
@@ -46,8 +50,17 @@ function SkillDetail({
   deleting: boolean
 }) {
   const { t } = useI18n()
+  const { isDark } = useTheme()
+  const isMobile = useIsMobile()
   const label = sourceLabel(skill)
   const enabled = !skill.disableModelInvocation
+  const [files, setFiles] = useState<Array<{ path: string; name: string; kind: "file" | "directory"; size: number }>>(
+    [],
+  )
+  const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  const [content, setContent] = useState<string | null>(null)
+  const [fileError, setFileError] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   function displayPath(p: string): string {
     if (label === "project" && p.startsWith(cwd)) {
       const rel = p.slice(cwd.length).replace(/^[/\\]/, "")
@@ -55,50 +68,140 @@ function SkillDetail({
     }
     return shortenPath(p)
   }
+  useEffect(() => {
+    setFiles([])
+    setSelectedFile(null)
+    setContent(null)
+    setFileError(null)
+    return runApi(
+      withApi((api) => api.packages.skillFiles({ query: { cwd, skillPath: skill.filePath } })),
+      {
+        onSuccess: ({ entries }) => {
+          const ordered = [...entries].sort(
+            (left, right) =>
+              Number(right.kind === "directory") - Number(left.kind === "directory") ||
+              left.path.localeCompare(right.path),
+          )
+          setFiles(ordered)
+          const first =
+            ordered.find((entry) => entry.kind === "file" && entry.path.toLowerCase() === "skill.md") ??
+            ordered.find((entry) => entry.kind === "file")
+          setSelectedFile(first?.path ?? null)
+        },
+        onFailure: (failure) => setFileError(String(failure)),
+      },
+    )
+  }, [cwd, skill.filePath])
+  useEffect(() => {
+    if (selectedFile === null) return
+    setContent(null)
+    setFileError(null)
+    return runApi(
+      withApi((api) => api.packages.skillFile({ query: { cwd, skillPath: skill.filePath, path: selectedFile } })),
+      {
+        onSuccess: (file) => setContent(file.content),
+        onFailure: (failure) => setFileError(String(failure)),
+      },
+    )
+  }, [cwd, selectedFile, skill.filePath])
+  const language = (() => {
+    const ext = selectedFile?.split(".").pop()?.toLowerCase()
+    return ext === "md"
+      ? "markdown"
+      : ext === "ts" || ext === "tsx"
+        ? "typescript"
+        : ext === "js"
+          ? "javascript"
+          : (ext ?? "text")
+  })()
   return (
-    <div {...stylex.props(inlineStyles.inline3)}>
-      {/* Path + tag + toggle */}
-      <div {...stylex.props(inlineStyles.inline4)}>
-        <span
-          {...stylex.props(inlineStyles.inline5)}
-          style={{
-            background: label === "project" ? "rgba(99,102,241,0.12)" : "rgba(120,120,120,0.12)",
-            color: label === "project" ? "rgba(99,102,241,0.8)" : "var(--text-dim)",
-          }}
-        >
-          {label}
-        </span>
-        <span {...stylex.props(inlineStyles.inline6)}>{displayPath(skill.filePath)}</span>
-        <Toggle
-          enabled={enabled}
-          label={t(
-            enabled ? "Visible in model prompt — click to disable" : "Hidden from model prompt — click to enable",
+    <div
+      {...stylex.props(inlineStyles.skillFinder)}
+      style={{ gridTemplateColumns: isMobile ? "1fr" : "180px minmax(0, 1fr) 220px" }}
+    >
+      <aside {...stylex.props(inlineStyles.skillFileTree)}>
+        <div {...stylex.props(inlineStyles.skillPaneTitle)}>
+          FILES · {files.filter((file) => file.kind === "file").length}
+        </div>
+        {files.map((file) => (
+          <button
+            key={file.path}
+            type="button"
+            disabled={file.kind === "directory"}
+            aria-current={selectedFile === file.path ? "true" : undefined}
+            onClick={() => file.kind === "file" && setSelectedFile(file.path)}
+            {...stylex.props(inlineStyles.skillFileRow)}
+            style={{
+              background: selectedFile === file.path ? "var(--bg-selected)" : "transparent",
+              paddingLeft: 8 + Math.max(0, file.path.split("/").length - 1) * 10,
+            }}
+          >
+            <span>{file.kind === "directory" ? "▸" : "·"}</span>
+            <span>{file.path}</span>
+          </button>
+        ))}
+      </aside>
+      <section {...stylex.props(inlineStyles.skillPreview)}>
+        <header {...stylex.props(inlineStyles.skillPreviewHeader)}>
+          <code>{selectedFile ?? t("Select a file")}</code>
+          {content !== null && (
+            <button type="button" onClick={() => runBrowser(copyText(content), { onSuccess: () => undefined })}>
+              {t("Copy")}
+            </button>
           )}
-          loading={toggling}
-          onToggle={() => onToggle(skill)}
-        />
+        </header>
+        <div {...stylex.props(inlineStyles.skillPreviewBody)}>
+          {fileError ? (
+            <div {...stylex.props(inlineStyles.inline7)}>{fileError}</div>
+          ) : content === null ? (
+            <div {...stylex.props(inlineStyles.inline58)}>{t("Loading…")}</div>
+          ) : (
+            <SyntaxHighlighter
+              language={language}
+              style={isDark ? vscDarkPlus : vs}
+              showLineNumbers
+              customStyle={{ margin: 0, minHeight: "100%", fontSize: 12, background: "var(--bg)" }}
+            >
+              {content}
+            </SyntaxHighlighter>
+          )}
+        </div>
+      </section>
+      <aside {...stylex.props(inlineStyles.skillInspector)}>
+        <div {...stylex.props(inlineStyles.skillPaneTitle)}>INSPECTOR</div>
+        <strong>{skill.name}</strong>
+        <p {...stylex.props(inlineStyles.skillDescription)}>{skill.description}</p>
+        <span {...stylex.props(inlineStyles.inline5)}>{label}</span>
+        <code {...stylex.props(inlineStyles.skillPath)}>{displayPath(skill.filePath)}</code>
+        <div {...stylex.props(inlineStyles.skillToggleRow)}>
+          <span>{t("Model invocation")}</span>
+          <Toggle
+            enabled={enabled}
+            label={t(
+              enabled ? "Visible in model prompt — click to disable" : "Hidden from model prompt — click to enable",
+            )}
+            loading={toggling}
+            onToggle={() => onToggle(skill)}
+          />
+        </div>
         {saveError && <span {...stylex.props(inlineStyles.inline7)}>{saveError}</span>}
-      </div>
-
-      <div {...stylex.props(inlineStyles.inline8)}>
-        <span {...stylex.props(inlineStyles.inline9)}>Name</span>
-        <span {...stylex.props(inlineStyles.inline10)}>{skill.name}</span>
-      </div>
-
-      <div {...stylex.props(inlineStyles.inline11)}>
-        <span {...stylex.props(inlineStyles.inline12)}>Description</span>
-        <span {...stylex.props(inlineStyles.inline13)}>{skill.description}</span>
-      </div>
-      {label !== "path" && (
-        <button
-          type="button"
-          onClick={() => onDelete(skill)}
-          disabled={deleting}
-          {...stylex.props(inlineStyles.deleteSkill)}
-        >
-          {deleting ? t("Deleting…") : t("Delete skill")}
-        </button>
-      )}
+        {label !== "path" &&
+          (confirmDelete ? (
+            <div {...stylex.props(inlineStyles.deleteConfirm)}>
+              <span>{t("Delete skill")}? </span>
+              <button type="button" onClick={() => onDelete(skill)} disabled={deleting}>
+                {t("Delete")}
+              </button>
+              <button type="button" onClick={() => setConfirmDelete(false)}>
+                {t("Cancel")}
+              </button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setConfirmDelete(true)} {...stylex.props(inlineStyles.deleteSkill)}>
+              {t("Delete skill")}
+            </button>
+          ))}
+      </aside>
     </div>
   )
 }
@@ -313,6 +416,7 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
   const [deleting, setDeleting] = useState<string | null>(null)
   const [addMode, setAddMode] = useState(false)
   const [skillQuery, setSkillQuery] = useState("")
+  const [scopeFilter, setScopeFilter] = useState<"all" | "project" | "global" | "path">("all")
   const loadSkills = useCallback(() => {
     setLoading(true)
     setError(null)
@@ -396,7 +500,11 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
   const selectedSkill = skills.find((s) => s.filePath === selected) ?? null
   const visibleSkills = skills.filter((skill) => {
     const query = skillQuery.trim().toLowerCase()
-    return query.length === 0 || `${skill.name} ${skill.description} ${skill.filePath}`.toLowerCase().includes(query)
+    const matchesScope = scopeFilter === "all" || sourceLabel(skill) === scopeFilter
+    return (
+      matchesScope &&
+      (query.length === 0 || `${skill.name} ${skill.description} ${skill.filePath}`.toLowerCase().includes(query))
+    )
   })
   const deleteSkill = useCallback(
     (skill: Skill) => {
@@ -424,10 +532,10 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
     <SettingsWorkspace
       closeLabel={t("Close")}
       context={<code {...stylex.props(inlineStyles.inline42)}>{shortenPath(cwd)}</code>}
-      height={isMobile ? "calc(100dvh - 16px)" : "78vh"}
+      height={isMobile ? "calc(100dvh - 16px)" : "82vh"}
       onClose={onClose}
       title={t("Skills")}
-      width={isMobile ? "calc(100vw - 16px)" : 860}
+      width={isMobile ? "calc(100vw - 16px)" : 1180}
     >
       <div
         {...stylex.props(inlineStyles.inline44)}
@@ -439,12 +547,35 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
         <div
           {...stylex.props(inlineStyles.inline45)}
           style={{
-            width: isMobile ? "100%" : 210,
+            width: isMobile ? "100%" : 250,
             maxHeight: isMobile ? "40vh" : undefined,
             borderRight: isMobile ? "none" : "1px solid var(--border)",
             borderBottom: isMobile ? "1px solid var(--border)" : "none",
           }}
         >
+          <div {...stylex.props(inlineStyles.skillSummary)}>
+            <strong>{skills.length}</strong>
+            <span>{t("Skills")}</span>
+            <span>
+              {skills.filter((skill) => !skill.disableModelInvocation).length} {t("Enabled")}
+            </span>
+            <span>
+              {skills.filter((skill) => skill.disableModelInvocation).length} {t("Disabled")}
+            </span>
+          </div>
+          <div {...stylex.props(inlineStyles.skillFilters)}>
+            {(["all", "project", "global", "path"] as const).map((scope) => (
+              <button
+                key={scope}
+                type="button"
+                aria-pressed={scopeFilter === scope}
+                onClick={() => setScopeFilter(scope)}
+                style={{ background: scopeFilter === scope ? "var(--bg-selected)" : "transparent" }}
+              >
+                {t(scope)}
+              </button>
+            ))}
+          </div>
           <div {...stylex.props(inlineStyles.skillSearch)}>
             <input
               value={skillQuery}
@@ -612,6 +743,61 @@ const inlineStyles = stylex.create({
     paddingInline: 10,
   },
   skillSearch: { borderBottom: "1px solid var(--border)", padding: 8 },
+  skillSummary: {
+    alignItems: "baseline",
+    borderBottom: "1px solid var(--border)",
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 7,
+    padding: 10,
+  },
+  skillFilters: { display: "flex", flexWrap: "wrap", gap: 4, padding: "8px 8px 0" },
+  skillFinder: { display: "grid", height: "100%", minHeight: 0, overflow: "hidden" },
+  skillFileTree: {
+    backgroundColor: "var(--bg-panel)",
+    borderRight: "1px solid var(--border)",
+    minHeight: 0,
+    overflow: "auto",
+    paddingBlock: 8,
+  },
+  skillPaneTitle: { color: "var(--text-dim)", fontSize: 10, fontWeight: 700, padding: "6px 9px" },
+  skillFileRow: {
+    alignItems: "center",
+    border: "none",
+    color: "var(--text-muted)",
+    display: "flex",
+    fontFamily: "var(--font-mono)",
+    fontSize: 10,
+    gap: 5,
+    minHeight: 25,
+    overflow: "hidden",
+    paddingRight: 7,
+    textAlign: "left",
+    width: "100%",
+  },
+  skillPreview: { display: "grid", gridTemplateRows: "38px minmax(0, 1fr)", minHeight: 0, minWidth: 0 },
+  skillPreviewHeader: {
+    alignItems: "center",
+    borderBottom: "1px solid var(--border)",
+    display: "flex",
+    justifyContent: "space-between",
+    minWidth: 0,
+    paddingInline: 10,
+  },
+  skillPreviewBody: { minHeight: 0, overflow: "auto" },
+  skillInspector: {
+    borderLeft: "1px solid var(--border)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    minHeight: 0,
+    overflow: "auto",
+    padding: 12,
+  },
+  skillDescription: { color: "var(--text-muted)", fontSize: 12, lineHeight: 1.55, margin: 0 },
+  skillPath: { color: "var(--text-dim)", fontSize: 10, overflowWrap: "anywhere" },
+  skillToggleRow: { alignItems: "center", display: "flex", justifyContent: "space-between" },
+  deleteConfirm: { display: "flex", flexDirection: "column", gap: 7, marginTop: "auto" },
   inline3: {
     display: "flex",
     flexDirection: "column",
@@ -896,8 +1082,8 @@ const inlineStyles = stylex.create({
   },
   inline57: {
     flex: 1,
-    overflowY: "auto",
-    padding: 20,
+    minHeight: 0,
+    overflow: "hidden",
   },
   inline58: {
     height: "100%",

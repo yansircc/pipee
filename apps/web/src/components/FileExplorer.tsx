@@ -1,4 +1,5 @@
 import * as stylex from "@stylexjs/stylex"
+import { Effect } from "effect"
 import { useState, useCallback, useEffect, useRef } from "react"
 import { getFileIcon, FolderIcon } from "./FileIcons"
 import { getRelativeFilePath } from "@/lib/file-paths"
@@ -18,7 +19,19 @@ interface Props {
   onOpenFile: (filePath: string, fileName: string) => void
   refreshKey?: number
   onAtMention?: (relativePath: string, isDir: boolean) => void
+  selectedFilePath?: string | null
 }
+const toFileNodes = (
+  entries: ReadonlyArray<{ name: string; path: string; kind: "file" | "directory"; size?: number }>,
+): FileNode[] =>
+  entries.map((entry) => ({
+    name: entry.name,
+    fullPath: entry.path,
+    isDir: entry.kind === "directory",
+    size: entry.size ?? 0,
+    children: entry.kind === "directory" ? [] : undefined,
+    loaded: entry.kind !== "directory",
+  }))
 function loadEntries(
   dirPath: string,
   callbacks: {
@@ -35,17 +48,30 @@ function loadEntries(
       }),
     ),
     {
-      onSuccess: ({ entries }) =>
-        callbacks.onSuccess(
-          entries.map((entry) => ({
-            name: entry.name,
-            fullPath: entry.path,
-            isDir: entry.kind === "directory",
-            size: entry.size ?? 0,
-            children: entry.kind === "directory" ? [] : undefined,
-            loaded: entry.kind !== "directory",
-          })),
+      onSuccess: ({ entries }) => callbacks.onSuccess(toFileNodes(entries)),
+      onFailure: callbacks.onFailure,
+    },
+  )
+}
+function loadRootEntries(
+  root: string,
+  callbacks: {
+    readonly onSuccess: (entries: FileNode[]) => void
+    readonly onFailure: (error: unknown) => void
+  },
+): Cancel {
+  return runApi(
+    withApi((api) =>
+      api.workspace.validateCwd({ payload: { cwd: root } }).pipe(
+        Effect.flatMap(({ cwd }) =>
+          api.workspace.fileIndex({
+            query: { root: cwd },
+          }),
         ),
+      ),
+    ),
+    {
+      onSuccess: ({ entries }) => callbacks.onSuccess(toFileNodes(entries)),
       onFailure: callbacks.onFailure,
     },
   )
@@ -59,6 +85,7 @@ function TreeNode({
   expandedPaths,
   onToggleExpanded,
   refreshKey,
+  selectedFilePath,
 }: {
   node: FileNode
   depth: number
@@ -68,9 +95,11 @@ function TreeNode({
   expandedPaths: Set<string>
   onToggleExpanded: (fullPath: string, open: boolean) => void
   refreshKey?: number
+  selectedFilePath?: string | null
 }) {
   const { t } = useI18n()
   const open = expandedPaths.has(node.fullPath)
+  const selected = !node.isDir && selectedFilePath === node.fullPath
   const [children, setChildren] = useState<FileNode[]>(node.children ?? [])
   const [loaded, setLoaded] = useState(node.loaded ?? false)
   const [loading, setLoading] = useState(false)
@@ -117,14 +146,25 @@ function TreeNode({
     <div>
       <div
         draggable
+        role="button"
+        tabIndex={0}
+        aria-label={node.name}
+        aria-current={selected ? "true" : undefined}
         onDragStart={(event) => writePathDrag(event.dataTransfer, node.fullPath, node.isDir)}
         onClick={handleClick}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault()
+            handleClick()
+          }
+        }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         {...stylex.props(inlineStyles.inline1)}
         style={{
           paddingLeft: 8 + depth * 14,
-          background: hovered ? "var(--bg-hover)" : "transparent",
+          background: selected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
+          color: selected ? "var(--text)" : undefined,
         }}
       >
         {node.isDir && (
@@ -235,6 +275,7 @@ function TreeNode({
               expandedPaths={expandedPaths}
               onToggleExpanded={onToggleExpanded}
               refreshKey={refreshKey}
+              selectedFilePath={selectedFilePath}
             />
           ))}
           {children.length === 0 && loaded && (
@@ -252,7 +293,7 @@ function TreeNode({
     </div>
   )
 }
-export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention }: Props) {
+export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention, selectedFilePath }: Props) {
   const [roots, setRoots] = useState<FileNode[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -274,7 +315,7 @@ export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention }: Props
     if (cwdChanged) setExpandedPaths(new Set())
     setLoading(cwdChanged)
     setError(null)
-    return loadEntries(cwd, {
+    return loadRootEntries(cwd, {
       onSuccess: (entries) => {
         setRoots(entries)
         setLoading(false)
@@ -304,6 +345,7 @@ export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention }: Props
           expandedPaths={expandedPaths}
           onToggleExpanded={handleToggleExpanded}
           refreshKey={refreshKey}
+          selectedFilePath={selectedFilePath}
         />
       ))}
       {roots.length === 0 && <div {...stylex.props(inlineStyles.inline12)}>No files found</div>}

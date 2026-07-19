@@ -1,7 +1,7 @@
-import { expect, test } from "vite-plus/test"
+import { expect, test, vi } from "vite-plus/test"
 import { RunId, SessionEntry } from "@/api/contract"
 import { matchExtensionInteractionResponse } from "./extension-ui-runtime"
-import { normalizeAgentSessionName, normalizePiMessage } from "./pi-agent-adapter"
+import { findAgentSessionModel, normalizeAgentSessionName, normalizePiMessage } from "./pi-agent-adapter"
 import { canonicalPromptInput, decidePromptRequest, projectPromptRequestReceipts } from "./prompt-request"
 
 test("normalizes Pi flat images and tool calls into the canonical API shape", () => {
@@ -41,6 +41,17 @@ test("normalizes Pi flat images and tool calls into the canonical API shape", ()
 test("normalizes agent-authored session names without creating a second title format", () => {
   expect(normalizeAgentSessionName("  修复   Chrome 配对与浏览器标题  ")).toBe("修复 Chrome 配对与浏览器标题")
   expect(normalizeAgentSessionName("长".repeat(40))).toBe("长".repeat(30))
+})
+
+test("resolves session models through the runtime-owned model catalog", () => {
+  const model = { provider: "provider", id: "model" }
+  const getModel = vi.fn((provider: string, modelId: string) =>
+    provider === model.provider && modelId === model.id ? model : undefined,
+  )
+
+  expect(findAgentSessionModel({ modelRuntime: { getModel } }, model.provider, model.id)).toBe(model)
+  expect(findAgentSessionModel({ modelRuntime: { getModel } }, model.provider, "missing")).toBeUndefined()
+  expect(getModel).toHaveBeenCalledTimes(2)
 })
 
 const runId = RunId.make("run-1")

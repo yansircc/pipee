@@ -750,6 +750,17 @@ export const SkillsResponse = Schema.Struct({
   skills: Schema.Array(SkillInfo),
   diagnostics: Schema.Array(SkillDiagnostic),
 })
+export const SkillFileEntry = Schema.Struct({
+  path: Schema.String,
+  name: Schema.String,
+  kind: Schema.Literals(["file", "directory"]),
+  size: Schema.Number,
+})
+export const SkillFileContent = Schema.Struct({
+  path: Schema.String,
+  content: Schema.String,
+  size: Schema.Number,
+})
 
 export const PluginScope = Schema.Literals(["global", "project"])
 export const PluginResourceKind = Schema.Literals(["extension", "skill", "prompt", "theme"])
@@ -1262,6 +1273,16 @@ const PackagesApi = HttpApiGroup.make("packages").add(
   HttpApiEndpoint.get("skills", "/api/packages/skills", {
     query: { cwd: Schema.String },
     success: SkillsResponse,
+    error: CommonErrors,
+  }),
+  HttpApiEndpoint.get("skillFiles", "/api/packages/skills/files", {
+    query: { cwd: Schema.String, skillPath: Schema.String },
+    success: Schema.Struct({ entries: Schema.Array(SkillFileEntry) }),
+    error: CommonErrors,
+  }),
+  HttpApiEndpoint.get("skillFile", "/api/packages/skills/file", {
+    query: { cwd: Schema.String, skillPath: Schema.String, path: Schema.String },
+    success: SkillFileContent,
     error: CommonErrors,
   }),
   HttpApiEndpoint.patch("toggleSkill", "/api/packages/skills", {

@@ -51,7 +51,12 @@ interface Props {
     activeLeafId: string | null,
     onLeafChange: (leafId: string | null) => void,
   ) => void
-  onSystemPromptChange?: (prompt: string | null) => void
+  onSystemPromptChange?: (
+    state:
+      | { readonly sessionId: string; readonly status: "loading" }
+      | { readonly error: string; readonly sessionId: string; readonly status: "error" }
+      | { readonly prompt: string; readonly sessionId: string; readonly status: "ready" },
+  ) => void
   onSessionStatsChange?: (stats: SessionStats | null) => void
   onSessionStatsPanelOpen?: () => void
   onContextUsageChange?: (
@@ -262,6 +267,7 @@ export function ChatWindow({
     thinkingLevel,
     retryInfo,
     contextUsage,
+    systemPrompt,
     forkingEntryId,
     isCompacting,
     compactError,
@@ -307,9 +313,17 @@ export function ChatWindow({
     modelsRefreshKey,
     chatInputRef,
     onBranchDataChange,
-    onSystemPromptChange,
     onSessionStatsPanelOpen,
   })
+  useEffect(() => {
+    if (loading) {
+      onSystemPromptChange?.({ sessionId: session.id, status: "loading" })
+    } else if (error) {
+      onSystemPromptChange?.({ sessionId: session.id, status: "error", error: String(error) })
+    } else if (systemPrompt !== null) {
+      onSystemPromptChange?.({ sessionId: session.id, status: "ready", prompt: systemPrompt })
+    }
+  }, [error, loading, onSystemPromptChange, session.id, systemPrompt])
   const sessionBusy = agentRunning || activeBashExecution !== null
   const activeBashOutputLength = activeBashExecution?.output.length
   const [followingLatest, setFollowingLatestState] = useState(true)
