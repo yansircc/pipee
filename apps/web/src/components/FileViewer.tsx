@@ -834,7 +834,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId }: Props) {
             title={t("HTML preview")}
           />
         ) : isMarkdown && previewMode ? (
-          <div className="markdown-body markdown-file-preview" {...stylex.props(inlineStyles.inline58)}>
+          <div className={`${stylex.props(inlineStyles.inline58).className} markdown-body markdown-file-preview`}>
             <ReactMarkdown remarkPlugins={markdownPreviewRemarkPlugins} rehypePlugins={markdownPreviewRehypePlugins}>
               {data.content}
             </ReactMarkdown>

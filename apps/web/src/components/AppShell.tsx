@@ -694,9 +694,8 @@ export function AppShell() {
       <div {...stylex.props(inlineStyles.inline5)}>
         {/* Mobile overlay backdrop */}
         <div
-          className={`sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
+          className={`${stylex.props(inlineStyles.inline6).className} sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
           onClick={() => setSidebarOpen(false)}
-          {...stylex.props(inlineStyles.inline6)}
           style={{
             opacity: sidebarOpen ? 1 : 0,
             pointerEvents: sidebarOpen ? "auto" : "none",
@@ -705,8 +704,7 @@ export function AppShell() {
 
         {/* Left sidebar */}
         <div
-          className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
-          {...stylex.props(inlineStyles.inline7)}
+          className={`${stylex.props(inlineStyles.inline7).className} sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
         >
           {sidebarContent}
         </div>
@@ -1109,7 +1107,7 @@ export function AppShell() {
                   </div>
                 )}
                 {activeTopPanel === "session" && (
-                  <div className="session-info-popover" {...stylex.props(inlineStyles.inline29)}>
+                  <div className={`${stylex.props(inlineStyles.inline29).className} session-info-popover`}>
                     {sessionStats ? (
                       (() => {
                         const sessionRows = [
@@ -1370,8 +1368,7 @@ export function AppShell() {
 
         {/* Right panel: file viewer — always mounted, width animated via CSS */}
         <div
-          className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}`}
-          {...stylex.props(inlineStyles.inline53)}
+          className={`${stylex.props(inlineStyles.inline53).className} right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}`}
         >
           {/* Right panel tab bar */}
           <div {...stylex.props(inlineStyles.inline54)}>

@@ -88,7 +88,10 @@ export default defineConfig(({ mode }) => ({
             traceDeps: ["@earendil-works/pi-coding-agent*", "@earendil-works/pi-ai*"],
           }),
         ]),
-    stylex.vite(),
+    // Migrated styles still contain hundreds of shorthand declarations; the default resolver silently drops them.
+    // Compiler expansion is safer than duplicating its algorithm by hand. Remove this mode only after the source has
+    // no shorthand keys and the pre-migration visual contract has been re-baselined.
+    stylex.vite({ styleResolution: "legacy-expand-shorthands" }),
     react(),
   ],
 }))

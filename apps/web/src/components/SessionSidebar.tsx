@@ -1271,7 +1271,7 @@ export function SessionSidebar({
                         )
                       }
                       return (
-                        <div key={wt.path} className="wt-row" {...stylex.props(inlineStyles.inline42)}>
+                        <div key={wt.path} className={`${stylex.props(inlineStyles.inline42).className} wt-row`}>
                           <button
                             onClick={() => {
                               setSelectedCwd(wt.path)
