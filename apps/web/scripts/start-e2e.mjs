@@ -81,12 +81,15 @@ await rm(fixtureRoot, { recursive: true, force: true })
 await mkdir(home, { recursive: true })
 await mkdir(workspace, { recursive: true })
 await writeFile(join(workspace, "hello.txt"), "hello from the isolated e2e workspace\n")
+await writeFile(join(workspace, "long.txt"), Array.from({ length: 240 }, (_, index) => `line ${index + 1}`).join("\n"))
 const fixtureSkillDirectory = join(workspace, ".agents", "skills", "e2e-skill")
 await mkdir(fixtureSkillDirectory, { recursive: true })
 await writeFile(
   join(fixtureSkillDirectory, "SKILL.md"),
   "---\nname: e2e-skill\ndescription: isolated fixture\n---\n\n# E2E skill\n",
 )
+await mkdir(join(fixtureSkillDirectory, "references"), { recursive: true })
+await writeFile(join(fixtureSkillDirectory, "references", "guide.md"), "# Guide\n\nSkill-owned reference.\n")
 const fixturePluginDirectory = join(fixtureRoot, "e2e-plugin")
 const fixtureExtensionSource = join(fixtureRoot, "e2e-extension-source")
 const fixtureExtensionArchiveDirectory = join(fixtureRoot, "e2e-extension-archive")

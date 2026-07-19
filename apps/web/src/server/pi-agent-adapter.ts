@@ -70,6 +70,8 @@ import {
   RuntimeSnapshot,
   SessionEntry,
   SessionStats,
+  SkillFileContent,
+  SkillFileEntry,
   SkillsResponse,
   SlashCommand,
   ToolEntry,
@@ -286,6 +288,11 @@ export class PiAgentAdapter extends Context.Service<
     ) => Effect.Effect<PluginsResponseValue, PiAdapterError>
     readonly packageFingerprint: (cwd: string) => Effect.Effect<string, PiAdapterError>
     readonly skills: (cwd: string) => Effect.Effect<typeof SkillsResponse.Type, PiAdapterError>
+    readonly skillFiles: (baseDir: string) => Effect.Effect<ReadonlyArray<typeof SkillFileEntry.Type>, PiAdapterError>
+    readonly skillFile: (
+      baseDir: string,
+      relativePath: string,
+    ) => Effect.Effect<typeof SkillFileContent.Type, PiAdapterError>
     readonly toggleSkill: (filePath: string, disabled: boolean) => Effect.Effect<void, PiAdapterError>
     readonly deleteSkill: (baseDir: string) => Effect.Effect<void, PiAdapterError>
   }
@@ -314,7 +321,7 @@ interface AgentSessionLike {
   readonly autoCompactionEnabled: boolean
   readonly autoRetryEnabled: boolean
   readonly model?: ModelLike
-  readonly modelRegistry: { readonly find: (provider: string, modelId: string) => ModelLike | undefined }
+  readonly modelRuntime: { readonly getModel: (provider: string, modelId: string) => ModelLike | undefined }
   readonly sessionManager: SessionManager
   readonly agent: { readonly state?: { systemPrompt?: string; thinkingLevel?: string } }
   readonly extensionRunner: {
@@ -411,6 +418,12 @@ interface AgentSessionLike {
   readonly getContextUsage: () => typeof ContextUsage.Type | undefined
   readonly reload: (options?: { readonly beforeSessionStart?: () => void | Promise<void> }) => Promise<void>
 }
+
+export const findAgentSessionModel = (
+  session: Pick<AgentSessionLike, "modelRuntime">,
+  provider: string,
+  modelId: string,
+): ModelLike | undefined => session.modelRuntime.getModel(provider, modelId)
 
 class PlainTextTheme extends Theme {
   constructor() {
@@ -1032,7 +1045,7 @@ const makeRuntime = (
     inner.setActiveToolsByName(selectedTools)
     if (selectedTools.length === 0 && inner.agent.state) inner.agent.state.systemPrompt = ""
     if (requestedModel !== undefined) {
-      const model = inner.modelRegistry.find(requestedModel.provider, requestedModel.modelId)
+      const model = findAgentSessionModel(inner, requestedModel.provider, requestedModel.modelId)
       if (model === undefined) {
         return yield* new PiAdapterError({
           operation: "runtime.create.model",
@@ -1343,7 +1356,7 @@ const makeRuntime = (
       abortBash: Effect.sync(() => inner.abortBash()),
       setModel: (provider, modelId) =>
         Effect.gen(function* () {
-          const model = inner.modelRegistry.find(provider, modelId)
+          const model = findAgentSessionModel(inner, provider, modelId)
           if (model === undefined)
             return yield* new PiAdapterError({
               operation: "runtime.setModel",
@@ -2101,6 +2114,58 @@ const adapterLive = Effect.gen(function* () {
       return yield* decode(SkillsResponse, "skills.response", loader.getSkills())
     })
 
+  const canonicalSkillMember = (baseDir: string, relativePath: string) =>
+    Effect.gen(function* () {
+      const base = yield* fs.realPath(baseDir).pipe(Effect.mapError(adapterError("skills.base.realpath")))
+      const target = yield* fs
+        .realPath(path.join(base, relativePath))
+        .pipe(Effect.mapError(adapterError("skills.file.realpath")))
+      const relative = path.relative(base, target)
+      if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) {
+        return yield* new PiAdapterError({ operation: "skills.file.boundary", message: "Path is outside the skill" })
+      }
+      return { base, target, relative }
+    })
+
+  const skillFiles = (baseDir: string) =>
+    Effect.gen(function* () {
+      const base = yield* fs.realPath(baseDir).pipe(Effect.mapError(adapterError("skills.base.realpath")))
+      const names = yield* fs
+        .readDirectory(base, { recursive: true })
+        .pipe(Effect.mapError(adapterError("skills.files.list")))
+      const entries = yield* Effect.forEach(names, (name) =>
+        Effect.gen(function* () {
+          const target = yield* fs.realPath(path.join(base, name)).pipe(Effect.option)
+          if (Option.isNone(target)) return null
+          const relative = path.relative(base, target.value)
+          if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) return null
+          const info = yield* fs.stat(target.value).pipe(Effect.mapError(adapterError("skills.files.stat")))
+          if (info.type !== "File" && info.type !== "Directory") return null
+          return SkillFileEntry.make({
+            path: relative,
+            name: path.basename(relative),
+            kind: info.type === "Directory" ? "directory" : "file",
+            size: Number(info.size),
+          })
+        }),
+      )
+      return entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    })
+
+  const skillFile = (baseDir: string, relativePath: string) =>
+    Effect.gen(function* () {
+      const member = yield* canonicalSkillMember(baseDir, relativePath)
+      const info = yield* fs.stat(member.target).pipe(Effect.mapError(adapterError("skills.file.stat")))
+      if (info.type !== "File") {
+        return yield* new PiAdapterError({ operation: "skills.file.read", message: "Skill member is not a file" })
+      }
+      if (info.size > 2 * 1024 * 1024) {
+        return yield* new PiAdapterError({ operation: "skills.file.read", message: "Skill file exceeds 2 MB" })
+      }
+      const content = yield* fs.readFileString(member.target).pipe(Effect.mapError(adapterError("skills.file.read")))
+      return SkillFileContent.make({ path: member.relative, content, size: Number(info.size) })
+    })
+
   const toggleSkill = (filePath: string, disabled: boolean) =>
     Effect.gen(function* () {
       const content = yield* fs.readFileString(filePath).pipe(Effect.mapError(adapterError("skills.read")))
@@ -2274,6 +2339,8 @@ const adapterLive = Effect.gen(function* () {
       }),
     pluginAction,
     skills,
+    skillFiles,
+    skillFile,
     toggleSkill,
     deleteSkill,
   })

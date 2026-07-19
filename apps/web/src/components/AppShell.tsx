@@ -6,7 +6,6 @@ import { SessionSidebar } from "./SessionSidebar"
 import { ChatWindow } from "./ChatWindow"
 import { FileExplorer } from "./FileExplorer"
 import { readWebSurfaceCatalogs } from "./ExtensionShell"
-import { TabBar, type Tab } from "./TabBar"
 import { BranchNavigator } from "./BranchNavigator"
 import { useTheme } from "@/hooks/useTheme"
 import { useIsMobile } from "@/hooks/useIsMobile"
@@ -25,6 +24,15 @@ import { probeChromeExtension, type ChromeExtensionHealth } from "@/lib/chrome-e
 import { useBrowserPreferences } from "@/browser/preferences-react"
 import type { ExtensionCatalogState } from "@/lib/web-surface-catalog-group"
 type SessionCopyField = "file" | "id"
+type SelectedFinderFile = {
+  readonly filePath: string
+  readonly sourceSessionId?: string | null
+}
+type SystemPromptState =
+  | { readonly status: "none" }
+  | { readonly sessionId: string; readonly status: "loading" }
+  | { readonly error: string; readonly sessionId: string; readonly status: "error" }
+  | { readonly prompt: string; readonly sessionId: string; readonly status: "ready" }
 type SettingsSurface =
   | { readonly kind: "general" }
   | { readonly kind: "models" }
@@ -47,6 +55,7 @@ export function AppShell() {
         : (sessionCollection.find((candidate) => candidate.id === search.session) ?? null),
     [search.session, sessionCollection],
   )
+  const selectedSessionId = selectedSession?.id ?? null
   const [creatingSessionCwd, setCreatingSessionCwd] = useState<string | null>(null)
   const [createSessionError, setCreateSessionError] = useState<string | null>(null)
   const [inputFocusEpoch, setInputFocusEpoch] = useState(0)
@@ -101,10 +110,15 @@ export function AppShell() {
   const handleBranchLeafChange = useCallback((leafId: string | null) => {
     branchLeafChangeFnRef.current?.(leafId)
   }, [])
-  const [systemPrompt, setSystemPrompt] = useState<string | null>(null)
-  const handleSystemPromptChange = useCallback((prompt: string | null) => {
-    setSystemPrompt(prompt)
+  const [systemPromptState, setSystemPromptState] = useState<SystemPromptState>({ status: "none" })
+  const handleSystemPromptChange = useCallback((state: Exclude<SystemPromptState, { status: "none" }>) => {
+    setSystemPromptState(state)
   }, [])
+  useEffect(() => {
+    setSystemPromptState(
+      selectedSessionId === null ? { status: "none" } : { sessionId: selectedSessionId, status: "loading" },
+    )
+  }, [selectedSessionId])
 
   // Session stats (tokens + cost) — populated by ChatWindow, displayed in top bar
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
@@ -207,10 +221,22 @@ export function AppShell() {
       onSuccess: () => undefined,
     })
   }, [activeTopPanel])
+  useEffect(() => {
+    if (settingsSurface?.kind !== "plugins") return
+    return runBrowser(
+      BrowserPlatform.pipe(
+        Effect.flatMap((browser) =>
+          browser.onDocumentKeyDown((event) => {
+            if (event.key === "Escape") setSettingsSurface(null)
+          }),
+        ),
+      ),
+      { onSuccess: () => undefined },
+    )
+  }, [settingsSurface?.kind])
 
-  // Resource manager owns the file tree and preview tabs.
-  const [fileTabs, setFileTabs] = useState<Tab[]>([])
-  const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null)
+  // Finder owns one selected file; workspace APIs remain the only content source.
+  const [selectedFinderFile, setSelectedFinderFile] = useState<SelectedFinderFile | null>(null)
   const [resourceManagerOpen, setResourceManagerOpen] = useState(false)
 
   // Same @mention format as the chat input's @ autocomplete, so the agent's
@@ -221,6 +247,9 @@ export function AppShell() {
   const [initialSessionId] = useState<string | null>(() => search.session ?? null)
   const [activeCwd, setActiveCwd] = useState<string | null>(null)
   const managementCwd = activeCwd ?? selectedSession?.cwd ?? null
+  useEffect(() => {
+    setSelectedFinderFile(null)
+  }, [managementCwd])
   useEffect(() => {
     if (managementCwd === null) {
       setSkillsCount(0)
@@ -277,7 +306,7 @@ export function AppShell() {
       setCreateSessionError(null)
       setBranchNodes([])
       setBranchActiveLeafId(null)
-      setSystemPrompt(null)
+      setSystemPromptState({ status: "none" })
       setActiveTopPanel(null)
       void navigate({
         to: "/",
@@ -294,7 +323,7 @@ export function AppShell() {
           ? current.map((candidate) => (candidate.id === session.id ? session : candidate))
           : [...current, session],
       )
-      setSystemPrompt(null)
+      setSystemPromptState({ sessionId: session.id, status: "loading" })
       setInitialSessionRestored(true)
       // On mobile, collapse the overlay drawer so the chat is revealed after pick.
       if (isMobile && !isRestore) setSidebarOpen(false)
@@ -343,7 +372,7 @@ export function AppShell() {
       setCreateSessionError(null)
       setBranchNodes([])
       setBranchActiveLeafId(null)
-      setSystemPrompt(null)
+      setSystemPromptState({ status: "none" })
       setActiveTopPanel(null)
       if (isMobile) setSidebarOpen(false)
       void navigate({
@@ -434,7 +463,7 @@ export function AppShell() {
       if (selectedSession?.id === sessionId) {
         setBranchNodes([])
         setBranchActiveLeafId(null)
-        setSystemPrompt(null)
+        setSystemPromptState({ status: "none" })
         setActiveTopPanel(null)
         void navigate({
           to: "/",
@@ -446,31 +475,8 @@ export function AppShell() {
     [selectedSession, navigate],
   )
   const handleOpenFile = useCallback(
-    (filePath: string, fileName: string, sourceSessionId?: string | null) => {
-      const tabId = `file:${filePath}`
-      setFileTabs((prev) => {
-        const existing = prev.find((t) => t.id === tabId)
-        if (!existing)
-          return [
-            ...prev,
-            {
-              id: tabId,
-              label: fileName,
-              filePath,
-              sourceSessionId,
-            },
-          ]
-        if (!sourceSessionId || existing.sourceSessionId === sourceSessionId) return prev
-        return prev.map((t) =>
-          t.id === tabId
-            ? {
-                ...t,
-                sourceSessionId,
-              }
-            : t,
-        )
-      })
-      setActiveFileTabId(tabId)
+    (filePath: string, _fileName: string, sourceSessionId?: string | null) => {
+      setSelectedFinderFile({ filePath, sourceSessionId })
       setResourceManagerOpen(true)
       // On mobile the file panel is full-screen; close the drawer so it shows.
       if (isMobile) setSidebarOpen(false)
@@ -482,21 +488,6 @@ export function AppShell() {
       handleOpenFile(filePath, getFileName(filePath), selectedSession?.id ?? null)
     },
     [handleOpenFile, selectedSession?.id],
-  )
-  const handleCloseFileTab = useCallback(
-    (tabId: string) => {
-      setFileTabs((prev) => {
-        const next = prev.filter((t) => t.id !== tabId)
-        if (next.length === 0) setResourceManagerOpen(false)
-        return next
-      })
-      setActiveFileTabId((cur) => {
-        if (cur !== tabId) return cur
-        const remaining = fileTabs.filter((t) => t.id !== tabId)
-        return remaining.length > 0 ? remaining[remaining.length - 1].id : null
-      })
-    },
-    [fileTabs],
   )
   const handleExportSession = useCallback(() => {
     if (!selectedSession) return
@@ -520,7 +511,6 @@ export function AppShell() {
   const showChat = selectedSession !== null
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat
-  const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null
   const sidebarContent = (
     <SessionSidebar
       selectedSessionId={selectedSession?.id ?? null}
@@ -575,6 +565,13 @@ export function AppShell() {
           transform: translateX(115%) skewX(-16deg);
         }
       }
+      @keyframes extension-drawer-in {
+        from { opacity: 0; transform: translateX(36px); }
+        to { opacity: 1; transform: translateX(0); }
+      }
+      .extension-drawer {
+        animation: extension-drawer-in 200ms ease-out both;
+      }
       .session-info-popover {
         position: relative;
         overflow: hidden;
@@ -602,6 +599,7 @@ export function AppShell() {
         .session-info-popover::after {
           animation: none;
         }
+        .extension-drawer { animation: none; }
       }
       @media (max-width: 640px) {
         .sidebar-overlay-backdrop.sidebar-mobile-pending {
@@ -988,6 +986,7 @@ export function AppShell() {
                                 session: sessionStats,
                                 context: contextUsage,
                                 weixin: weixinStatus,
+                                systemPrompt: systemPromptState,
                               },
                               null,
                               2,
@@ -999,6 +998,32 @@ export function AppShell() {
                     >
                       {tr("Copy debug information")}
                     </button>
+                    <section {...stylex.props(inlineStyles.systemPromptInspector)}>
+                      <div {...stylex.props(inlineStyles.systemPromptHeader)}>
+                        <strong>{tr("System prompt")}</strong>
+                        {systemPromptState.status === "ready" &&
+                          systemPromptState.sessionId === selectedSession?.id && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                runBrowser(copyText(systemPromptState.prompt), { onSuccess: () => undefined })
+                              }
+                            >
+                              {tr("Copy")}
+                            </button>
+                          )}
+                      </div>
+                      {selectedSession === null || systemPromptState.status === "none" ? (
+                        <span>{tr("No session selected")}</span>
+                      ) : systemPromptState.sessionId !== selectedSession.id ||
+                        systemPromptState.status === "loading" ? (
+                        <span>{tr("Loading…")}</span>
+                      ) : systemPromptState.status === "error" ? (
+                        <span {...stylex.props(inlineStyles.systemPromptError)}>{systemPromptState.error}</span>
+                      ) : (
+                        <pre {...stylex.props(inlineStyles.systemPromptPreview)}>{systemPromptState.prompt}</pre>
+                      )}
+                    </section>
                     {sessionStats ? (
                       (() => {
                         const sessionRows = [
@@ -1289,6 +1314,9 @@ export function AppShell() {
             aria-label={tr("Resource manager")}
             {...stylex.props(inlineStyles.resourceDialog)}
             onMouseDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setResourceManagerOpen(false)
+            }}
           >
             <header {...stylex.props(inlineStyles.modalHeader)}>
               <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
@@ -1308,24 +1336,17 @@ export function AppShell() {
                   onOpenFile={handleOpenFile}
                   refreshKey={explorerRefreshKey}
                   onAtMention={handleAtMention}
+                  selectedFilePath={selectedFinderFile?.filePath ?? null}
                 />
               </aside>
               <div {...stylex.props(inlineStyles.resourceViewer)}>
-                <div {...stylex.props(inlineStyles.resourceTabs)}>
-                  <TabBar
-                    tabs={fileTabs}
-                    activeTabId={activeFileTabId ?? ""}
-                    onSelectTab={setActiveFileTabId}
-                    onCloseTab={handleCloseFileTab}
-                  />
-                </div>
                 <div {...stylex.props(inlineStyles.resourceContent)}>
-                  {activeFileTab?.filePath ? (
+                  {selectedFinderFile ? (
                     <Suspense fallback={null}>
                       <FileViewer
-                        filePath={activeFileTab.filePath}
+                        filePath={selectedFinderFile.filePath}
                         cwd={managementCwd}
-                        sourceSessionId={activeFileTab.sourceSessionId}
+                        sourceSessionId={selectedFinderFile.sourceSessionId}
                       />
                     </Suspense>
                   ) : (
@@ -1350,8 +1371,19 @@ export function AppShell() {
           <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd)!} onClose={() => setSettingsSurface(null)} />
         )}
         {settingsSurface?.kind === "plugins" && (
-          <div {...stylex.props(inlineStyles.modalBackdrop)} onMouseDown={() => setSettingsSurface(null)}>
-            <section {...stylex.props(inlineStyles.extensionDialog)} onMouseDown={(event) => event.stopPropagation()}>
+          <div {...stylex.props(inlineStyles.extensionBackdrop)} onMouseDown={() => setSettingsSurface(null)}>
+            <section
+              className={`${stylex.props(inlineStyles.extensionDialog).className} extension-drawer`}
+              role="dialog"
+              aria-modal="true"
+              aria-label={tr("Plugins")}
+              tabIndex={-1}
+              autoFocus
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setSettingsSurface(null)
+              }}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
               <button
                 type="button"
                 onClick={() => setSettingsSurface(null)}
@@ -1418,27 +1450,6 @@ export function AppShell() {
                       }}
                     />
                   </button>
-                </div>
-                <div {...stylex.props(inlineStyles.systemPromptSetting)}>
-                  <strong>{tr("System prompt")}</strong>
-                  <pre
-                    style={{
-                      background: "var(--bg-panel)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 8,
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 11,
-                      lineHeight: 1.55,
-                      margin: 0,
-                      maxHeight: 480,
-                      overflow: "auto",
-                      overflowWrap: "anywhere",
-                      padding: 12,
-                      whiteSpace: "pre-wrap",
-                    }}
-                  >
-                    {systemPrompt || tr("Send a message to load the system prompt")}
-                  </pre>
                 </div>
               </div>
             </section>
@@ -1939,22 +1950,30 @@ const inlineStyles = stylex.create({
     borderRadius: { default: 14, "@media (max-width: 720px)": 0 },
     boxShadow: "0 24px 80px rgba(0,0,0,.28)",
     display: "grid",
-    gridTemplateRows: "58px minmax(0, 1fr)",
-    height: { default: "min(860px, calc(100dvh - 52px))", "@media (max-width: 720px)": "100dvh" },
-    maxWidth: 1440,
+    gridTemplateRows: "52px minmax(0, 1fr)",
+    height: { default: "min(720px, 82dvh)", "@media (max-width: 720px)": "100dvh" },
+    maxWidth: 960,
     overflow: "hidden",
-    width: { default: "min(1440px, calc(100vw - 52px))", "@media (max-width: 720px)": "100vw" },
+    width: { default: "min(960px, 90vw)", "@media (max-width: 720px)": "100vw" },
   },
   extensionDialog: {
     backgroundColor: "var(--bg)",
-    border: "1px solid var(--border)",
-    borderRadius: { default: 14, "@media (max-width: 720px)": 0 },
-    boxShadow: "0 24px 80px rgba(0,0,0,.28)",
-    height: { default: "min(860px, calc(100dvh - 52px))", "@media (max-width: 720px)": "100dvh" },
-    maxWidth: 1180,
+    borderLeft: "1px solid var(--border)",
+    boxShadow: "-18px 0 56px rgba(0,0,0,.22)",
+    height: "100dvh",
+    maxWidth: 460,
     overflow: "hidden",
     position: "relative",
-    width: { default: "min(1180px, calc(100vw - 52px))", "@media (max-width: 720px)": "100vw" },
+    width: { default: "min(460px, 92vw)", "@media (max-width: 720px)": "100vw" },
+  },
+  extensionBackdrop: {
+    alignItems: "stretch",
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
+    display: "flex",
+    inset: 0,
+    justifyContent: "flex-end",
+    position: "fixed",
+    zIndex: 700,
   },
   modalHeader: {
     alignItems: "center",
@@ -1966,13 +1985,17 @@ const inlineStyles = stylex.create({
   },
   resourceWorkspace: {
     display: "grid",
-    gridTemplateColumns: { default: "260px minmax(0, 1fr)", "@media (max-width: 720px)": "140px minmax(0, 1fr)" },
+    gridTemplateColumns: { default: "220px minmax(0, 1fr)", "@media (max-width: 720px)": "148px minmax(0, 1fr)" },
     minHeight: 0,
   },
-  resourceTree: { borderRight: "1px solid var(--border)", minHeight: 0, overflow: "auto" },
-  resourceViewer: { display: "grid", gridTemplateRows: "38px minmax(0, 1fr)", minHeight: 0, minWidth: 0 },
-  resourceTabs: { borderBottom: "1px solid var(--border)", minWidth: 0, overflow: "hidden" },
-  resourceContent: { minHeight: 0, overflow: "auto" },
+  resourceTree: {
+    backgroundColor: "var(--bg-panel)",
+    borderRight: "1px solid var(--border)",
+    minHeight: 0,
+    overflow: "auto",
+  },
+  resourceViewer: { height: "100%", minHeight: 0, minWidth: 0, overflow: "hidden" },
+  resourceContent: { height: "100%", minHeight: 0, overflow: "hidden" },
   modalClose: {
     alignItems: "center",
     backgroundColor: "var(--bg-panel)",
@@ -2013,5 +2036,28 @@ const inlineStyles = stylex.create({
     padding: 2,
     width: 42,
   },
-  systemPromptSetting: { display: "flex", flexDirection: "column", gap: 8 },
+  systemPromptInspector: {
+    borderBottom: "1px solid var(--border)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    marginBottom: 14,
+    paddingBottom: 14,
+  },
+  systemPromptHeader: { alignItems: "center", display: "flex", justifyContent: "space-between" },
+  systemPromptPreview: {
+    backgroundColor: "var(--bg-panel)",
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    fontFamily: "var(--font-mono)",
+    fontSize: 10,
+    lineHeight: 1.5,
+    margin: 0,
+    maxHeight: 220,
+    overflow: "auto",
+    overflowWrap: "anywhere",
+    padding: 10,
+    whiteSpace: "pre-wrap",
+  },
+  systemPromptError: { color: "#ef4444" },
 })
