@@ -1269,6 +1269,11 @@ const PackagesApi = HttpApiGroup.make("packages").add(
     success: Ok,
     error: CommonErrors,
   }),
+  HttpApiEndpoint.delete("deleteSkill", "/api/packages/skills", {
+    payload: Schema.Struct({ cwd: Schema.String, filePath: Schema.String }),
+    success: Ok,
+    error: CommonErrors,
+  }),
   HttpApiEndpoint.post("searchSkills", "/api/packages/skills/search", {
     payload: Schema.Struct({ query: Schema.String, limit: Schema.optionalKey(Schema.Number) }),
     success: Schema.Struct({ results: Schema.Array(SkillSearchResult) }),

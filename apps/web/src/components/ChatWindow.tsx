@@ -63,6 +63,9 @@ interface Props {
   ) => void
   onWeixinStatusChange?: (status: WeixinStatusProjection) => void
   onOpenFile?: (filePath: string) => void
+  onOpenModels?: () => void
+  onOpenSkills?: () => void
+  skillsCount?: number
 }
 function phaseLabel(phase: AgentPhase, t: (source: string) => string): string {
   if (phase?.kind === "running_tools") {
@@ -219,9 +222,12 @@ export function ChatWindow({
   onContextUsageChange,
   onWeixinStatusChange,
   onOpenFile,
+  onOpenModels,
+  onOpenSkills,
+  skillsCount,
 }: Props) {
   const { t } = useI18n()
-  const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio()
+  const { soundEnabled, playDoneSound, unlockAudio } = useAudio()
   const isMobile = useIsMobile()
 
   // Wrap onAgentEnd to play the completion sound. This is more reliable than
@@ -284,14 +290,12 @@ export function ChatWindow({
     handleNavigate,
     loadEarlier,
     handleModelChange,
-    handleCompact,
     handleSteer,
     handleFollowUp,
     handlePromptWithStreamingBehavior,
     handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange,
     handleThinkingLevelChange,
     loadSlashCommands,
   } = useAgentSession({
@@ -436,13 +440,16 @@ export function ChatWindow({
       modelNames={modelNames}
       modelList={modelList}
       onModelChange={handleModelChange}
-      onCompact={handleCompact}
+      onOpenModels={onOpenModels}
+      onOpenSkills={onOpenSkills}
+      skillsCount={skillsCount}
+      sessionStats={sessionStats}
+      contextUsage={contextUsage}
       onAbortCompaction={handleAbortCompaction}
       isCompacting={isCompacting}
       compactError={compactError}
       compactResult={compactResult}
       toolPreset={toolPreset}
-      onToolPresetChange={handleToolPresetChange}
       thinkingLevel={thinkingLevel}
       onThinkingLevelChange={handleThinkingLevelChange}
       availableThinkingLevels={availableThinkingLevels}
@@ -454,8 +461,6 @@ export function ChatWindow({
       slashCommandsLoading={slashCommandsLoading}
       onLoadSlashCommands={loadSlashCommands}
       onBuiltinCommand={handleBuiltinSlashCommand}
-      soundEnabled={soundEnabled}
-      onSoundToggle={onSoundToggle}
       onAudioUnlock={unlockAudio}
       draftKey={session.id}
       cwd={session.cwd}

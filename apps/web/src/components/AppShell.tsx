@@ -4,6 +4,8 @@ import { Effect, Schedule } from "effect"
 import { getRouteApi } from "@tanstack/react-router"
 import { SessionSidebar } from "./SessionSidebar"
 import { ChatWindow } from "./ChatWindow"
+import { FileExplorer } from "./FileExplorer"
+import { readWebSurfaceCatalogs } from "./ExtensionShell"
 import { TabBar, type Tab } from "./TabBar"
 import { BranchNavigator } from "./BranchNavigator"
 import { useTheme } from "@/hooks/useTheme"
@@ -19,14 +21,12 @@ import { BrowserPlatform } from "@/browser/browser-platform"
 import { FileViewer, ModelsConfig, PluginsConfig, SkillsConfig } from "@/browser/code-split"
 import { sessionController } from "@/features/session/session-controller"
 import { DEFAULT_TOOL_PRESET, getToolNamesForPreset } from "@/lib/tool-presets"
-import {
-  chromeExtensionNeedsAttention,
-  probeChromeExtension,
-  type ChromeExtensionHealth,
-} from "@/lib/chrome-extension-installation"
-import { PI_COMPANION_PACKAGE_NAMES } from "@/lib/plugin-package-settings"
+import { probeChromeExtension, type ChromeExtensionHealth } from "@/lib/chrome-extension-installation"
+import { useBrowserPreferences } from "@/browser/preferences-react"
+import type { ExtensionCatalogState } from "@/lib/web-surface-catalog-group"
 type SessionCopyField = "file" | "id"
 type SettingsSurface =
+  | { readonly kind: "general" }
   | { readonly kind: "models" }
   | { readonly kind: "skills" }
   | { readonly initialPackageName?: string; readonly kind: "plugins" }
@@ -37,6 +37,7 @@ export function AppShell() {
   const navigate = indexRoute.useNavigate()
   const search = indexRoute.useSearch()
   const { isDark, toggleTheme } = useTheme()
+  const { preferences, updatePreferences } = useBrowserPreferences()
   const isMobile = useIsMobile()
   const [sessionCollection, setSessionCollection] = useState<SessionInfo[]>([])
   const selectedSession = useMemo(
@@ -55,6 +56,9 @@ export function AppShell() {
   const [explorerRefreshKey, setExplorerRefreshKey] = useState(0)
   const [settingsSurface, setSettingsSurface] = useState<SettingsSurface>(null)
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0)
+  const [skillsCount, setSkillsCount] = useState(0)
+  const [activeExtensionCount, setActiveExtensionCount] = useState(0)
+  const [extensionCatalog, setExtensionCatalog] = useState<ExtensionCatalogState | null>(null)
   const [chromeExtensionHealth, setChromeExtensionHealth] = useState<ChromeExtensionHealth | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false)
@@ -81,8 +85,6 @@ export function AppShell() {
       onSuccess: () => undefined,
     })
   }, [])
-  const chromeExtensionAttention =
-    chromeExtensionHealth !== null && chromeExtensionNeedsAttention(chromeExtensionHealth)
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchNodes, setBranchNodes] = useState<SessionBranchNode[]>([])
@@ -100,7 +102,6 @@ export function AppShell() {
     branchLeafChangeFnRef.current?.(leafId)
   }, [])
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null)
-  const systemBtnRef = useRef<HTMLButtonElement>(null)
   const handleSystemPromptChange = useCallback((prompt: string | null) => {
     setSystemPrompt(prompt)
   }, [])
@@ -159,14 +160,14 @@ export function AppShell() {
   }, [sessionProjectionOwner])
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | null>(null)
+  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "session" | null>(null)
   const [topPanelPos, setTopPanelPos] = useState<{
     top: number
     left: number
     width: number
   } | null>(null)
   const toggleTopPanel = useCallback(
-    (panel: "branches" | "system" | "session") => {
+    (panel: "branches" | "session") => {
       if (isMobile) setSidebarOpen(false)
       setActiveTopPanel((cur) => (cur === panel ? null : panel))
     },
@@ -197,11 +198,20 @@ export function AppShell() {
       },
     )
   }, [activeTopPanel])
+  useEffect(() => {
+    if (activeTopPanel !== "session") return
+    const close = (event: MouseEvent) => {
+      if (!topBarRef.current?.contains(event.target as Node)) setActiveTopPanel(null)
+    }
+    return runBrowser(BrowserPlatform.pipe(Effect.flatMap((browser) => browser.onDocumentMouseDown(close))), {
+      onSuccess: () => undefined,
+    })
+  }, [activeTopPanel])
 
-  // Right panel — file tabs only
+  // Resource manager owns the file tree and preview tabs.
   const [fileTabs, setFileTabs] = useState<Tab[]>([])
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null)
-  const [rightPanelOpen, setRightPanelOpen] = useState(false)
+  const [resourceManagerOpen, setResourceManagerOpen] = useState(false)
 
   // Same @mention format as the chat input's @ autocomplete, so the agent's
   // read tool resolves it the same way (it strips the @ prefix).
@@ -210,6 +220,38 @@ export function AppShell() {
   }, [])
   const [initialSessionId] = useState<string | null>(() => search.session ?? null)
   const [activeCwd, setActiveCwd] = useState<string | null>(null)
+  const managementCwd = activeCwd ?? selectedSession?.cwd ?? null
+  useEffect(() => {
+    if (managementCwd === null) {
+      setSkillsCount(0)
+      return
+    }
+    return runApi(
+      withApi((api) => api.packages.skills({ query: { cwd: managementCwd } })),
+      {
+        onSuccess: (response) => setSkillsCount(response.skills.length),
+        onFailure: () => setSkillsCount(0),
+      },
+    )
+  }, [managementCwd, settingsSurface])
+  useEffect(
+    () =>
+      runApi(
+        withApi((api) => api.packages.pluginOverview()),
+        {
+          onSuccess: (plugins) => setActiveExtensionCount(plugins.packages.filter((pkg) => !pkg.disabled).length),
+          onFailure: () => undefined,
+        },
+      ),
+    [settingsSurface],
+  )
+  useEffect(() => {
+    if (settingsSurface?.kind !== "plugins") return
+    return runApi(readWebSurfaceCatalogs, {
+      onSuccess: setExtensionCatalog,
+      onFailure: () => setExtensionCatalog(null),
+    })
+  }, [settingsSurface])
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => search.session === undefined)
   // Suppresses draft replacement in handleCwdChange during the initial URL restore.
@@ -429,7 +471,7 @@ export function AppShell() {
         )
       })
       setActiveFileTabId(tabId)
-      setRightPanelOpen(true)
+      setResourceManagerOpen(true)
       // On mobile the file panel is full-screen; close the drawer so it shows.
       if (isMobile) setSidebarOpen(false)
     },
@@ -445,7 +487,7 @@ export function AppShell() {
     (tabId: string) => {
       setFileTabs((prev) => {
         const next = prev.filter((t) => t.id !== tabId)
-        if (next.length === 0) setRightPanelOpen(false)
+        if (next.length === 0) setResourceManagerOpen(false)
         return next
       })
       setActiveFileTabId((cur) => {
@@ -480,143 +522,20 @@ export function AppShell() {
   const showPlaceholder = initialSessionRestored && !showChat
   const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null
   const sidebarContent = (
-    <>
-      <SessionSidebar
-        selectedSessionId={selectedSession?.id ?? null}
-        onSelectSession={handleSelectSession}
-        onNewSession={handleNewSession}
-        newSessionPending={creatingSessionCwd !== null}
-        initialSessionId={initialSessionId}
-        onInitialRestoreDone={handleInitialRestoreDone}
-        refreshKey={refreshKey}
-        onSessionDeleted={handleSessionDeleted}
-        selectedCwd={selectedSession?.cwd ?? creatingSessionCwd ?? null}
-        onCwdChange={handleCwdChange}
-        onOpenFile={handleOpenFile}
-        explorerRefreshKey={explorerRefreshKey}
-        onAtMention={handleAtMention}
-      />
-      <div {...stylex.props(inlineStyles.inline1)}>
-        {(
-          [
-            {
-              label: tr("Models"),
-              onClick: () => setSettingsSurface({ kind: "models" }),
-              disabled: false,
-              icon: (
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="4" y="4" width="16" height="16" rx="2" />
-                  <rect x="9" y="9" width="6" height="6" />
-                  <line x1="9" y1="1" x2="9" y2="4" />
-                  <line x1="15" y1="1" x2="15" y2="4" />
-                  <line x1="9" y1="20" x2="9" y2="23" />
-                  <line x1="15" y1="20" x2="15" y2="23" />
-                  <line x1="20" y1="9" x2="23" y2="9" />
-                  <line x1="20" y1="14" x2="23" y2="14" />
-                  <line x1="1" y1="9" x2="4" y2="9" />
-                  <line x1="1" y1="14" x2="4" y2="14" />
-                </svg>
-              ),
-            },
-            {
-              label: tr("Skills"),
-              onClick: () => setSettingsSurface({ kind: "skills" }),
-              disabled: !activeCwd && !selectedSession?.cwd,
-              icon: (
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                  <path d="M2 17l10 5 10-5" />
-                  <path d="M2 12l10 5 10-5" />
-                </svg>
-              ),
-            },
-            {
-              label: tr("Plugins"),
-              onClick: () => {
-                setSettingsSurface({
-                  kind: "plugins",
-                  initialPackageName: chromeExtensionAttention ? PI_COMPANION_PACKAGE_NAMES.chrome : undefined,
-                })
-              },
-              disabled: false,
-              icon: (
-                <span {...stylex.props(inlineStyles.inline2)}>
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M9 7V2" />
-                    <path d="M15 7V2" />
-                    <path d="M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0Z" />
-                    <path d="M12 19v3" />
-                  </svg>
-                  {chromeExtensionAttention && (
-                    <span
-                      aria-label={tr("Chrome browser extension requires attention")}
-                      {...stylex.props(inlineStyles.inline3)}
-                    />
-                  )}
-                </span>
-              ),
-            },
-          ] as {
-            label: string
-            onClick: () => void
-            disabled: boolean
-            icon: React.ReactNode
-          }[]
-        ).map(({ label, onClick, disabled, icon }) => (
-          <button
-            key={label}
-            onClick={onClick}
-            disabled={disabled}
-            title={label}
-            {...stylex.props(inlineStyles.inline4)}
-            style={{
-              cursor: disabled ? "default" : "pointer",
-              opacity: disabled ? 0.35 : 1,
-            }}
-            onMouseEnter={(e) => {
-              if (!disabled) {
-                e.currentTarget.style.background = "var(--bg-hover)"
-                e.currentTarget.style.color = "var(--text)"
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "none"
-              e.currentTarget.style.color = "var(--text-muted)"
-            }}
-          >
-            {icon}
-            {label}
-          </button>
-        ))}
-      </div>
-    </>
+    <SessionSidebar
+      selectedSessionId={selectedSession?.id ?? null}
+      onSelectSession={handleSelectSession}
+      onNewSession={handleNewSession}
+      newSessionPending={creatingSessionCwd !== null}
+      initialSessionId={initialSessionId}
+      onInitialRestoreDone={handleInitialRestoreDone}
+      refreshKey={refreshKey}
+      onSessionDeleted={handleSessionDeleted}
+      selectedCwd={selectedSession?.cwd ?? creatingSessionCwd ?? null}
+      onCwdChange={handleCwdChange}
+      onOpenExplorer={() => setResourceManagerOpen(true)}
+      onOpenSettings={() => setSettingsSurface({ kind: "general" })}
+    />
   )
   return (
     <>
@@ -673,6 +592,10 @@ export function AppShell() {
         pointer-events: none;
         background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 24%, transparent), transparent);
         animation: session-info-light-wash 620ms ease-out both;
+      }
+      .debug-control > span,
+      .debug-control > svg:not(.debug-icon) {
+        display: none !important;
       }
       @media (prefers-reduced-motion: reduce) {
         .session-info-popover,
@@ -868,7 +791,6 @@ export function AppShell() {
                       <line x1="12" y1="15" x2="12" y2="3" />
                     </svg>
                   </span>
-                  {!isMobile && <span>{tr("Export")}</span>}
                 </button>
                 <BranchNavigator
                   branchNodes={branchNodes}
@@ -881,46 +803,6 @@ export function AppShell() {
                   onToggle={() => toggleTopPanel("branches")}
                   hasSession
                 />
-                <button
-                  ref={systemBtnRef}
-                  onClick={() => toggleTopPanel("system")}
-                  title={tr("System prompt")}
-                  aria-label={tr("System prompt")}
-                  aria-pressed={activeTopPanel === "system"}
-                  {...stylex.props(inlineStyles.inline16)}
-                  style={{
-                    background: activeTopPanel === "system" ? "var(--bg-selected)" : "none",
-                    borderTop: activeTopPanel === "system" ? "2px solid var(--accent)" : "2px solid transparent",
-                    color: activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.color = "var(--text)"
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.color = activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)"
-                  }}
-                >
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    {...stylex.props(inlineStyles.inline17)}
-                    style={{
-                      color: systemPrompt ? "var(--accent)" : "var(--text-dim)",
-                    }}
-                  >
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                    <line x1="8" y1="13" x2="16" y2="13" />
-                    <line x1="8" y1="17" x2="13" y2="17" />
-                  </svg>
-                  {!isMobile && <span>{tr("System")}</span>}
-                </button>
               </div>
             )}
             {/* Session stats — right-aligned in top bar */}
@@ -947,31 +829,16 @@ export function AppShell() {
                       ? `${pct.toFixed(0)}% / ${fmt(contextUsage.contextWindow)}`
                       : `? / ${fmt(contextUsage.contextWindow)}`
                 }
-                const tooltipParts: string[] = []
-                if (t) {
-                  tooltipParts.push(`in: ${t.input.toLocaleString()}`)
-                  tooltipParts.push(`out: ${t.output.toLocaleString()}`)
-                  tooltipParts.push(`cache read: ${t.cacheRead.toLocaleString()}`)
-                  tooltipParts.push(`cache write: ${t.cacheWrite.toLocaleString()}`)
-                  if (c > 0) tooltipParts.push(`cost: $${c.toFixed(4)}`)
-                }
-                if (contextUsage?.contextWindow) {
-                  const pct = contextUsage.percent
-                  tooltipParts.push(
-                    `context: ${pct !== null ? pct.toFixed(1) + "%" : "unknown"} of ${contextUsage.contextWindow.toLocaleString()} tokens`,
-                  )
-                }
-                const tooltip = tooltipParts.join("  |  ")
                 return (
                   <button
+                    className={`${stylex.props(inlineStyles.inline18).className} debug-control`}
                     type="button"
                     onClick={() => toggleTopPanel("session")}
-                    title={tooltip || tr("Session info")}
-                    aria-label={tr("Session info")}
+                    title={tr("Debug information")}
+                    aria-label={tr("Debug information")}
                     aria-pressed={activeTopPanel === "session"}
-                    {...stylex.props(inlineStyles.inline18)}
                     style={{
-                      paddingRight: rightPanelOpen ? 12 : 48,
+                      paddingInline: 10,
                       background: activeTopPanel === "session" ? "var(--bg-selected)" : "none",
                       borderTop: activeTopPanel === "session" ? "2px solid var(--accent)" : "2px solid transparent",
                     }}
@@ -982,6 +849,18 @@ export function AppShell() {
                       e.currentTarget.style.color = activeTopPanel === "session" ? "var(--text)" : "var(--text-muted)"
                     }}
                   >
+                    <svg
+                      className="debug-icon"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path d="M8 2h8M9 9h6M12 2v4M7 13H3M21 13h-4M7 17l-3 2M17 17l3 2" />
+                      <rect x="7" y="6" width="10" height="16" rx="5" />
+                    </svg>
                     {isMobile && (
                       <svg
                         width="14"
@@ -1095,19 +974,31 @@ export function AppShell() {
                   maxHeight: `calc(100dvh - ${topPanelPos.top}px)`,
                 }}
               >
-                {activeTopPanel === "system" && (
-                  <div {...stylex.props(inlineStyles.inline25)}>
-                    {systemPrompt ? (
-                      <div {...stylex.props(inlineStyles.inline26)}>{systemPrompt}</div>
-                    ) : systemPrompt === "" ? (
-                      <div {...stylex.props(inlineStyles.inline27)}>System prompt is empty (tools are disabled)</div>
-                    ) : (
-                      <div {...stylex.props(inlineStyles.inline28)}>Send a message to load the system prompt</div>
-                    )}
-                  </div>
-                )}
                 {activeTopPanel === "session" && (
                   <div className={`${stylex.props(inlineStyles.inline29).className} session-info-popover`}>
+                    <button
+                      type="button"
+                      {...stylex.props(inlineStyles.copyDebug)}
+                      onClick={() =>
+                        runBrowser(
+                          copyText(
+                            JSON.stringify(
+                              {
+                                cwd: managementCwd,
+                                session: sessionStats,
+                                context: contextUsage,
+                                weixin: weixinStatus,
+                              },
+                              null,
+                              2,
+                            ),
+                          ),
+                          { onSuccess: () => undefined },
+                        )
+                      }
+                    >
+                      {tr("Copy debug information")}
+                    </button>
                     {sessionStats ? (
                       (() => {
                         const sessionRows = [
@@ -1316,6 +1207,9 @@ export function AppShell() {
                 onContextUsageChange={handleContextUsageChange}
                 onWeixinStatusChange={handleWeixinStatusChange}
                 onOpenFile={handleOpenLinkedFile}
+                onOpenModels={() => setSettingsSurface({ kind: "models" })}
+                onOpenSkills={() => setSettingsSurface({ kind: "skills" })}
+                skillsCount={skillsCount}
               />
             ) : creatingSessionCwd !== null ? (
               <div {...stylex.props(styles.pendingSession)}>
@@ -1365,54 +1259,13 @@ export function AppShell() {
             ) : null}
           </div>
         </div>
-
-        {/* Right panel: file viewer — always mounted, width animated via CSS */}
-        <div
-          className={`${stylex.props(inlineStyles.inline53).className} right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}`}
-        >
-          {/* Right panel tab bar */}
-          <div {...stylex.props(inlineStyles.inline54)}>
-            <div {...stylex.props(inlineStyles.inline55)}>
-              <TabBar
-                tabs={fileTabs}
-                activeTabId={activeFileTabId ?? ""}
-                onSelectTab={setActiveFileTabId}
-                onCloseTab={handleCloseFileTab}
-              />
-            </div>
-          </div>
-
-          {/* File content */}
-          <div {...stylex.props(inlineStyles.inline56)}>
-            {activeFileTab?.filePath ? (
-              <Suspense fallback={null}>
-                <FileViewer
-                  filePath={activeFileTab.filePath}
-                  cwd={activeCwd ?? undefined}
-                  sourceSessionId={activeFileTab.sourceSessionId}
-                />
-              </Suspense>
-            ) : (
-              <div {...stylex.props(inlineStyles.inline57)}>{tr("No file open")}</div>
-            )}
-          </div>
-        </div>
       </div>
-      {/* File panel toggle — always visible at top-right */}
+      {/* Extension launcher — the single plugin-management entry point. */}
       <button
-        onClick={() => setRightPanelOpen((v) => !v)}
-        title={tr(rightPanelOpen ? "Hide file panel" : "Show file panel")}
-        aria-label={tr(rightPanelOpen ? "Hide file panel" : "Show file panel")}
+        onClick={() => setSettingsSurface({ kind: "plugins" })}
+        title={tr("Plugins")}
+        aria-label={tr("Plugins")}
         {...stylex.props(inlineStyles.inline58)}
-        style={{
-          color: rightPanelOpen ? "var(--text)" : "var(--text-muted)",
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.color = "var(--text)"
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.color = rightPanelOpen ? "var(--text)" : "var(--text-muted)"
-        }}
       >
         <svg
           width="16"
@@ -1424,10 +1277,66 @@ export function AppShell() {
           strokeLinecap="round"
           strokeLinejoin="round"
         >
-          <rect x="3" y="3" width="18" height="18" rx="2" />
-          <line x1="15" y1="3" x2="15" y2="21" />
+          <path d="M9 7V2M15 7V2M6 13V8a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v5a6 6 0 0 1-12 0ZM12 19v3" />
         </svg>
+        <span {...stylex.props(inlineStyles.extensionCount)}>{activeExtensionCount}</span>
       </button>
+      {resourceManagerOpen && managementCwd && (
+        <div {...stylex.props(inlineStyles.modalBackdrop)} onMouseDown={() => setResourceManagerOpen(false)}>
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label={tr("Resource manager")}
+            {...stylex.props(inlineStyles.resourceDialog)}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header {...stylex.props(inlineStyles.modalHeader)}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+                <strong>{tr("Resource manager")}</strong>
+                <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+                  {managementCwd}
+                </span>
+              </div>
+              <button type="button" onClick={() => setResourceManagerOpen(false)} aria-label={tr("Close")}>
+                ×
+              </button>
+            </header>
+            <div {...stylex.props(inlineStyles.resourceWorkspace)}>
+              <aside {...stylex.props(inlineStyles.resourceTree)}>
+                <FileExplorer
+                  cwd={managementCwd}
+                  onOpenFile={handleOpenFile}
+                  refreshKey={explorerRefreshKey}
+                  onAtMention={handleAtMention}
+                />
+              </aside>
+              <div {...stylex.props(inlineStyles.resourceViewer)}>
+                <div {...stylex.props(inlineStyles.resourceTabs)}>
+                  <TabBar
+                    tabs={fileTabs}
+                    activeTabId={activeFileTabId ?? ""}
+                    onSelectTab={setActiveFileTabId}
+                    onCloseTab={handleCloseFileTab}
+                  />
+                </div>
+                <div {...stylex.props(inlineStyles.resourceContent)}>
+                  {activeFileTab?.filePath ? (
+                    <Suspense fallback={null}>
+                      <FileViewer
+                        filePath={activeFileTab.filePath}
+                        cwd={managementCwd}
+                        sourceSessionId={activeFileTab.sourceSessionId}
+                      />
+                    </Suspense>
+                  ) : (
+                    <div {...stylex.props(inlineStyles.inline57)}>{tr("Select a file to preview")}</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
       <Suspense fallback={null}>
         {settingsSurface?.kind === "models" && (
           <ModelsConfig
@@ -1441,17 +1350,99 @@ export function AppShell() {
           <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd)!} onClose={() => setSettingsSurface(null)} />
         )}
         {settingsSurface?.kind === "plugins" && (
-          <PluginsConfig
-            cwd={activeCwd ?? selectedSession?.cwd ?? null}
-            sessionId={selectedSession?.id ?? null}
-            initialPackageName={settingsSurface.initialPackageName}
-            chromeHealth={chromeExtensionHealth}
-            weixinStatus={weixinStatus}
-            onClose={() => {
-              setSettingsSurface(null)
-            }}
-            onReloaded={() => setSessionRefreshKey((key) => key + 1)}
-          />
+          <div {...stylex.props(inlineStyles.modalBackdrop)} onMouseDown={() => setSettingsSurface(null)}>
+            <section {...stylex.props(inlineStyles.extensionDialog)} onMouseDown={(event) => event.stopPropagation()}>
+              <button
+                type="button"
+                onClick={() => setSettingsSurface(null)}
+                aria-label={tr("Close")}
+                {...stylex.props(inlineStyles.modalClose)}
+              >
+                ×
+              </button>
+              <PluginsConfig
+                presentation="page"
+                cwd={null}
+                sessionId={null}
+                projectCwds={[...new Set(sessionCollection.map((session) => session.cwd))].sort()}
+                initialPackageName={settingsSurface.initialPackageName}
+                chromeHealth={chromeExtensionHealth}
+                weixinStatus={weixinStatus}
+                onClose={() => setSettingsSurface(null)}
+                openablePackageNames={new Set(extensionCatalog?.groups.map((group) => group.item.packageName) ?? [])}
+                onOpenPackage={(packageName) => {
+                  const surface = extensionCatalog?.groups.find((group) => group.item.packageName === packageName)
+                  if (!surface) return
+                  setSettingsSurface(null)
+                  void navigate({ to: "/extensions/$surfaceId", params: { surfaceId: surface.item.surfaceId } })
+                }}
+                onReloaded={() => setSessionRefreshKey((key) => key + 1)}
+              />
+            </section>
+          </div>
+        )}
+        {settingsSurface?.kind === "general" && (
+          <div {...stylex.props(inlineStyles.modalBackdrop)} onMouseDown={() => setSettingsSurface(null)}>
+            <section {...stylex.props(inlineStyles.settingsDialog)} onMouseDown={(event) => event.stopPropagation()}>
+              <header {...stylex.props(inlineStyles.modalHeader)}>
+                <strong>{tr("Settings")}</strong>
+                <button type="button" onClick={() => setSettingsSurface(null)} aria-label={tr("Close")}>
+                  ×
+                </button>
+              </header>
+              <div {...stylex.props(inlineStyles.settingsBody)}>
+                <div {...stylex.props(inlineStyles.settingRow)}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <strong>{tr("Completion sound")}</strong>
+                    <span>{tr("Play a sound when the agent finishes")}</span>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={preferences.soundEnabled}
+                    onClick={() =>
+                      updatePreferences((current) => ({ ...current, soundEnabled: !current.soundEnabled }))
+                    }
+                    {...stylex.props(inlineStyles.settingsToggle)}
+                    style={{ background: preferences.soundEnabled ? "var(--accent)" : "var(--border)" }}
+                  >
+                    <i
+                      style={{
+                        background: "white",
+                        borderRadius: "50%",
+                        display: "block",
+                        height: 20,
+                        transition: "transform .15s",
+                        width: 20,
+                        transform: preferences.soundEnabled ? "translateX(16px)" : "translateX(0)",
+                      }}
+                    />
+                  </button>
+                </div>
+                <div {...stylex.props(inlineStyles.systemPromptSetting)}>
+                  <strong>{tr("System prompt")}</strong>
+                  <pre
+                    style={{
+                      background: "var(--bg-panel)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 8,
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 11,
+                      lineHeight: 1.55,
+                      margin: 0,
+                      maxHeight: 480,
+                      overflow: "auto",
+                      overflowWrap: "anywhere",
+                      padding: 12,
+                      whiteSpace: "pre-wrap",
+                    }}
+                  >
+                    {systemPrompt || tr("Send a message to load the system prompt")}
+                  </pre>
+                </div>
+              </div>
+            </section>
+          </div>
         )}
       </Suspense>
     </>
@@ -1605,6 +1596,7 @@ const inlineStyles = stylex.create({
     display: "flex",
     alignItems: "stretch",
     height: "100%",
+    order: 3,
   },
   inline14: {
     display: "flex",
@@ -1649,6 +1641,7 @@ const inlineStyles = stylex.create({
   },
   inline18: {
     marginLeft: "auto",
+    order: 2,
     display: "flex",
     alignItems: "center",
     gap: 10,
@@ -1899,4 +1892,126 @@ const inlineStyles = stylex.create({
     cursor: "pointer",
     transition: "color 0.12s",
   },
+  extensionCount: {
+    alignItems: "center",
+    backgroundColor: "var(--accent)",
+    borderRadius: 8,
+    color: "white",
+    display: "flex",
+    fontSize: 9,
+    fontWeight: 700,
+    height: 15,
+    justifyContent: "center",
+    minWidth: 15,
+    paddingInline: 3,
+    position: "absolute",
+    right: 2,
+    top: 2,
+  },
+  copyDebug: {
+    backgroundColor: "var(--accent)",
+    border: "none",
+    borderRadius: 6,
+    color: "white",
+    cursor: "pointer",
+    fontSize: 11,
+    paddingBlock: 6,
+    paddingInline: 10,
+    position: "absolute",
+    right: 14,
+    top: 10,
+    zIndex: 2,
+  },
+  modalBackdrop: {
+    alignItems: "center",
+    backdropFilter: "blur(4px)",
+    backgroundColor: "rgba(0, 0, 0, 0.42)",
+    display: "flex",
+    inset: 0,
+    justifyContent: "center",
+    padding: { default: 26, "@media (max-width: 720px)": 0 },
+    position: "fixed",
+    zIndex: 700,
+  },
+  resourceDialog: {
+    backgroundColor: "var(--bg)",
+    border: "1px solid var(--border)",
+    borderRadius: { default: 14, "@media (max-width: 720px)": 0 },
+    boxShadow: "0 24px 80px rgba(0,0,0,.28)",
+    display: "grid",
+    gridTemplateRows: "58px minmax(0, 1fr)",
+    height: { default: "min(860px, calc(100dvh - 52px))", "@media (max-width: 720px)": "100dvh" },
+    maxWidth: 1440,
+    overflow: "hidden",
+    width: { default: "min(1440px, calc(100vw - 52px))", "@media (max-width: 720px)": "100vw" },
+  },
+  extensionDialog: {
+    backgroundColor: "var(--bg)",
+    border: "1px solid var(--border)",
+    borderRadius: { default: 14, "@media (max-width: 720px)": 0 },
+    boxShadow: "0 24px 80px rgba(0,0,0,.28)",
+    height: { default: "min(860px, calc(100dvh - 52px))", "@media (max-width: 720px)": "100dvh" },
+    maxWidth: 1180,
+    overflow: "hidden",
+    position: "relative",
+    width: { default: "min(1180px, calc(100vw - 52px))", "@media (max-width: 720px)": "100vw" },
+  },
+  modalHeader: {
+    alignItems: "center",
+    borderBottom: "1px solid var(--border)",
+    display: "flex",
+    justifyContent: "space-between",
+    minWidth: 0,
+    paddingInline: 18,
+  },
+  resourceWorkspace: {
+    display: "grid",
+    gridTemplateColumns: { default: "260px minmax(0, 1fr)", "@media (max-width: 720px)": "140px minmax(0, 1fr)" },
+    minHeight: 0,
+  },
+  resourceTree: { borderRight: "1px solid var(--border)", minHeight: 0, overflow: "auto" },
+  resourceViewer: { display: "grid", gridTemplateRows: "38px minmax(0, 1fr)", minHeight: 0, minWidth: 0 },
+  resourceTabs: { borderBottom: "1px solid var(--border)", minWidth: 0, overflow: "hidden" },
+  resourceContent: { minHeight: 0, overflow: "auto" },
+  modalClose: {
+    alignItems: "center",
+    backgroundColor: "var(--bg-panel)",
+    border: "1px solid var(--border)",
+    borderRadius: 16,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    display: "flex",
+    fontSize: 18,
+    height: 30,
+    justifyContent: "center",
+    position: "absolute",
+    right: 14,
+    top: 14,
+    width: 30,
+    zIndex: 4,
+  },
+  settingsDialog: {
+    backgroundColor: "var(--bg)",
+    border: "1px solid var(--border)",
+    borderRadius: 12,
+    boxShadow: "0 24px 80px rgba(0,0,0,.28)",
+    display: "grid",
+    gridTemplateRows: "54px auto",
+    maxHeight: "min(700px, calc(100dvh - 40px))",
+    maxWidth: 680,
+    overflow: "hidden",
+    width: "min(680px, calc(100vw - 32px))",
+  },
+  settingsBody: { display: "flex", flexDirection: "column", gap: 18, overflow: "auto", padding: 20 },
+  settingRow: { alignItems: "center", display: "flex", justifyContent: "space-between" },
+  settingsToggle: {
+    backgroundColor: "var(--border)",
+    border: "none",
+    borderRadius: 12,
+    cursor: "pointer",
+    height: 24,
+    padding: 2,
+    width: 42,
+  },
+  systemPromptSetting: { display: "flex", flexDirection: "column", gap: 8 },
 })

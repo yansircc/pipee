@@ -11,7 +11,6 @@ import {
 } from "react"
 import { DateTime, Duration, Effect, Option } from "effect"
 import type { SessionInfo } from "@/api/contract"
-import { FileExplorer } from "./FileExplorer"
 import { useI18n, type Locale } from "@/lib/i18n"
 import { withApi, runApi, runBrowser, type Cancel } from "@/browser/api-client"
 import { useBrowserPreferences } from "@/browser/preferences-react"
@@ -29,9 +28,8 @@ interface Props {
   onSessionDeleted?: (sessionId: string) => void
   selectedCwd?: string | null
   onCwdChange?: (cwd: string | null, projectRoot?: string | null) => void
-  onOpenFile?: (filePath: string, fileName: string) => void
-  explorerRefreshKey?: number
-  onAtMention?: (relativePath: string, isDir: boolean) => void
+  onOpenExplorer?: () => void
+  onOpenSettings?: () => void
 }
 interface WorktreeEntry {
   path: string
@@ -325,9 +323,8 @@ export function SessionSidebar({
   onSessionDeleted,
   selectedCwd: selectedCwdProp,
   onCwdChange,
-  onOpenFile,
-  explorerRefreshKey,
-  onAtMention,
+  onOpenExplorer,
+  onOpenSettings,
 }: Props) {
   const { t } = useI18n()
   const { preferences, updatePreferences } = useBrowserPreferences()
@@ -365,15 +362,9 @@ export function SessionSidebar({
   const [worktreeLoadingCwd, setWorktreeLoadingCwd] = useState<string | null>(null)
   const wtDropdownRef = useRef<HTMLDivElement>(null)
   const wtNewInputRef = useRef<HTMLInputElement>(null)
-  const [explorerOpen, setExplorerOpen] = useState(false)
-  const [explorerKey, setExplorerKey] = useState(0)
-  const [sessionRefreshDone, setSessionRefreshDone] = useState(false)
-  const [explorerRefreshDone, setExplorerRefreshDone] = useState(false)
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set())
   const [currentTimeMillis, setCurrentTimeMillis] = useState(0)
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set())
-  const sessionRefreshTimerRef = useRef<Cancel | null>(null)
-  const explorerRefreshTimerRef = useRef<Cancel | null>(null)
   useEffect(
     () =>
       runBrowser(observeCurrentTime("1 minute", setCurrentTimeMillis), {
@@ -400,16 +391,6 @@ export function SessionSidebar({
               return next.size === prev.size ? prev : next
             })
             setError(null)
-            if (!showLoading) {
-              setSessionRefreshDone(true)
-              sessionRefreshTimerRef.current?.()
-              sessionRefreshTimerRef.current = runBrowser(
-                after("2 seconds", () => setSessionRefreshDone(false)),
-                {
-                  onSuccess: () => undefined,
-                },
-              )
-            }
             if (showLoading) setLoading(false)
           },
           onFailure: (error) => {
@@ -466,9 +447,6 @@ export function SessionSidebar({
       return next
     })
   }, [selectedSessionId, updateUnreadSessionIds])
-  useEffect(() => {
-    if (explorerRefreshKey !== undefined) setExplorerKey((k) => k + 1)
-  }, [explorerRefreshKey])
   useEffect(() => {
     return runApi(
       withApi((api) => api.workspace.home({})),
@@ -791,10 +769,7 @@ export function SessionSidebar({
             label: t("Open repo root"),
             title: t("Open the repository root to manage worktrees."),
           }
-        : {
-            label: t("Git repo root only"),
-            title: t("Worktrees are available in Git repository roots."),
-          }
+        : null
       : null
   const worktreeLoading = Boolean(selectedCwd && worktreeLoadingCwd === selectedCwd)
   const inactiveWorktreeSelector =
@@ -816,96 +791,24 @@ export function SessionSidebar({
           <PiAgentTitle />
           <div {...stylex.props(inlineStyles.inline6)}>
             <button
-              onClick={handleNewSession}
-              disabled={!selectedCwd || newSessionPending}
-              {...stylex.props(inlineStyles.inline7)}
-              style={{
-                color: selectedCwd ? "var(--text-muted)" : "var(--text-dim)",
-                cursor: selectedCwd && !newSessionPending ? "pointer" : "not-allowed",
-              }}
-              title={
-                selectedCwd
-                  ? t("New session in {cwd}", {
-                      cwd: selectedCwd,
-                    })
-                  : t("Select a project first")
-              }
-              onMouseEnter={(e) => {
-                if (!selectedCwd || newSessionPending) return
-                e.currentTarget.style.background = "var(--bg-selected)"
-                e.currentTarget.style.color = "var(--accent)"
-                e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)"
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "var(--bg-hover)"
-                e.currentTarget.style.color = selectedCwd ? "var(--text-muted)" : "var(--text-dim)"
-                e.currentTarget.style.borderColor = "var(--border)"
-              }}
+              onClick={onOpenSettings}
+              title={t("Settings")}
+              aria-label={t("Settings")}
+              {...stylex.props(inlineStyles.inline8)}
             >
               <svg
-                width="12"
-                height="12"
-                viewBox="0 0 12 12"
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2.2"
+                strokeWidth="2"
                 strokeLinecap="round"
+                strokeLinejoin="round"
               >
-                <line x1="6" y1="1" x2="6" y2="11" />
-                <line x1="1" y1="6" x2="11" y2="6" />
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.1A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.1A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.14.37.36.7.66.96.3.26.68.4 1.08.4H21v4h-.1A1.7 1.7 0 0 0 19.4 15Z" />
               </svg>
-              {t("New")}
-            </button>
-            <button
-              onClick={() => loadSessions(false)}
-              {...stylex.props(inlineStyles.inline8)}
-              style={{
-                background: sessionRefreshDone ? "rgba(74,222,128,0.18)" : "var(--bg-hover)",
-                border: `1px solid ${sessionRefreshDone ? "rgba(74,222,128,0.4)" : "var(--border)"}`,
-                color: sessionRefreshDone ? "#4ade80" : "var(--text-muted)",
-              }}
-              onMouseEnter={(e) => {
-                if (sessionRefreshDone) return
-                e.currentTarget.style.background = "var(--bg-selected)"
-                e.currentTarget.style.color = "var(--accent)"
-                e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)"
-              }}
-              onMouseLeave={(e) => {
-                if (sessionRefreshDone) return
-                e.currentTarget.style.background = "var(--bg-hover)"
-                e.currentTarget.style.color = "var(--text-muted)"
-                e.currentTarget.style.borderColor = "var(--border)"
-              }}
-              title={t("Refresh")}
-            >
-              {sessionRefreshDone ? (
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#4ade80"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                  <path d="M3 3v5h5" />
-                </svg>
-              )}
             </button>
           </div>
         </div>
@@ -1459,13 +1362,34 @@ export function SessionSidebar({
         )}
       </div>
 
+      <div {...stylex.props(inlineStyles.sessionActions)}>
+        <button
+          type="button"
+          onClick={handleNewSession}
+          disabled={!selectedCwd || newSessionPending}
+          title={t("New session")}
+          {...stylex.props(inlineStyles.sessionAction)}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          <span>{t(newSessionPending ? "Creating…" : "New session")}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => loadSessions()}
+          title={t("Refresh sessions")}
+          aria-label={t("Refresh sessions")}
+          {...stylex.props(inlineStyles.sessionActionIcon)}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M20 11a8.1 8.1 0 1 0 .2 4M20 4v7h-7" />
+          </svg>
+        </button>
+      </div>
+
       {/* Session list */}
-      <div
-        {...stylex.props(inlineStyles.inline59)}
-        style={{
-          flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto",
-        }}
-      >
+      <div {...stylex.props(inlineStyles.inline59)}>
         {loading && <div {...stylex.props(inlineStyles.inline60)}>{t("Loading...")}</div>}
         {error && <div {...stylex.props(inlineStyles.inline61)}>{error}</div>}
         {!loading && !error && filteredSessions.length === 0 && (
@@ -1490,108 +1414,16 @@ export function SessionSidebar({
         ))}
       </div>
 
-      {/* File Explorer section */}
       {(selectedCwdProp || selectedCwd) && (
-        <div
-          {...stylex.props(inlineStyles.inline63)}
-          style={{
-            flex: explorerOpen ? "1 1 0" : "0 0 auto",
-          }}
-        >
-          <div {...stylex.props(inlineStyles.inline64)}>
-            <button
-              onClick={() => setExplorerOpen((v) => !v)}
-              aria-expanded={explorerOpen}
-              {...stylex.props(inlineStyles.inline65)}
-            >
-              <svg
-                width="9"
-                height="9"
-                viewBox="0 0 10 10"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                {...stylex.props(inlineStyles.inline66)}
-                style={{
-                  transform: explorerOpen ? "rotate(90deg)" : "none",
-                }}
-              >
-                <polyline points="3 2 7 5 3 8" />
-              </svg>
-              {t("Explorer")}
-            </button>
-            <button
-              onClick={() => {
-                setExplorerKey((k) => k + 1)
-                setExplorerRefreshDone(true)
-                explorerRefreshTimerRef.current?.()
-                explorerRefreshTimerRef.current = runBrowser(
-                  after("2 seconds", () => setExplorerRefreshDone(false)),
-                  {
-                    onSuccess: () => undefined,
-                  },
-                )
-              }}
-              title={t("Refresh explorer")}
-              {...stylex.props(inlineStyles.inline67)}
-              style={{
-                background: explorerRefreshDone ? "rgba(74,222,128,0.18)" : "none",
-                color: explorerRefreshDone ? "#4ade80" : "var(--text-dim)",
-              }}
-              onMouseEnter={(e) => {
-                if (explorerRefreshDone) return
-                e.currentTarget.style.color = "var(--text-muted)"
-                e.currentTarget.style.background = "var(--bg-hover)"
-              }}
-              onMouseLeave={(e) => {
-                if (explorerRefreshDone) return
-                e.currentTarget.style.color = "var(--text-dim)"
-                e.currentTarget.style.background = "none"
-              }}
-            >
-              {explorerRefreshDone ? (
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#4ade80"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                  <path d="M3 3v5h5" />
-                </svg>
-              )}
-            </button>
-          </div>
-          {explorerOpen && (
-            <div {...stylex.props(inlineStyles.inline68)}>
-              <FileExplorer
-                cwd={selectedCwd ?? selectedCwdProp!}
-                onOpenFile={onOpenFile ?? (() => {})}
-                refreshKey={explorerKey}
-                onAtMention={onAtMention}
-              />
-            </div>
-          )}
-        </div>
+        <button type="button" onClick={onOpenExplorer} {...stylex.props(inlineStyles.explorerButton)}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M3 5.5A1.5 1.5 0 0 1 4.5 4H9l2 2h8.5A1.5 1.5 0 0 1 21 7.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-13Z" />
+          </svg>
+          <span>{t("Resource manager")}</span>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <path d="m3 2 3 3-3 3" />
+          </svg>
+        </button>
       )}
     </div>
   )
@@ -2498,9 +2330,60 @@ const inlineStyles = stylex.create({
     textOverflow: "ellipsis",
   },
   inline59: {
+    flex: 1,
     overflowY: "auto",
     padding: "0",
     minHeight: 80,
+  },
+  sessionActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "9px 10px",
+    borderBottom: "1px solid var(--border)",
+    flexShrink: 0,
+  },
+  sessionAction: {
+    flex: 1,
+    height: 30,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    background: "var(--bg-hover)",
+    color: "var(--text-muted)",
+    fontSize: 11,
+    cursor: "pointer",
+  },
+  sessionActionIcon: {
+    width: 30,
+    height: 30,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    background: "var(--bg)",
+    color: "var(--text-muted)",
+    cursor: "pointer",
+  },
+  explorerButton: {
+    width: "100%",
+    height: 38,
+    padding: "0 12px",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    border: "none",
+    borderTop: "1px solid var(--border)",
+    background: "var(--bg)",
+    color: "var(--text-muted)",
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: "pointer",
+    flexShrink: 0,
   },
   inline60: {
     padding: "16px 14px",

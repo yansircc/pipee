@@ -24,6 +24,7 @@ import { DEFAULT_TOOL_PRESET, type ToolPreset } from "@/lib/tool-presets"
 import { withApi, runApi, runBrowser } from "@/browser/api-client"
 import { BrowserPlatform } from "@/browser/browser-platform"
 import { prepareDrop, prepareImages } from "@/features/chat/attachment-controller"
+import type { SessionStats } from "@/api/contract"
 const onNextAnimationFrame = (action: () => void) =>
   runBrowser(
     BrowserPlatform.pipe(
@@ -67,6 +68,15 @@ interface Props {
     provider: string
   }[]
   onModelChange?: (provider: string, modelId: string) => void
+  onOpenModels?: () => void
+  onOpenSkills?: () => void
+  skillsCount?: number
+  sessionStats?: SessionStats | null
+  contextUsage?: {
+    percent: number | null
+    contextWindow: number
+    tokens: number | null
+  } | null
   onCompact?: () => void
   onAbortCompaction?: () => void
   isCompacting?: boolean
@@ -266,6 +276,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     modelNames,
     modelList,
     onModelChange,
+    onOpenModels,
+    onOpenSkills,
+    skillsCount = 0,
+    sessionStats,
+    contextUsage,
     onCompact,
     onAbortCompaction,
     isCompacting,
@@ -297,6 +312,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
   const isMobile = useIsMobile()
   const [value, setValue] = useState(() => (draftKey ? (getDraft(draftKey)?.value ?? "") : ""))
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
+  const [collapsedProviders, setCollapsedProviders] = useState<Set<string>>(() => new Set())
   const [modelDropdownRect, setModelDropdownRect] = useState<{
     top: number
     left: number
@@ -1671,6 +1687,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                     )
                   }}
                   disabled={isStreaming}
+                  aria-label={t("Models")}
                   {...stylex.props(inlineStyles.inline60)}
                   style={{
                     justifyContent: isMobile ? "flex-start" : undefined,
@@ -1753,64 +1770,99 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                         {modelsByProvider.map((group, gi) => (
                           <div key={group.provider}>
                             {modelsByProvider.length > 1 && (
-                              <div
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setCollapsedProviders((current) => {
+                                    const next = new Set(current)
+                                    if (next.has(group.provider)) next.delete(group.provider)
+                                    else next.add(group.provider)
+                                    return next
+                                  })
+                                }
                                 {...stylex.props(inlineStyles.inline62)}
                                 style={{
                                   borderTop: gi > 0 ? "1px solid var(--border)" : "none",
                                 }}
                               >
+                                <span>{collapsedProviders.has(group.provider) ? "›" : "⌄"}</span>
                                 {group.provider}
-                              </div>
+                                <span style={{ marginLeft: "auto" }}>{group.options.length}</span>
+                              </button>
                             )}
-                            {group.options.map((opt) => {
-                              const isActive = opt.modelId === model?.modelId && opt.provider === model?.provider
-                              return (
-                                <button
-                                  key={`${opt.provider}:${opt.modelId}`}
-                                  onClick={() => {
-                                    setModelDropdownOpen(false)
-                                    if (!isActive || isAutoModelSelection) onModelChange(opt.provider, opt.modelId)
-                                  }}
-                                  {...stylex.props(inlineStyles.inline63)}
-                                  style={{
-                                    background: isActive ? "var(--bg-selected)" : "none",
-                                    color: isActive ? "var(--text)" : "var(--text-muted)",
-                                    fontWeight: isActive ? 600 : 400,
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    if (!isActive) e.currentTarget.style.background = "none"
-                                  }}
-                                >
-                                  {isActive ? (
-                                    <svg
-                                      width="10"
-                                      height="10"
-                                      viewBox="0 0 10 10"
-                                      fill="none"
-                                      stroke="var(--accent)"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      {...stylex.props(inlineStyles.inline64)}
-                                    >
-                                      <polyline points="1.5 5 4 7.5 8.5 2.5" />
-                                    </svg>
-                                  ) : (
-                                    <span {...stylex.props(inlineStyles.inline65)} />
-                                  )}
-                                  {opt.name}
-                                </button>
-                              )
-                            })}
+                            {!collapsedProviders.has(group.provider) &&
+                              group.options.map((opt) => {
+                                const isActive = opt.modelId === model?.modelId && opt.provider === model?.provider
+                                return (
+                                  <button
+                                    key={`${opt.provider}:${opt.modelId}`}
+                                    onClick={() => {
+                                      setModelDropdownOpen(false)
+                                      if (!isActive || isAutoModelSelection) onModelChange(opt.provider, opt.modelId)
+                                    }}
+                                    {...stylex.props(inlineStyles.inline63)}
+                                    style={{
+                                      background: isActive ? "var(--bg-selected)" : "none",
+                                      color: isActive ? "var(--text)" : "var(--text-muted)",
+                                      fontWeight: isActive ? 600 : 400,
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      if (!isActive) e.currentTarget.style.background = "var(--bg-hover)"
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      if (!isActive) e.currentTarget.style.background = "none"
+                                    }}
+                                  >
+                                    {isActive ? (
+                                      <svg
+                                        width="10"
+                                        height="10"
+                                        viewBox="0 0 10 10"
+                                        fill="none"
+                                        stroke="var(--accent)"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        {...stylex.props(inlineStyles.inline64)}
+                                      >
+                                        <polyline points="1.5 5 4 7.5 8.5 2.5" />
+                                      </svg>
+                                    ) : (
+                                      <span {...stylex.props(inlineStyles.inline65)} />
+                                    )}
+                                    {opt.name}
+                                  </button>
+                                )
+                              })}
                           </div>
                         ))}
+                        {onOpenModels && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setModelDropdownOpen(false)
+                              onOpenModels()
+                            }}
+                            {...stylex.props(inlineStyles.manageModels)}
+                          >
+                            <span>＋</span>
+                            {t("Manage models")}
+                          </button>
+                        )}
                       </div>
                     )
                   })()}
               </div>
+            )}
+            {(modelOptions.length === 0 || !currentName || !onModelChange) && onOpenModels && (
+              <button
+                type="button"
+                onClick={onOpenModels}
+                aria-label={t("Models")}
+                {...stylex.props(inlineStyles.emptyModelButton)}
+              >
+                ＋ {t("Add model")}
+              </button>
             )}
           </div>
 
@@ -2140,6 +2192,56 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                   </button>
                 </div>
               )}
+
+              {!isStreaming && onOpenSkills && (
+                <button
+                  type="button"
+                  onClick={onOpenSkills}
+                  title={t("Skills")}
+                  aria-label={t("Skills")}
+                  {...stylex.props(inlineStyles.metricButton)}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="m12 3-9 5 9 5 9-5-9-5Z" />
+                    <path d="m3 13 9 5 9-5" />
+                  </svg>
+                  <span>{skillsCount}</span>
+                </button>
+              )}
+
+              {sessionStats && (
+                <button
+                  type="button"
+                  {...stylex.props(inlineStyles.metricButton)}
+                  title={`${t("Input")}\n${sessionStats.tokens.input.toLocaleString()}\n${t("Output")}\n${sessionStats.tokens.output.toLocaleString()}\n${t("Cache Read")}\n${sessionStats.tokens.cacheRead.toLocaleString()}\n${t("Total")}\n${sessionStats.tokens.total.toLocaleString()}\nCost\n$${sessionStats.cost.toFixed(4)}`}
+                >
+                  ${sessionStats.cost.toFixed(2)}
+                </button>
+              )}
+
+              {contextUsage?.contextWindow ? (
+                <button
+                  type="button"
+                  {...stylex.props(inlineStyles.contextRingButton)}
+                  title={`${contextUsage.percent === null ? "?" : contextUsage.percent.toFixed(1) + "%"} · ${(contextUsage.tokens ?? 0).toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()}`}
+                  aria-label={t("Context usage")}
+                >
+                  <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+                    <circle cx="11" cy="11" r="8" fill="none" stroke="var(--border)" strokeWidth="2.5" />
+                    <circle
+                      cx="11"
+                      cy="11"
+                      r="8"
+                      fill="none"
+                      stroke={contextUsage.percent !== null && contextUsage.percent > 90 ? "#ef4444" : "var(--accent)"}
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeDasharray={`${Math.min(100, contextUsage.percent ?? 0) * 0.5027} 50.27`}
+                      transform="rotate(-90 11 11)"
+                    />
+                  </svg>
+                </button>
+              ) : null}
 
               {isStreaming && (
                 <button
@@ -2716,12 +2818,43 @@ const inlineStyles = stylex.create({
     minWidth: 0,
   },
   inline62: {
+    alignItems: "center",
+    backgroundColor: "var(--bg)",
+    border: "none",
+    cursor: "pointer",
+    display: "flex",
+    gap: 7,
     padding: "6px 12px 4px",
     fontSize: 10,
     fontWeight: 600,
     color: "var(--text-dim)",
     textTransform: "uppercase",
     letterSpacing: "0.07em",
+    width: "100%",
+  },
+  manageModels: {
+    alignItems: "center",
+    backgroundColor: "var(--bg)",
+    border: "none",
+    borderTop: "1px solid var(--border)",
+    color: "var(--accent)",
+    cursor: "pointer",
+    display: "flex",
+    fontSize: 11,
+    gap: 7,
+    paddingBlock: 8,
+    paddingInline: 12,
+    width: "100%",
+  },
+  emptyModelButton: {
+    backgroundColor: "transparent",
+    border: "none",
+    borderRadius: 8,
+    color: "var(--accent)",
+    cursor: "pointer",
+    fontSize: 11,
+    height: 32,
+    paddingInline: 10,
   },
   inline63: {
     display: "flex",
@@ -2950,6 +3083,33 @@ const inlineStyles = stylex.create({
     borderRadius: 9,
     cursor: "pointer",
     transition: "background 0.12s, color 0.12s, opacity 0.12s",
+  },
+  metricButton: {
+    alignItems: "center",
+    backgroundColor: "transparent",
+    border: "none",
+    borderRadius: 8,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    display: "flex",
+    fontFamily: "var(--font-mono)",
+    fontSize: 10,
+    gap: 4,
+    height: 32,
+    paddingInline: 8,
+  },
+  contextRingButton: {
+    alignItems: "center",
+    backgroundColor: "transparent",
+    border: "none",
+    borderRadius: 8,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    display: "flex",
+    height: 32,
+    justifyContent: "center",
+    padding: 0,
+    width: 32,
   },
   inline95: {
     display: "flex",

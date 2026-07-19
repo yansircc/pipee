@@ -34,12 +34,16 @@ function SkillDetail({
   onToggle,
   toggling,
   saveError,
+  onDelete,
+  deleting,
 }: {
   skill: Skill
   cwd: string
   onToggle: (skill: Skill) => void
   toggling: boolean
   saveError: string | null
+  onDelete: (skill: Skill) => void
+  deleting: boolean
 }) {
   const { t } = useI18n()
   const label = sourceLabel(skill)
@@ -85,6 +89,16 @@ function SkillDetail({
         <span {...stylex.props(inlineStyles.inline12)}>Description</span>
         <span {...stylex.props(inlineStyles.inline13)}>{skill.description}</span>
       </div>
+      {label !== "path" && (
+        <button
+          type="button"
+          onClick={() => onDelete(skill)}
+          disabled={deleting}
+          {...stylex.props(inlineStyles.deleteSkill)}
+        >
+          {deleting ? t("Deleting…") : t("Delete skill")}
+        </button>
+      )}
     </div>
   )
 }
@@ -296,7 +310,9 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
   const [selected, setSelected] = useState<string | null>(null)
   const [toggling, setToggling] = useState<Set<string>>(new Set())
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
   const [addMode, setAddMode] = useState(false)
+  const [skillQuery, setSkillQuery] = useState("")
   const loadSkills = useCallback(() => {
     setLoading(true)
     setError(null)
@@ -378,6 +394,32 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
     [cwd],
   )
   const selectedSkill = skills.find((s) => s.filePath === selected) ?? null
+  const visibleSkills = skills.filter((skill) => {
+    const query = skillQuery.trim().toLowerCase()
+    return query.length === 0 || `${skill.name} ${skill.description} ${skill.filePath}`.toLowerCase().includes(query)
+  })
+  const deleteSkill = useCallback(
+    (skill: Skill) => {
+      if (deleting !== null) return
+      setDeleting(skill.filePath)
+      setSaveError(null)
+      runApi(
+        withApi((api) => api.packages.deleteSkill({ payload: { cwd, filePath: skill.filePath } })),
+        {
+          onSuccess: () => {
+            setDeleting(null)
+            setSelected(null)
+            loadSkills()
+          },
+          onFailure: (failure) => {
+            setDeleting(null)
+            setSaveError(String(failure))
+          },
+        },
+      )
+    },
+    [cwd, deleting, loadSkills],
+  )
   return (
     <SettingsWorkspace
       closeLabel={t("Close")}
@@ -403,12 +445,29 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
             borderBottom: isMobile ? "1px solid var(--border)" : "none",
           }}
         >
+          <div {...stylex.props(inlineStyles.skillSearch)}>
+            <input
+              value={skillQuery}
+              onChange={(event) => setSkillQuery(event.target.value)}
+              placeholder={t("Search skills")}
+              style={{
+                background: "var(--bg)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                color: "var(--text)",
+                fontSize: 11,
+                outline: "none",
+                padding: "6px 8px",
+                width: "100%",
+              }}
+            />
+          </div>
           <div {...stylex.props(inlineStyles.inline46)}>
             {loading ? (
               <div {...stylex.props(inlineStyles.inline47)}>{t("Loading…")}</div>
             ) : error ? (
               <div {...stylex.props(inlineStyles.inline48)}>{error}</div>
-            ) : skills.length === 0 ? (
+            ) : visibleSkills.length === 0 ? (
               <div {...stylex.props(inlineStyles.inline49)}>{t("No skills found")}</div>
             ) : (
               (() => {
@@ -417,7 +476,7 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
                   skills: typeof skills
                 }[] = []
                 for (const grpLabel of ["project", "global", "path"]) {
-                  const grpSkills = skills.filter((s) => sourceLabel(s) === grpLabel)
+                  const grpSkills = visibleSkills.filter((s) => sourceLabel(s) === grpLabel)
                   if (grpSkills.length > 0)
                     groups.push({
                       label: grpLabel,
@@ -523,6 +582,8 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
               onToggle={toggle}
               toggling={toggling.has(selectedSkill.filePath)}
               saveError={saveError}
+              onDelete={deleteSkill}
+              deleting={deleting === selectedSkill.filePath}
             />
           ) : (
             <div {...stylex.props(inlineStyles.inline58)}>{t("Select a skill")}</div>
@@ -539,6 +600,18 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
   )
 }
 const inlineStyles = stylex.create({
+  deleteSkill: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(239,68,68,.08)",
+    border: "1px solid rgba(239,68,68,.24)",
+    borderRadius: 6,
+    color: "#ef4444",
+    cursor: "pointer",
+    fontSize: 11,
+    paddingBlock: 6,
+    paddingInline: 10,
+  },
+  skillSearch: { borderBottom: "1px solid var(--border)", padding: 8 },
   inline3: {
     display: "flex",
     flexDirection: "column",
