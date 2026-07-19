@@ -1,4 +1,5 @@
 import { Suspense, useState, useCallback, useRef, useEffect, useMemo } from "react"
+import * as stylex from "@stylexjs/stylex"
 import { Effect, Schedule } from "effect"
 import { getRouteApi } from "@tanstack/react-router"
 import { SessionSidebar } from "./SessionSidebar"
@@ -24,11 +25,8 @@ import {
   type ChromeExtensionHealth,
 } from "@/lib/chrome-extension-installation"
 import { PI_COMPANION_PACKAGE_NAMES } from "@/lib/plugin-package-settings"
-
 type SessionCopyField = "file" | "id"
-
 const indexRoute = getRouteApi("/")
-
 export function AppShell() {
   const { locale, setLocale, t: tr } = useI18n()
   const navigate = indexRoute.useNavigate()
@@ -68,17 +66,19 @@ export function AppShell() {
   }, [])
   const chatInputRef = useRef<ChatInputHandle | null>(null)
   const topBarRef = useRef<HTMLDivElement>(null)
-
   useEffect(() => {
     const check = withApi((api) => api.packages.globalChromePlugin()).pipe(
       Effect.flatMap((response) => probeChromeExtension(response.package)),
       Effect.tap((health) => Effect.sync(() => setChromeExtensionHealth(health))),
       Effect.catch(() => Effect.void),
-      Effect.repeat({ schedule: Schedule.spaced("5 seconds") }),
+      Effect.repeat({
+        schedule: Schedule.spaced("5 seconds"),
+      }),
     )
-    return runApi(check, { onSuccess: () => undefined })
+    return runApi(check, {
+      onSuccess: () => undefined,
+    })
   }, [])
-
   const chromeExtensionAttention =
     chromeExtensionHealth !== null && chromeExtensionNeedsAttention(chromeExtensionHealth)
 
@@ -86,7 +86,6 @@ export function AppShell() {
   const [branchNodes, setBranchNodes] = useState<SessionBranchNode[]>([])
   const [branchActiveLeafId, setBranchActiveLeafId] = useState<string | null>(null)
   const branchLeafChangeFnRef = useRef<((leafId: string | null) => void) | null>(null)
-
   const handleBranchDataChange = useCallback(
     (nodes: SessionBranchNode[], activeLeafId: string | null, onLeafChange: (leafId: string | null) => void) => {
       setBranchNodes(nodes)
@@ -95,14 +94,11 @@ export function AppShell() {
     },
     [],
   )
-
   const handleBranchLeafChange = useCallback((leafId: string | null) => {
     branchLeafChangeFnRef.current?.(leafId)
   }, [])
-
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null)
   const systemBtnRef = useRef<HTMLButtonElement>(null)
-
   const handleSystemPromptChange = useCallback((prompt: string | null) => {
     setSystemPrompt(prompt)
   }, [])
@@ -126,10 +122,11 @@ export function AppShell() {
         Effect.andThen(Effect.sleep("1400 millis")),
         Effect.tap(() => Effect.sync(() => setCopiedSessionField(null))),
       ),
-      { onSuccess: () => undefined },
+      {
+        onSuccess: () => undefined,
+      },
     )
   }, [])
-
   useEffect(() => {
     return () => {
       sessionCopyTimerRef.current?.()
@@ -143,7 +140,13 @@ export function AppShell() {
     tokens: number | null
   } | null>(null)
   const handleContextUsageChange = useCallback(
-    (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => {
+    (
+      usage: {
+        percent: number | null
+        contextWindow: number
+        tokens: number | null
+      } | null,
+    ) => {
       setContextUsage(usage)
     },
     [],
@@ -155,8 +158,11 @@ export function AppShell() {
 
   // Single active panel — only one dropdown open at a time
   const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "session" | null>(null)
-  const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null)
-
+  const [topPanelPos, setTopPanelPos] = useState<{
+    top: number
+    left: number
+    width: number
+  } | null>(null)
   const toggleTopPanel = useCallback(
     (panel: "branches" | "system" | "session") => {
       if (isMobile) setSidebarOpen(false)
@@ -164,26 +170,29 @@ export function AppShell() {
     },
     [isMobile],
   )
-
   const openSessionStatsPanel = useCallback(() => {
     if (isMobile) setSidebarOpen(false)
     setActiveTopPanel("session")
   }, [isMobile])
-
   const handleSidebarToggle = useCallback(() => {
     if (isMobile) setActiveTopPanel(null)
     setSidebarOpen((open) => !open)
   }, [isMobile])
-
   useEffect(() => {
     if (!activeTopPanel || !topBarRef.current) return
     const update = () => {
       const rect = topBarRef.current!.getBoundingClientRect()
-      setTopPanelPos({ top: rect.bottom, left: rect.left, width: rect.width })
+      setTopPanelPos({
+        top: rect.bottom,
+        left: rect.left,
+        width: rect.width,
+      })
     }
     return runBrowser(
       BrowserPlatform.pipe(Effect.flatMap((browser) => browser.observeResize([topBarRef.current!], update))),
-      { onSuccess: () => undefined },
+      {
+        onSuccess: () => undefined,
+      },
     )
   }, [activeTopPanel])
 
@@ -197,14 +206,12 @@ export function AppShell() {
   const handleAtMention = useCallback((relativePath: string, isDir: boolean) => {
     chatInputRef.current?.insertText(buildAtMentionText(relativePath, isDir))
   }, [])
-
   const [initialSessionId] = useState<string | null>(() => search.session ?? null)
   const [activeCwd, setActiveCwd] = useState<string | null>(null)
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => search.session === undefined)
   // Suppresses draft replacement in handleCwdChange during the initial URL restore.
   const suppressCwdResetRef = useRef(false)
-
   const handleCwdChange = useCallback(
     (cwd: string | null, projectRoot?: string | null) => {
       setActiveCwd(cwd)
@@ -228,11 +235,14 @@ export function AppShell() {
       setBranchActiveLeafId(null)
       setSystemPrompt(null)
       setActiveTopPanel(null)
-      void navigate({ to: "/", search: {}, replace: true })
+      void navigate({
+        to: "/",
+        search: {},
+        replace: true,
+      })
     },
     [navigate, selectedSession],
   )
-
   const handleSelectSession = useCallback(
     (session: SessionInfo, isRestore = false) => {
       setSessionCollection((current) =>
@@ -252,12 +262,17 @@ export function AppShell() {
       // Skip router.replace when restoring from URL: the search param already
       // owns the current session identity.
       if (!isRestore) {
-        void navigate({ to: "/", search: { session: session.id }, replace: true })
+        void navigate({
+          to: "/",
+          search: {
+            session: session.id,
+          },
+          replace: true,
+        })
       }
     },
     [navigate, isMobile],
   )
-
   const acceptCreatedSession = useCallback(
     (session: SessionInfo) => {
       setSessionCollection((current) =>
@@ -266,11 +281,16 @@ export function AppShell() {
           : [...current, session],
       )
       setRefreshKey((key) => key + 1)
-      void navigate({ to: "/", search: { session: session.id }, replace: true })
+      void navigate({
+        to: "/",
+        search: {
+          session: session.id,
+        },
+        replace: true,
+      })
     },
     [navigate],
   )
-
   const handleNewSession = useCallback(
     (cwd: string) => {
       if (creatingSessionCwd !== null) return
@@ -282,11 +302,17 @@ export function AppShell() {
       setSystemPrompt(null)
       setActiveTopPanel(null)
       if (isMobile) setSidebarOpen(false)
-      void navigate({ to: "/", search: {}, replace: true })
+      void navigate({
+        to: "/",
+        search: {},
+        replace: true,
+      })
       runApi(sessionController.create(cwd, getToolNamesForPreset(DEFAULT_TOOL_PRESET), null), {
         onSuccess: (session) => {
           setCreatingSessionCwd(null)
-          acceptCreatedSession({ ...session })
+          acceptCreatedSession({
+            ...session,
+          })
         },
         onFailure: (error) => {
           setCreatingSessionCwd(null)
@@ -296,27 +322,28 @@ export function AppShell() {
     },
     [acceptCreatedSession, creatingSessionCwd, isMobile, navigate],
   )
-
   useEffect(
     () =>
       runApi(
         withApi((api) => api.sessions.list({})),
         {
-          onSuccess: ({ sessions }) => setSessionCollection(sessions.map((candidate) => ({ ...candidate }))),
+          onSuccess: ({ sessions }) =>
+            setSessionCollection(
+              sessions.map((candidate) => ({
+                ...candidate,
+              })),
+            ),
         },
       ),
     [refreshKey],
   )
-
   const handleAgentEnd = useCallback(() => {
     setRefreshKey((k) => k + 1)
     setExplorerRefreshKey((k) => k + 1)
   }, [])
-
   const handleSessionIndexChanged = useCallback(() => {
     setRefreshKey((k) => k + 1)
   }, [])
-
   const handleSessionForked = useCallback(
     (newSessionId: string) => {
       setRefreshKey((k) => k + 1)
@@ -324,23 +351,38 @@ export function AppShell() {
         const parent =
           search.session === undefined ? undefined : current.find((candidate) => candidate.id === search.session)
         const fork = {
-          ...(parent ?? { path: "", cwd: "", created: "", modified: "", messageCount: 0, firstMessage: "" }),
+          ...(parent ?? {
+            path: "",
+            cwd: "",
+            created: "",
+            modified: "",
+            messageCount: 0,
+            firstMessage: "",
+          }),
           id: newSessionId,
         }
         return [...current.filter((candidate) => candidate.id !== newSessionId), fork]
       })
-      void navigate({ to: "/", search: { session: newSessionId }, replace: true })
+      void navigate({
+        to: "/",
+        search: {
+          session: newSessionId,
+        },
+        replace: true,
+      })
     },
     [navigate, search.session],
   )
-
   const handleInitialRestoreDone = useCallback(() => {
     if (search.session !== undefined) {
-      void navigate({ to: "/", search: {}, replace: true })
+      void navigate({
+        to: "/",
+        search: {},
+        replace: true,
+      })
     }
     setInitialSessionRestored(true)
   }, [navigate, search.session])
-
   const handleSessionDeleted = useCallback(
     (sessionId: string) => {
       setSessionCollection((current) => current.filter((session) => session.id !== sessionId))
@@ -350,20 +392,39 @@ export function AppShell() {
         setBranchActiveLeafId(null)
         setSystemPrompt(null)
         setActiveTopPanel(null)
-        void navigate({ to: "/", search: {}, replace: true })
+        void navigate({
+          to: "/",
+          search: {},
+          replace: true,
+        })
       }
     },
     [selectedSession, navigate],
   )
-
   const handleOpenFile = useCallback(
     (filePath: string, fileName: string, sourceSessionId?: string | null) => {
       const tabId = `file:${filePath}`
       setFileTabs((prev) => {
         const existing = prev.find((t) => t.id === tabId)
-        if (!existing) return [...prev, { id: tabId, label: fileName, filePath, sourceSessionId }]
+        if (!existing)
+          return [
+            ...prev,
+            {
+              id: tabId,
+              label: fileName,
+              filePath,
+              sourceSessionId,
+            },
+          ]
         if (!sourceSessionId || existing.sourceSessionId === sourceSessionId) return prev
-        return prev.map((t) => (t.id === tabId ? { ...t, sourceSessionId } : t))
+        return prev.map((t) =>
+          t.id === tabId
+            ? {
+                ...t,
+                sourceSessionId,
+              }
+            : t,
+        )
       })
       setActiveFileTabId(tabId)
       setRightPanelOpen(true)
@@ -372,14 +433,12 @@ export function AppShell() {
     },
     [isMobile],
   )
-
   const handleOpenLinkedFile = useCallback(
     (filePath: string) => {
       handleOpenFile(filePath, getFileName(filePath), selectedSession?.id ?? null)
     },
     [handleOpenFile, selectedSession?.id],
   )
-
   const handleCloseFileTab = useCallback(
     (tabId: string) => {
       setFileTabs((prev) => {
@@ -395,21 +454,28 @@ export function AppShell() {
     },
     [fileTabs],
   )
-
   const handleExportSession = useCallback(() => {
     if (!selectedSession) return
     runBrowser(
       BrowserPlatform.pipe(
-        Effect.flatMap((browser) => browser.navigate(apiUrls.sessions.export({ params: { id: selectedSession.id } }))),
+        Effect.flatMap((browser) =>
+          browser.navigate(
+            apiUrls.sessions.export({
+              params: {
+                id: selectedSession.id,
+              },
+            }),
+          ),
+        ),
       ),
-      { onSuccess: () => undefined },
+      {
+        onSuccess: () => undefined,
+      },
     )
   }, [selectedSession])
-
   const showChat = selectedSession !== null
   // While restoring initial session from URL, don't show the placeholder
   const showPlaceholder = initialSessionRestored && !showChat
-
   const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null
   const sidebarContent = (
     <>
@@ -428,7 +494,7 @@ export function AppShell() {
         explorerRefreshKey={explorerRefreshKey}
         onAtMention={handleAtMention}
       />
-      <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
+      <div {...stylex.props(inlineStyles.inline1)}>
         {(
           [
             {
@@ -488,7 +554,7 @@ export function AppShell() {
               },
               disabled: false,
               icon: (
-                <span style={{ position: "relative", display: "inline-flex" }}>
+                <span {...stylex.props(inlineStyles.inline2)}>
                   <svg
                     width="14"
                     height="14"
@@ -507,44 +573,28 @@ export function AppShell() {
                   {chromeExtensionAttention && (
                     <span
                       aria-label={tr("Chrome browser extension requires attention")}
-                      style={{
-                        position: "absolute",
-                        top: -4,
-                        right: -5,
-                        width: 7,
-                        height: 7,
-                        borderRadius: "50%",
-                        background: "#ef4444",
-                        boxShadow: "0 0 0 2px var(--bg-panel)",
-                      }}
+                      {...stylex.props(inlineStyles.inline3)}
                     />
                   )}
                 </span>
               ),
             },
-          ] as { label: string; onClick: () => void; disabled: boolean; icon: React.ReactNode }[]
+          ] as {
+            label: string
+            onClick: () => void
+            disabled: boolean
+            icon: React.ReactNode
+          }[]
         ).map(({ label, onClick, disabled, icon }) => (
           <button
             key={label}
             onClick={onClick}
             disabled={disabled}
             title={label}
+            {...stylex.props(inlineStyles.inline4)}
             style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 6,
-              height: 32,
-              padding: 0,
-              background: "none",
-              border: "none",
-              borderRadius: 9,
-              color: "var(--text-muted)",
               cursor: disabled ? "default" : "pointer",
-              fontSize: 12,
               opacity: disabled ? 0.35 : 1,
-              transition: "background 0.12s, color 0.12s",
             }}
             onMouseEnter={(e) => {
               if (!disabled) {
@@ -564,7 +614,6 @@ export function AppShell() {
       </div>
     </>
   )
-
   return (
     <>
       <style>{`
@@ -638,70 +687,35 @@ export function AppShell() {
         }
       }
     `}</style>
-      <div style={{ display: "flex", height: "100dvh", overflow: "hidden", background: "var(--bg)" }}>
+      <div {...stylex.props(inlineStyles.inline5)}>
         {/* Mobile overlay backdrop */}
         <div
           className={`sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
           onClick={() => setSidebarOpen(false)}
+          {...stylex.props(inlineStyles.inline6)}
           style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 199,
-            background: "rgba(0,0,0,0.4)",
             opacity: sidebarOpen ? 1 : 0,
             pointerEvents: sidebarOpen ? "auto" : "none",
-            transition: "opacity 0.25s ease",
           }}
         />
 
         {/* Left sidebar */}
         <div
           className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
-          style={{
-            background: "var(--bg-panel)",
-            borderRight: "1px solid var(--border)",
-            display: "flex",
-            flexDirection: "column",
-            flexShrink: 0,
-            zIndex: 200,
-          }}
+          {...stylex.props(inlineStyles.inline7)}
         >
           {sidebarContent}
         </div>
 
         {/* Center: chat */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+        <div {...stylex.props(inlineStyles.inline8)}>
           {/* Top bar with sidebar toggle */}
-          <div
-            ref={topBarRef}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              flexShrink: 0,
-              borderBottom: "1px solid var(--border)",
-              height: 36,
-              background: "var(--bg-panel)",
-            }}
-          >
+          <div ref={topBarRef} {...stylex.props(inlineStyles.inline9)}>
             <button
               onClick={handleSidebarToggle}
               title={tr(sidebarOpen ? "Hide sidebar" : "Show sidebar")}
               aria-label={tr(sidebarOpen ? "Hide sidebar" : "Show sidebar")}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 36,
-                height: 36,
-                padding: 0,
-                background: "none",
-                border: "none",
-                borderRight: "1px solid var(--border)",
-                color: "var(--text-muted)",
-                cursor: "pointer",
-                flexShrink: 0,
-                transition: "color 0.12s",
-              }}
+              {...stylex.props(inlineStyles.inline10)}
               onMouseEnter={(e) => {
                 e.currentTarget.style.color = "var(--text)"
               }}
@@ -742,26 +756,15 @@ export function AppShell() {
             <button
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect()
-                toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+                toggleTheme({
+                  x: rect.left + rect.width / 2,
+                  y: rect.top + rect.height / 2,
+                })
               }}
               title={tr(isDark ? "Switch to light mode" : "Switch to dark mode")}
               aria-label={tr(isDark ? "Switch to light mode" : "Switch to dark mode")}
               aria-pressed={isDark}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 36,
-                height: 36,
-                padding: 0,
-                background: "none",
-                border: "none",
-                borderRight: "1px solid var(--border)",
-                color: "var(--text-muted)",
-                cursor: "pointer",
-                flexShrink: 0,
-                transition: "color 0.12s",
-              }}
+              {...stylex.props(inlineStyles.inline11)}
               onMouseEnter={(e) => {
                 e.currentTarget.style.color = "var(--text)"
               }}
@@ -809,23 +812,7 @@ export function AppShell() {
               onClick={() => setLocale(locale === "zh-CN" ? "en" : "zh-CN")}
               title={tr("Switch language")}
               aria-label={tr("Switch language")}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                minWidth: 44,
-                height: 36,
-                padding: "0 8px",
-                background: "none",
-                border: "none",
-                borderRight: "1px solid var(--border)",
-                color: "var(--text-muted)",
-                cursor: "pointer",
-                flexShrink: 0,
-                fontSize: 11,
-                fontWeight: 600,
-                transition: "color 0.12s",
-              }}
+              {...stylex.props(inlineStyles.inline12)}
               onMouseEnter={(e) => {
                 e.currentTarget.style.color = "var(--text)"
               }}
@@ -836,29 +823,17 @@ export function AppShell() {
               {locale === "zh-CN" ? "EN" : "中文"}
             </button>
             {showChat && (
-              <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
+              <div {...stylex.props(inlineStyles.inline13)}>
                 <button
                   onClick={handleExportSession}
                   disabled={!selectedSession}
                   title={tr(selectedSession ? "Export HTML" : "Export is available after the session is saved")}
                   aria-label={tr("Export HTML")}
+                  {...stylex.props(inlineStyles.inline14)}
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    height: "100%",
-                    padding: "0 12px",
-                    background: "none",
-                    border: "none",
-                    borderTop: "2px solid transparent",
-                    borderRight: "1px solid var(--border)",
                     color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
                     cursor: selectedSession ? "pointer" : "not-allowed",
                     opacity: selectedSession ? 1 : 0.45,
-                    flexShrink: 0,
-                    fontSize: 11,
-                    whiteSpace: "nowrap",
-                    transition: "color 0.1s, background 0.1s, opacity 0.1s",
                   }}
                   onMouseEnter={(e) => {
                     if (!selectedSession) return
@@ -871,16 +846,9 @@ export function AppShell() {
                   }}
                 >
                   <span
+                    {...stylex.props(inlineStyles.inline15)}
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: 18,
-                      height: 18,
-                      borderRadius: 5,
-                      background: "transparent",
                       color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
-                      flexShrink: 0,
                     }}
                   >
                     <svg
@@ -917,21 +885,11 @@ export function AppShell() {
                   title={tr("System prompt")}
                   aria-label={tr("System prompt")}
                   aria-pressed={activeTopPanel === "system"}
+                  {...stylex.props(inlineStyles.inline16)}
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    height: "100%",
-                    padding: "0 12px",
                     background: activeTopPanel === "system" ? "var(--bg-selected)" : "none",
-                    border: "none",
                     borderTop: activeTopPanel === "system" ? "2px solid var(--accent)" : "2px solid transparent",
-                    borderRight: "1px solid var(--border)",
-                    cursor: "pointer",
                     color: activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)",
-                    fontSize: 11,
-                    whiteSpace: "nowrap",
-                    transition: "color 0.1s, background 0.1s",
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.color = "var(--text)"
@@ -949,7 +907,10 @@ export function AppShell() {
                     strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    style={{ color: systemPrompt ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }}
+                    {...stylex.props(inlineStyles.inline17)}
+                    style={{
+                      color: systemPrompt ? "var(--accent)" : "var(--text-dim)",
+                    }}
                   >
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                     <polyline points="14 2 14 8 20 8" />
@@ -973,7 +934,6 @@ export function AppShell() {
                       ? `${(n / 1000).toFixed(0)}k`
                       : String(n)
                 const costStr = c > 0 ? (c >= 0.01 ? `$${c.toFixed(2)}` : `<$0.01`) : null
-
                 let ctxColor = "var(--text-muted)"
                 let ctxStr: string | null = null
                 if (contextUsage?.contextWindow) {
@@ -985,7 +945,6 @@ export function AppShell() {
                       ? `${pct.toFixed(0)}% / ${fmt(contextUsage.contextWindow)}`
                       : `? / ${fmt(contextUsage.contextWindow)}`
                 }
-
                 const tooltipParts: string[] = []
                 if (t) {
                   tooltipParts.push(`in: ${t.input.toLocaleString()}`)
@@ -1001,7 +960,6 @@ export function AppShell() {
                   )
                 }
                 const tooltip = tooltipParts.join("  |  ")
-
                 return (
                   <button
                     type="button"
@@ -1009,23 +967,11 @@ export function AppShell() {
                     title={tooltip || tr("Session info")}
                     aria-label={tr("Session info")}
                     aria-pressed={activeTopPanel === "session"}
+                    {...stylex.props(inlineStyles.inline18)}
                     style={{
-                      marginLeft: "auto",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      paddingLeft: 12,
                       paddingRight: rightPanelOpen ? 12 : 48,
-                      height: "100%",
                       background: activeTopPanel === "session" ? "var(--bg-selected)" : "none",
-                      border: "none",
                       borderTop: activeTopPanel === "session" ? "2px solid var(--accent)" : "2px solid transparent",
-                      fontSize: 11,
-                      color: "var(--text-muted)",
-                      whiteSpace: "nowrap",
-                      cursor: "pointer",
-                      fontVariantNumeric: "tabular-nums",
-                      transition: "color 0.1s, background 0.1s",
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.color = "var(--text)"
@@ -1052,7 +998,7 @@ export function AppShell() {
                       </svg>
                     )}
                     {!isMobile && t && t.input > 0 && (
-                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      <span {...stylex.props(inlineStyles.inline19)}>
                         <svg
                           width="12"
                           height="12"
@@ -1070,7 +1016,7 @@ export function AppShell() {
                       </span>
                     )}
                     {!isMobile && t && t.output > 0 && (
-                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      <span {...stylex.props(inlineStyles.inline20)}>
                         <svg
                           width="12"
                           height="12"
@@ -1088,7 +1034,7 @@ export function AppShell() {
                       </span>
                     )}
                     {!isMobile && t && t.cacheRead > 0 && (
-                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      <span {...stylex.props(inlineStyles.inline21)}>
                         <svg
                           width="12"
                           height="12"
@@ -1106,12 +1052,17 @@ export function AppShell() {
                       </span>
                     )}
                     {!isMobile && costStr && (
-                      <span style={{ display: "flex", alignItems: "center", color: "var(--text)", fontWeight: 500 }}>
+                      <span {...stylex.props(inlineStyles.inline22)}>
                         {tr("Session total")} {costStr}
                       </span>
                     )}
                     {ctxStr && (
-                      <span style={{ display: "flex", alignItems: "center", gap: 4, color: ctxColor }}>
+                      <span
+                        {...stylex.props(inlineStyles.inline23)}
+                        style={{
+                          color: ctxColor,
+                        }}
+                      >
                         <svg
                           width="12"
                           height="12"
@@ -1134,71 +1085,49 @@ export function AppShell() {
             {/* Top panel dropdown — shared, only one active at a time */}
             {activeTopPanel && topPanelPos && (
               <div
+                {...stylex.props(inlineStyles.inline24)}
                 style={{
-                  position: "fixed",
                   top: topPanelPos.top,
                   left: topPanelPos.left,
                   width: topPanelPos.width,
                   maxHeight: `calc(100dvh - ${topPanelPos.top}px)`,
-                  overflowY: "auto",
-                  zIndex: 500,
                 }}
               >
                 {activeTopPanel === "system" && (
-                  <div
-                    style={{
-                      background: "var(--bg-panel)",
-                      borderBottom: "1px solid var(--border)",
-                    }}
-                  >
+                  <div {...stylex.props(inlineStyles.inline25)}>
                     {systemPrompt ? (
-                      <div
-                        style={{
-                          maxHeight: "min(600px, 75vh)",
-                          overflowY: "auto",
-                          padding: "12px 16px",
-                          color: "var(--text-muted)",
-                          fontSize: 12,
-                          lineHeight: 1.6,
-                          whiteSpace: "pre-wrap",
-                          fontFamily: "var(--font-mono)",
-                        }}
-                      >
-                        {systemPrompt}
-                      </div>
+                      <div {...stylex.props(inlineStyles.inline26)}>{systemPrompt}</div>
                     ) : systemPrompt === "" ? (
-                      <div
-                        style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}
-                      >
-                        System prompt is empty (tools are disabled)
-                      </div>
+                      <div {...stylex.props(inlineStyles.inline27)}>System prompt is empty (tools are disabled)</div>
                     ) : (
-                      <div
-                        style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}
-                      >
-                        Send a message to load the system prompt
-                      </div>
+                      <div {...stylex.props(inlineStyles.inline28)}>Send a message to load the system prompt</div>
                     )}
                   </div>
                 )}
                 {activeTopPanel === "session" && (
-                  <div
-                    className="session-info-popover"
-                    style={{
-                      background: "var(--bg-panel)",
-                      borderBottom: "1px solid var(--border)",
-                      boxShadow: "0 10px 28px rgba(0,0,0,0.10)",
-                      padding: "12px 16px",
-                    }}
-                  >
+                  <div className="session-info-popover" {...stylex.props(inlineStyles.inline29)}>
                     {sessionStats ? (
                       (() => {
                         const sessionRows = [
                           ...(sessionStats.sessionName
-                            ? [{ label: "Name", value: sessionStats.sessionName, copyField: null }]
+                            ? [
+                                {
+                                  label: "Name",
+                                  value: sessionStats.sessionName,
+                                  copyField: null,
+                                },
+                              ]
                             : []),
-                          { label: "File", value: sessionStats.sessionFile ?? "In-memory", copyField: "file" as const },
-                          { label: "ID", value: sessionStats.sessionId, copyField: "id" as const },
+                          {
+                            label: "File",
+                            value: sessionStats.sessionFile ?? "In-memory",
+                            copyField: "file" as const,
+                          },
+                          {
+                            label: "ID",
+                            value: sessionStats.sessionId,
+                            copyField: "id" as const,
+                          },
                         ]
                         const messageRows = [
                           [tr("User"), sessionStats.userMessages.toLocaleString()],
@@ -1242,26 +1171,22 @@ export function AppShell() {
                           valueAlign: "left" | "right" = "left",
                           compact = false,
                         ) => (
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>
-                              {title}
-                            </div>
+                          <div {...stylex.props(inlineStyles.inline30)}>
+                            <div {...stylex.props(inlineStyles.inline31)}>{title}</div>
                             <div
+                              {...stylex.props(inlineStyles.inline32)}
                               style={{
-                                display: "grid",
                                 gridTemplateColumns: compact ? "max-content max-content" : "auto minmax(0, 1fr)",
                                 columnGap: compact ? 14 : 12,
-                                rowGap: 4,
                                 justifyContent: compact ? "start" : undefined,
                               }}
                             >
                               {sectionRows.map(([label, value]) => (
-                                <div key={`${title}:${label}`} style={{ display: "contents" }}>
-                                  <div style={{ color: "var(--text-dim)", whiteSpace: "nowrap" }}>{label}</div>
+                                <div key={`${title}:${label}`} {...stylex.props(inlineStyles.inline33)}>
+                                  <div {...stylex.props(inlineStyles.inline34)}>{label}</div>
                                   <div
+                                    {...stylex.props(inlineStyles.inline35)}
                                     style={{
-                                      color: "var(--text-muted)",
-                                      minWidth: 0,
                                       overflowWrap: compact ? "normal" : "anywhere",
                                       textAlign: valueAlign,
                                       whiteSpace: valueAlign === "right" ? "nowrap" : "normal",
@@ -1281,21 +1206,9 @@ export function AppShell() {
                               type="button"
                               title={copied ? "Copied" : `Copy ${field === "file" ? "file path" : "session ID"}`}
                               onClick={() => handleCopySessionField(field, value)}
+                              {...stylex.props(inlineStyles.inline36)}
                               style={{
-                                alignSelf: "start",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                width: 22,
-                                height: 22,
-                                marginTop: -2,
                                 color: copied ? "var(--accent)" : "var(--text-dim)",
-                                background: "transparent",
-                                border: "1px solid var(--border)",
-                                borderRadius: 4,
-                                cursor: "pointer",
-                                flex: "0 0 auto",
-                                transition: "color 0.12s, border-color 0.12s, background 0.12s",
                               }}
                               onMouseEnter={(e) => {
                                 e.currentTarget.style.color = "var(--accent)"
@@ -1342,51 +1255,27 @@ export function AppShell() {
                           )
                         }
                         const sessionInfoSection = (
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>
-                              {tr("Session Info")}
-                            </div>
-                            <div
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "auto minmax(0, 1fr) auto",
-                                columnGap: 12,
-                                rowGap: 8,
-                                alignItems: "start",
-                              }}
-                            >
+                          <div {...stylex.props(inlineStyles.inline37)}>
+                            <div {...stylex.props(inlineStyles.inline38)}>{tr("Session Info")}</div>
+                            <div {...stylex.props(inlineStyles.inline39)}>
                               {sessionRows.map((row) => (
-                                <div key={`session-info:${row.label}`} style={{ display: "contents" }}>
-                                  <div style={{ color: "var(--text-dim)", whiteSpace: "nowrap" }}>{row.label}</div>
-                                  <div
-                                    style={{
-                                      color: "var(--text-muted)",
-                                      minWidth: 0,
-                                      overflowWrap: "anywhere",
-                                      wordBreak: "break-word",
-                                      whiteSpace: "normal",
-                                    }}
-                                  >
-                                    {row.value}
-                                  </div>
+                                <div key={`session-info:${row.label}`} {...stylex.props(inlineStyles.inline40)}>
+                                  <div {...stylex.props(inlineStyles.inline41)}>{row.label}</div>
+                                  <div {...stylex.props(inlineStyles.inline42)}>{row.value}</div>
                                   <div>{row.copyField ? copyButton(row.copyField, row.value) : null}</div>
                                 </div>
                               ))}
                             </div>
                           </div>
                         )
-
                         return (
                           <div
+                            {...stylex.props(inlineStyles.inline43)}
                             style={{
-                              display: "grid",
                               gridTemplateColumns: isMobile
                                 ? "1fr"
                                 : "minmax(360px, 1.7fr) minmax(140px, 0.55fr) minmax(190px, 0.75fr)",
                               gap: isMobile ? 16 : 24,
-                              fontSize: 12,
-                              lineHeight: 1.5,
-                              fontFamily: "var(--font-mono)",
                             }}
                           >
                             {sessionInfoSection}
@@ -1396,7 +1285,7 @@ export function AppShell() {
                         )
                       })()
                     ) : (
-                      <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
+                      <div {...stylex.props(inlineStyles.inline44)}>
                         {tr("Send a message or run /session to load session info")}
                       </div>
                     )}
@@ -1407,7 +1296,7 @@ export function AppShell() {
           </div>
 
           {/* Chat content */}
-          <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+          <div {...stylex.props(inlineStyles.inline45)}>
             {showChat ? (
               <ChatWindow
                 session={selectedSession}
@@ -1427,8 +1316,8 @@ export function AppShell() {
                 onOpenFile={handleOpenLinkedFile}
               />
             ) : creatingSessionCwd !== null ? (
-              <div className="flex h-full flex-col items-center justify-center overflow-y-auto px-4 py-8">
-                <div className="w-full max-w-[820px]">
+              <div {...stylex.props(styles.pendingSession)}>
+                <div {...stylex.props(styles.chatColumn)}>
                   <ChatInput
                     onSend={() => undefined}
                     onAbort={() => undefined}
@@ -1439,34 +1328,12 @@ export function AppShell() {
                 </div>
               </div>
             ) : createSessionError !== null ? (
-              <div className="flex h-full items-center justify-center text-red-400">{createSessionError}</div>
+              <div {...stylex.props(styles.createSessionError)}>{createSessionError}</div>
             ) : showPlaceholder ? (
               activeCwd ? (
-                <div
-                  style={{
-                    height: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "var(--text-muted)",
-                    fontSize: 15,
-                  }}
-                >
-                  {tr("Select a session from the sidebar")}
-                </div>
+                <div {...stylex.props(inlineStyles.inline46)}>{tr("Select a session from the sidebar")}</div>
               ) : (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 12,
-                    left: 12,
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: 8,
-                    userSelect: "none",
-                    pointerEvents: "none",
-                  }}
-                >
+                <div {...stylex.props(inlineStyles.inline47)}>
                   <svg
                     width="44"
                     height="44"
@@ -1476,20 +1343,18 @@ export function AppShell() {
                     strokeWidth="1.5"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    style={{ opacity: 0.7, flexShrink: 0 }}
+                    {...stylex.props(inlineStyles.inline48)}
                   >
                     <line x1="20" y1="12" x2="4" y2="12" />
                     <polyline points="10 6 4 12 10 18" />
                   </svg>
                   <div>
-                    <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>
-                      {tr("Get Started")}
-                    </div>
-                    <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8 }}>
-                      <span style={{ color: "var(--text-dim)", marginRight: 6 }}>1.</span>
+                    <div {...stylex.props(inlineStyles.inline49)}>{tr("Get Started")}</div>
+                    <div {...stylex.props(inlineStyles.inline50)}>
+                      <span {...stylex.props(inlineStyles.inline51)}>1.</span>
                       {tr("Select a project directory from the sidebar")}
                       <br />
-                      <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>
+                      <span {...stylex.props(inlineStyles.inline52)}>2.</span>
                       {tr("Add models via the Models button at the bottom")}
                     </div>
                   </div>
@@ -1502,25 +1367,11 @@ export function AppShell() {
         {/* Right panel: file viewer — always mounted, width animated via CSS */}
         <div
           className={`right-panel-container${rightPanelOpen ? " right-panel-open" : " right-panel-closed"}`}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            borderLeft: "1px solid var(--border)",
-            background: "var(--bg)",
-          }}
+          {...stylex.props(inlineStyles.inline53)}
         >
           {/* Right panel tab bar */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              flexShrink: 0,
-              background: "var(--bg-panel)",
-              borderBottom: "1px solid var(--border)",
-              height: 36,
-            }}
-          >
-            <div style={{ flex: 1, overflow: "hidden" }}>
+          <div {...stylex.props(inlineStyles.inline54)}>
+            <div {...stylex.props(inlineStyles.inline55)}>
               <TabBar
                 tabs={fileTabs}
                 activeTabId={activeFileTabId ?? ""}
@@ -1531,7 +1382,7 @@ export function AppShell() {
           </div>
 
           {/* File content */}
-          <div style={{ flex: 1, overflow: "hidden" }}>
+          <div {...stylex.props(inlineStyles.inline56)}>
             {activeFileTab?.filePath ? (
               <Suspense fallback={null}>
                 <FileViewer
@@ -1541,18 +1392,7 @@ export function AppShell() {
                 />
               </Suspense>
             ) : (
-              <div
-                style={{
-                  height: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "var(--text-dim)",
-                  fontSize: 12,
-                }}
-              >
-                {tr("No file open")}
-              </div>
+              <div {...stylex.props(inlineStyles.inline57)}>{tr("No file open")}</div>
             )}
           </div>
         </div>
@@ -1562,24 +1402,9 @@ export function AppShell() {
         onClick={() => setRightPanelOpen((v) => !v)}
         title={tr(rightPanelOpen ? "Hide file panel" : "Show file panel")}
         aria-label={tr(rightPanelOpen ? "Hide file panel" : "Show file panel")}
+        {...stylex.props(inlineStyles.inline58)}
         style={{
-          position: "fixed",
-          top: 0,
-          right: 0,
-          zIndex: 300,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: 36,
-          height: 36,
-          padding: 0,
-          background: "var(--bg-panel)",
-          border: "none",
-          borderLeft: "1px solid var(--border)",
-          borderBottom: "1px solid var(--border)",
           color: rightPanelOpen ? "var(--text)" : "var(--text-muted)",
-          cursor: "pointer",
-          transition: "color 0.12s",
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.color = "var(--text)"
@@ -1632,3 +1457,446 @@ export function AppShell() {
     </>
   )
 }
+const styles = stylex.create({
+  pendingSession: {
+    alignItems: "center",
+    display: "flex",
+    flexDirection: "column",
+    height: "100%",
+    justifyContent: "center",
+    overflowY: "auto",
+    paddingBlock: 32,
+    paddingInline: 16,
+  },
+  chatColumn: {
+    maxWidth: 820,
+    width: "100%",
+  },
+  createSessionError: {
+    alignItems: "center",
+    color: "oklch(70.4% 0.191 22.216)",
+    display: "flex",
+    height: "100%",
+    justifyContent: "center",
+  },
+})
+const inlineStyles = stylex.create({
+  inline1: {
+    padding: "8px",
+    flexShrink: 0,
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 4,
+  },
+  inline2: {
+    position: "relative",
+    display: "inline-flex",
+  },
+  inline3: {
+    position: "absolute",
+    top: -4,
+    right: -5,
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    background: "#ef4444",
+    boxShadow: "0 0 0 2px var(--bg-panel)",
+  },
+  inline4: {
+    flex: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    height: 32,
+    padding: 0,
+    background: "none",
+    border: "none",
+    borderRadius: 9,
+    color: "var(--text-muted)",
+    fontSize: 12,
+    transition: "background 0.12s, color 0.12s",
+  },
+  inline5: {
+    display: "flex",
+    height: "100dvh",
+    overflow: "hidden",
+    background: "var(--bg)",
+  },
+  inline6: {
+    display: { "@media (min-width: 641px)": "none" },
+    position: "fixed",
+    inset: 0,
+    zIndex: 199,
+    background: "rgba(0,0,0,0.4)",
+    transition: "opacity 0.25s ease",
+  },
+  inline7: {
+    background: "var(--bg-panel)",
+    borderRight: "1px solid var(--border)",
+    display: "flex",
+    flexDirection: "column",
+    flexShrink: 0,
+    zIndex: 200,
+  },
+  inline8: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    minWidth: 0,
+  },
+  inline9: {
+    display: "flex",
+    alignItems: "center",
+    flexShrink: 0,
+    borderBottom: "1px solid var(--border)",
+    height: 36,
+    background: "var(--bg-panel)",
+  },
+  inline10: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 36,
+    height: 36,
+    padding: 0,
+    background: "none",
+    border: "none",
+    borderRight: "1px solid var(--border)",
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    flexShrink: 0,
+    transition: "color 0.12s",
+  },
+  inline11: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 36,
+    height: 36,
+    padding: 0,
+    background: "none",
+    border: "none",
+    borderRight: "1px solid var(--border)",
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    flexShrink: 0,
+    transition: "color 0.12s",
+  },
+  inline12: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 44,
+    height: 36,
+    padding: "0 8px",
+    background: "none",
+    border: "none",
+    borderRight: "1px solid var(--border)",
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    flexShrink: 0,
+    fontSize: 11,
+    fontWeight: 600,
+    transition: "color 0.12s",
+  },
+  inline13: {
+    display: "flex",
+    alignItems: "stretch",
+    height: "100%",
+  },
+  inline14: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    height: "100%",
+    padding: "0 12px",
+    background: "none",
+    border: "none",
+    borderTop: "2px solid transparent",
+    borderRight: "1px solid var(--border)",
+    flexShrink: 0,
+    fontSize: 11,
+    whiteSpace: "nowrap",
+    transition: "color 0.1s, background 0.1s, opacity 0.1s",
+  },
+  inline15: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    background: "transparent",
+    flexShrink: 0,
+  },
+  inline16: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    height: "100%",
+    padding: "0 12px",
+    border: "none",
+    borderRight: "1px solid var(--border)",
+    cursor: "pointer",
+    fontSize: 11,
+    whiteSpace: "nowrap",
+    transition: "color 0.1s, background 0.1s",
+  },
+  inline17: {
+    flexShrink: 0,
+  },
+  inline18: {
+    marginLeft: "auto",
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    paddingLeft: 12,
+    height: "100%",
+    border: "none",
+    fontSize: 11,
+    color: "var(--text-muted)",
+    whiteSpace: "nowrap",
+    cursor: "pointer",
+    fontVariantNumeric: "tabular-nums",
+    transition: "color 0.1s, background 0.1s",
+  },
+  inline19: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+  },
+  inline20: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+  },
+  inline21: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+  },
+  inline22: {
+    display: "flex",
+    alignItems: "center",
+    color: "var(--text)",
+    fontWeight: 500,
+  },
+  inline23: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+  },
+  inline24: {
+    position: "fixed",
+    overflowY: "auto",
+    zIndex: 500,
+  },
+  inline25: {
+    background: "var(--bg-panel)",
+    borderBottom: "1px solid var(--border)",
+  },
+  inline26: {
+    maxHeight: "min(600px, 75vh)",
+    overflowY: "auto",
+    padding: "12px 16px",
+    color: "var(--text-muted)",
+    fontSize: 12,
+    lineHeight: 1.6,
+    whiteSpace: "pre-wrap",
+    fontFamily: "var(--font-mono)",
+  },
+  inline27: {
+    padding: "10px 16px",
+    fontSize: 12,
+    color: "var(--text-muted)",
+    fontStyle: "italic",
+  },
+  inline28: {
+    padding: "10px 16px",
+    fontSize: 12,
+    color: "var(--text-muted)",
+    fontStyle: "italic",
+  },
+  inline29: {
+    background: "var(--bg-panel)",
+    borderBottom: "1px solid var(--border)",
+    boxShadow: "0 10px 28px rgba(0,0,0,0.10)",
+    padding: "12px 16px",
+  },
+  inline30: {
+    minWidth: 0,
+  },
+  inline31: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "var(--text)",
+    marginBottom: 6,
+  },
+  inline32: {
+    display: "grid",
+    rowGap: 4,
+  },
+  inline33: {
+    display: "contents",
+  },
+  inline34: {
+    color: "var(--text-dim)",
+    whiteSpace: "nowrap",
+  },
+  inline35: {
+    color: "var(--text-muted)",
+    minWidth: 0,
+  },
+  inline36: {
+    alignSelf: "start",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 22,
+    height: 22,
+    marginTop: -2,
+    background: "transparent",
+    border: "1px solid var(--border)",
+    borderRadius: 4,
+    cursor: "pointer",
+    flex: "0 0 auto",
+    transition: "color 0.12s, border-color 0.12s, background 0.12s",
+  },
+  inline37: {
+    minWidth: 0,
+  },
+  inline38: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "var(--text)",
+    marginBottom: 6,
+  },
+  inline39: {
+    display: "grid",
+    gridTemplateColumns: "auto minmax(0, 1fr) auto",
+    columnGap: 12,
+    rowGap: 8,
+    alignItems: "start",
+  },
+  inline40: {
+    display: "contents",
+  },
+  inline41: {
+    color: "var(--text-dim)",
+    whiteSpace: "nowrap",
+  },
+  inline42: {
+    color: "var(--text-muted)",
+    minWidth: 0,
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
+    whiteSpace: "normal",
+  },
+  inline43: {
+    display: "grid",
+    fontSize: 12,
+    lineHeight: 1.5,
+    fontFamily: "var(--font-mono)",
+  },
+  inline44: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+    fontStyle: "italic",
+  },
+  inline45: {
+    flex: 1,
+    overflow: "hidden",
+    position: "relative",
+  },
+  inline46: {
+    height: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "var(--text-muted)",
+    fontSize: 15,
+  },
+  inline47: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 8,
+    userSelect: "none",
+    pointerEvents: "none",
+  },
+  inline48: {
+    opacity: 0.7,
+    flexShrink: 0,
+  },
+  inline49: {
+    fontSize: 18,
+    fontWeight: 600,
+    color: "var(--text)",
+    marginBottom: 8,
+  },
+  inline50: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+    lineHeight: 1.8,
+  },
+  inline51: {
+    color: "var(--text-dim)",
+    marginRight: 6,
+  },
+  inline52: {
+    color: "var(--text-dim)",
+    marginRight: 6,
+  },
+  inline53: {
+    display: "flex",
+    flexDirection: "column",
+    borderLeft: "1px solid var(--border)",
+    background: "var(--bg)",
+  },
+  inline54: {
+    display: "flex",
+    alignItems: "center",
+    flexShrink: 0,
+    background: "var(--bg-panel)",
+    borderBottom: "1px solid var(--border)",
+    height: 36,
+  },
+  inline55: {
+    flex: 1,
+    overflow: "hidden",
+  },
+  inline56: {
+    flex: 1,
+    overflow: "hidden",
+  },
+  inline57: {
+    height: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "var(--text-dim)",
+    fontSize: 12,
+  },
+  inline58: {
+    position: "fixed",
+    top: 0,
+    right: 0,
+    zIndex: 300,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 36,
+    height: 36,
+    padding: 0,
+    background: "var(--bg-panel)",
+    border: "none",
+    borderLeft: "1px solid var(--border)",
+    borderBottom: "1px solid var(--border)",
+    cursor: "pointer",
+    transition: "color 0.12s",
+  },
+})

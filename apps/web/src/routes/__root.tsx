@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import * as stylex from "@stylexjs/stylex"
 import { HeadContent, Link, Outlet, Scripts, createRootRoute } from "@tanstack/react-router"
 import "katex/dist/katex.min.css"
 import { I18nProvider } from "@/lib/i18n"
@@ -15,6 +16,7 @@ export const Route = createRootRoute({
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      ...(import.meta.env.DEV ? [{ rel: "stylesheet", href: "/virtual:stylex.css" }] : []),
       { rel: "icon", href: "/favicon.ico" },
     ],
   }),
@@ -42,6 +44,7 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
       </head>
       <body translate="no" className="notranslate">
         {children}
+        {import.meta.env.DEV && <script type="module" src="/@id/virtual:stylex:runtime" />}
         <Scripts />
       </body>
     </html>
@@ -50,11 +53,31 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
 
 function RootNotFound() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-bg px-6 text-center text-text">
-      <h1 className="text-2xl font-semibold">Not Found</h1>
-      <Link to="/" className="text-accent hover:underline">
+    <main {...stylex.props(styles.notFound)}>
+      <h1 {...stylex.props(styles.notFoundTitle)}>Not Found</h1>
+      <Link to="/" {...stylex.props(styles.notFoundLink)}>
         Pi Agent Web
       </Link>
     </main>
   )
 }
+
+const styles = stylex.create({
+  notFound: {
+    alignItems: "center",
+    backgroundColor: "var(--bg)",
+    color: "var(--text)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    justifyContent: "center",
+    minHeight: "100vh",
+    paddingInline: 24,
+    textAlign: "center",
+  },
+  notFoundTitle: { fontSize: 24, fontWeight: 600 },
+  notFoundLink: {
+    color: "var(--accent)",
+    textDecoration: { default: "none", ":hover": "underline" },
+  },
+})

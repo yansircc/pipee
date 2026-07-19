@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { tanstackStart } from "@tanstack/react-start/plugin/vite"
+import stylex from "@stylexjs/unplugin"
 import react from "@vitejs/plugin-react"
-import tailwindcss from "@tailwindcss/vite"
 import { nitro } from "nitro/vite"
 import { defineConfig } from "vite-plus"
 import pkg from "./package.json" with { type: "json" }
@@ -81,7 +81,7 @@ export default defineConfig(({ mode }) => ({
             traceDeps: ["@earendil-works/pi-coding-agent*", "@earendil-works/pi-ai*"],
           }),
         ]),
+    stylex.vite(),
     react(),
-    tailwindcss(),
   ],
 }))
