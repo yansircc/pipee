@@ -2,7 +2,7 @@ import * as stylex from "@stylexjs/stylex"
 import { Effect } from "effect"
 import { useState, useCallback, useEffect, useRef } from "react"
 import { getFileIcon, FolderIcon } from "./FileIcons"
-import { getRelativeFilePath } from "@/lib/file-paths"
+import { getRelativeFilePath, joinFilePath, normalizeFilePathSlashes } from "@/lib/file-paths"
 import { useI18n } from "@/lib/i18n"
 import { writePathDrag } from "@/lib/drop-paths"
 import { withApi, apiUrls, runApi, type Cancel } from "@/browser/api-client"
@@ -20,18 +20,31 @@ interface Props {
   refreshKey?: number
   onAtMention?: (relativePath: string, isDir: boolean) => void
   selectedFilePath?: string | null
+  query?: string
 }
+interface FileIndexResult {
+  readonly entries: FileNode[]
+  readonly truncated: boolean
+}
+const MAX_VISIBLE_ENTRIES = 500
+const isAbsolutePath = (value: string) =>
+  value.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith("\\\\")
 const toFileNodes = (
   entries: ReadonlyArray<{ name: string; path: string; kind: "file" | "directory"; size?: number }>,
+  root?: string,
+  showRelativePath = false,
 ): FileNode[] =>
-  entries.map((entry) => ({
-    name: entry.name,
-    fullPath: entry.path,
-    isDir: entry.kind === "directory",
-    size: entry.size ?? 0,
-    children: entry.kind === "directory" ? [] : undefined,
-    loaded: entry.kind !== "directory",
-  }))
+  entries.map((entry) => {
+    const normalizedPath = normalizeFilePathSlashes(entry.path)
+    return {
+      name: showRelativePath ? normalizedPath : entry.name,
+      fullPath: root && !isAbsolutePath(normalizedPath) ? joinFilePath(root, normalizedPath) : normalizedPath,
+      isDir: entry.kind === "directory",
+      size: entry.size ?? 0,
+      children: entry.kind === "directory" ? [] : undefined,
+      loaded: entry.kind !== "directory",
+    }
+  })
 function loadEntries(
   dirPath: string,
   callbacks: {
@@ -55,26 +68,29 @@ function loadEntries(
 }
 function loadRootEntries(
   root: string,
+  query: string,
   callbacks: {
-    readonly onSuccess: (entries: FileNode[]) => void
+    readonly onSuccess: (result: FileIndexResult) => void
     readonly onFailure: (error: unknown) => void
   },
 ): Cancel {
-  return runApi(
-    withApi((api) =>
-      api.workspace.validateCwd({ payload: { cwd: root } }).pipe(
-        Effect.flatMap(({ cwd }) =>
-          api.workspace.fileIndex({
-            query: { root: cwd },
-          }),
-        ),
+  const request = withApi((api) =>
+    api.workspace.validateCwd({ payload: { cwd: root } }).pipe(
+      Effect.flatMap(({ cwd }) =>
+        api.workspace.fileIndex({
+          query: {
+            root: cwd,
+            ...(query.length === 0 ? {} : { query, deep: "1" as const }),
+          },
+        }),
       ),
     ),
-    {
-      onSuccess: ({ entries }) => callbacks.onSuccess(toFileNodes(entries)),
-      onFailure: callbacks.onFailure,
-    },
   )
+  return runApi(query.length === 0 ? request : Effect.sleep("180 millis").pipe(Effect.andThen(request)), {
+    onSuccess: ({ entries, truncated }) =>
+      callbacks.onSuccess({ entries: toFileNodes(entries, root, query.length > 0), truncated }),
+    onFailure: callbacks.onFailure,
+  })
 }
 function TreeNode({
   node,
@@ -293,10 +309,12 @@ function TreeNode({
     </div>
   )
 }
-export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention, selectedFilePath }: Props) {
+export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention, selectedFilePath, query = "" }: Props) {
+  const { t } = useI18n()
   const [roots, setRoots] = useState<FileNode[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [serverTruncated, setServerTruncated] = useState(false)
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set())
   const prevCwdRef = useRef<string | null>(null)
   const handleToggleExpanded = useCallback((fullPath: string, open: boolean) => {
@@ -315,9 +333,10 @@ export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention, selecte
     if (cwdChanged) setExpandedPaths(new Set())
     setLoading(cwdChanged)
     setError(null)
-    return loadRootEntries(cwd, {
-      onSuccess: (entries) => {
+    return loadRootEntries(cwd, query.trim(), {
+      onSuccess: ({ entries, truncated }) => {
         setRoots(entries)
+        setServerTruncated(truncated)
         setLoading(false)
       },
       onFailure: (failure) => {
@@ -325,16 +344,18 @@ export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention, selecte
         setLoading(false)
       },
     })
-  }, [cwd, refreshKey])
+  }, [cwd, query, refreshKey])
   if (loading) {
-    return <div {...stylex.props(inlineStyles.inline9)}>Loading files...</div>
+    return <div {...stylex.props(inlineStyles.inline9)}>{t("Loading...")}</div>
   }
   if (error) {
     return <div {...stylex.props(inlineStyles.inline10)}>{error}</div>
   }
+  const visibleRoots = roots.slice(0, MAX_VISIBLE_ENTRIES)
+  const presentationTruncated = serverTruncated || roots.length > visibleRoots.length
   return (
     <div {...stylex.props(inlineStyles.inline11)}>
-      {roots.map((node) => (
+      {visibleRoots.map((node) => (
         <TreeNode
           key={node.fullPath}
           node={node}
@@ -348,7 +369,10 @@ export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention, selecte
           selectedFilePath={selectedFilePath}
         />
       ))}
-      {roots.length === 0 && <div {...stylex.props(inlineStyles.inline12)}>No files found</div>}
+      {roots.length === 0 && <div {...stylex.props(inlineStyles.inline12)}>{t("No files found")}</div>}
+      {presentationTruncated && (
+        <div {...stylex.props(inlineStyles.truncatedNotice)}>{t("Search to find files outside the visible list")}</div>
+      )}
     </div>
   )
 }
@@ -449,5 +473,13 @@ const inlineStyles = stylex.create({
     padding: "8px 12px",
     fontSize: 11,
     color: "var(--text-dim)",
+  },
+  truncatedNotice: {
+    borderTop: "1px solid var(--border-soft)",
+    color: "var(--text-dim)",
+    fontSize: 10,
+    lineHeight: 1.45,
+    marginTop: 4,
+    padding: "8px 10px",
   },
 })

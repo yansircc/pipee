@@ -9,7 +9,7 @@ const appStylesPath = fileURLToPath(new URL("../src/styles/app.css", import.meta
 const preflightPath = fileURLToPath(new URL("../src/styles/preflight.css", import.meta.url))
 const interactionRoot = "ui/interaction/"
 const interactionVendor =
-  /^(?:react-aria-components|react-aria|react-stately)(?:\/|$)|^@react-(?:aria|stately|types)\/|^@internationalized\//
+  /^(?:react-aria-components|react-aria|react-stately)(?:\/|$)|^@react-(?:aria|stately|types)\/|^@internationalized\/|^@tanstack\/(?:react-)?hotkeys(?:\/|$)/
 
 const walk = async (directory) => {
   const entries = await readdir(directory, { withFileTypes: true })
@@ -66,7 +66,10 @@ for (const [path, source] of sources) {
   }
 }
 
-const governedLayers = [["ui/interaction/SettingsWorkspace.tsx", "--layer-modal"]]
+const governedLayers = [
+  ["ui/interaction/SettingsWorkspace.tsx", "--layer-modal"],
+  ["ui/interaction/Tooltip.tsx", "--layer-tooltip"],
+]
 for (const [path, token] of governedLayers) {
   const source = sources.get(path)
   if (source === undefined || !source.includes(`var(${token})`)) {
@@ -75,6 +78,18 @@ for (const [path, token] of governedLayers) {
   if (source !== undefined && /zIndex:\s*\d/.test(source)) {
     failures.push(`${path}: shared surface contains an unnamed numeric layer`)
   }
+}
+if (!sources.get("ui/interaction/Hotkeys.ts")?.includes("@tanstack/react-hotkeys")) {
+  failures.push("ui/interaction/Hotkeys.ts: TanStack Hotkeys must own application shortcuts")
+}
+if (/onDocumentKeyDown/.test(sources.get("browser/browser-platform.ts") ?? "")) {
+  failures.push("browser/browser-platform.ts: application shortcuts must not have a second listener owner")
+}
+if (!sources.get("browser/viewport.ts")?.includes('"(max-width: 760px)"')) {
+  failures.push("browser/viewport.ts: runtime mobile state must share the 760px visual breakpoint")
+}
+if (!appStyles.includes("@media (max-width: 760px)") || !appStyles.includes("@media (min-width: 761px)")) {
+  failures.push("styles/app.css: visual mobile state must preserve the 760/761px breakpoint pair")
 }
 
 const governedOwners = [

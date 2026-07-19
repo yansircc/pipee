@@ -8,6 +8,7 @@ interface SettingsWorkspaceProps {
   readonly closeLabel: string
   readonly context?: ReactNode
   readonly height: CSSProperties["height"]
+  readonly leading?: ReactNode
   readonly onClose: () => void
   readonly title: string
   readonly width: CSSProperties["width"]
@@ -19,6 +20,7 @@ export function SettingsWorkspace({
   closeLabel,
   context,
   height,
+  leading,
   onClose,
   title,
   width,
@@ -35,6 +37,7 @@ export function SettingsWorkspace({
       <Modal {...stylex.props(styles.modal)} style={{ height, width }}>
         <Dialog aria-label={title} {...stylex.props(styles.dialog)}>
           <header {...stylex.props(styles.header)}>
+            {leading}
             <div {...stylex.props(styles.identity)}>
               <span {...stylex.props(styles.title)}>{title}</span>
               {context}
@@ -64,10 +67,10 @@ const styles = stylex.create({
   modal: {
     backgroundColor: "var(--bg)",
     border: "1px solid var(--border)",
-    borderRadius: 10,
+    borderRadius: { default: 10, "@media (max-width: 760px)": 0 },
     boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-    maxHeight: "calc(100dvh - 16px)",
-    maxWidth: "calc(100vw - 16px)",
+    maxHeight: { default: "calc(100dvh - 16px)", "@media (max-width: 760px)": "100dvh" },
+    maxWidth: { default: "calc(100vw - 16px)", "@media (max-width: 760px)": "100vw" },
     overflow: "hidden",
   },
   dialog: {

@@ -3,7 +3,7 @@ import { AtomRef } from "effect/unstable/reactivity"
 import { BrowserPlatform } from "./browser-platform"
 
 // Shared with the mobile breakpoint in src/styles/app.css.
-const MOBILE_QUERY = "(max-width: 640px)"
+const MOBILE_QUERY = "(max-width: 760px)"
 
 export const mobileViewportRef = AtomRef.make(false)
 

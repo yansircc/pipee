@@ -137,6 +137,10 @@ export function ExtensionShell({ surfaceId }: { readonly surfaceId?: string }) {
             <strong>{selected?.item.title ?? "拓展页面"}</strong>
             {selected && <span>{selected.item.packageName}</span>}
           </div>
+          <span {...stylex.props(styles.connection, frameState.state === "ready" && styles.connectionReady)}>
+            <i />
+            {frameState.state === "ready" ? "已连接" : frameState.state === "failed" ? "连接失败" : "连接中"}
+          </span>
         </header>
         <div {...stylex.props(styles.surfaceWorkspace)}>
           {surfaceId === undefined || selected === null ? (
@@ -228,6 +232,15 @@ const styles = stylex.create({
     gap: 2,
     minWidth: 0,
   },
+  connection: {
+    alignItems: "center",
+    color: "var(--text-dim)",
+    display: "flex",
+    fontSize: 11,
+    gap: 5,
+    marginLeft: "auto",
+  },
+  connectionReady: { color: "var(--success)" },
   surfaceWorkspace: { flex: 1, minHeight: 0, position: "relative" },
   workspace: {
     display: "flex",
