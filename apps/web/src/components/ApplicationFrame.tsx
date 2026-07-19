@@ -20,7 +20,6 @@ export function ApplicationFrame() {
         </Link>
         <Link
           to="/extensions"
-          search={sharedSearch}
           {...stylex.props(styles.item)}
           activeProps={stylex.props(styles.itemActive)}
           activeOptions={{ includeSearch: false }}

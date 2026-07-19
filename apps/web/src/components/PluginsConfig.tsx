@@ -44,8 +44,8 @@ const clonePlugins = (value: PluginsResponse): PluginsResponse => {
 function shortenPath(path: string): string {
   return path.replace(/^\/(?:Users|home)\/[^/]+/, "~")
 }
-function packageKey(pkg: Pick<PluginPackageInfo, "source" | "scope">): string {
-  return `${pkg.scope}\0${pkg.source}`
+function packageKey(pkg: Pick<PluginPackageInfo, "source" | "scope" | "ownerCwd">): string {
+  return `${pkg.ownerCwd ?? ""}\0${pkg.scope}\0${pkg.source}`
 }
 function resourceSummary(pkg: PluginPackageInfo): string {
   if (pkg.disabled) return "Disabled"
@@ -158,6 +158,32 @@ function buttonStyle(disabled?: boolean, danger?: boolean): React.CSSProperties 
     opacity: disabled ? 0.5 : 1,
   }
 }
+function RefreshIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="15" height="15" fill="none">
+      <path
+        d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+function TrashIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="15" height="15" fill="none">
+      <path
+        d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
 function SegmentedScope({
   value,
   onChange,
@@ -195,22 +221,30 @@ function SegmentedScope({
 }
 function AddPluginPanel({
   cwd,
+  projectCwds = [],
+  projectCwd,
   source,
   scope,
   busy,
   actionError,
   onSourceChange,
   onScopeChange,
+  onProjectCwdChange,
   onInstall,
+  onClose,
 }: {
   cwd: string | null
+  projectCwds?: ReadonlyArray<string>
+  projectCwd?: string | null
   source: string
   scope: PluginScope
   busy: boolean
   actionError: string | null
   onSourceChange: (value: string) => void
   onScopeChange: (scope: PluginScope) => void
+  onProjectCwdChange?: (cwd: string) => void
   onInstall: () => void
+  onClose?: () => void
 }) {
   const { t } = useI18n()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -221,8 +255,15 @@ function AddPluginPanel({
   return (
     <div {...stylex.props(inlineStyles.inline13)}>
       <div {...stylex.props(inlineStyles.inline14)}>
-        <div {...stylex.props(inlineStyles.inline15)}>{t("Add Plugin")}</div>
-        <div {...stylex.props(inlineStyles.inline16)}>{installLocation(scope, cwd)}</div>
+        <div {...stylex.props(inlineStyles.addHeaderCopy)}>
+          <div {...stylex.props(inlineStyles.inline15)}>{t("Add Plugin")}</div>
+          <div {...stylex.props(inlineStyles.inline16)}>{installLocation(scope, cwd)}</div>
+        </div>
+        {onClose && (
+          <button {...stylex.props(inlineStyles.pageCloseButton)} onClick={onClose}>
+            ×
+          </button>
+        )}
       </div>
 
       <div {...stylex.props(inlineStyles.inline17)}>
@@ -244,6 +285,20 @@ function AddPluginPanel({
 
       <div {...stylex.props(inlineStyles.inline20)}>
         <SegmentedScope value={scope} onChange={onScopeChange} allowProject={cwd !== null} />
+        {scope === "project" && projectCwds.length > 0 && onProjectCwdChange && (
+          <select
+            aria-label="Project plugin owner"
+            value={projectCwd ?? projectCwds[0]}
+            onChange={(event) => onProjectCwdChange(event.target.value)}
+            {...stylex.props(inlineStyles.pageProjectSelect)}
+          >
+            {projectCwds.map((project) => (
+              <option key={project} value={project}>
+                {shortenPath(project)}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           type="button"
           onClick={onInstall}
@@ -478,6 +533,9 @@ export function PluginsConfig({
   initialPackageName,
   chromeHealth,
   weixinStatus,
+  presentation = "dialog",
+  onOpenPackage,
+  projectCwds = [],
 }: {
   cwd: string | null
   sessionId: string | null
@@ -486,6 +544,9 @@ export function PluginsConfig({
   initialPackageName?: string
   chromeHealth: ChromeExtensionHealth | null
   weixinStatus: WeixinStatusProjection | undefined
+  presentation?: "dialog" | "page"
+  onOpenPackage?: (packageName: string) => void
+  projectCwds?: ReadonlyArray<string>
 }) {
   const { t, locale } = useI18n()
   const isMobile = useIsMobile()
@@ -496,9 +557,12 @@ export function PluginsConfig({
   const [addMode, setAddMode] = useState(false)
   const [installSource, setInstallSource] = useState("")
   const [installScope, setInstallScope] = useState<PluginScope>("global")
+  const [installProjectCwd, setInstallProjectCwd] = useState<string | null>(projectCwds[0] ?? null)
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionMessage, setActionMessage] = useState<string | null>(null)
+  const [pageFilter, setPageFilter] = useState<"all" | "active" | "disabled" | "updates">("all")
+  const [pageQuery, setPageQuery] = useState("")
   const packages = useMemo(() => data?.packages ?? [], [data?.packages])
   const selectedPackage = packages.find((pkg) => packageKey(pkg) === selected) ?? null
   const groupedPackages = useMemo(() => {
@@ -513,28 +577,17 @@ export function PluginsConfig({
     setLoading(true)
     setError(null)
     const request =
-      cwd === null
-        ? withApi((api) => api.packages.globalChromePlugin()).pipe(
-            Effect.map(
-              (response): PluginsResponse => ({
-                packages: response.package === null ? [] : [response.package],
-                totals: response.package?.counts ?? {
-                  extensions: 0,
-                  skills: 0,
-                  prompts: 0,
-                  themes: 0,
+      presentation === "page"
+        ? withApi((api) => api.packages.pluginOverview())
+        : cwd === null
+          ? withApi((api) => api.packages.globalPlugins())
+          : withApi((api) =>
+              api.packages.plugins({
+                query: {
+                  cwd,
                 },
-                diagnostics: [],
               }),
-            ),
-          )
-        : withApi((api) =>
-            api.packages.plugins({
-              query: {
-                cwd,
-              },
-            }),
-          )
+            )
     runApi(request, {
       onSuccess: (response) => {
         const next = clonePlugins(response)
@@ -552,16 +605,22 @@ export function PluginsConfig({
         setLoading(false)
       },
     })
-  }, [cwd, initialPackageName])
+  }, [cwd, initialPackageName, presentation])
   useEffect(() => {
     loadPlugins()
   }, [loadPlugins])
+  useEffect(() => {
+    setInstallProjectCwd((current) =>
+      current !== null && projectCwds.includes(current) ? current : (projectCwds[0] ?? null),
+    )
+  }, [projectCwds])
   const runAction = useCallback(
     (action: PluginAction, pkg: PluginPackageInfo) => {
       const key = packageKey(pkg)
       setBusyKey(`${action}:${key}`)
       setActionError(null)
       setActionMessage(null)
+      const actionCwd = presentation === "page" ? (pkg.ownerCwd ?? null) : cwd
       runApi(
         withApi((api) =>
           api.packages.pluginAction({
@@ -569,16 +628,23 @@ export function PluginsConfig({
               action,
               source: pkg.source,
               scope: pkg.scope,
-              ...(cwd === null
+              ...(actionCwd === null
                 ? {}
                 : {
-                    cwd,
+                    cwd: actionCwd,
                   }),
             },
           }),
         ),
         {
           onSuccess: (response) => {
+            if (presentation === "page") {
+              setBusyKey(null)
+              setActionMessage(action === "remove" ? "Package removed." : `Package ${action}d.`)
+              loadPlugins()
+              onReloaded?.()
+              return
+            }
             const next = clonePlugins(response)
             setData(next)
             if (action === "remove") {
@@ -595,6 +661,7 @@ export function PluginsConfig({
               setActionMessage(messages[action])
             }
             setBusyKey(null)
+            onReloaded?.()
           },
           onFailure: (failure) => {
             setActionError(failure instanceof Error ? failure.message : String(failure))
@@ -603,7 +670,7 @@ export function PluginsConfig({
         },
       )
     },
-    [cwd],
+    [cwd, loadPlugins, onReloaded, presentation],
   )
   const installPlugin = useCallback(() => {
     const source = installSource.trim()
@@ -612,6 +679,8 @@ export function PluginsConfig({
     setBusyKey(`install:${key}`)
     setActionError(null)
     setActionMessage(null)
+    const installCwd = installScope === "project" ? installProjectCwd : presentation === "page" ? null : cwd
+    if (installScope === "project" && installCwd === null) return
     runApi(
       withApi((api) =>
         api.packages.pluginAction({
@@ -619,16 +688,25 @@ export function PluginsConfig({
             action: "install",
             source,
             scope: installScope,
-            ...(cwd === null
+            ...(installCwd === null
               ? {}
               : {
-                  cwd,
+                  cwd: installCwd,
                 }),
           },
         }),
       ),
       {
         onSuccess: (response) => {
+          if (presentation === "page") {
+            setAddMode(false)
+            setInstallSource("")
+            setActionMessage("Package installed.")
+            setBusyKey(null)
+            loadPlugins()
+            onReloaded?.()
+            return
+          }
           const next = clonePlugins(response)
           setData(next)
           const installed = findInstalledPackage(next.packages, source, installScope)
@@ -637,6 +715,7 @@ export function PluginsConfig({
           setInstallSource("")
           setActionMessage("Package installed.")
           setBusyKey(null)
+          onReloaded?.()
         },
         onFailure: (failure) => {
           setActionError(failure instanceof Error ? failure.message : String(failure))
@@ -644,7 +723,7 @@ export function PluginsConfig({
         },
       },
     )
-  }, [cwd, installScope, installSource])
+  }, [cwd, installProjectCwd, installScope, installSource, loadPlugins, onReloaded, presentation])
   const reloadSession = useCallback(() => {
     if (!sessionId) return
     setBusyKey("reload")
@@ -674,6 +753,182 @@ export function PluginsConfig({
     )
   }, [loadPlugins, onReloaded, sessionId])
   const addBusy = busyKey?.startsWith("install:") ?? false
+  const hasUpdate = (pkg: PluginPackageInfo) =>
+    pkg.version !== undefined && pkg.configuredVersion !== undefined && pkg.version !== pkg.configuredVersion
+  const visiblePackages = packages.filter((pkg) => {
+    const matchesFilter =
+      pageFilter === "all" ||
+      (pageFilter === "active" && !pkg.disabled) ||
+      (pageFilter === "disabled" && pkg.disabled) ||
+      (pageFilter === "updates" && hasUpdate(pkg))
+    const query = pageQuery.trim().toLowerCase()
+    return (
+      matchesFilter && (query.length === 0 || `${pkg.packageName ?? ""} ${pkg.source}`.toLowerCase().includes(query))
+    )
+  })
+  if (presentation === "page") {
+    const activeCount = packages.filter((pkg) => !pkg.disabled).length
+    const updateCount = packages.filter(hasUpdate).length
+    const filters = [
+      ["all", "全部", packages.length],
+      ["active", "已激活", activeCount],
+      ["disabled", "已禁用", packages.length - activeCount],
+      ["updates", "有更新", updateCount],
+    ] as const
+    return (
+      <div {...stylex.props(inlineStyles.page)}>
+        <header {...stylex.props(inlineStyles.pageHeader)}>
+          <div>
+            <h2 {...stylex.props(inlineStyles.pageTitle)}>插件管理</h2>
+            <p {...stylex.props(inlineStyles.pageSubtitle)}>Pi package settings · 当前设备</p>
+          </div>
+          <button {...stylex.props(inlineStyles.pagePrimary)} onClick={() => setAddMode(true)}>
+            ＋ 添加拓展
+          </button>
+        </header>
+        <main {...stylex.props(inlineStyles.pageBody)}>
+          <div {...stylex.props(inlineStyles.pageToolbar)}>
+            <div {...stylex.props(inlineStyles.pageFilters)}>
+              {filters.map(([filter, label, count]) => (
+                <button
+                  key={filter}
+                  {...stylex.props(inlineStyles.pageFilter, pageFilter === filter && inlineStyles.pageFilterActive)}
+                  onClick={() => setPageFilter(filter)}
+                >
+                  {label} <span {...stylex.props(inlineStyles.pageFilterCount)}>{count}</span>
+                </button>
+              ))}
+            </div>
+            <label {...stylex.props(inlineStyles.pageSearch)}>
+              <span aria-hidden>⌕</span>
+              <input
+                value={pageQuery}
+                onChange={(event) => setPageQuery(event.target.value)}
+                placeholder="搜索已安装拓展"
+                {...stylex.props(inlineStyles.pageSearchInput)}
+              />
+            </label>
+          </div>
+          <section {...stylex.props(inlineStyles.pageList)}>
+            {loading ? (
+              <div {...stylex.props(inlineStyles.pageEmpty)}>{t("Loading...")}</div>
+            ) : error ? (
+              <div {...stylex.props(inlineStyles.pageError)}>{error}</div>
+            ) : visiblePackages.length === 0 ? (
+              <div {...stylex.props(inlineStyles.pageEmpty)}>没有符合条件的拓展</div>
+            ) : (
+              visiblePackages.map((pkg) => {
+                const actionable = pkg.packageName !== undefined && onOpenPackage !== undefined
+                const busy = busyKey !== null && busyKey.endsWith(packageKey(pkg))
+                return (
+                  <article
+                    key={packageKey(pkg)}
+                    tabIndex={actionable ? 0 : undefined}
+                    role={actionable ? "link" : undefined}
+                    {...stylex.props(inlineStyles.pageRow, !pkg.disabled && inlineStyles.pageRowActive)}
+                    onClick={() => pkg.packageName && onOpenPackage?.(pkg.packageName)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && event.target === event.currentTarget && pkg.packageName) {
+                        onOpenPackage?.(pkg.packageName)
+                      }
+                    }}
+                  >
+                    <span {...stylex.props(inlineStyles.pageLogo)}>
+                      {(pkg.packageName ?? pkg.source).slice(0, 1).toUpperCase()}
+                    </span>
+                    <div {...stylex.props(inlineStyles.pageMain)}>
+                      <div {...stylex.props(inlineStyles.pageName)}>
+                        <h3 {...stylex.props(inlineStyles.pagePackageTitle)}>{pkg.packageName ?? pkg.source}</h3>
+                        <span {...stylex.props(inlineStyles.pageState, !pkg.disabled && inlineStyles.pageStateActive)}>
+                          {pkg.disabled ? "已禁用" : "已激活"}
+                        </span>
+                        {hasUpdate(pkg) && <span {...stylex.props(inlineStyles.pageUpdate)}>可更新</span>}
+                      </div>
+                      <div {...stylex.props(inlineStyles.pageSummary)}>
+                        <p {...stylex.props(inlineStyles.pageDescription)}>{pkg.description ?? resourceSummary(pkg)}</p>
+                        <span {...stylex.props(inlineStyles.pageSummarySeparator)} aria-hidden>
+                          ·
+                        </span>
+                        <span {...stylex.props(inlineStyles.pageMetaItem)}>{pkg.source}</span>
+                        <span {...stylex.props(inlineStyles.pageSummarySeparator)} aria-hidden>
+                          ·
+                        </span>
+                        <span {...stylex.props(inlineStyles.pageMetaItem)}>{versionSummary(pkg)}</span>
+                        <span {...stylex.props(inlineStyles.pageSummarySeparator)} aria-hidden>
+                          ·
+                        </span>
+                        <span {...stylex.props(inlineStyles.pageMetaItem)}>{pkg.scope}</span>
+                        {pkg.ownerCwd && (
+                          <span {...stylex.props(inlineStyles.pageMetaItem)}>{shortenPath(pkg.ownerCwd)}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div {...stylex.props(inlineStyles.pageActions)} onClick={(event) => event.stopPropagation()}>
+                      {hasUpdate(pkg) && (
+                        <button
+                          title="立即更新"
+                          aria-label={`更新 ${pkg.packageName ?? pkg.source}`}
+                          {...stylex.props(inlineStyles.pageIconButton, inlineStyles.pageUpdateButton)}
+                          disabled={busy}
+                          onClick={() => runAction("update", pkg)}
+                        >
+                          <RefreshIcon />
+                        </button>
+                      )}
+                      {pkg.disabled && (
+                        <button
+                          title="删除插件"
+                          aria-label={`删除 ${pkg.packageName ?? pkg.source}`}
+                          {...stylex.props(inlineStyles.pageIconButton, inlineStyles.pageDeleteButton)}
+                          disabled={busy}
+                          onClick={() => runAction("remove", pkg)}
+                        >
+                          <TrashIcon />
+                        </button>
+                      )}
+                      <Toggle
+                        enabled={!pkg.disabled}
+                        loading={busy}
+                        label={`${pkg.disabled ? "激活" : "禁用"} ${pkg.packageName ?? pkg.source}`}
+                        onToggle={() => runAction(pkg.disabled ? "enable" : "disable", pkg)}
+                      />
+                    </div>
+                  </article>
+                )
+              })
+            )}
+          </section>
+          <p {...stylex.props(inlineStyles.pageFootnote)}>
+            激活、禁用、安装和删除只写入 Pi package settings；领域配置由各拓展页面自己拥有。
+          </p>
+          {actionMessage && <div {...stylex.props(inlineStyles.inline62)}>{actionMessage}</div>}
+          {actionError && <div {...stylex.props(inlineStyles.inline63)}>{actionError}</div>}
+        </main>
+        {addMode && (
+          <div {...stylex.props(inlineStyles.pageOverlay)} onClick={() => setAddMode(false)}>
+            <div {...stylex.props(inlineStyles.pageAddModal)} onClick={(event) => event.stopPropagation()}>
+              <div {...stylex.props(inlineStyles.pageAddBody)}>
+                <AddPluginPanel
+                  cwd={presentation === "page" ? installProjectCwd : cwd}
+                  projectCwds={projectCwds}
+                  projectCwd={installProjectCwd}
+                  source={installSource}
+                  scope={installScope}
+                  busy={addBusy}
+                  actionError={actionError}
+                  onSourceChange={setInstallSource}
+                  onScopeChange={setInstallScope}
+                  onProjectCwdChange={setInstallProjectCwd}
+                  onInstall={installPlugin}
+                  onClose={() => setAddMode(false)}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
   return (
     <SettingsWorkspace
       closeLabel={t("Close")}
@@ -937,9 +1192,11 @@ const inlineStyles = stylex.create({
   },
   inline14: {
     display: "flex",
-    flexDirection: "column",
-    gap: 5,
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
   },
+  addHeaderCopy: { display: "flex", flexDirection: "column", gap: 5, minWidth: 0 },
   inline15: {
     fontSize: 14,
     fontWeight: 700,
@@ -1334,4 +1591,240 @@ const inlineStyles = stylex.create({
     color: "var(--text-dim)",
     overflow: "hidden",
   },
+  page: {
+    backgroundColor: "var(--bg-secondary)",
+    display: "flex",
+    flexDirection: "column",
+    height: "100%",
+    minHeight: 0,
+  },
+  pageHeader: {
+    alignItems: "center",
+    backgroundColor: "var(--bg-panel)",
+    borderBottom: "1px solid var(--border)",
+    display: "flex",
+    flexShrink: 0,
+    justifyContent: "space-between",
+    minHeight: 64,
+    paddingInline: 24,
+  },
+  pageTitle: { fontSize: 18, margin: 0 },
+  pageSubtitle: { color: "var(--text-muted)", fontSize: 11, marginBlock: 4 },
+  pagePrimary: {
+    backgroundColor: "var(--accent)",
+    border: "1px solid var(--accent)",
+    borderRadius: 8,
+    color: "white",
+    cursor: "pointer",
+    paddingBlock: 8,
+    paddingInline: 12,
+  },
+  pageBody: { flex: 1, minHeight: 0, overflowY: "auto", padding: 20 },
+  pageToolbar: {
+    alignItems: "center",
+    display: "flex",
+    gap: 14,
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  pageFilters: { alignItems: "center", display: "flex", gap: 4 },
+  pageFilter: {
+    backgroundColor: "transparent",
+    border: "1px solid transparent",
+    borderRadius: 8,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    fontSize: 12,
+    height: 32,
+    paddingInline: 10,
+  },
+  pageFilterActive: {
+    backgroundColor: "var(--bg-selected)",
+    borderColor: "color-mix(in srgb, var(--accent) 28%, var(--border))",
+    color: "var(--accent)",
+    fontWeight: 700,
+  },
+  pageFilterCount: { color: "var(--text-dim)", marginLeft: 3 },
+  pageSearch: {
+    alignItems: "center",
+    backgroundColor: "var(--bg-panel)",
+    border: "1px solid var(--border)",
+    borderRadius: 9,
+    color: "var(--text-dim)",
+    display: "flex",
+    gap: 7,
+    height: 34,
+    paddingInline: 10,
+    width: 230,
+  },
+  pageSearchInput: {
+    backgroundColor: "transparent",
+    border: 0,
+    color: "var(--text)",
+    flex: 1,
+    fontSize: 12,
+    minWidth: 0,
+    outline: 0,
+  },
+  pageProjectSelect: {
+    backgroundColor: "var(--bg-panel)",
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    color: "var(--text-muted)",
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    height: 30,
+    maxWidth: 240,
+    paddingInline: 8,
+  },
+  pageList: { display: "grid", gap: 8, gridTemplateColumns: "minmax(0, 1fr)" },
+  pageRow: {
+    alignItems: "center",
+    backgroundColor: "var(--bg-panel)",
+    border: "1px solid var(--border)",
+    borderRadius: 12,
+    cursor: "pointer",
+    display: "grid",
+    gap: 15,
+    gridTemplateColumns: "42px minmax(0, 1fr) auto",
+    minHeight: 76,
+    overflow: "hidden",
+    paddingBlock: 11,
+    paddingInline: 14,
+    position: "relative",
+  },
+  pageRowActive: {
+    backgroundColor: "color-mix(in srgb, var(--accent) 3%, var(--bg-panel))",
+    borderLeft: "3px solid var(--accent)",
+  },
+  pageLogo: {
+    alignItems: "center",
+    backgroundColor: "var(--accent)",
+    borderRadius: 10,
+    color: "white",
+    display: "flex",
+    fontSize: 15,
+    fontWeight: 800,
+    height: 42,
+    justifyContent: "center",
+    width: 42,
+  },
+  pageMain: {
+    display: "grid",
+    gridTemplateAreas: '"name" "summary"',
+    gridTemplateColumns: "minmax(0, 1fr)",
+    minWidth: 0,
+    rowGap: 6,
+  },
+  pageName: { alignItems: "center", display: "flex", gap: 7, gridArea: "name", whiteSpace: "nowrap" },
+  pagePackageTitle: { fontSize: 14, margin: 0 },
+  pageState: {
+    backgroundColor: "var(--bg-hover)",
+    borderRadius: 999,
+    color: "var(--text-muted)",
+    fontSize: 10,
+    fontWeight: 700,
+    paddingBlock: 3,
+    paddingInline: 6,
+  },
+  pageStateActive: { backgroundColor: "rgba(34,197,94,.1)", color: "#16a34a" },
+  pageUpdate: {
+    backgroundColor: "rgba(245,158,11,.12)",
+    borderRadius: 999,
+    color: "#d97706",
+    fontSize: 10,
+    fontWeight: 700,
+    paddingBlock: 3,
+    paddingInline: 6,
+  },
+  pageDescription: {
+    color: "var(--text-muted)",
+    fontSize: 12,
+    flexShrink: 1,
+    margin: 0,
+    maxWidth: "45%",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  pageSummary: {
+    alignItems: "center",
+    display: "flex",
+    gap: 6,
+    gridArea: "summary",
+    minWidth: 0,
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+  },
+  pageSummarySeparator: { color: "var(--text-dim)", flexShrink: 0, fontSize: 10 },
+  pageMetaItem: {
+    color: "var(--text-dim)",
+    fontFamily: "var(--font-mono)",
+    fontSize: 10,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  pageActions: { alignItems: "center", display: "flex", gap: 6 },
+  pageIconButton: {
+    alignItems: "center",
+    backgroundColor: "transparent",
+    border: "1px solid transparent",
+    borderRadius: 8,
+    cursor: "pointer",
+    display: "flex",
+    height: 30,
+    justifyContent: "center",
+    padding: 0,
+    width: 30,
+  },
+  pageUpdateButton: { color: "var(--text-muted)" },
+  pageDeleteButton: { color: "#ef4444" },
+  pageEmpty: { color: "var(--text-muted)", padding: 46, textAlign: "center" },
+  pageError: { color: "#ef4444", padding: 20 },
+  pageFootnote: {
+    backgroundColor: "var(--bg-hover)",
+    borderRadius: 9,
+    color: "var(--text-muted)",
+    fontSize: 11,
+    marginBlock: 12,
+    padding: 11,
+  },
+  pageOverlay: {
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,.4)",
+    display: "flex",
+    inset: 0,
+    justifyContent: "center",
+    padding: 20,
+    position: "fixed",
+    zIndex: 1000,
+  },
+  pageAddModal: {
+    backgroundColor: "var(--bg)",
+    border: "1px solid var(--border)",
+    borderRadius: 14,
+    boxShadow: "0 24px 80px rgba(0,0,0,.22)",
+    maxHeight: "calc(100dvh - 40px)",
+    overflow: "auto",
+    width: "min(560px, 100%)",
+  },
+  pageAddHead: {
+    alignItems: "center",
+    borderBottom: "1px solid var(--border)",
+    display: "flex",
+    fontSize: 15,
+    fontWeight: 700,
+    justifyContent: "space-between",
+    minHeight: 58,
+    paddingInline: 18,
+  },
+  pageCloseButton: {
+    backgroundColor: "transparent",
+    border: 0,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    fontSize: 20,
+  },
+  pageAddBody: { padding: 20 },
 })

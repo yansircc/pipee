@@ -31,6 +31,8 @@ import {
   projectChromeWebView,
   type ChromeWebReceipt,
   type ChromeWebTab,
+  type ChromeWebActivity,
+  type ChromeWebEvent,
 } from "./web-surface.js";
 
 const EXTENSION_PATH = fileURLToPath(new URL("../../dist/browser-extension/", import.meta.url));
@@ -74,6 +76,10 @@ export default function piChrome(pi: ExtensionAPI): void {
   let latestStatus: ChromeStatusProjection | undefined;
   let tabs: ReadonlyArray<ChromeWebTab> = [];
   let receipts: ReadonlyArray<ChromeWebReceipt> = [];
+  let activity: ChromeWebActivity | null = null;
+  let events: ReadonlyArray<ChromeWebEvent> = [];
+  let activitySequence = 0;
+  let currentToolAbort: AbortController | undefined;
 
   const run = <A, E>(effect: Effect.Effect<A, E, NodeServices>, signal?: AbortSignal): Promise<A> =>
     effectRuntime.runPromise(provideNode(effect), signal ? { signal } : undefined);
@@ -114,7 +120,7 @@ export default function piChrome(pi: ExtensionAPI): void {
       if (!sameScope(scope)) return;
       latestStatus = status;
       structuredView(scope.context.ui, packageJson.name)?.replace("chrome", status);
-      surface?.replace(projectChromeWebView(status, tabs, receipts));
+      surface?.replace(projectChromeWebView(status, tabs, receipts, activity, events));
       const label =
         status.state === "ready"
           ? "Chrome ready"
@@ -192,18 +198,90 @@ export default function piChrome(pi: ExtensionAPI): void {
       context,
     );
 
+  const publishWebSurface = () => {
+    if (latestStatus)
+      surface?.replace(projectChromeWebView(latestStatus, tabs, receipts, activity, events));
+  };
+
   const executeTool = (
     toolName: string,
     input: unknown,
     signal: AbortSignal | undefined,
     context: ExtensionContext,
-  ): Promise<ToolResult> => run(executeToolEffect(toolName, input, context), signal);
+  ): Promise<ToolResult> => {
+    const sequence = ++activitySequence;
+    const controller = new AbortController();
+    currentToolAbort = controller;
+    const combinedSignal =
+      signal === undefined ? controller.signal : AbortSignal.any([signal, controller.signal]);
+    const monitored = Effect.gen(function* () {
+      const startedAt = yield* Clock.currentTimeMillis;
+      yield* Effect.sync(() => {
+        activity = { operation: toolName, startedAt };
+        events = [
+          { at: startedAt, operation: toolName, phase: "started" } satisfies ChromeWebEvent,
+          ...events,
+        ].slice(0, 60);
+        publishWebSurface();
+      });
+      const result = yield* executeToolEffect(toolName, input, context);
+      const completedAt = yield* Clock.currentTimeMillis;
+      yield* Effect.sync(() => {
+        events = [
+          { at: completedAt, operation: toolName, phase: "completed" } satisfies ChromeWebEvent,
+          ...events,
+        ].slice(0, 60);
+        receipts = [
+          {
+            at: completedAt,
+            operation: toolName,
+            result: "completed",
+            evidence:
+              toolName === "chrome_snapshot"
+                ? "Action Graph"
+                : toolName === "chrome_screenshot"
+                  ? "JPEG"
+                  : "Receipt",
+          },
+          ...receipts,
+        ].slice(0, 20);
+      });
+      return result;
+    }).pipe(
+      Effect.tapError((error) =>
+        Clock.currentTimeMillis.pipe(
+          Effect.tap((failedAt) =>
+            Effect.sync(() => {
+              events = [
+                {
+                  at: failedAt,
+                  operation: toolName,
+                  phase: "failed",
+                  message: messageOf(error),
+                } satisfies ChromeWebEvent,
+                ...events,
+              ].slice(0, 60);
+            }),
+          ),
+        ),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (sequence !== activitySequence) return;
+          activity = null;
+          currentToolAbort = undefined;
+          publishWebSurface();
+        }),
+      ),
+    );
+    return run(monitored, combinedSignal);
+  };
 
   const refreshTabs = (scope: ChromeToolScope) =>
     Effect.gen(function* () {
       if (latestStatus?.state !== "ready" || !sameScope(scope)) {
         tabs = [];
-        if (latestStatus) surface?.replace(projectChromeWebView(latestStatus, tabs, receipts));
+        publishWebSurface();
         return;
       }
       const result = yield* executeToolEffect("chrome_tab_list", {}, scope.context);
@@ -211,43 +289,29 @@ export default function piChrome(pi: ExtensionAPI): void {
         result.details.value,
       );
       if (latestStatus && sameScope(scope)) {
-        surface?.replace(projectChromeWebView(latestStatus, tabs, receipts));
+        publishWebSurface();
       }
     });
 
   const dispatchSurfaceAction = (scope: ChromeToolScope, payload: unknown) =>
     Schema.decodeUnknownEffect(ChromeWebAction)(payload).pipe(
       Effect.flatMap((action) => {
-        const target = "tabId" in action ? { by: "id" as const, value: action.tabId } : undefined;
-        const operation =
-          action._tag === "NewTab"
-            ? { tool: "chrome_tab_new", input: { url: action.url }, evidence: "Receipt" }
-            : action._tag === "Activate"
-              ? { tool: "chrome_tab_activate", input: { target }, evidence: "Receipt" }
-              : action._tag === "Snapshot"
-                ? {
-                    tool: "chrome_snapshot",
-                    input: { target, mode: "auto" },
-                    evidence: "Action Graph",
-                  }
-                : action._tag === "Screenshot"
-                  ? {
-                      tool: "chrome_screenshot",
-                      input: { target, capture: { kind: "viewport" } },
-                      evidence: "JPEG",
-                    }
-                  : { tool: "chrome_tab_close", input: { target }, evidence: "Receipt" };
-        return executeToolEffect(operation.tool, operation.input, scope.context).pipe(
+        if (action._tag === "Terminate") {
+          currentToolAbort?.abort();
+          return Effect.void;
+        }
+        const target = { by: "id" as const, value: action.tabId };
+        return executeToolEffect("chrome_tab_close", { target }, scope.context).pipe(
           Effect.andThen(Clock.currentTimeMillis),
           Effect.tap((at) =>
             Effect.sync(() => {
               receipts = [
                 {
                   at,
-                  operation: operation.tool,
-                  ...("tabId" in action ? { tabId: action.tabId } : {}),
+                  operation: "chrome_tab_close",
+                  tabId: action.tabId,
                   result: "completed",
-                  evidence: operation.evidence,
+                  evidence: "Receipt",
                 },
                 ...receipts,
               ].slice(0, 20);
@@ -309,7 +373,8 @@ export default function piChrome(pi: ExtensionAPI): void {
       surface = yield* webSurface(context.ui, packageJson.name, (request, signal) =>
         run(dispatchSurfaceAction(scope, request.payload), signal),
       ).pipe(Effect.provideService(Scope.Scope, nextWebScope));
-      if (latestStatus) surface.replace(projectChromeWebView(latestStatus, tabs, receipts));
+      if (latestStatus)
+        surface.replace(projectChromeWebView(latestStatus, tabs, receipts, activity, events));
       yield* refreshTabs(scope);
       yield* Effect.sync(() => startStatusRefresh(scope));
     });
@@ -337,6 +402,10 @@ export default function piChrome(pi: ExtensionAPI): void {
           latestStatus = undefined;
           tabs = [];
           receipts = [];
+          activity = null;
+          events = [];
+          currentToolAbort?.abort();
+          currentToolAbort = undefined;
           if (scope && event?.reason !== "reload") yield* cleanupSessionTarget(scope);
           yield* bridge.stop;
           registrations.delete(pi as object);

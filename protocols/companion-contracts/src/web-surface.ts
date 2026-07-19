@@ -92,6 +92,15 @@ export const WebSurfaceCatalog = Schema.Struct({
 });
 export type WebSurfaceCatalog = typeof WebSurfaceCatalog.Type;
 
+export const WebSurfaceSessionContext = Schema.Struct({
+  sessionId: Schema.NonEmptyString,
+  cwd: Schema.String,
+  name: Schema.NullOr(Schema.String),
+  projectRoot: Schema.NullOr(Schema.String),
+  modified: Schema.String,
+});
+export type WebSurfaceSessionContext = typeof WebSurfaceSessionContext.Type;
+
 export type WebSurfaceDispatch = (
   request: WebSurfaceActionRequest,
   signal: AbortSignal,
@@ -113,13 +122,19 @@ export interface WebSurfaceRuntimePort {
 export const WebSurfaceHostMessage = Schema.Union([
   Schema.TaggedStruct("init", {
     contract: Schema.Literal(WEB_SURFACE_CHANNEL_CONTRACT),
-    sessionId: Schema.NonEmptyString,
+    session: WebSurfaceSessionContext,
     runtime: WebSurfaceRuntimeIdentity,
     surface: WebSurfaceProjection,
   }),
   Schema.TaggedStruct("projection", {
+    session: WebSurfaceSessionContext,
     runtime: WebSurfaceRuntimeIdentity,
     surface: WebSurfaceProjection,
+  }),
+  Schema.TaggedStruct("sessions", { sessions: Schema.Array(WebSurfaceSessionContext) }),
+  Schema.TaggedStruct("session-closed", {
+    sessionId: Schema.NonEmptyString,
+    reason: Schema.NonEmptyString,
   }),
   Schema.TaggedStruct("action-result", {
     requestId: Schema.NonEmptyString,
@@ -135,7 +150,11 @@ export type WebSurfaceHostMessage = typeof WebSurfaceHostMessage.Type;
 
 export const WebSurfaceClientMessage = Schema.Union([
   Schema.TaggedStruct("ready", { contract: Schema.Literal(WEB_SURFACE_CHANNEL_CONTRACT) }),
-  Schema.TaggedStruct("dispatch", { requestId: Schema.NonEmptyString, payload: JsonValue }),
+  Schema.TaggedStruct("dispatch", {
+    requestId: Schema.NonEmptyString,
+    sessionId: Schema.NonEmptyString,
+    payload: JsonValue,
+  }),
   Schema.TaggedStruct("navigate", { path: Schema.NonEmptyString }),
   Schema.TaggedStruct("notify", {
     message: Schema.NonEmptyString,

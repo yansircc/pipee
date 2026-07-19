@@ -5,7 +5,7 @@ import type { BridgeStatus } from "./bridge.ts";
 export const WeixinWebAction = Schema.Union([
   Schema.TaggedStruct("Scan", {}),
   Schema.TaggedStruct("SetEnabled", { enabled: Schema.Boolean }),
-  Schema.TaggedStruct("SetDefault", {}),
+  Schema.TaggedStruct("SetDefault", { sessionId: Schema.String, cwd: Schema.String }),
   Schema.TaggedStruct("SendTest", {}),
   Schema.TaggedStruct("Logout", {}),
 ]);

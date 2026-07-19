@@ -119,6 +119,7 @@ await writeFile(
     {
       name: "pi-web-e2e-extension",
       version: "1.0.0",
+      description: "Synthetic raw-archive Web Surface",
       type: "module",
       files: ["dist"],
       pi: { extensions: ["./dist/pi/extension.js"] },
@@ -211,7 +212,7 @@ addEventListener("message", (event) => {
   port.onmessage = ({ data }) => {
     if (data?._tag === "init") {
       result.textContent = String(data.surface.view?.answer ?? "missing")
-      port.postMessage({ _tag: "dispatch", requestId: "e2e-action", payload: 41 })
+      port.postMessage({ _tag: "dispatch", requestId: "e2e-action", sessionId: data.session.sessionId, payload: 41 })
     }
     if (data?._tag === "action-result") result.textContent = String(data.outcome?.payload ?? data.outcome?.reason ?? "failed")
   }

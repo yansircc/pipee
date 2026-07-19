@@ -5,17 +5,20 @@ import {
   type JsonValue,
   type WebSurfaceActionOutcome,
   type WebSurfaceHostMessage as HostMessage,
+  type WebSurfaceSessionContext,
 } from "./web-surface.ts";
 
 export interface WebSurfaceBrowserClient {
-  readonly dispatch: (payload: JsonValue) => Promise<WebSurfaceActionOutcome>;
+  readonly dispatch: (sessionId: string, payload: JsonValue) => Promise<WebSurfaceActionOutcome>;
   readonly confirm: (title: string, message: string) => Promise<boolean>;
   readonly navigate: (path: string) => void;
   readonly notify: (message: string, level?: "info" | "warning" | "error") => void;
 }
 
 export interface WebSurfaceBrowserCallbacks {
-  readonly projection: (view: JsonValue | null) => void;
+  readonly sessions?: (sessions: ReadonlyArray<WebSurfaceSessionContext>) => void;
+  readonly projection: (session: WebSurfaceSessionContext, view: JsonValue | null) => void;
+  readonly sessionClosed?: (sessionId: string, reason: string) => void;
   readonly closed?: (reason: string) => void;
 }
 
@@ -57,7 +60,11 @@ export const connectWebSurfaceBrowser = (
         if (Option.isNone(decoded)) return;
         const message: HostMessage = decoded.value;
         if (message._tag === "init" || message._tag === "projection") {
-          callbacks.projection(message.surface.view);
+          callbacks.projection(message.session, message.surface.view);
+        } else if (message._tag === "sessions") {
+          callbacks.sessions?.(message.sessions);
+        } else if (message._tag === "session-closed") {
+          callbacks.sessionClosed?.(message.sessionId, message.reason);
         } else if (message._tag === "action-result") {
           pendingActions.get(message.requestId)?.(message.outcome);
           pendingActions.delete(message.requestId);
@@ -72,11 +79,11 @@ export const connectWebSurfaceBrowser = (
       };
       port.start();
       const client: WebSurfaceBrowserClient = {
-        dispatch: (payload) =>
+        dispatch: (sessionId, payload) =>
           new Promise((settle) => {
             const id = requestId();
             pendingActions.set(id, settle);
-            post({ _tag: "dispatch", requestId: id, payload });
+            post({ _tag: "dispatch", requestId: id, sessionId, payload });
           }),
         confirm: (title, message) =>
           new Promise((settle) => {

@@ -431,7 +431,10 @@ export default function weixinExtension(pi: ExtensionAPI): void {
                         yield* bridge.setEnabled(action.enabled);
                         break;
                       case "SetDefault":
-                        yield* bridge.setDefaultSession(sessionFrom(ctx));
+                        yield* bridge.setDefaultSession({
+                          sessionId: action.sessionId,
+                          cwd: action.cwd,
+                        });
                         break;
                       case "SendTest":
                         yield* bridge.sendText(

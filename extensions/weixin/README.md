@@ -19,9 +19,10 @@ missing or expired, it shows the QR widget and waits for the scan. Existing cred
 without a prompt.
 
 Proactive send becomes ready after the connected user has sent at least one inbound message, which
-provides the iLink context token. Pi Web renders the session-bound Weixin Web Surface from the same
-Bridge projection. Scan/re-scan, pause/resume, logout, default-session selection, and test send are
-finite typed actions against that Bridge; they do not create a second account or routing owner.
+provides the iLink context token. Pi Web renders one global-account Weixin Web Surface from the multiplexed
+Bridge projections. Scan/re-scan, pause/resume, logout, default-session selection, and test send are finite
+typed actions against the single Bridge owner. Default-session selection names the exact existing Session;
+it does not create a second account or routing owner.
 
 ## Development
 

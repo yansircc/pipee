@@ -13,6 +13,7 @@ import {
   RequestSchemaErrors,
   SameOrigin,
   UnsupportedPlatform,
+  type PluginsResponse,
   type PromptProgressEvent,
 } from "./contract"
 import { AppConfig, AppConfigLive } from "@/server/app-config"
@@ -663,21 +664,84 @@ const PackagesLive = HttpApiBuilder.group(PiWebApi, "packages", (handlers) =>
   Effect.gen(function* () {
     const adapter = yield* PiAgentAdapter
     const registry = yield* SessionRuntimeRegistry
+    const repository = yield* SessionRepository
     const config = yield* AppConfig
     const packageIo = yield* PackageIo
     const path = yield* Path.Path
     const policy = yield* FileAccessPolicy
     const workspace = yield* WorkspaceIo
-    const readGlobalChromePlugin = adapter
-      .plugins(config.home)
-      .pipe(
-        Effect.map(
-          (projection) =>
-            projection.packages.find(
-              (pkg) => pkg.scope === "global" && pkg.packageName === PI_COMPANION_PACKAGE_NAMES.chrome,
-            ) ?? null,
+    const globalProjection = (projection: PluginsResponse) => {
+      const packages = projection.packages.filter((pkg) => pkg.scope === "global")
+      return {
+        packages,
+        totals: packages.reduce(
+          (totals, pkg) => ({
+            extensions: totals.extensions + pkg.counts.extensions,
+            skills: totals.skills + pkg.counts.skills,
+            prompts: totals.prompts + pkg.counts.prompts,
+            themes: totals.themes + pkg.counts.themes,
+          }),
+          { extensions: 0, skills: 0, prompts: 0, themes: 0 },
         ),
+        diagnostics: projection.diagnostics,
+      }
+    }
+    const readGlobalPlugins = adapter.plugins(config.home).pipe(Effect.map(globalProjection))
+    const readPluginOverview = Effect.gen(function* () {
+      const global = yield* readGlobalPlugins
+      const sessions = yield* repository.list
+      const representativeByCwd = new Map<string, (typeof sessions)[number]>()
+      for (const session of sessions) {
+        const current = representativeByCwd.get(session.cwd)
+        if (current === undefined || session.modified > current.modified) representativeByCwd.set(session.cwd, session)
+      }
+      const projects = yield* Effect.forEach(
+        representativeByCwd.values(),
+        (session) =>
+          adapter.plugins(session.cwd).pipe(
+            Effect.map((projection) => ({
+              packages: projection.packages
+                .filter((pkg) => pkg.scope === "project")
+                .map((pkg) => ({ ...pkg, ownerCwd: session.cwd })),
+              diagnostics: projection.diagnostics,
+            })),
+          ),
+        { concurrency: 8 },
       )
+      const packages = [...global.packages, ...projects.flatMap((projection) => projection.packages)].sort(
+        (left, right) =>
+          (left.packageName ?? left.source).localeCompare(right.packageName ?? right.source) ||
+          left.scope.localeCompare(right.scope) ||
+          (left.ownerCwd ?? "").localeCompare(right.ownerCwd ?? ""),
+      )
+      const diagnostics = [
+        ...new Map(
+          [...global.diagnostics, ...projects.flatMap((projection) => projection.diagnostics)].map((diagnostic) => [
+            `${diagnostic.type}\0${diagnostic.source ?? ""}\0${diagnostic.path ?? ""}\0${diagnostic.message}`,
+            diagnostic,
+          ]),
+        ).values(),
+      ]
+      return {
+        packages,
+        totals: packages.reduce(
+          (totals, pkg) => ({
+            extensions: totals.extensions + pkg.counts.extensions,
+            skills: totals.skills + pkg.counts.skills,
+            prompts: totals.prompts + pkg.counts.prompts,
+            themes: totals.themes + pkg.counts.themes,
+          }),
+          { extensions: 0, skills: 0, prompts: 0, themes: 0 },
+        ),
+        diagnostics,
+      }
+    })
+    const readGlobalChromePlugin = readGlobalPlugins.pipe(
+      Effect.map(
+        (projection) =>
+          projection.packages.find((pkg) => pkg.packageName === PI_COMPANION_PACKAGE_NAMES.chrome) ?? null,
+      ),
+    )
     const admitLocalPackageInstall = (cwd: string, action: PluginAction, source: string | undefined) => {
       const normalized = source?.trim()
       if (action !== "install" || normalized === undefined || !isLocalPackageSource(normalized)) return Effect.void
@@ -690,6 +754,8 @@ const PackagesLive = HttpApiBuilder.group(PiWebApi, "packages", (handlers) =>
       return policy.admitExistingRoot(target)
     }
     return handlers
+      .handle("pluginOverview", () => expose(readPluginOverview))
+      .handle("globalPlugins", () => expose(readGlobalPlugins))
       .handle("globalChromePlugin", () => expose(readGlobalChromePlugin).pipe(Effect.map((pkg) => ({ package: pkg }))))
       .handle("downloadChromeExtension", () =>
         expose(readGlobalChromePlugin).pipe(
@@ -724,7 +790,7 @@ const PackagesLive = HttpApiBuilder.group(PiWebApi, "packages", (handlers) =>
           yield* expose(admitLocalPackageInstall(cwd, payload.action, payload.source))
           const projection = yield* expose(adapter.pluginAction(cwd, payload.action, payload.source, payload.scope))
           yield* expose(registry.invalidatePackageChanges)
-          return projection
+          return payload.cwd === undefined ? globalProjection(projection) : projection
         }),
       )
       .handle("skills", ({ query }) =>

@@ -146,7 +146,9 @@ test("loads a raw-archive Web Surface through the session runtime and opaque ifr
   expect(scriptAsset.ok()).toBe(true)
   expect(scriptAsset.headers()["access-control-allow-origin"]).toBe("*")
 
-  await page.goto(`/extensions?session=${sessionId}`)
+  await page.goto("/extensions")
+  await expect(page).toHaveURL(/\/extensions$/)
+  await expect(page.getByText("Synthetic raw-archive Web Surface", { exact: true })).toBeVisible()
   await page.getByRole("link", { name: /E2E Surface/ }).click()
   const frame = page.frameLocator('iframe[title="E2E Surface"]')
   await expect(frame.getByText("E2E Surface", { exact: true })).toBeVisible()
@@ -155,7 +157,7 @@ test("loads a raw-archive Web Surface through the session runtime and opaque ifr
   await page.waitForTimeout(400)
   await expect(page.getByRole("link", { name: "对话" })).toBeVisible()
   await page.getByRole("link", { name: "对话" }).click()
-  await expect(page.locator("textarea").first()).toBeVisible()
+  await expect(page.getByText("Pi Agent Web", { exact: true }).first()).toBeVisible()
 })
 
 test("persists visible locale and theme preferences", async ({ page }) => {
@@ -1006,16 +1008,30 @@ test("loads model, auth, plugin, and skill projections without mutating user sta
         return { status: response.status, body: await response.json() }
       }
       const installed = await action("install", source)
+      const overviewResponse = await fetch("/api/packages/plugins/overview")
+      const overview = { status: overviewResponse.status, body: await overviewResponse.json() }
       const configured = installed.body.packages.find(
         (pkg: { packageName?: string; source: string }) => pkg.packageName === "pi-web-e2e-plugin",
       )
-      return { installed, removed: await action("remove", configured?.source ?? source) }
+      return { installed, overview, removed: await action("remove", configured?.source ?? source) }
     },
     { cwd: fixtureWorkspace, source: fixturePluginDirectory },
   )
   expect(pluginRoundTrip.installed.status, JSON.stringify(pluginRoundTrip.installed.body)).toBe(200)
   expect(pluginRoundTrip.installed.body).toMatchObject({
     packages: expect.arrayContaining([expect.objectContaining({ packageName: "pi-web-e2e-plugin" })]),
+  })
+  expect(pluginRoundTrip.overview).toMatchObject({
+    status: 200,
+    body: {
+      packages: expect.arrayContaining([
+        expect.objectContaining({
+          packageName: "pi-web-e2e-plugin",
+          scope: "project",
+          ownerCwd: fixtureWorkspace,
+        }),
+      ]),
+    },
   })
   expect(pluginRoundTrip.removed.status, JSON.stringify(pluginRoundTrip.removed.body)).toBe(200)
   expect(pluginRoundTrip.removed.body.packages).not.toEqual(

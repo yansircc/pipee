@@ -47,7 +47,7 @@ Package identity is declared by each trusted Suite Extension's `package.json`. T
 not a security boundary. Supporting untrusted Extensions would require process isolation rather than
 additional branches in these helpers.
 
-## Session-bound Web Surfaces
+## Aggregated Web Surfaces
 
 A package may declare one browser document without changing Pi:
 
@@ -68,11 +68,27 @@ Pi settings remain installed/enabled truth. The package archive owns the runtime
 `packageName × candidateHash × sessionId × RuntimeIdentity`. `candidateHash` is derived from sorted
 `package.json`, Pi runtime entries, and `dist/web/**`; it is never writable state.
 
+The `/extensions` route is not owned by a selected Session. Pi Web derives one read-only catalog from the
+real package resolution of existing Session workspaces. Selecting a package connects its iframe to the
+already-running compatible Session controllers; if none is running, the most recently active compatible
+Session is used as the single activation anchor. No Agent Session is created by this route.
+
+The plugin manager follows the same rule. Its overview is derived on demand from global Pi package settings
+plus every distinct cwd found in the Session repository, matching the input Pi's `SettingsManager` actually
+uses for project settings. Project package
+rows carry that owner cwd back to the existing package mutation endpoint; the UI never substitutes the first
+Session as a hidden settings context. With no Sessions, global install, update, enable, disable, and removal
+remain available while project scope is unavailable until a Project exists.
+
 Pi Web serves admitted assets through `/extension-assets/...` and runs them in
 `<iframe sandbox="allow-scripts">`. The iframe receives a transferred `MessagePort`; it is never imported into
-the host realm and has no mount/dispose protocol. Projection changes stay in the existing session runtime SSE
-stream. Route disposal closes only the browser channel, while runtime replacement closes the owning Session
-Scope and invalidates old actions by identity.
+the host realm and has no mount/dispose protocol. One browser port multiplexes read-only projections from the
+connected Session runtimes. Each projection carries its Session context, and every action names one owner
+Session; the host still verifies that Session's complete RuntimeIdentity and candidate hash before dispatch.
+Loop, Weixin, and Chrome aggregation remains inside their package-owned browser document rather than shared
+host code. Projection changes stay in the existing session runtime SSE streams. Route disposal closes only the
+browser channel, while runtime replacement closes the owning Session Scope and invalidates old actions by
+identity.
 
 ## Lifecycle
 

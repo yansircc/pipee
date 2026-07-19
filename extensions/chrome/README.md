@@ -1,8 +1,9 @@
 # pi-chrome
 
 Agent-first Chrome tools for Pi. Complex browser intent stays in Chat; there is no `/chrome`
-command or authorization control plane. The session-bound Web Surface exposes only exact-tab
-creation, activation, snapshot, screenshot, and close operations.
+command or authorization control plane. The cross-Session Web Surface is a browser-activity supervision
+console: it projects explicit running tool activity, bounded live events, recent evidence, and idle
+Session-owned tabs. It does not recreate navigation, click, fill, snapshot, or screenshot controls.
 
 ## Install
 
@@ -10,17 +11,19 @@ creation, activation, snapshot, screenshot, and close operations.
 pi install npm:@yansircc/pi-chrome
 ```
 
-Load the package's `dist/browser-extension` directory from `chrome://extensions` with Developer
-mode enabled. The popup is read-only. Once loaded, the extension connects to the local Pi bridge
-automatically.
+Download the package-provided browser-extension ZIP from Pi Web, open `chrome://extensions`, enable
+Developer mode, and drag the ZIP directly onto the page. If the current Chrome build or enterprise policy
+rejects ZIP installation, extract it and use **Load unpacked** as the fallback. The popup is read-only. Once
+loaded, the extension connects to the local Pi bridge automatically.
 
 Ask Pi to use Chrome normally. All 25 typed atomic tools and `chrome_status` are registered directly;
 the Extension never reads or rewrites Pi's active-tool selection.
 
 `chrome_status` reports one of `ready`, `waiting-for-extension`, `offline`, or `error`, plus the
 extension directory when setup is incomplete. The Chrome popup stays read-only. Pi Web combines
-that status with session-owned tab projection and finite typed controls; it never mirrors the DOM
-or falls back to Chrome's active tab.
+that status with Session-owned activity, evidence, and idle-tab projections. Its only mutations are
+terminating the owning Session's current Chrome tool and closing one explicitly selected idle tab
+after confirmation; it never mirrors the DOM or falls back to Chrome's active tab.
 
 ## Operation model
 
