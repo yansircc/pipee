@@ -26,7 +26,7 @@ const pi = {
 };
 const context = {
   cwd,
-  hasUI: false,
+  hasUI: true,
   ui: {
     notify: () => undefined,
     setStatus: () => undefined,
