@@ -1,25 +1,28 @@
+import * as stylex from "@stylexjs/stylex"
 import { useEffect, useRef, useState, useCallback, useMemo, RefObject } from "react"
 import { Effect } from "effect"
 import type { AgentMessage, AssistantMessage, TextContent } from "@/api/contract"
 import { runBrowser, type Cancel } from "@/browser/api-client"
 import { BrowserPlatform } from "@/browser/browser-platform"
 import { after } from "@/browser/timing"
-
 interface Props {
   messages: AgentMessage[]
   streamingMessage: Partial<AgentMessage> | null
   scrollContainer: RefObject<HTMLDivElement | null>
   messageRefs: RefObject<(HTMLDivElement | null)[]>
 }
-
 const MINIMAP_WIDTH = 36
-
 function getMessagePreview(msg: AgentMessage | Partial<AgentMessage>): string {
   if (msg.role === "user") {
     const content = msg.content
     if (typeof content === "string") return content.slice(0, 200)
     if (Array.isArray(content)) {
-      return (content as { type: string; text?: string }[])
+      return (
+        content as {
+          type: string
+          text?: string
+        }[]
+      )
         .filter((b) => b.type === "text" && b.text)
         .map((b) => b.text!)
         .join("\n")
@@ -36,20 +39,35 @@ function getMessagePreview(msg: AgentMessage | Partial<AgentMessage>): string {
     if (text) return text.slice(0, 200)
     const toolNames = blocks
       .filter((b) => b.type === "toolCall")
-      .map((b) => (b as { type: string; toolName: string }).toolName)
+      .map(
+        (b) =>
+          (
+            b as {
+              type: string
+              toolName: string
+            }
+          ).toolName,
+      )
     if (toolNames.length) return toolNames.join(", ")
     return ""
   }
   return ""
 }
-
-function getNodeColor(msg: AgentMessage | Partial<AgentMessage>): { bg: string; border: string } {
+function getNodeColor(msg: AgentMessage | Partial<AgentMessage>): {
+  bg: string
+  border: string
+} {
   if (msg.role === "user") {
-    return { bg: "rgba(37,99,235,0.18)", border: "rgba(37,99,235,0.7)" }
+    return {
+      bg: "rgba(37,99,235,0.18)",
+      border: "rgba(37,99,235,0.7)",
+    }
   }
-  return { bg: "rgba(107,114,128,0.12)", border: "rgba(107,114,128,0.5)" }
+  return {
+    bg: "rgba(107,114,128,0.12)",
+    border: "rgba(107,114,128,0.5)",
+  }
 }
-
 function hasTextContent(msg: AgentMessage | Partial<AgentMessage>): boolean {
   if (msg.role === "user") return true
   if (msg.role === "assistant") {
@@ -58,14 +76,12 @@ function hasTextContent(msg: AgentMessage | Partial<AgentMessage>): boolean {
   }
   return false
 }
-
 interface NodeInfo {
   topRatio: number // 0–1 within total scroll height
   heightRatio: number
   msg: AgentMessage | Partial<AgentMessage>
   index: number
 }
-
 export function ChatMinimap({ messages, streamingMessage, scrollContainer, messageRefs }: Props) {
   const [scrollRatio, setScrollRatio] = useState(0)
   const [viewportRatio, setViewportRatio] = useState(1)
@@ -77,24 +93,20 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
   const draggingRef = useRef(false)
   const dragCancelRef = useRef<Cancel | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-
   const allMessages = useMemo(
     () => (streamingMessage ? [...messages, streamingMessage] : messages) as (AgentMessage | Partial<AgentMessage>)[],
     [messages, streamingMessage],
   )
   const allMessagesRef = useRef(allMessages)
   allMessagesRef.current = allMessages
-
   const updatePositionsRef = useRef<() => void>(null!)
   updatePositionsRef.current = () => {
     const scrollEl = scrollContainer.current
     if (!scrollEl) return
-
     const totalH = scrollEl.scrollHeight
     const clientH = scrollEl.clientHeight
     const scrollable = totalH - clientH
     setMinimapHeightPx(containerRef.current?.clientHeight ?? 600)
-
     setVisible(scrollable > 20)
     if (scrollable <= 0) {
       setScrollRatio(0)
@@ -108,17 +120,13 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     const refs = messageRefs.current
     const newNodes: NodeInfo[] = []
     let refIndex = 0
-
     const allMessages = allMessagesRef.current
     for (let i = 0; i < allMessages.length; i++) {
       const msg = allMessages[i]
       if (msg.role !== "user" && msg.role !== "assistant") continue
-
       const el = refs?.[refIndex]
       refIndex++
-
       if (!hasTextContent(msg)) continue
-
       if (el && totalH > 0) {
         const elRect = el.getBoundingClientRect()
         const containerRect = scrollEl.getBoundingClientRect()
@@ -134,9 +142,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     }
     setNodes(newNodes)
   }
-
   const updatePositions = useCallback(() => updatePositionsRef.current(), [])
-
   useEffect(() => {
     const el = scrollContainer.current
     if (!el) return
@@ -146,14 +152,18 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
         Effect.flatMap((browser) =>
           Effect.all(
             [browser.onElementScroll(el, updatePositions), browser.observeResize(resizeTargets, updatePositions)],
-            { concurrency: "unbounded", discard: true },
+            {
+              concurrency: "unbounded",
+              discard: true,
+            },
           ),
         ),
       ),
-      { onSuccess: () => undefined },
+      {
+        onSuccess: () => undefined,
+      },
     )
   }, [scrollContainer, updatePositions])
-
   useEffect(() => () => dragCancelRef.current?.(), [])
 
   // Re-measure when message count changes (new messages arrive)
@@ -164,7 +174,6 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
       }),
     [messages.length, updatePositions],
   )
-
   const scrollToMinimapRatio = useCallback(
     (viewportTopRatio: number) => {
       const el = scrollContainer.current
@@ -176,20 +185,16 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     },
     [scrollContainer, viewportRatio],
   )
-
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (!visible) return
-
       draggingRef.current = true
       const rect = e.currentTarget.getBoundingClientRect()
       const clickRatio = (e.clientY - rect.top) / rect.height
       const grabOffset = clickRatio - scrollRatio * (1 - viewportRatio)
       const insideBox = grabOffset >= 0 && grabOffset <= viewportRatio
       const offset = insideBox ? grabOffset : viewportRatio / 2
-
       scrollToMinimapRatio(clickRatio - offset)
-
       const onMove = (ev: MouseEvent) => {
         if (!draggingRef.current) return
         const r = (ev.clientY - rect.top) / rect.height
@@ -235,9 +240,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
     }
     return positions
   }, [minimapHovered, nodes, minimapHeightPx])
-
   if (!visible) return null
-
   const viewportBoxTop = scrollRatio * (1 - viewportRatio) * 100
   const viewportBoxHeight = viewportRatio * 100
 
@@ -250,7 +253,6 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
             : best
         }, 0)
       : null
-
   return (
     <div
       ref={containerRef}
@@ -264,30 +266,17 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
         const rect = e.currentTarget.getBoundingClientRect()
         setMouseYRatio((e.clientY - rect.top) / rect.height)
       }}
+      {...stylex.props(inlineStyles.inline1)}
       style={{
         width: MINIMAP_WIDTH,
-        flexShrink: 0,
-        position: "relative",
-        cursor: "default",
-        userSelect: "none",
-        borderLeft: "1px solid var(--border)",
-        background: "var(--bg-panel)",
-        overflow: "visible",
       }}
     >
       {/* Viewport indicator */}
       <div
+        {...stylex.props(inlineStyles.inline2)}
         style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
           top: `${viewportBoxTop}%`,
           height: `${viewportBoxHeight}%`,
-          background: "rgba(100,100,100,0.1)",
-          borderTop: "1px solid rgba(100,100,100,0.2)",
-          borderBottom: "1px solid rgba(100,100,100,0.2)",
-          pointerEvents: "none",
-          zIndex: 1,
         }}
       />
 
@@ -297,34 +286,23 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
         const isNearest = minimapHovered && nearestIndex === node.index
         const isUser = node.msg.role === "user"
         const dotTop = node.topRatio * 100
-
         return (
           <div
             key={node.index}
+            {...stylex.props(inlineStyles.inline3)}
             style={{
-              position: "absolute",
               top: `${dotTop}%`,
-              transform: "translateY(-50%)",
-              left: 0,
-              right: 0,
-              height: "12px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              zIndex: 2,
             }}
           >
             {/* Dot */}
             <div
+              {...stylex.props(inlineStyles.inline4)}
               style={{
                 width: isUser ? 8 : 6,
                 height: isUser ? 8 : 6,
                 borderRadius: isUser ? 2 : "50%",
                 background: color.bg,
                 border: `1.5px solid ${color.border}`,
-                flexShrink: 0,
-                transition: "transform 0.1s",
                 transform: isNearest ? "scale(1.6)" : "scale(1)",
               }}
             />
@@ -333,18 +311,7 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
       })}
 
       {/* Center line */}
-      <div
-        style={{
-          position: "absolute",
-          left: "50%",
-          top: 0,
-          bottom: 0,
-          width: 1,
-          background: "var(--border)",
-          transform: "translateX(-50%)",
-          zIndex: 0,
-        }}
-      />
+      <div {...stylex.props(inlineStyles.inline5)} />
 
       {/* Tooltips for all nodes, collision-free positions */}
       {minimapHovered &&
@@ -356,33 +323,20 @@ export function ChatMinimap({ messages, streamingMessage, scrollContainer, messa
           return (
             <div
               key={node.index}
+              {...stylex.props(inlineStyles.inline6)}
               style={{
-                position: "absolute",
                 top: tooltipPositions[i],
-                right: "100%",
-                marginRight: 6,
-                background: "var(--bg)",
                 borderTop: `1px solid ${isNearest ? color.border : "var(--border)"}`,
                 borderRight: `1px solid ${isNearest ? color.border : "var(--border)"}`,
                 borderBottom: `1px solid ${isNearest ? color.border : "var(--border)"}`,
                 borderLeft: `2px solid ${color.border}`,
-                borderRadius: 4,
-                padding: "2px 7px",
-                width: 200,
-                zIndex: 100,
-                pointerEvents: "none",
                 opacity: isNearest ? 1 : 0.45,
-                transition: "top 0.1s, opacity 0.1s",
               }}
             >
               <div
+                {...stylex.props(inlineStyles.inline7)}
                 style={{
-                  fontSize: 11,
                   color: isNearest ? "var(--text)" : "var(--text-muted)",
-                  lineHeight: 1.4,
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
                 }}
               >
                 {preview}
@@ -402,3 +356,69 @@ export function useMessageRefs(count: number): RefObject<(HTMLDivElement | null)
     .map((_, i) => refs.current[i] ?? null)
   return refs
 }
+const inlineStyles = stylex.create({
+  inline1: {
+    flexShrink: 0,
+    position: "relative",
+    cursor: "default",
+    userSelect: "none",
+    borderLeft: "1px solid var(--border)",
+    background: "var(--bg-panel)",
+    overflow: "visible",
+  },
+  inline2: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    background: "rgba(100,100,100,0.1)",
+    borderTop: "1px solid rgba(100,100,100,0.2)",
+    borderBottom: "1px solid rgba(100,100,100,0.2)",
+    pointerEvents: "none",
+    zIndex: 1,
+  },
+  inline3: {
+    position: "absolute",
+    transform: "translateY(-50%)",
+    left: 0,
+    right: 0,
+    height: "12px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    zIndex: 2,
+  },
+  inline4: {
+    flexShrink: 0,
+    transition: "transform 0.1s",
+  },
+  inline5: {
+    position: "absolute",
+    left: "50%",
+    top: 0,
+    bottom: 0,
+    width: 1,
+    background: "var(--border)",
+    transform: "translateX(-50%)",
+    zIndex: 0,
+  },
+  inline6: {
+    position: "absolute",
+    right: "100%",
+    marginRight: 6,
+    background: "var(--bg)",
+    borderRadius: 4,
+    padding: "2px 7px",
+    width: 200,
+    zIndex: 100,
+    pointerEvents: "none",
+    transition: "top 0.1s, opacity 0.1s",
+  },
+  inline7: {
+    fontSize: 11,
+    lineHeight: 1.4,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+})

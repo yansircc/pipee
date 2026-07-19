@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import * as stylex from "@stylexjs/stylex"
 import { runBrowser } from "@/browser/api-client"
 import { observeCurrentTime } from "@/browser/timing"
 import type { LoopProjection, LoopStatusProjection } from "@/features/session/session-automation"
@@ -61,24 +62,21 @@ export function SessionAutomationBar({ status }: Props) {
   }, [status.loops])
 
   return (
-    <section
-      className="mb-3 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--bg-panel)]"
-      data-companion-renderer="pi-loop/status@1"
-    >
+    <section {...stylex.props(styles.root)} data-companion-renderer="pi-loop/status@1">
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left"
+        {...stylex.props(styles.trigger)}
       >
-        <span aria-hidden="true" className="text-[var(--accent)]">
+        <span aria-hidden="true" {...stylex.props(styles.accent)}>
           ◷
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-xs font-semibold text-[var(--text)]">
+        <span {...stylex.props(styles.summary)}>
+          <span {...stylex.props(styles.title)}>
             {zh ? "会话自动化" : "Session automations"} · {status.loops.length}
           </span>
-          <span className="block truncate text-[11px] text-[var(--text-muted)]">
+          <span {...stylex.props(styles.subtitle)}>
             {status.loops.length === 0
               ? zh
                 ? "当前没有自动化"
@@ -90,15 +88,15 @@ export function SessionAutomationBar({ status }: Props) {
                 : `${zh ? "最近执行" : "Next run"} · ${countdownText(nearestDueAt, now, zh)}`}
           </span>
         </span>
-        <span className="text-[11px] text-[var(--text-muted)]">{open ? "−" : "+"}</span>
+        <span {...stylex.props(styles.subtitle)}>{open ? "−" : "+"}</span>
       </button>
 
       {open && status.loops.length > 0 && (
-        <div className="space-y-2 border-t border-[var(--border)] p-3">
+        <div {...stylex.props(styles.list)}>
           {status.loops.map((loop) => (
-            <div key={loop.id} className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-2.5">
-              <div className="truncate text-xs font-medium text-[var(--text)]">{loop.label ?? loop.prompt}</div>
-              <div className="mt-1 text-[10px] text-[var(--text-muted)]">
+            <div key={loop.id} {...stylex.props(styles.item)}>
+              <div {...stylex.props(styles.itemTitle)}>{loop.label ?? loop.prompt}</div>
+              <div {...stylex.props(styles.itemMeta)}>
                 {scheduleText(loop)} · {loop.retention} · {loop.id} ·{" "}
                 {!loop.enabled
                   ? zh
@@ -117,3 +115,62 @@ export function SessionAutomationBar({ status }: Props) {
     </section>
   )
 }
+
+const styles = stylex.create({
+  root: {
+    backgroundColor: "var(--bg-panel)",
+    borderColor: "var(--border)",
+    borderRadius: 12,
+    borderStyle: "solid",
+    borderWidth: 1,
+    marginBottom: 12,
+    overflow: "hidden",
+  },
+  trigger: {
+    alignItems: "center",
+    display: "flex",
+    gap: 8,
+    minHeight: 44,
+    paddingBlock: 8,
+    paddingInline: 12,
+    textAlign: "left",
+    width: "100%",
+  },
+  accent: { color: "var(--accent)" },
+  summary: { flex: 1, minWidth: 0 },
+  title: { color: "var(--text)", display: "block", fontSize: 12, fontWeight: 600 },
+  subtitle: {
+    color: "var(--text-muted)",
+    display: "block",
+    fontSize: 11,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  list: {
+    borderColor: "var(--border)",
+    borderStyle: "solid",
+    borderWidth: "1px 0 0",
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    padding: 12,
+  },
+  item: {
+    backgroundColor: "var(--bg)",
+    borderColor: "var(--border)",
+    borderRadius: 8,
+    borderStyle: "solid",
+    borderWidth: 1,
+    padding: 10,
+  },
+  itemTitle: {
+    color: "var(--text)",
+    fontSize: 12,
+    fontWeight: 500,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  itemMeta: { color: "var(--text-muted)", fontSize: 10, marginTop: 4 },
+})

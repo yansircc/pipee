@@ -1,10 +1,10 @@
+import * as stylex from "@stylexjs/stylex"
 import { useState, useCallback, useEffect, useRef } from "react"
 import { getFileIcon, FolderIcon } from "./FileIcons"
 import { getRelativeFilePath } from "@/lib/file-paths"
 import { useI18n } from "@/lib/i18n"
 import { writePathDrag } from "@/lib/drop-paths"
 import { withApi, apiUrls, runApi, type Cancel } from "@/browser/api-client"
-
 interface FileNode {
   name: string
   fullPath: string
@@ -13,20 +13,27 @@ interface FileNode {
   children?: FileNode[]
   loaded?: boolean
 }
-
 interface Props {
   cwd: string
   onOpenFile: (filePath: string, fileName: string) => void
   refreshKey?: number
   onAtMention?: (relativePath: string, isDir: boolean) => void
 }
-
 function loadEntries(
   dirPath: string,
-  callbacks: { readonly onSuccess: (entries: FileNode[]) => void; readonly onFailure: (error: unknown) => void },
+  callbacks: {
+    readonly onSuccess: (entries: FileNode[]) => void
+    readonly onFailure: (error: unknown) => void
+  },
 ): Cancel {
   return runApi(
-    withApi((api) => api.workspace.fileIndex({ query: { root: dirPath } })),
+    withApi((api) =>
+      api.workspace.fileIndex({
+        query: {
+          root: dirPath,
+        },
+      }),
+    ),
     {
       onSuccess: ({ entries }) =>
         callbacks.onSuccess(
@@ -43,7 +50,6 @@ function loadEntries(
     },
   )
 }
-
 function TreeNode({
   node,
   depth,
@@ -69,7 +75,6 @@ function TreeNode({
   const [loaded, setLoaded] = useState(node.loaded ?? false)
   const [loading, setLoading] = useState(false)
   const [hovered, setHovered] = useState(false)
-
   const loadChildren = useCallback(
     (force = false) => {
       if (loaded && !force) return
@@ -99,7 +104,6 @@ function TreeNode({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey])
-
   const handleClick = useCallback(() => {
     if (node.isDir) {
       const next = !open
@@ -109,7 +113,6 @@ function TreeNode({
       onOpenFile(node.fullPath, node.name)
     }
   }, [node.isDir, node.fullPath, node.name, loaded, open, loadChildren, onOpenFile, onToggleExpanded])
-
   return (
     <div>
       <div
@@ -118,18 +121,10 @@ function TreeNode({
         onClick={handleClick}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
+        {...stylex.props(inlineStyles.inline1)}
         style={{
-          position: "relative",
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
           paddingLeft: 8 + depth * 14,
-          paddingRight: 8,
-          height: 24,
-          cursor: "pointer",
           background: hovered ? "var(--bg-hover)" : "transparent",
-          borderRadius: 4,
-          userSelect: "none",
         }}
       >
         {node.isDir && (
@@ -142,26 +137,19 @@ function TreeNode({
             strokeWidth="1.8"
             strokeLinecap="round"
             strokeLinejoin="round"
-            style={{ flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform 0.1s" }}
+            {...stylex.props(inlineStyles.inline2)}
+            style={{
+              transform: open ? "rotate(90deg)" : "none",
+            }}
           >
             <polyline points="3 2 7 5 3 8" />
           </svg>
         )}
-        {!node.isDir && <span style={{ width: 10, flexShrink: 0 }} />}
-        <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
+        {!node.isDir && <span {...stylex.props(inlineStyles.inline3)} />}
+        <span {...stylex.props(inlineStyles.inline4)}>
           {node.isDir ? <FolderIcon size={14} open={open} /> : getFileIcon(node.name, 14)}
         </span>
-        <span
-          style={{
-            fontSize: 12,
-            color: "var(--text)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            flex: 1,
-          }}
-          title={node.fullPath}
-        >
+        <span {...stylex.props(inlineStyles.inline5)} title={node.fullPath}>
           {node.name}
         </span>
         {loading && (
@@ -184,25 +172,9 @@ function TreeNode({
               onAtMention(getRelativeFilePath(node.fullPath, cwd), node.isDir)
             }}
             title={t("Insert path into chat")}
+            {...stylex.props(inlineStyles.inline6)}
             style={{
-              position: "absolute",
               right: !node.isDir ? 28 : 4,
-              top: "50%",
-              transform: "translateY(-50%)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 4,
-              padding: "0 8px",
-              height: 20,
-              background: "var(--bg-panel)",
-              border: "1px solid var(--border)",
-              borderRadius: 4,
-              color: "var(--accent)",
-              cursor: "pointer",
-              fontSize: 11,
-              fontWeight: 600,
-              whiteSpace: "nowrap",
             }}
           >
             <svg
@@ -223,31 +195,15 @@ function TreeNode({
         )}
         {hovered && !node.isDir && (
           <a
-            href={apiUrls.workspace.downloadFile({ query: { path: node.fullPath } })}
+            href={apiUrls.workspace.downloadFile({
+              query: {
+                path: node.fullPath,
+              },
+            })}
             download
             onClick={(e) => e.stopPropagation()}
             title={t("Download file")}
-            style={{
-              position: "absolute",
-              right: 4,
-              top: "50%",
-              transform: "translateY(-50%)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 4,
-              padding: "0 5px",
-              height: 20,
-              background: "var(--bg-panel)",
-              border: "1px solid var(--border)",
-              borderRadius: 4,
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: 11,
-              fontWeight: 600,
-              whiteSpace: "nowrap",
-              textDecoration: "none",
-            }}
+            {...stylex.props(inlineStyles.inline7)}
           >
             <svg
               width="11"
@@ -283,13 +239,9 @@ function TreeNode({
           ))}
           {children.length === 0 && loaded && (
             <div
+              {...stylex.props(inlineStyles.inline8)}
               style={{
                 paddingLeft: 8 + (depth + 1) * 14,
-                fontSize: 11,
-                color: "var(--text-dim)",
-                height: 22,
-                display: "flex",
-                alignItems: "center",
               }}
             >
               empty
@@ -300,14 +252,12 @@ function TreeNode({
     </div>
   )
 }
-
 export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention }: Props) {
   const [roots, setRoots] = useState<FileNode[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set())
   const prevCwdRef = useRef<string | null>(null)
-
   const handleToggleExpanded = useCallback((fullPath: string, open: boolean) => {
     setExpandedPaths((prev) => {
       const next = new Set(prev)
@@ -316,14 +266,12 @@ export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention }: Props
       return next
     })
   }, [])
-
   useEffect(() => {
     const cwdChanged = prevCwdRef.current !== cwd
     prevCwdRef.current = cwd
 
     // Reset expanded state only when cwd changes, not on refreshKey bumps
     if (cwdChanged) setExpandedPaths(new Set())
-
     setLoading(cwdChanged)
     setError(null)
     return loadEntries(cwd, {
@@ -337,17 +285,14 @@ export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention }: Props
       },
     })
   }, [cwd, refreshKey])
-
   if (loading) {
-    return <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>Loading files...</div>
+    return <div {...stylex.props(inlineStyles.inline9)}>Loading files...</div>
   }
-
   if (error) {
-    return <div style={{ padding: "8px 12px", fontSize: 11, color: "#f87171" }}>{error}</div>
+    return <div {...stylex.props(inlineStyles.inline10)}>{error}</div>
   }
-
   return (
-    <div style={{ padding: "2px 4px" }}>
+    <div {...stylex.props(inlineStyles.inline11)}>
       {roots.map((node) => (
         <TreeNode
           key={node.fullPath}
@@ -361,9 +306,106 @@ export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention }: Props
           refreshKey={refreshKey}
         />
       ))}
-      {roots.length === 0 && (
-        <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>No files found</div>
-      )}
+      {roots.length === 0 && <div {...stylex.props(inlineStyles.inline12)}>No files found</div>}
     </div>
   )
 }
+const inlineStyles = stylex.create({
+  inline1: {
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    paddingRight: 8,
+    height: 24,
+    cursor: "pointer",
+    borderRadius: 4,
+    userSelect: "none",
+  },
+  inline2: {
+    flexShrink: 0,
+    transition: "transform 0.1s",
+  },
+  inline3: {
+    width: 10,
+    flexShrink: 0,
+  },
+  inline4: {
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+  },
+  inline5: {
+    fontSize: 12,
+    color: "var(--text)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    flex: 1,
+  },
+  inline6: {
+    position: "absolute",
+    top: "50%",
+    transform: "translateY(-50%)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    padding: "0 8px",
+    height: 20,
+    background: "var(--bg-panel)",
+    border: "1px solid var(--border)",
+    borderRadius: 4,
+    color: "var(--accent)",
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+  },
+  inline7: {
+    position: "absolute",
+    right: 4,
+    top: "50%",
+    transform: "translateY(-50%)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    padding: "0 5px",
+    height: 20,
+    background: "var(--bg-panel)",
+    border: "1px solid var(--border)",
+    borderRadius: 4,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+    textDecoration: "none",
+  },
+  inline8: {
+    fontSize: 11,
+    color: "var(--text-dim)",
+    height: 22,
+    display: "flex",
+    alignItems: "center",
+  },
+  inline9: {
+    padding: "8px 12px",
+    fontSize: 11,
+    color: "var(--text-dim)",
+  },
+  inline10: {
+    padding: "8px 12px",
+    fontSize: 11,
+    color: "#f87171",
+  },
+  inline11: {
+    padding: "2px 4px",
+  },
+  inline12: {
+    padding: "8px 12px",
+    fontSize: 11,
+    color: "var(--text-dim)",
+  },
+})

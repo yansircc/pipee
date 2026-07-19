@@ -1,3 +1,4 @@
+import * as stylex from "@stylexjs/stylex"
 import { useState, useEffect, useCallback, useRef } from "react"
 import { Effect } from "effect"
 import { useIsMobile } from "@/hooks/useIsMobile"
@@ -65,11 +66,18 @@ const PROVIDER_LABELS: Readonly<Record<string, string>> = {
 
 type OAuthProvider = typeof OAuthProviderSchema.Type
 type ApiKeyProvider = typeof ApiKeyProviderSchema.Type
-
 type OAuthLoginState =
-  | { phase: "idle" }
-  | { phase: "connecting" }
-  | { phase: "auth"; url: string; instructions: string | null }
+  | {
+      phase: "idle"
+    }
+  | {
+      phase: "connecting"
+    }
+  | {
+      phase: "auth"
+      url: string
+      instructions: string | null
+    }
   | {
       phase: "device_code"
       userCode: string
@@ -77,49 +85,98 @@ type OAuthLoginState =
       intervalSeconds: number | null
       expiresInSeconds: number | null
     }
-  | { phase: "prompt"; message: string; placeholder: string | null; token: string }
-  | { phase: "select"; message: string; options: { id: string; label: string }[]; token: string }
-  | { phase: "progress"; message: string }
-  | { phase: "success" }
-  | { phase: "error"; message: string }
-
+  | {
+      phase: "prompt"
+      message: string
+      placeholder: string | null
+      token: string
+    }
+  | {
+      phase: "select"
+      message: string
+      options: {
+        id: string
+        label: string
+      }[]
+      token: string
+    }
+  | {
+      phase: "progress"
+      message: string
+    }
+  | {
+      phase: "success"
+    }
+  | {
+      phase: "error"
+      message: string
+    }
 type ModelEntry = typeof ModelConfigEntry.Type
 type ProviderEntry = typeof ProviderConfigEntry.Type
 type ModelsJson = typeof ModelsConfigSchema.Type
 type RawValidationState = "idle" | "validating" | "valid"
-
 type ModelTestState =
-  | { phase: "idle" }
-  | { phase: "testing" }
-  | { phase: "success"; latencyMs?: number; status?: number; responseText?: string }
-  | { phase: "error"; message: string; latencyMs?: number; status?: number }
-
+  | {
+      phase: "idle"
+    }
+  | {
+      phase: "testing"
+    }
+  | {
+      phase: "success"
+      latencyMs?: number
+      status?: number
+      responseText?: string
+    }
+  | {
+      phase: "error"
+      message: string
+      latencyMs?: number
+      status?: number
+    }
 type Selection =
-  | { type: "provider"; name: string }
-  | { type: "model"; providerName: string; index: number }
-  | { type: "oauth"; providerId: string }
-  | { type: "apikey"; providerId: string }
-
+  | {
+      type: "provider"
+      name: string
+    }
+  | {
+      type: "model"
+      providerName: string
+      index: number
+    }
+  | {
+      type: "oauth"
+      providerId: string
+    }
+  | {
+      type: "apikey"
+      providerId: string
+    }
 const API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"] as const
-
 function errorMessage(error: unknown): string {
   return typeof error === "object" && error !== null && "message" in error && typeof error.message === "string"
     ? error.message
     : String(error)
 }
-
 const requirePiValidModelsConfig = (config: ModelsJson) =>
-  withApi((api) => api.models.validateConfig({ payload: config })).pipe(
+  withApi((api) =>
+    api.models.validateConfig({
+      payload: config,
+    }),
+  ).pipe(
     Effect.flatMap((result) =>
       result.valid
         ? Effect.succeed(config)
-        : Effect.fail(new ModelsConfigJsonError({ operation: "decode", message: result.error })),
+        : Effect.fail(
+            new ModelsConfigJsonError({
+              operation: "decode",
+              message: result.error,
+            }),
+          ),
     ),
   )
-
 const requireValidModelsConfig = (value: unknown) =>
   decodeModelsConfig(value).pipe(Effect.flatMap(requirePiValidModelsConfig))
-
 const parseAndValidateModelsConfig = (source: string) =>
   parseModelsConfigJson(source).pipe(Effect.flatMap(requirePiValidModelsConfig))
 
@@ -128,13 +185,12 @@ const parseAndValidateModelsConfig = (source: string) =>
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   const { t } = useI18n()
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <label style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 500 }}>{t(label)}</label>
+    <div {...stylex.props(inlineStyles.inline1)}>
+      <label {...stylex.props(inlineStyles.inline2)}>{t(label)}</label>
       {children}
     </div>
   )
 }
-
 const inputStyle = {
   padding: "6px 9px",
   background: "var(--bg-panel)",
@@ -146,7 +202,6 @@ const inputStyle = {
   width: "100%",
   boxSizing: "border-box" as const,
 }
-
 const toolbarButtonStyle = {
   padding: "5px 9px",
   background: "var(--bg-panel)",
@@ -157,7 +212,6 @@ const toolbarButtonStyle = {
   fontSize: 11,
   whiteSpace: "nowrap" as const,
 }
-
 function TextInput({
   value,
   onChange,
@@ -175,11 +229,13 @@ function TextInput({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder ? t(placeholder) : undefined}
-      style={{ ...inputStyle, fontFamily: mono ? "var(--font-mono)" : "inherit" }}
+      style={{
+        ...inputStyle,
+        fontFamily: mono ? "var(--font-mono)" : "inherit",
+      }}
     />
   )
 }
-
 function SecretTextInput({
   value,
   onChange,
@@ -200,20 +256,28 @@ function SecretTextInput({
   style?: React.CSSProperties
 }) {
   const [visible, setVisible] = useState(false)
-
   useEffect(() => {
     if (!value) setVisible(false)
   }, [value])
-
   return (
-    <div style={{ position: "relative", width: "100%", ...style }}>
+    <div
+      style={{
+        position: "relative",
+        width: "100%",
+        ...style,
+      }}
+    >
       <input
         type={visible ? "text" : "password"}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}
         placeholder={placeholder}
-        style={{ ...inputStyle, paddingRight: 34, fontFamily: mono ? "var(--font-mono)" : "inherit" }}
+        style={{
+          ...inputStyle,
+          paddingRight: 34,
+          fontFamily: mono ? "var(--font-mono)" : "inherit",
+        }}
         autoComplete={autoComplete}
         spellCheck={spellCheck}
       />
@@ -222,22 +286,7 @@ function SecretTextInput({
         onClick={() => setVisible((v) => !v)}
         aria-label={visible ? "Hide API key" : "Show API key"}
         title={visible ? "Hide API key" : "Show API key"}
-        style={{
-          position: "absolute",
-          right: 5,
-          top: "50%",
-          transform: "translateY(-50%)",
-          width: 24,
-          height: 24,
-          padding: 0,
-          border: "none",
-          background: "transparent",
-          color: "var(--text-dim)",
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
+        {...stylex.props(inlineStyles.inline3)}
       >
         {visible ? (
           <svg
@@ -274,7 +323,6 @@ function SecretTextInput({
     </div>
   )
 }
-
 function NumInput({
   value,
   onChange,
@@ -294,7 +342,6 @@ function NumInput({
     />
   )
 }
-
 function Select({
   value,
   onChange,
@@ -310,7 +357,10 @@ function Select({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      style={{ ...inputStyle, color: value ? "var(--text)" : "var(--text-dim)" }}
+      style={{
+        ...inputStyle,
+        color: value ? "var(--text)" : "var(--text-dim)",
+      }}
     >
       {!required && <option value="">— inherit / none —</option>}
       {options.map((o) => (
@@ -321,47 +371,23 @@ function Select({
     </select>
   )
 }
-
 function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   const { t } = useI18n()
   return (
-    <label
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        cursor: "pointer",
-        fontSize: 12,
-        color: "var(--text-muted)",
-      }}
-    >
+    <label {...stylex.props(inlineStyles.inline4)}>
       <input
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
-        style={{ width: 13, height: 13, accentColor: "var(--accent)", cursor: "pointer" }}
+        {...stylex.props(inlineStyles.inline5)}
       />
       {t(label)}
     </label>
   )
 }
-
 function SectionTitle({ children }: { children: React.ReactNode }) {
   const { t } = useI18n()
-  return (
-    <div
-      style={{
-        fontSize: 11,
-        fontWeight: 600,
-        color: "var(--text-dim)",
-        textTransform: "uppercase",
-        letterSpacing: "0.06em",
-        marginBottom: 2,
-      }}
-    >
-      {typeof children === "string" ? t(children) : children}
-    </div>
-  )
+  return <div {...stylex.props(inlineStyles.inline6)}>{typeof children === "string" ? t(children) : children}</div>
 }
 
 // ── Provider detail ───────────────────────────────────────────────────────────
@@ -381,29 +407,24 @@ function ProviderDetail({
 }) {
   const [editingName, setEditingName] = useState(name)
   useEffect(() => setEditingName(name), [name])
-  const set = <K extends keyof ProviderEntry>(k: K, v: ProviderEntry[K]) => onChange({ ...provider, [k]: v })
-
+  const set = <K extends keyof ProviderEntry>(k: K, v: ProviderEntry[K]) =>
+    onChange({
+      ...provider,
+      [k]: v,
+    })
   useEffect(() => {
-    if (!provider.api) onChange({ ...provider, api: "openai-completions" })
+    if (!provider.api)
+      onChange({
+        ...provider,
+        api: "openai-completions",
+      })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider.api])
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+    <div {...stylex.props(inlineStyles.inline7)}>
+      <div {...stylex.props(inlineStyles.inline8)}>
         <SectionTitle>Provider</SectionTitle>
-        <button
-          onClick={onDelete}
-          style={{
-            padding: "3px 8px",
-            background: "none",
-            border: "1px solid rgba(239,68,68,0.3)",
-            borderRadius: 4,
-            color: "#ef4444",
-            cursor: "pointer",
-            fontSize: 11,
-          }}
-        >
+        <button onClick={onDelete} {...stylex.props(inlineStyles.inline9)}>
           Delete
         </button>
       </div>
@@ -411,20 +432,7 @@ function ProviderDetail({
       <Field label="Provider name">
         <TextInput value={editingName} onChange={setEditingName} placeholder="provider-name" mono />
         {editingName !== name && editingName.trim() && (
-          <button
-            onClick={() => onRename(editingName.trim())}
-            style={{
-              marginTop: 4,
-              padding: "3px 10px",
-              background: "var(--accent)",
-              border: "none",
-              borderRadius: 4,
-              color: "#fff",
-              cursor: "pointer",
-              fontSize: 11,
-              alignSelf: "flex-start",
-            }}
-          >
+          <button onClick={() => onRename(editingName.trim())} {...stylex.props(inlineStyles.inline10)}>
             Rename
           </button>
         )}
@@ -446,9 +454,9 @@ function ProviderDetail({
           placeholder="ENV_VAR_NAME, !shell-command, or literal key"
           mono
         />
-        <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
-          Prefix with <code style={{ fontFamily: "var(--font-mono)" }}>!</code> to run a shell command, or use an env
-          var name
+        <span {...stylex.props(inlineStyles.inline11)}>
+          Prefix with <code {...stylex.props(inlineStyles.inline12)}>!</code> to run a shell command, or use an env var
+          name
         </span>
       </Field>
 
@@ -469,7 +477,6 @@ function ProviderDetail({
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const
 type ThinkingLevel = (typeof THINKING_LEVELS)[number]
 const OMIT_THINKING_LEVEL = Symbol("omit-thinking-level")
-
 const LEVEL_COLORS: Record<ThinkingLevel, string> = {
   off: "var(--text-dim)",
   minimal: "#6b7280",
@@ -479,7 +486,6 @@ const LEVEL_COLORS: Record<ThinkingLevel, string> = {
   xhigh: "#fb923c",
   max: "#ef4444",
 }
-
 function ThinkingLevelMapEditor({
   value,
   onChange,
@@ -488,9 +494,10 @@ function ThinkingLevelMapEditor({
   onChange: (v: Record<string, string | null> | undefined) => void
 }) {
   const map = value ?? {}
-
   const setLevel = (level: ThinkingLevel, entry: string | null | typeof OMIT_THINKING_LEVEL) => {
-    const next = { ...map }
+    const next = {
+      ...map,
+    }
     if (entry === OMIT_THINKING_LEVEL) {
       delete next[level]
     } else {
@@ -498,15 +505,13 @@ function ThinkingLevelMapEditor({
     }
     onChange(Object.keys(next).length ? next : undefined)
   }
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+    <div {...stylex.props(inlineStyles.inline13)}>
       {THINKING_LEVELS.map((level) => {
         const raw = map[level]
         const state: "omit" | "null" | "string" = !(level in map) ? "omit" : raw === null ? "null" : "string"
         const strVal = typeof raw === "string" ? raw : ""
         const color = LEVEL_COLORS[level]
-
         const btnBase: React.CSSProperties = {
           padding: "4px 10px",
           fontSize: 10,
@@ -528,36 +533,20 @@ function ThinkingLevelMapEditor({
           color: "#fff",
           fontWeight: 600,
         }
-
         return (
-          <div
-            key={level}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "5px 4px",
-              borderRadius: 6,
-              background: "transparent",
-              border: "1px solid transparent",
-            }}
-          >
+          <div key={level} {...stylex.props(inlineStyles.inline14)}>
             {/* Level badge */}
-            <div style={{ display: "flex", alignItems: "center", gap: 5, width: 68, flexShrink: 0 }}>
+            <div {...stylex.props(inlineStyles.inline15)}>
               <span
+                {...stylex.props(inlineStyles.inline16)}
                 style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
                   background: color,
-                  flexShrink: 0,
                   opacity: state === "null" ? 0.3 : 1,
                 }}
               />
               <span
+                {...stylex.props(inlineStyles.inline17)}
                 style={{
-                  fontSize: 11,
-                  fontFamily: "var(--font-mono)",
                   color: state === "null" ? "var(--text-dim)" : "var(--text-muted)",
                   textDecoration: state === "null" ? "line-through" : "none",
                 }}
@@ -567,18 +556,13 @@ function ThinkingLevelMapEditor({
             </div>
 
             {/* Default + Disabled buttons */}
-            <div
-              style={{
-                display: "flex",
-                borderRadius: 5,
-                border: "1px solid var(--border)",
-                overflow: "hidden",
-                flexShrink: 0,
-              }}
-            >
+            <div {...stylex.props(inlineStyles.inline18)}>
               <button
                 onClick={() => setLevel(level, OMIT_THINKING_LEVEL)}
-                style={{ ...btnBase, ...(state === "omit" ? btnActive : {}) }}
+                style={{
+                  ...btnBase,
+                  ...(state === "omit" ? btnActive : {}),
+                }}
               >
                 Default
               </button>
@@ -596,12 +580,9 @@ function ThinkingLevelMapEditor({
 
             {/* Custom button + input fused */}
             <div
+              {...stylex.props(inlineStyles.inline19)}
               style={{
-                display: "flex",
-                borderRadius: 5,
                 border: `1px solid ${state === "string" ? "var(--accent)" : "var(--border)"}`,
-                overflow: "hidden",
-                transition: "border-color 0.1s",
               }}
             >
               <button
@@ -623,16 +604,10 @@ function ThinkingLevelMapEditor({
                 }}
                 placeholder={level}
                 maxLength={10}
+                {...stylex.props(inlineStyles.inline20)}
                 style={{
-                  width: "12ch",
                   background: state === "string" ? "var(--bg)" : "var(--bg-panel)",
-                  border: "none",
-                  outline: "none",
                   color: state === "string" ? "var(--text)" : "var(--text-dim)",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 11,
-                  padding: "4px 7px",
-                  transition: "background 0.1s, color 0.1s",
                 }}
               />
             </div>
@@ -649,22 +624,30 @@ const DEEPSEEK_COMPAT = {
   thinkingFormat: "deepseek",
   requiresReasoningContentOnAssistantMessages: true,
 } as const
-
 function hasDeepseekCompat(model: ModelEntry): boolean {
   return model.compat?.thinkingFormat === "deepseek"
 }
-
 function setDeepseekCompat(model: ModelEntry, enabled: boolean): ModelEntry {
   if (enabled) {
-    return { ...model, compat: { ...model.compat, ...DEEPSEEK_COMPAT } }
+    return {
+      ...model,
+      compat: {
+        ...model.compat,
+        ...DEEPSEEK_COMPAT,
+      },
+    }
   }
   if (!model.compat) return model
-  const rest = { ...model.compat }
+  const rest = {
+    ...model.compat,
+  }
   delete rest.thinkingFormat
   delete rest.requiresReasoningContentOnAssistantMessages
-  return { ...model, compat: Object.keys(rest).length ? rest : undefined }
+  return {
+    ...model,
+    compat: Object.keys(rest).length ? rest : undefined,
+  }
 }
-
 function ModelDetail({
   providerName,
   provider,
@@ -679,8 +662,14 @@ function ModelDetail({
   onDelete: () => void
 }) {
   const { t } = useI18n()
-  const [testState, setTestState] = useState<ModelTestState>({ phase: "idle" })
-  const set = <K extends keyof ModelEntry>(k: K, v: ModelEntry[K]) => onChange({ ...model, [k]: v })
+  const [testState, setTestState] = useState<ModelTestState>({
+    phase: "idle",
+  })
+  const set = <K extends keyof ModelEntry>(k: K, v: ModelEntry[K]) =>
+    onChange({
+      ...model,
+      [k]: v,
+    })
   type CostRate = "input" | "output" | "cacheRead" | "cacheWrite"
   const costVal = (k: CostRate) => (model.cost?.[k] !== undefined ? String(model.cost[k]) : "")
   const setCost = (k: CostRate, v: string) => {
@@ -692,7 +681,11 @@ function ModelDetail({
         output: model.cost?.output ?? 0,
         cacheRead: model.cost?.cacheRead ?? 0,
         cacheWrite: model.cost?.cacheWrite ?? 0,
-        ...(model.cost?.tiers === undefined ? {} : { tiers: model.cost.tiers }),
+        ...(model.cost?.tiers === undefined
+          ? {}
+          : {
+              tiers: model.cost.tiers,
+            }),
         [k]: isNaN(n) ? 0 : n,
       },
     })
@@ -709,16 +702,26 @@ function ModelDetail({
     }
     return ["Failed", ...meta, testState.message].filter(Boolean).join(" · ")
   })()
-
   useEffect(() => {
-    setTestState({ phase: "idle" })
+    setTestState({
+      phase: "idle",
+    })
   }, [providerName, provider.baseUrl, provider.api, provider.apiKey, model.id, model.api])
-
   const handleTest = useCallback(() => {
     if (!model.id.trim() || testState.phase === "testing") return
-    setTestState({ phase: "testing" })
+    setTestState({
+      phase: "testing",
+    })
     runApi(
-      withApi((api) => api.models.testConfig({ payload: { providerName, provider, model } })),
+      withApi((api) =>
+        api.models.testConfig({
+          payload: {
+            providerName,
+            provider,
+            model,
+          },
+        }),
+      ),
       {
         onSuccess: (result) => {
           if (!result.ok) {
@@ -737,35 +740,27 @@ function ModelDetail({
             responseText: result.responseText,
           })
         },
-        onFailure: (error) => setTestState({ phase: "error", message: errorMessage(error) }),
+        onFailure: (error) =>
+          setTestState({
+            phase: "error",
+            message: errorMessage(error),
+          }),
       },
     )
   }, [model, provider, providerName, testState.phase])
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+    <div {...stylex.props(inlineStyles.inline21)}>
+      <div {...stylex.props(inlineStyles.inline22)}>
         <SectionTitle>Model</SectionTitle>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div {...stylex.props(inlineStyles.inline23)}>
           {testSummary && (
             <span
               title={testSummary}
+              {...stylex.props(inlineStyles.inline24)}
               style={{
-                maxWidth: 260,
-                height: 24,
-                padding: "0 8px",
                 border: `1px solid ${testState.phase === "error" ? "#fecaca" : testState.phase === "success" ? "#bbf7d0" : "var(--border)"}`,
-                borderRadius: 4,
                 background:
                   testState.phase === "error" ? "#fee2e2" : testState.phase === "success" ? "#dcfce7" : "#e5e7eb",
-                color: "#111827",
-                fontSize: 11,
-                display: "inline-flex",
-                alignItems: "center",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                boxSizing: "border-box",
               }}
             >
               {testSummary}
@@ -775,12 +770,10 @@ function ModelDetail({
             onClick={handleTest}
             disabled={!model.id.trim() || testState.phase === "testing"}
             title={t("Test model connection")}
+            {...stylex.props(inlineStyles.inline25)}
             style={{
-              height: 24,
-              padding: "0 8px",
               background: testState.phase === "success" ? "#16a34a" : "none",
               border: `1px solid ${testState.phase === "success" ? "#16a34a" : "var(--border)"}`,
-              borderRadius: 4,
               color:
                 testState.phase === "success"
                   ? "#fff"
@@ -788,12 +781,6 @@ function ModelDetail({
                     ? "var(--text-dim)"
                     : "var(--text-muted)",
               cursor: !model.id.trim() || testState.phase === "testing" ? "not-allowed" : "pointer",
-              fontSize: 11,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              boxSizing: "border-box",
-              gap: 5,
             }}
           >
             {testState.phase === "success" && (
@@ -812,26 +799,13 @@ function ModelDetail({
             )}
             {testState.phase === "testing" ? "Testing…" : testState.phase === "success" ? "OK" : "Test"}
           </button>
-          <button
-            onClick={onDelete}
-            style={{
-              height: 24,
-              padding: "0 8px",
-              background: "none",
-              border: "1px solid rgba(239,68,68,0.3)",
-              borderRadius: 4,
-              color: "#ef4444",
-              cursor: "pointer",
-              fontSize: 11,
-              boxSizing: "border-box",
-            }}
-          >
+          <button onClick={onDelete} {...stylex.props(inlineStyles.inline26)}>
             Remove
           </button>
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div {...stylex.props(inlineStyles.inline27)}>
         <Field label="ID *">
           <TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono />
         </Field>
@@ -848,7 +822,7 @@ function ModelDetail({
         <Select value={model.api ?? ""} onChange={(v) => set("api", v || undefined)} options={API_OPTIONS} />
       </Field>
 
-      <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+      <div {...stylex.props(inlineStyles.inline28)}>
         <Check
           label="Reasoning / thinking"
           checked={model.reasoning ?? false}
@@ -869,21 +843,10 @@ function ModelDetail({
             onChange={(v) => onChange(setDeepseekCompat(model, v))}
           />
           <div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <div {...stylex.props(inlineStyles.inline29)}>
               <SectionTitle>Thinking level map</SectionTitle>
               {model.thinkingLevelMap && (
-                <button
-                  onClick={() => set("thinkingLevelMap", undefined)}
-                  style={{
-                    fontSize: 10,
-                    padding: "2px 7px",
-                    background: "none",
-                    border: "1px solid var(--border)",
-                    borderRadius: 4,
-                    color: "var(--text-dim)",
-                    cursor: "pointer",
-                  }}
-                >
+                <button onClick={() => set("thinkingLevelMap", undefined)} {...stylex.props(inlineStyles.inline30)}>
                   clear all
                 </button>
               )}
@@ -893,7 +856,7 @@ function ModelDetail({
         </>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div {...stylex.props(inlineStyles.inline31)}>
         <Field label="Context window (tokens)">
           <NumInput
             value={model.contextWindow !== undefined ? String(model.contextWindow) : ""}
@@ -912,7 +875,7 @@ function ModelDetail({
 
       <div>
         <SectionTitle>Cost (per million tokens)</SectionTitle>
-        <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+        <div {...stylex.props(inlineStyles.inline32)}>
           {(["input", "output", "cacheRead", "cacheWrite"] as const).map((k) => (
             <Field key={k} label={k}>
               <NumInput value={costVal(k)} onChange={(v) => setCost(k, v)} placeholder="0" />
@@ -928,11 +891,12 @@ function ModelDetail({
 
 function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefresh: () => void }) {
   const { t } = useI18n()
-  const [loginState, setLoginState] = useState<OAuthLoginState>({ phase: "idle" })
+  const [loginState, setLoginState] = useState<OAuthLoginState>({
+    phase: "idle",
+  })
   const [inputValue, setInputValue] = useState("")
   const cancelLoginRef = useRef<Cancel | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-
   useEffect(() => {
     if (loginState.phase !== "auth" && loginState.phase !== "prompt") return
     const input = inputRef.current
@@ -944,29 +908,41 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
 
   // Reset state when provider changes
   useEffect(() => {
-    setLoginState({ phase: "idle" })
+    setLoginState({
+      phase: "idle",
+    })
     setInputValue("")
     cancelLoginRef.current?.()
     cancelLoginRef.current = null
   }, [provider.id])
-
   useEffect(() => {
     return () => {
       cancelLoginRef.current?.()
     }
   }, [])
-
   const handleLogin = useCallback(() => {
     cancelLoginRef.current?.()
-    setLoginState({ phase: "connecting" })
+    setLoginState({
+      phase: "connecting",
+    })
     setInputValue("")
     cancelLoginRef.current = runApiStream(
-      withApi((api) => api.auth.oauthEvents({ params: { provider: provider.id } })),
+      withApi((api) =>
+        api.auth.oauthEvents({
+          params: {
+            provider: provider.id,
+          },
+        }),
+      ),
       {
         onValue: (event) => {
           switch (event._tag) {
             case "Auth":
-              setLoginState({ phase: "auth", url: event.url, instructions: event.instructions })
+              setLoginState({
+                phase: "auth",
+                url: event.url,
+                instructions: event.instructions,
+              })
               runBrowser(BrowserPlatform.pipe(Effect.flatMap((browser) => browser.openExternal(event.url))), {
                 onSuccess: () => undefined,
               })
@@ -981,7 +957,9 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
               })
               runBrowser(
                 BrowserPlatform.pipe(Effect.flatMap((browser) => browser.openExternal(event.verificationUri))),
-                { onSuccess: () => undefined },
+                {
+                  onSuccess: () => undefined,
+                },
               )
               break
             case "Prompt":
@@ -1001,140 +979,177 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
               })
               break
             case "Progress":
-              setLoginState({ phase: "progress", message: event.message })
+              setLoginState({
+                phase: "progress",
+                message: event.message,
+              })
               break
             case "Succeeded":
               cancelLoginRef.current?.()
               cancelLoginRef.current = null
-              setLoginState({ phase: "success" })
+              setLoginState({
+                phase: "success",
+              })
               onRefresh()
               break
             case "Failed":
               cancelLoginRef.current?.()
               cancelLoginRef.current = null
-              setLoginState({ phase: "error", message: event.message })
+              setLoginState({
+                phase: "error",
+                message: event.message,
+              })
               break
             case "Cancelled":
               cancelLoginRef.current?.()
               cancelLoginRef.current = null
-              setLoginState({ phase: "idle" })
+              setLoginState({
+                phase: "idle",
+              })
               break
           }
         },
-        onFailure: (error) => setLoginState({ phase: "error", message: errorMessage(error) }),
+        onFailure: (error) =>
+          setLoginState({
+            phase: "error",
+            message: errorMessage(error),
+          }),
       },
     )
   }, [provider.id, onRefresh])
-
   const handleLogout = useCallback(() => {
     runApi(
-      withApi((api) => api.auth.logout({ params: { provider: provider.id }, payload: {} })),
+      withApi((api) =>
+        api.auth.logout({
+          params: {
+            provider: provider.id,
+          },
+          payload: {},
+        }),
+      ),
       {
         onSuccess: () => {
-          setLoginState({ phase: "idle" })
+          setLoginState({
+            phase: "idle",
+          })
           onRefresh()
         },
-        onFailure: (error) => setLoginState({ phase: "error", message: errorMessage(error) }),
+        onFailure: (error) =>
+          setLoginState({
+            phase: "error",
+            message: errorMessage(error),
+          }),
       },
     )
   }, [provider.id, onRefresh])
-
   const submitCode = useCallback(
     (token: string, code: string) => {
       if (!code.trim()) return
-      setLoginState({ phase: "progress", message: "Verifying…" })
+      setLoginState({
+        phase: "progress",
+        message: "Verifying…",
+      })
       runApi(
         withApi((api) =>
           api.auth.submitOAuthInput({
-            params: { provider: provider.id },
-            payload: { token, code: code.trim() },
+            params: {
+              provider: provider.id,
+            },
+            payload: {
+              token,
+              code: code.trim(),
+            },
           }),
         ),
         {
           onSuccess: () => setInputValue(""),
-          onFailure: (error) => setLoginState({ phase: "error", message: errorMessage(error) }),
+          onFailure: (error) =>
+            setLoginState({
+              phase: "error",
+              message: errorMessage(error),
+            }),
         },
       )
     },
     [provider.id],
   )
-
   const submitSelection = useCallback(
     (token: string, value: string) => {
-      setLoginState({ phase: "progress", message: "Continuing…" })
+      setLoginState({
+        phase: "progress",
+        message: "Continuing…",
+      })
       runApi(
         withApi((api) =>
           api.auth.submitOAuthInput({
-            params: { provider: provider.id },
-            payload: { token, code: value },
+            params: {
+              provider: provider.id,
+            },
+            payload: {
+              token,
+              code: value,
+            },
           }),
         ),
         {
           onSuccess: () => undefined,
-          onFailure: (error) => setLoginState({ phase: "error", message: errorMessage(error) }),
+          onFailure: (error) =>
+            setLoginState({
+              phase: "error",
+              message: errorMessage(error),
+            }),
         },
       )
     },
     [provider.id],
   )
-
   const isWorking =
     loginState.phase === "connecting" ||
     loginState.phase === "progress" ||
     loginState.phase === "device_code" ||
     loginState.phase === "prompt" ||
     loginState.phase === "select"
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+    <div {...stylex.props(inlineStyles.inline33)}>
+      <div {...stylex.props(inlineStyles.inline34)}>
         <SectionTitle>Subscription</SectionTitle>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div {...stylex.props(inlineStyles.inline35)}>
           <span
+            {...stylex.props(inlineStyles.inline36)}
             style={{
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
               background: provider.loggedIn ? "#4ade80" : "var(--border)",
-              display: "inline-block",
             }}
           />
-          <span style={{ fontSize: 11, color: provider.loggedIn ? "#4ade80" : "var(--text-dim)" }}>
+          <span
+            {...stylex.props(inlineStyles.inline37)}
+            style={{
+              color: provider.loggedIn ? "#4ade80" : "var(--text-dim)",
+            }}
+          >
             {provider.loggedIn ? "connected" : "not connected"}
           </span>
         </div>
       </div>
 
       {/* Status */}
-      <div style={{ minHeight: 48 }}>
+      <div {...stylex.props(inlineStyles.inline38)}>
         {loginState.phase === "idle" && (
-          <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
+          <p {...stylex.props(inlineStyles.inline39)}>
             {provider.loggedIn
               ? "Already connected. You can re-login or disconnect."
               : `Connect your ${provider.name} account.`}
           </p>
         )}
-        {loginState.phase === "connecting" && (
-          <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>{t("Opening browser…")}</p>
-        )}
+        {loginState.phase === "connecting" && <p {...stylex.props(inlineStyles.inline40)}>{t("Opening browser…")}</p>}
         {loginState.phase === "select" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>{loginState.message}</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div {...stylex.props(inlineStyles.inline41)}>
+            <p {...stylex.props(inlineStyles.inline42)}>{loginState.message}</p>
+            <div {...stylex.props(inlineStyles.inline43)}>
               {loginState.options.map((option) => (
                 <button
                   key={option.id}
                   onClick={() => submitSelection(loginState.token, option.id)}
-                  style={{
-                    padding: "6px 9px",
-                    background: "var(--bg)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 5,
-                    color: "var(--text)",
-                    cursor: "pointer",
-                    fontSize: 12,
-                    textAlign: "left",
-                  }}
+                  {...stylex.props(inlineStyles.inline44)}
                 >
                   {option.label}
                 </button>
@@ -1143,17 +1158,17 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           </div>
         )}
         {loginState.phase === "auth" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
+          <div {...stylex.props(inlineStyles.inline45)}>
+            <p {...stylex.props(inlineStyles.inline46)}>
               {loginState.instructions ?? "Complete sign-in in the browser."}
             </p>
-            <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
+            <p {...stylex.props(inlineStyles.inline47)}>
               If the browser window did not open,{" "}
               <a
                 href={loginState.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ color: "var(--accent)", wordBreak: "break-all" }}
+                {...stylex.props(inlineStyles.inline48)}
               >
                 click here to open the login page
               </a>
@@ -1162,9 +1177,9 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           </div>
         )}
         {loginState.phase === "prompt" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>{loginState.message}</p>
-            <div style={{ display: "flex", gap: 6 }}>
+          <div {...stylex.props(inlineStyles.inline49)}>
+            <p {...stylex.props(inlineStyles.inline50)}>{loginState.message}</p>
+            <div {...stylex.props(inlineStyles.inline51)}>
               <input
                 ref={inputRef}
                 value={inputValue}
@@ -1173,32 +1188,16 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
                   if (e.key === "Enter") submitCode(loginState.token, inputValue)
                 }}
                 placeholder={loginState.placeholder ?? "Enter value…"}
-                style={{
-                  flex: 1,
-                  padding: "6px 9px",
-                  background: "var(--bg)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 5,
-                  color: "var(--text)",
-                  fontSize: 12,
-                  outline: "none",
-                  fontFamily: "var(--font-mono)",
-                  boxSizing: "border-box",
-                }}
+                {...stylex.props(inlineStyles.inline52)}
               />
               <button
                 onClick={() => submitCode(loginState.token, inputValue)}
                 disabled={!inputValue.trim()}
+                {...stylex.props(inlineStyles.inline53)}
                 style={{
-                  padding: "6px 12px",
                   background: inputValue.trim() ? "var(--accent)" : "var(--bg-panel)",
-                  border: "none",
-                  borderRadius: 5,
                   color: inputValue.trim() ? "#fff" : "var(--text-dim)",
                   cursor: inputValue.trim() ? "pointer" : "not-allowed",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  flexShrink: 0,
                 }}
               >
                 Submit
@@ -1207,31 +1206,15 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           </div>
         )}
         {loginState.phase === "device_code" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-              Open the verification page and enter this code:
-            </p>
-            <div
-              style={{
-                padding: "8px 10px",
-                background: "var(--bg)",
-                border: "1px solid var(--border)",
-                borderRadius: 5,
-                color: "var(--text)",
-                fontSize: 16,
-                fontWeight: 700,
-                fontFamily: "var(--font-mono)",
-                letterSpacing: 0,
-              }}
-            >
-              {loginState.userCode}
-            </div>
-            <p style={{ margin: 0, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>
+          <div {...stylex.props(inlineStyles.inline54)}>
+            <p {...stylex.props(inlineStyles.inline55)}>Open the verification page and enter this code:</p>
+            <div {...stylex.props(inlineStyles.inline56)}>{loginState.userCode}</div>
+            <p {...stylex.props(inlineStyles.inline57)}>
               <a
                 href={loginState.verificationUri}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ color: "var(--accent)", wordBreak: "break-all" }}
+                {...stylex.props(inlineStyles.inline58)}
               >
                 {loginState.verificationUri}
               </a>
@@ -1239,68 +1222,35 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
             </p>
           </div>
         )}
-        {loginState.phase === "progress" && (
-          <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>{loginState.message}</p>
-        )}
+        {loginState.phase === "progress" && <p {...stylex.props(inlineStyles.inline59)}>{loginState.message}</p>}
         {loginState.phase === "success" && (
-          <p style={{ margin: 0, fontSize: 12, color: "#4ade80" }}>{t("Connected successfully.")}</p>
+          <p {...stylex.props(inlineStyles.inline60)}>{t("Connected successfully.")}</p>
         )}
-        {loginState.phase === "error" && (
-          <p style={{ margin: 0, fontSize: 12, color: "#f87171" }}>{loginState.message}</p>
-        )}
+        {loginState.phase === "error" && <p {...stylex.props(inlineStyles.inline61)}>{loginState.message}</p>}
       </div>
 
       {/* Actions */}
-      <div style={{ display: "flex", gap: 8 }}>
+      <div {...stylex.props(inlineStyles.inline62)}>
         {isWorking ? (
           <button
             onClick={() => {
               cancelLoginRef.current?.()
               cancelLoginRef.current = null
-              setLoginState({ phase: "idle" })
+              setLoginState({
+                phase: "idle",
+              })
             }}
-            style={{
-              padding: "5px 12px",
-              background: "none",
-              border: "1px solid var(--border)",
-              borderRadius: 5,
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: 12,
-            }}
+            {...stylex.props(inlineStyles.inline63)}
           >
             Cancel
           </button>
         ) : (
           <>
-            <button
-              onClick={handleLogin}
-              style={{
-                padding: "5px 14px",
-                background: "var(--accent)",
-                border: "none",
-                borderRadius: 5,
-                color: "#fff",
-                cursor: "pointer",
-                fontSize: 12,
-                fontWeight: 600,
-              }}
-            >
+            <button onClick={handleLogin} {...stylex.props(inlineStyles.inline64)}>
               {provider.loggedIn ? "Re-login" : "Login"}
             </button>
             {provider.loggedIn && (
-              <button
-                onClick={handleLogout}
-                style={{
-                  padding: "5px 12px",
-                  background: "none",
-                  border: "1px solid rgba(239,68,68,0.3)",
-                  borderRadius: 5,
-                  color: "#ef4444",
-                  cursor: "pointer",
-                  fontSize: 12,
-                }}
-              >
+              <button onClick={handleLogout} {...stylex.props(inlineStyles.inline65)}>
                 Disconnect
               </button>
             )}
@@ -1329,16 +1279,23 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
     dismissSavedRef.current?.()
     dismissSavedRef.current = null
   }, [provider.id])
-
   useEffect(() => () => dismissSavedRef.current?.(), [])
-
   const handleSave = useCallback(() => {
     if (!apiKey.trim()) return
     setSaving(true)
     setError(null)
     setSavedOk(false)
     runApi(
-      withApi((api) => api.auth.setApiKey({ params: { provider: provider.id }, payload: { apiKey: apiKey.trim() } })),
+      withApi((api) =>
+        api.auth.setApiKey({
+          params: {
+            provider: provider.id,
+          },
+          payload: {
+            apiKey: apiKey.trim(),
+          },
+        }),
+      ),
       {
         onSuccess: () => {
           setApiKey("")
@@ -1357,12 +1314,17 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
       },
     )
   }, [apiKey, provider.id, onRefresh])
-
   const handleRemove = useCallback(() => {
     setRemoving(true)
     setError(null)
     runApi(
-      withApi((api) => api.auth.removeApiKey({ params: { provider: provider.id } })),
+      withApi((api) =>
+        api.auth.removeApiKey({
+          params: {
+            provider: provider.id,
+          },
+        }),
+      ),
       {
         onSuccess: () => {
           setRemoving(false)
@@ -1375,35 +1337,36 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
       },
     )
   }, [provider.id, onRefresh])
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+    <div {...stylex.props(inlineStyles.inline66)}>
+      <div {...stylex.props(inlineStyles.inline67)}>
         <SectionTitle>API Key</SectionTitle>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div {...stylex.props(inlineStyles.inline68)}>
           <span
+            {...stylex.props(inlineStyles.inline69)}
             style={{
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
               background: provider.configured ? "#4ade80" : "var(--border)",
-              display: "inline-block",
             }}
           />
-          <span style={{ fontSize: 11, color: provider.configured ? "#4ade80" : "var(--text-dim)" }}>
+          <span
+            {...stylex.props(inlineStyles.inline70)}
+            style={{
+              color: provider.configured ? "#4ade80" : "var(--text-dim)",
+            }}
+          >
             {provider.configured ? "configured" : "not configured"}
           </span>
         </div>
       </div>
 
-      <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
+      <p {...stylex.props(inlineStyles.inline71)}>
         {provider.configured
           ? `API key is stored. Enter a new key below to replace it, or disconnect to remove it.`
           : `Enter your ${provider.displayName} API key to enable ${provider.modelCount} model${provider.modelCount !== 1 ? "s" : ""}.`}
       </p>
 
       <Field label="API Key">
-        <div style={{ display: "flex", gap: 6 }}>
+        <div {...stylex.props(inlineStyles.inline72)}>
           <SecretTextInput
             value={apiKey}
             onChange={setApiKey}
@@ -1411,7 +1374,9 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
               if (e.key === "Enter" && apiKey.trim()) handleSave()
             }}
             placeholder={provider.configured ? "Enter new key to replace…" : "sk-…"}
-            style={{ flex: 1 }}
+            style={{
+              flex: 1,
+            }}
             autoComplete="off"
             spellCheck={false}
             mono
@@ -1419,19 +1384,11 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
           <button
             onClick={handleSave}
             disabled={saving || !apiKey.trim() || savedOk}
+            {...stylex.props(inlineStyles.inline73)}
             style={{
-              padding: "6px 12px",
               background: savedOk ? "#16a34a" : apiKey.trim() ? "var(--accent)" : "var(--bg-panel)",
-              border: "none",
-              borderRadius: 5,
               color: apiKey.trim() || savedOk ? "#fff" : "var(--text-dim)",
               cursor: saving || !apiKey.trim() || savedOk ? "not-allowed" : "pointer",
-              fontSize: 12,
-              fontWeight: 600,
-              flexShrink: 0,
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
             }}
           >
             {savedOk && (
@@ -1453,21 +1410,15 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
         </div>
       </Field>
 
-      {error && <p style={{ margin: 0, fontSize: 12, color: "#f87171" }}>{error}</p>}
+      {error && <p {...stylex.props(inlineStyles.inline74)}>{error}</p>}
 
       {provider.configured && (
         <button
           onClick={handleRemove}
           disabled={removing}
+          {...stylex.props(inlineStyles.inline75)}
           style={{
-            alignSelf: "flex-start",
-            padding: "5px 12px",
-            background: "none",
-            border: "1px solid rgba(239,68,68,0.3)",
-            borderRadius: 5,
-            color: "#ef4444",
             cursor: removing ? "not-allowed" : "pointer",
-            fontSize: 12,
           }}
         >
           {removing ? "Removing…" : "Disconnect"}
@@ -1493,19 +1444,11 @@ function ProviderBadge({ id, size }: { id: string; size: number }) {
   return (
     <span
       aria-hidden="true"
+      {...stylex.props(inlineStyles.inline76)}
       style={{
         width: size,
         height: size,
-        border: "1px solid var(--border)",
-        borderRadius: 4,
-        color: "var(--text-dim)",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
         fontSize: Math.max(8, Math.floor(size * 0.36)),
-        fontWeight: 700,
-        lineHeight: 1,
       }}
     >
       {label}
@@ -1523,7 +1466,6 @@ interface AddProviderPickerProps {
   onAddCustom: () => void
   onClose: () => void
 }
-
 function AddProviderPicker({
   oauthProviders,
   apiKeyProviders,
@@ -1535,7 +1477,6 @@ function AddProviderPicker({
   const { t } = useI18n()
   const [search, setSearch] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
-
   useEffect(() => {
     const input = inputRef.current
     if (!input) return
@@ -1543,17 +1484,13 @@ function AddProviderPicker({
       onSuccess: () => undefined,
     })
   }, [])
-
   const q = search.trim().toLowerCase()
-
   const availableOAuth = oauthProviders.filter((p) => !p.loggedIn && (!q || p.name.toLowerCase().includes(q)))
   const availableApiKey = apiKeyProviders.filter(
     (p) => !p.configured && (!q || p.displayName.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)),
   )
   const showCustom = !q || "custom".includes(q) || "openai-compatible".includes(q) || "anthropic-compatible".includes(q)
-
   const totalCount = availableOAuth.length + availableApiKey.length + (showCustom ? 1 : 0)
-
   const cardStyle: React.CSSProperties = {
     display: "flex",
     flexDirection: "row",
@@ -1570,47 +1507,16 @@ function AddProviderPicker({
     transition: "border-color 0.12s, background 0.12s",
     width: "100%",
   }
-
   return (
     <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 1100,
-        background: "rgba(0,0,0,0.4)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
+      {...stylex.props(inlineStyles.inline77)}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div
-        style={{
-          width: 820,
-          maxWidth: "calc(100vw - 32px)",
-          maxHeight: "min(72vh, calc(100vh - 32px))",
-          background: "var(--bg)",
-          border: "1px solid var(--border)",
-          borderRadius: 10,
-          display: "flex",
-          flexDirection: "column",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.22)",
-          overflow: "hidden",
-        }}
-      >
+      <div {...stylex.props(inlineStyles.inline78)}>
         {/* Search */}
-        <div
-          style={{
-            padding: "10px 14px",
-            borderBottom: "1px solid var(--border)",
-            flexShrink: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
+        <div {...stylex.props(inlineStyles.inline79)}>
           <svg
             width="13"
             height="13"
@@ -1620,7 +1526,7 @@ function AddProviderPicker({
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
-            style={{ color: "var(--text-dim)", flexShrink: 0 }}
+            {...stylex.props(inlineStyles.inline80)}
           >
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -1633,46 +1539,17 @@ function AddProviderPicker({
               if (e.key === "Escape") onClose()
             }}
             placeholder={t("Search providers…")}
-            style={{
-              flex: 1,
-              background: "none",
-              border: "none",
-              outline: "none",
-              color: "var(--text)",
-              fontSize: 13,
-              boxSizing: "border-box",
-            }}
+            {...stylex.props(inlineStyles.inline81)}
           />
         </div>
 
         {/* Card grid */}
-        <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>
+        <div {...stylex.props(inlineStyles.inline82)}>
           {totalCount === 0 ? (
-            <div style={{ padding: "20px 0", fontSize: 12, color: "var(--text-dim)", textAlign: "center" }}>
-              {t("No providers match")}
-            </div>
+            <div {...stylex.props(inlineStyles.inline83)}>{t("No providers match")}</div>
           ) : (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))",
-                gap: 8,
-              }}
-            >
-              {showCustom && (
-                <div
-                  style={{
-                    gridColumn: "1 / -1",
-                    fontSize: 10,
-                    fontWeight: 600,
-                    color: "var(--text-dim)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.07em",
-                  }}
-                >
-                  {t("Custom")}
-                </div>
-              )}
+            <div {...stylex.props(inlineStyles.inline84)}>
+              {showCustom && <div {...stylex.props(inlineStyles.inline85)}>{t("Custom")}</div>}
               {showCustom && (
                 <button
                   onClick={() => {
@@ -1689,37 +1566,11 @@ function AddProviderPicker({
                     e.currentTarget.style.background = "var(--bg-panel)"
                   }}
                 >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: "var(--text)",
-                        lineHeight: 1.3,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {t("OpenAI / Anthropic compatible")}
-                    </div>
-                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
-                      {t("Custom endpoint format")}
-                    </div>
+                  <div {...stylex.props(inlineStyles.inline86)}>
+                    <div {...stylex.props(inlineStyles.inline87)}>{t("OpenAI / Anthropic compatible")}</div>
+                    <div {...stylex.props(inlineStyles.inline88)}>{t("Custom endpoint format")}</div>
                   </div>
-                  <span
-                    style={{
-                      width: 26,
-                      height: 26,
-                      borderRadius: 5,
-                      background: "var(--bg-hover)",
-                      border: "1px dashed var(--border)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
-                    }}
-                  >
+                  <span {...stylex.props(inlineStyles.inline89)}>
                     <svg
                       width="13"
                       height="13"
@@ -1729,7 +1580,7 @@ function AddProviderPicker({
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      style={{ color: "var(--text-dim)" }}
+                      {...stylex.props(inlineStyles.inline90)}
                     >
                       <line x1="12" y1="5" x2="12" y2="19" />
                       <line x1="5" y1="12" x2="19" y2="12" />
@@ -1740,14 +1591,9 @@ function AddProviderPicker({
 
               {availableOAuth.length > 0 && (
                 <div
+                  {...stylex.props(inlineStyles.inline91)}
                   style={{
-                    gridColumn: "1 / -1",
                     paddingTop: showCustom ? 6 : 0,
-                    fontSize: 10,
-                    fontWeight: 600,
-                    color: "var(--text-dim)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.07em",
                   }}
                 >
                   {t("Subscriptions")}
@@ -1770,21 +1616,9 @@ function AddProviderPicker({
                     e.currentTarget.style.background = "var(--bg-panel)"
                   }}
                 >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: "var(--text)",
-                        lineHeight: 1.3,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {p.name}
-                    </div>
-                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>OAuth</div>
+                  <div {...stylex.props(inlineStyles.inline92)}>
+                    <div {...stylex.props(inlineStyles.inline93)}>{p.name}</div>
+                    <div {...stylex.props(inlineStyles.inline94)}>OAuth</div>
                   </div>
                   <ProviderBadge id={p.id} size={28} />
                 </button>
@@ -1792,14 +1626,9 @@ function AddProviderPicker({
 
               {availableApiKey.length > 0 && (
                 <div
+                  {...stylex.props(inlineStyles.inline95)}
                   style={{
-                    gridColumn: "1 / -1",
                     paddingTop: availableOAuth.length > 0 ? 6 : 0,
-                    fontSize: 10,
-                    fontWeight: 600,
-                    color: "var(--text-dim)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.07em",
                   }}
                 >
                   {t("API Key")}
@@ -1822,21 +1651,9 @@ function AddProviderPicker({
                     e.currentTarget.style.background = "var(--bg-panel)"
                   }}
                 >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: "var(--text)",
-                        lineHeight: 1.3,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {p.displayName}
-                    </div>
-                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{p.modelCount} models</div>
+                  <div {...stylex.props(inlineStyles.inline96)}>
+                    <div {...stylex.props(inlineStyles.inline97)}>{p.displayName}</div>
+                    <div {...stylex.props(inlineStyles.inline98)}>{p.modelCount} models</div>
                   </div>
                   <ProviderBadge id={p.id} size={28} />
                 </button>
@@ -1854,7 +1671,9 @@ function AddProviderPicker({
 export function ModelsConfig({ onClose }: { onClose: () => void }) {
   const { t } = useI18n()
   const isMobile = useIsMobile()
-  const [config, setConfig] = useState<ModelsJson>({ providers: {} })
+  const [config, setConfig] = useState<ModelsJson>({
+    providers: {},
+  })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -1869,9 +1688,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
   const [rawSource, setRawSource] = useState("")
   const [rawValidation, setRawValidation] = useState<RawValidationState>("idle")
   const [notice, setNotice] = useState<string | null>(null)
-
   useEffect(() => () => dismissSavedRef.current?.(), [])
-
   const loadOAuthProviders = useCallback(() => {
     runApi(
       withApi((api) => api.auth.oauthProviders({})),
@@ -1880,7 +1697,6 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       },
     )
   }, [])
-
   const loadApiKeyProviders = useCallback(() => {
     runApi(
       withApi((api) => api.auth.apiKeyProviders({})),
@@ -1889,13 +1705,18 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       },
     )
   }, [])
-
   const replaceConfig = useCallback((value: ModelsJson) => {
     setConfig(value)
     const firstProvider = Object.keys(value.providers)[0]
-    setSelection(firstProvider === undefined ? null : { type: "provider", name: firstProvider })
+    setSelection(
+      firstProvider === undefined
+        ? null
+        : {
+            type: "provider",
+            name: firstProvider,
+          },
+    )
   }, [])
-
   useEffect(() => {
     const cancel = runApi(
       withApi((api) => api.models.config({})),
@@ -1905,7 +1726,9 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
           setLoading(false)
         },
         onFailure: () => {
-          setConfig({ providers: {} })
+          setConfig({
+            providers: {},
+          })
           setLoading(false)
         },
       },
@@ -1914,7 +1737,6 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     loadApiKeyProviders()
     return cancel
   }, [loadOAuthProviders, loadApiKeyProviders, replaceConfig])
-
   const openRawEditor = useCallback(() => {
     setSaveError(null)
     setNotice(null)
@@ -1927,7 +1749,6 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       onFailure: (cause) => setSaveError(errorMessage(cause)),
     })
   }, [config])
-
   const validateRawEditor = useCallback(() => {
     setRawValidation("validating")
     setSaveError(null)
@@ -1944,7 +1765,6 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       },
     })
   }, [rawSource, replaceConfig, t])
-
   const importModelsConfig = useCallback(
     (file: File) => {
       setSaveError(null)
@@ -1967,7 +1787,6 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     },
     [replaceConfig, t],
   )
-
   const exportModelsConfig = useCallback(() => {
     setSaveError(null)
     setNotice(null)
@@ -1986,73 +1805,130 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       },
     )
   }, [config, t])
-
   const addCustomProvider = useCallback(() => {
     let finalName = "new-provider"
     let n = 1
     while (config.providers[finalName]) finalName = `new-provider-${n++}`
     setConfig((prev) => ({
       ...prev,
-      providers: { ...prev.providers, [finalName]: { api: "openai-completions" } },
+      providers: {
+        ...prev.providers,
+        [finalName]: {
+          api: "openai-completions",
+        },
+      },
     }))
-    setSelection({ type: "provider", name: finalName })
+    setSelection({
+      type: "provider",
+      name: finalName,
+    })
   }, [config.providers])
-
   const updateProvider = useCallback((name: string, p: ProviderEntry) => {
-    setConfig((prev) => ({ ...prev, providers: { ...prev.providers, [name]: p } }))
+    setConfig((prev) => ({
+      ...prev,
+      providers: {
+        ...prev.providers,
+        [name]: p,
+      },
+    }))
   }, [])
-
   const renameProvider = useCallback((oldName: string, newName: string) => {
     setConfig((prev) => {
       const entries = Object.entries(prev.providers)
       const idx = entries.findIndex(([k]) => k === oldName)
       if (idx === -1) return prev
       entries[idx] = [newName, entries[idx][1]]
-      return { ...prev, providers: Object.fromEntries(entries) }
+      return {
+        ...prev,
+        providers: Object.fromEntries(entries),
+      }
     })
     setSelection((prev) => {
       if (!prev) return prev
-      if (prev.type === "provider" && prev.name === oldName) return { type: "provider", name: newName }
-      if (prev.type === "model" && prev.providerName === oldName) return { ...prev, providerName: newName }
+      if (prev.type === "provider" && prev.name === oldName)
+        return {
+          type: "provider",
+          name: newName,
+        }
+      if (prev.type === "model" && prev.providerName === oldName)
+        return {
+          ...prev,
+          providerName: newName,
+        }
       return prev
     })
   }, [])
-
   const deleteProvider = useCallback((name: string) => {
     setConfig((prev) => {
-      const providers = { ...prev.providers }
+      const providers = {
+        ...prev.providers,
+      }
       delete providers[name]
-      return { ...prev, providers }
+      return {
+        ...prev,
+        providers,
+      }
     })
     setConfig((prev) => {
       const remaining = Object.keys(prev.providers)
-      setSelection(remaining.length > 0 ? { type: "provider", name: remaining[0] } : null)
+      setSelection(
+        remaining.length > 0
+          ? {
+              type: "provider",
+              name: remaining[0],
+            }
+          : null,
+      )
       return prev
     })
   }, [])
-
   const addModel = useCallback((providerName: string) => {
     setConfig((prev) => {
       const provider = prev.providers[providerName] ?? {}
-      const models = [...(provider.models ?? []), { id: "" }]
-      return { ...prev, providers: { ...prev.providers, [providerName]: { ...provider, models } } }
+      const models = [
+        ...(provider.models ?? []),
+        {
+          id: "",
+        },
+      ]
+      return {
+        ...prev,
+        providers: {
+          ...prev.providers,
+          [providerName]: {
+            ...provider,
+            models,
+          },
+        },
+      }
     })
     setConfig((prev) => {
       const idx = (prev.providers[providerName]?.models?.length ?? 1) - 1
-      setSelection({ type: "model", providerName, index: idx })
+      setSelection({
+        type: "model",
+        providerName,
+        index: idx,
+      })
       return prev
     })
   }, [])
-
   const updateModel = useCallback((providerName: string, index: number, m: ModelEntry) => {
     setConfig((prev) => {
       const provider = prev.providers[providerName] ?? {}
       const models = [...(provider.models ?? [])]
       models[index] = m
-      return { ...prev, providers: { ...prev.providers, [providerName]: { ...provider, models } } }
+      return {
+        ...prev,
+        providers: {
+          ...prev.providers,
+          [providerName]: {
+            ...provider,
+            models,
+          },
+        },
+      }
     })
   }, [])
-
   const removeModel = useCallback((providerName: string, index: number) => {
     setConfig((prev) => {
       const provider = prev.providers[providerName] ?? {}
@@ -2062,13 +1938,18 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
         ...prev,
         providers: {
           ...prev.providers,
-          [providerName]: { ...provider, models: models.length ? models : undefined },
+          [providerName]: {
+            ...provider,
+            models: models.length ? models : undefined,
+          },
         },
       }
     })
-    setSelection({ type: "provider", name: providerName })
+    setSelection({
+      type: "provider",
+      name: providerName,
+    })
   }, [])
-
   const handleSave = useCallback(() => {
     setSaving(true)
     setSaveError(null)
@@ -2076,7 +1957,13 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     setSavedOk(false)
     runApi(
       requireValidModelsConfig(config).pipe(
-        Effect.flatMap((validated) => withApi((api) => api.models.saveConfig({ payload: validated }))),
+        Effect.flatMap((validated) =>
+          withApi((api) =>
+            api.models.saveConfig({
+              payload: validated,
+            }),
+          ),
+        ),
       ),
       {
         onSuccess: () => {
@@ -2094,7 +1981,6 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       },
     )
   }, [config])
-
   const providers = Object.entries(config.providers)
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn)
   const activeApiKey = apiKeyProviders.filter((p) => p.configured)
@@ -2142,68 +2028,40 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       />
     )
   })()
-
   return (
     <>
       <div
-        style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 1000,
-          background: "rgba(0,0,0,0.35)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
+        {...stylex.props(inlineStyles.inline99)}
         onClick={(e) => {
           if (e.target === e.currentTarget) onClose()
         }}
       >
         <div
+          {...stylex.props(inlineStyles.inline100)}
           style={{
             width: isMobile ? "calc(100vw - 16px)" : 860,
-            maxWidth: "calc(100vw - 16px)",
             height: isMobile ? "calc(100dvh - 16px)" : "78vh",
-            maxHeight: "calc(100dvh - 16px)",
-            background: "var(--bg)",
-            border: "1px solid var(--border)",
-            borderRadius: 10,
-            display: "flex",
-            flexDirection: "column",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-            overflow: "hidden",
           }}
         >
           {/* Header */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              padding: "12px 18px",
-              borderBottom: "1px solid var(--border)",
-              flexShrink: 0,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 }}>
-              <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>{t("Models")}</span>
+          <div {...stylex.props(inlineStyles.inline101)}>
+            <div {...stylex.props(inlineStyles.inline102)}>
+              <span {...stylex.props(inlineStyles.inline103)}>{t("Models")}</span>
               <code
+                {...stylex.props(inlineStyles.inline104)}
                 style={{
-                  fontSize: 11,
-                  color: "var(--text-muted)",
-                  fontFamily: "var(--font-mono)",
                   display: isMobile ? "none" : undefined,
                 }}
               >
                 ~/.pi/agent/models.json
               </code>
             </div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, flex: 1 }}>
+            <div {...stylex.props(inlineStyles.inline105)}>
               <input
                 ref={importInputRef}
                 type="file"
                 accept="application/json,.json"
-                style={{ display: "none" }}
+                {...stylex.props(inlineStyles.inline106)}
                 onChange={(event) => {
                   const file = event.currentTarget.files?.[0]
                   event.currentTarget.value = ""
@@ -2238,52 +2096,43 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                 {t(rawMode ? "Back to form" : "Raw JSON")}
               </button>
             </div>
-            <button
-              onClick={onClose}
-              style={{
-                background: "none",
-                border: "none",
-                color: "var(--text-muted)",
-                cursor: "pointer",
-                fontSize: 20,
-                lineHeight: 1,
-                padding: "2px 6px",
-              }}
-            >
+            <button onClick={onClose} {...stylex.props(inlineStyles.inline107)}>
               ×
             </button>
           </div>
 
           {/* Body */}
-          <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
+          <div
+            {...stylex.props(inlineStyles.inline108)}
+            style={{
+              flexDirection: isMobile ? "column" : "row",
+            }}
+          >
             {/* Left: tree */}
             <div
+              {...stylex.props(inlineStyles.inline109)}
               style={{
                 width: isMobile ? "100%" : 210,
                 maxHeight: isMobile ? "40vh" : undefined,
                 borderRight: isMobile ? "none" : "1px solid var(--border)",
                 borderBottom: isMobile ? "1px solid var(--border)" : "none",
-                display: "flex",
-                flexDirection: "column",
-                flexShrink: 0,
-                background: "var(--bg-panel)",
               }}
             >
-              <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
+              <div {...stylex.props(inlineStyles.inline110)}>
                 {/* Active OAuth subscriptions */}
                 {activeOAuth.map((p) => {
                   const isSelected = selection?.type === "oauth" && selection.providerId === p.id
                   return (
                     <div
                       key={p.id}
-                      onClick={() => setSelection({ type: "oauth", providerId: p.id })}
+                      onClick={() =>
+                        setSelection({
+                          type: "oauth",
+                          providerId: p.id,
+                        })
+                      }
+                      {...stylex.props(inlineStyles.inline111)}
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 7,
-                        padding: "5px 8px",
-                        borderRadius: 5,
-                        cursor: "pointer",
                         background: isSelected ? "var(--bg-selected)" : "none",
                       }}
                       onMouseEnter={(e) => {
@@ -2294,18 +2143,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                       }}
                     >
                       <ProviderBadge id={p.id} size={16} />
-                      <span
-                        style={{
-                          fontSize: 12,
-                          color: "var(--text)",
-                          flex: 1,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {p.name}
-                      </span>
+                      <span {...stylex.props(inlineStyles.inline112)}>{p.name}</span>
                     </div>
                   )
                 })}
@@ -2316,14 +2154,14 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                   return (
                     <div
                       key={p.id}
-                      onClick={() => setSelection({ type: "apikey", providerId: p.id })}
+                      onClick={() =>
+                        setSelection({
+                          type: "apikey",
+                          providerId: p.id,
+                        })
+                      }
+                      {...stylex.props(inlineStyles.inline113)}
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 7,
-                        padding: "5px 8px",
-                        borderRadius: 5,
-                        cursor: "pointer",
                         background: isSelected ? "var(--bg-selected)" : "none",
                       }}
                       onMouseEnter={(e) => {
@@ -2334,46 +2172,35 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                       }}
                     >
                       <ProviderBadge id={p.id} size={16} />
-                      <span
-                        style={{
-                          fontSize: 12,
-                          color: "var(--text)",
-                          flex: 1,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {p.displayName}
-                      </span>
+                      <span {...stylex.props(inlineStyles.inline114)}>{p.displayName}</span>
                     </div>
                   )
                 })}
 
                 {/* Divider before custom providers, only when there are active managed providers */}
                 {(activeOAuth.length > 0 || activeApiKey.length > 0) && providers.length > 0 && (
-                  <div style={{ margin: "4px 8px", borderTop: "1px solid var(--border)" }} />
+                  <div {...stylex.props(inlineStyles.inline115)} />
                 )}
 
                 {/* Custom providers */}
                 {loading ? (
-                  <div style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-muted)" }}>{t("Loading…")}</div>
+                  <div {...stylex.props(inlineStyles.inline116)}>{t("Loading…")}</div>
                 ) : (
                   providers.map(([pName, pData]) => {
                     const isProviderSelected = selection?.type === "provider" && selection.name === pName
                     const models = pData.models ?? []
                     return (
-                      <div key={pName} style={{ marginBottom: 2 }}>
+                      <div key={pName} {...stylex.props(inlineStyles.inline117)}>
                         {/* Provider row */}
                         <div
-                          onClick={() => setSelection({ type: "provider", name: pName })}
+                          onClick={() =>
+                            setSelection({
+                              type: "provider",
+                              name: pName,
+                            })
+                          }
+                          {...stylex.props(inlineStyles.inline118)}
                           style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                            padding: "7px 8px",
-                            borderRadius: 5,
-                            cursor: "pointer",
                             background: isProviderSelected ? "var(--bg-selected)" : "none",
                           }}
                           onMouseEnter={(e) => {
@@ -2392,7 +2219,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                             strokeWidth="2"
                             strokeLinecap="round"
                             strokeLinejoin="round"
-                            style={{ color: "var(--text-dim)", flexShrink: 0 }}
+                            {...stylex.props(inlineStyles.inline119)}
                           >
                             <rect x="4" y="4" width="16" height="16" rx="2" />
                             <rect x="9" y="9" width="6" height="6" />
@@ -2406,15 +2233,9 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                             <line x1="1" y1="14" x2="4" y2="14" />
                           </svg>
                           <span
+                            {...stylex.props(inlineStyles.inline120)}
                             style={{
-                              fontSize: 12,
                               fontWeight: isProviderSelected ? 600 : 400,
-                              color: "var(--text)",
-                              fontFamily: "var(--font-mono)",
-                              flex: 1,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
                             }}
                           >
                             {pName}
@@ -2428,14 +2249,15 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                           return (
                             <div
                               key={i}
-                              onClick={() => setSelection({ type: "model", providerName: pName, index: i })}
+                              onClick={() =>
+                                setSelection({
+                                  type: "model",
+                                  providerName: pName,
+                                  index: i,
+                                })
+                              }
+                              {...stylex.props(inlineStyles.inline121)}
                               style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 6,
-                                padding: "5px 8px 5px 26px",
-                                borderRadius: 5,
-                                cursor: "pointer",
                                 background: isModelSelected ? "var(--bg-selected)" : "none",
                               }}
                               onMouseEnter={(e) => {
@@ -2446,32 +2268,14 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                               }}
                             >
                               <span
+                                {...stylex.props(inlineStyles.inline122)}
                                 style={{
-                                  fontSize: 11,
-                                  fontFamily: "var(--font-mono)",
                                   color: m.id ? "var(--text-muted)" : "var(--text-dim)",
-                                  flex: 1,
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
                                 }}
                               >
                                 {m.id || t("new model")}
                               </span>
-                              {m.reasoning && (
-                                <span
-                                  style={{
-                                    fontSize: 9,
-                                    padding: "1px 4px",
-                                    background: "rgba(99,102,241,0.12)",
-                                    color: "rgba(99,102,241,0.8)",
-                                    borderRadius: 3,
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  T
-                                </span>
-                              )}
+                              {m.reasoning && <span {...stylex.props(inlineStyles.inline123)}>T</span>}
                             </div>
                           )
                         })}
@@ -2482,15 +2286,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                             e.stopPropagation()
                             addModel(pName)
                           }}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 4,
-                            padding: "4px 8px 4px 26px",
-                            borderRadius: 5,
-                            cursor: "pointer",
-                            color: "var(--text-dim)",
-                          }}
+                          {...stylex.props(inlineStyles.inline124)}
                           onMouseEnter={(e) => {
                             e.currentTarget.style.color = "var(--accent)"
                             e.currentTarget.style.background = "var(--bg-hover)"
@@ -2500,7 +2296,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                             e.currentTarget.style.background = "none"
                           }}
                         >
-                          <span style={{ fontSize: 11 }}>{t("+ model")}</span>
+                          <span {...stylex.props(inlineStyles.inline125)}>{t("+ model")}</span>
                         </div>
                       </div>
                     )
@@ -2509,23 +2305,10 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
               </div>
 
               {/* Add provider */}
-              <div style={{ borderTop: "1px solid var(--border)", padding: "8px 6px" }}>
+              <div {...stylex.props(inlineStyles.inline126)}>
                 <button
                   onClick={() => setPickerOpen(true)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 5,
-                    width: "100%",
-                    padding: "6px 0",
-                    background: "none",
-                    border: "1px dashed var(--border)",
-                    borderRadius: 5,
-                    color: "var(--text-muted)",
-                    cursor: "pointer",
-                    fontSize: 12,
-                  }}
+                  {...stylex.props(inlineStyles.inline127)}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.borderColor = "var(--accent)"
                     e.currentTarget.style.color = "var(--accent)"
@@ -2541,11 +2324,11 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
             </div>
 
             {/* Right: detail */}
-            <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+            <div {...stylex.props(inlineStyles.inline128)}>
               {loading ? null : rawMode ? (
-                <div style={{ height: "100%", display: "flex", flexDirection: "column", gap: 10 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>{t("Raw models JSON")}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                <div {...stylex.props(inlineStyles.inline129)}>
+                  <div {...stylex.props(inlineStyles.inline130)}>{t("Raw models JSON")}</div>
+                  <div {...stylex.props(inlineStyles.inline131)}>
                     {t("Validate the JSON before saving. Invalid content never replaces models.json.")}
                   </div>
                   <textarea
@@ -2558,26 +2341,14 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                       setSaveError(null)
                       setNotice(null)
                     }}
+                    {...stylex.props(inlineStyles.inline132)}
                     style={{
-                      flex: 1,
-                      minHeight: 280,
-                      resize: "none",
-                      padding: 12,
                       border: `1px solid ${rawValidation === "valid" ? "#16a34a" : "var(--border)"}`,
-                      borderRadius: 6,
-                      background: "var(--bg-panel)",
-                      color: "var(--text)",
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 12,
-                      lineHeight: 1.5,
-                      outline: "none",
                     }}
                   />
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
+                  <div {...stylex.props(inlineStyles.inline133)}>
                     {rawValidation === "valid" && (
-                      <span style={{ color: "#16a34a", fontSize: 11, marginRight: "auto" }}>
-                        {t("Valid configuration")}
-                      </span>
+                      <span {...stylex.props(inlineStyles.inline134)}>{t("Valid configuration")}</span>
                     )}
                     <button
                       onClick={validateRawEditor}
@@ -2590,72 +2361,29 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                 </div>
               ) : (
                 (detailContent ?? (
-                  <div
-                    style={{
-                      height: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: "var(--text-dim)",
-                      fontSize: 13,
-                    }}
-                  >
-                    {t("Select a provider or model")}
-                  </div>
+                  <div {...stylex.props(inlineStyles.inline135)}>{t("Select a provider or model")}</div>
                 ))
               )}
             </div>
           </div>
 
           {/* Footer */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "flex-end",
-              gap: 10,
-              padding: "10px 18px",
-              borderTop: "1px solid var(--border)",
-              flexShrink: 0,
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              {saveError && <div style={{ fontSize: 12, color: "#f87171" }}>{saveError}</div>}
-              {!saveError && notice && <div style={{ fontSize: 12, color: "#16a34a" }}>{notice}</div>}
+          <div {...stylex.props(inlineStyles.inline136)}>
+            <div {...stylex.props(inlineStyles.inline137)}>
+              {saveError && <div {...stylex.props(inlineStyles.inline138)}>{saveError}</div>}
+              {!saveError && notice && <div {...stylex.props(inlineStyles.inline139)}>{notice}</div>}
             </div>
-            <button
-              onClick={onClose}
-              style={{
-                padding: "6px 14px",
-                background: "none",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                color: "var(--text-muted)",
-                cursor: "pointer",
-                fontSize: 13,
-              }}
-            >
+            <button onClick={onClose} {...stylex.props(inlineStyles.inline140)}>
               {t("Cancel")}
             </button>
             <button
               onClick={handleSave}
               disabled={saveDisabled}
+              {...stylex.props(inlineStyles.inline141)}
               style={{
-                position: "relative",
-                padding: "6px 16px",
-                minWidth: 92,
                 background: savedOk ? "#16a34a" : saveDisabled ? "var(--bg-panel)" : "var(--accent)",
-                border: "none",
-                borderRadius: 6,
                 color: savedOk ? "#fff" : saveDisabled ? "var(--text-muted)" : "#fff",
                 cursor: saveDisabled ? "default" : "pointer",
-                fontSize: 13,
-                fontWeight: 600,
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-                transition: "background-color 0.2s ease, color 0.2s ease",
                 animation: savedOk ? "saved-pop 0.45s ease" : undefined,
               }}
             >
@@ -2669,7 +2397,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
                   strokeWidth="3"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  style={{ strokeDasharray: 18, animation: "saved-check-draw 0.35s ease forwards", flexShrink: 0 }}
+                  {...stylex.props(inlineStyles.inline142)}
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
@@ -2683,8 +2411,18 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
         <AddProviderPicker
           oauthProviders={oauthProviders}
           apiKeyProviders={apiKeyProviders}
-          onSelectOAuth={(id) => setSelection({ type: "oauth", providerId: id })}
-          onSelectApiKey={(id) => setSelection({ type: "apikey", providerId: id })}
+          onSelectOAuth={(id) =>
+            setSelection({
+              type: "oauth",
+              providerId: id,
+            })
+          }
+          onSelectApiKey={(id) =>
+            setSelection({
+              type: "apikey",
+              providerId: id,
+            })
+          }
           onAddCustom={addCustomProvider}
           onClose={() => setPickerOpen(false)}
         />
@@ -2692,3 +2430,949 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     </>
   )
 }
+const inlineStyles = stylex.create({
+  inline1: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  },
+  inline2: {
+    fontSize: 11,
+    color: "var(--text-muted)",
+    fontWeight: 500,
+  },
+  inline3: {
+    position: "absolute",
+    right: 5,
+    top: "50%",
+    transform: "translateY(-50%)",
+    width: 24,
+    height: 24,
+    padding: 0,
+    border: "none",
+    background: "transparent",
+    color: "var(--text-dim)",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inline4: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    cursor: "pointer",
+    fontSize: 12,
+    color: "var(--text-muted)",
+  },
+  inline5: {
+    width: 13,
+    height: 13,
+    accentColor: "var(--accent)",
+    cursor: "pointer",
+  },
+  inline6: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: "var(--text-dim)",
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
+    marginBottom: 2,
+  },
+  inline7: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+  },
+  inline8: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  inline9: {
+    padding: "3px 8px",
+    background: "none",
+    border: "1px solid rgba(239,68,68,0.3)",
+    borderRadius: 4,
+    color: "#ef4444",
+    cursor: "pointer",
+    fontSize: 11,
+  },
+  inline10: {
+    marginTop: 4,
+    padding: "3px 10px",
+    background: "var(--accent)",
+    border: "none",
+    borderRadius: 4,
+    color: "#fff",
+    cursor: "pointer",
+    fontSize: 11,
+    alignSelf: "flex-start",
+  },
+  inline11: {
+    fontSize: 10,
+    color: "var(--text-dim)",
+    marginTop: 2,
+  },
+  inline12: {
+    fontFamily: "var(--font-mono)",
+  },
+  inline13: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+  },
+  inline14: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "5px 4px",
+    borderRadius: 6,
+    background: "transparent",
+    border: "1px solid transparent",
+  },
+  inline15: {
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+    width: 68,
+    flexShrink: 0,
+  },
+  inline16: {
+    width: 6,
+    height: 6,
+    borderRadius: "50%",
+    flexShrink: 0,
+  },
+  inline17: {
+    fontSize: 11,
+    fontFamily: "var(--font-mono)",
+  },
+  inline18: {
+    display: "flex",
+    borderRadius: 5,
+    border: "1px solid var(--border)",
+    overflow: "hidden",
+    flexShrink: 0,
+  },
+  inline19: {
+    display: "flex",
+    borderRadius: 5,
+    overflow: "hidden",
+    transition: "border-color 0.1s",
+  },
+  inline20: {
+    width: "12ch",
+    border: "none",
+    outline: "none",
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    padding: "4px 7px",
+    transition: "background 0.1s, color 0.1s",
+  },
+  inline21: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+  },
+  inline22: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  inline23: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  },
+  inline24: {
+    maxWidth: 260,
+    height: 24,
+    padding: "0 8px",
+    borderRadius: 4,
+    color: "#111827",
+    fontSize: 11,
+    display: "inline-flex",
+    alignItems: "center",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    boxSizing: "border-box",
+  },
+  inline25: {
+    height: 24,
+    padding: "0 8px",
+    borderRadius: 4,
+    fontSize: 11,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxSizing: "border-box",
+    gap: 5,
+  },
+  inline26: {
+    height: 24,
+    padding: "0 8px",
+    background: "none",
+    border: "1px solid rgba(239,68,68,0.3)",
+    borderRadius: 4,
+    color: "#ef4444",
+    cursor: "pointer",
+    fontSize: 11,
+    boxSizing: "border-box",
+  },
+  inline27: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 10,
+  },
+  inline28: {
+    display: "flex",
+    gap: 20,
+    flexWrap: "wrap",
+  },
+  inline29: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  inline30: {
+    fontSize: 10,
+    padding: "2px 7px",
+    background: "none",
+    border: "1px solid var(--border)",
+    borderRadius: 4,
+    color: "var(--text-dim)",
+    cursor: "pointer",
+  },
+  inline31: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 10,
+  },
+  inline32: {
+    marginTop: 8,
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr 1fr 1fr",
+    gap: 8,
+  },
+  inline33: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+  },
+  inline34: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  inline35: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+  },
+  inline36: {
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    display: "inline-block",
+  },
+  inline37: {
+    fontSize: 11,
+  },
+  inline38: {
+    minHeight: 48,
+  },
+  inline39: {
+    margin: 0,
+    fontSize: 12,
+    color: "var(--text-muted)",
+    lineHeight: 1.5,
+  },
+  inline40: {
+    margin: 0,
+    fontSize: 12,
+    color: "var(--text-muted)",
+  },
+  inline41: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  inline42: {
+    margin: 0,
+    fontSize: 12,
+    color: "var(--text-muted)",
+    lineHeight: 1.5,
+  },
+  inline43: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  inline44: {
+    padding: "6px 9px",
+    background: "var(--bg)",
+    border: "1px solid var(--border)",
+    borderRadius: 5,
+    color: "var(--text)",
+    cursor: "pointer",
+    fontSize: 12,
+    textAlign: "left",
+  },
+  inline45: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  inline46: {
+    margin: 0,
+    fontSize: 12,
+    color: "var(--text-muted)",
+    lineHeight: 1.5,
+  },
+  inline47: {
+    margin: 0,
+    fontSize: 11,
+    color: "var(--text-dim)",
+    lineHeight: 1.5,
+  },
+  inline48: {
+    color: "var(--accent)",
+    wordBreak: "break-all",
+  },
+  inline49: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  inline50: {
+    margin: 0,
+    fontSize: 12,
+    color: "var(--text-muted)",
+    lineHeight: 1.5,
+  },
+  inline51: {
+    display: "flex",
+    gap: 6,
+  },
+  inline52: {
+    flex: 1,
+    padding: "6px 9px",
+    background: "var(--bg)",
+    border: "1px solid var(--border)",
+    borderRadius: 5,
+    color: "var(--text)",
+    fontSize: 12,
+    outline: "none",
+    fontFamily: "var(--font-mono)",
+    boxSizing: "border-box",
+  },
+  inline53: {
+    padding: "6px 12px",
+    border: "none",
+    borderRadius: 5,
+    fontSize: 12,
+    fontWeight: 600,
+    flexShrink: 0,
+  },
+  inline54: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  inline55: {
+    margin: 0,
+    fontSize: 12,
+    color: "var(--text-muted)",
+    lineHeight: 1.5,
+  },
+  inline56: {
+    padding: "8px 10px",
+    background: "var(--bg)",
+    border: "1px solid var(--border)",
+    borderRadius: 5,
+    color: "var(--text)",
+    fontSize: 16,
+    fontWeight: 700,
+    fontFamily: "var(--font-mono)",
+    letterSpacing: 0,
+  },
+  inline57: {
+    margin: 0,
+    fontSize: 11,
+    color: "var(--text-dim)",
+    lineHeight: 1.5,
+  },
+  inline58: {
+    color: "var(--accent)",
+    wordBreak: "break-all",
+  },
+  inline59: {
+    margin: 0,
+    fontSize: 12,
+    color: "var(--text-muted)",
+  },
+  inline60: {
+    margin: 0,
+    fontSize: 12,
+    color: "#4ade80",
+  },
+  inline61: {
+    margin: 0,
+    fontSize: 12,
+    color: "#f87171",
+  },
+  inline62: {
+    display: "flex",
+    gap: 8,
+  },
+  inline63: {
+    padding: "5px 12px",
+    background: "none",
+    border: "1px solid var(--border)",
+    borderRadius: 5,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    fontSize: 12,
+  },
+  inline64: {
+    padding: "5px 14px",
+    background: "var(--accent)",
+    border: "none",
+    borderRadius: 5,
+    color: "#fff",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 600,
+  },
+  inline65: {
+    padding: "5px 12px",
+    background: "none",
+    border: "1px solid rgba(239,68,68,0.3)",
+    borderRadius: 5,
+    color: "#ef4444",
+    cursor: "pointer",
+    fontSize: 12,
+  },
+  inline66: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+  },
+  inline67: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  inline68: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+  },
+  inline69: {
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    display: "inline-block",
+  },
+  inline70: {
+    fontSize: 11,
+  },
+  inline71: {
+    margin: 0,
+    fontSize: 12,
+    color: "var(--text-muted)",
+    lineHeight: 1.5,
+  },
+  inline72: {
+    display: "flex",
+    gap: 6,
+  },
+  inline73: {
+    padding: "6px 12px",
+    border: "none",
+    borderRadius: 5,
+    fontSize: 12,
+    fontWeight: 600,
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+  },
+  inline74: {
+    margin: 0,
+    fontSize: 12,
+    color: "#f87171",
+  },
+  inline75: {
+    alignSelf: "flex-start",
+    padding: "5px 12px",
+    background: "none",
+    border: "1px solid rgba(239,68,68,0.3)",
+    borderRadius: 5,
+    color: "#ef4444",
+    fontSize: 12,
+  },
+  inline76: {
+    border: "1px solid var(--border)",
+    borderRadius: 4,
+    color: "var(--text-dim)",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    fontWeight: 700,
+    lineHeight: 1,
+  },
+  inline77: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 1100,
+    background: "rgba(0,0,0,0.4)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inline78: {
+    width: 820,
+    maxWidth: "calc(100vw - 32px)",
+    maxHeight: "min(72vh, calc(100vh - 32px))",
+    background: "var(--bg)",
+    border: "1px solid var(--border)",
+    borderRadius: 10,
+    display: "flex",
+    flexDirection: "column",
+    boxShadow: "0 8px 32px rgba(0,0,0,0.22)",
+    overflow: "hidden",
+  },
+  inline79: {
+    padding: "10px 14px",
+    borderBottom: "1px solid var(--border)",
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  },
+  inline80: {
+    color: "var(--text-dim)",
+    flexShrink: 0,
+  },
+  inline81: {
+    flex: 1,
+    background: "none",
+    border: "none",
+    outline: "none",
+    color: "var(--text)",
+    fontSize: 13,
+    boxSizing: "border-box",
+  },
+  inline82: {
+    flex: 1,
+    overflowY: "auto",
+    padding: 14,
+  },
+  inline83: {
+    padding: "20px 0",
+    fontSize: 12,
+    color: "var(--text-dim)",
+    textAlign: "center",
+  },
+  inline84: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))",
+    gap: 8,
+  },
+  inline85: {
+    gridColumn: "1 / -1",
+    fontSize: 10,
+    fontWeight: 600,
+    color: "var(--text-dim)",
+    textTransform: "uppercase",
+    letterSpacing: "0.07em",
+  },
+  inline86: {
+    flex: 1,
+    minWidth: 0,
+  },
+  inline87: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text)",
+    lineHeight: 1.3,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  inline88: {
+    fontSize: 10,
+    color: "var(--text-dim)",
+    marginTop: 2,
+  },
+  inline89: {
+    width: 26,
+    height: 26,
+    borderRadius: 5,
+    background: "var(--bg-hover)",
+    border: "1px dashed var(--border)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  inline90: {
+    color: "var(--text-dim)",
+  },
+  inline91: {
+    gridColumn: "1 / -1",
+    fontSize: 10,
+    fontWeight: 600,
+    color: "var(--text-dim)",
+    textTransform: "uppercase",
+    letterSpacing: "0.07em",
+  },
+  inline92: {
+    flex: 1,
+    minWidth: 0,
+  },
+  inline93: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text)",
+    lineHeight: 1.3,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  inline94: {
+    fontSize: 10,
+    color: "var(--text-dim)",
+    marginTop: 2,
+  },
+  inline95: {
+    gridColumn: "1 / -1",
+    fontSize: 10,
+    fontWeight: 600,
+    color: "var(--text-dim)",
+    textTransform: "uppercase",
+    letterSpacing: "0.07em",
+  },
+  inline96: {
+    flex: 1,
+    minWidth: 0,
+  },
+  inline97: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text)",
+    lineHeight: 1.3,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  inline98: {
+    fontSize: 10,
+    color: "var(--text-dim)",
+    marginTop: 2,
+  },
+  inline99: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 1000,
+    background: "rgba(0,0,0,0.35)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inline100: {
+    maxWidth: "calc(100vw - 16px)",
+    maxHeight: "calc(100dvh - 16px)",
+    background: "var(--bg)",
+    border: "1px solid var(--border)",
+    borderRadius: 10,
+    display: "flex",
+    flexDirection: "column",
+    boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+    overflow: "hidden",
+  },
+  inline101: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "12px 18px",
+    borderBottom: "1px solid var(--border)",
+    flexShrink: 0,
+  },
+  inline102: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 10,
+    minWidth: 0,
+  },
+  inline103: {
+    fontSize: 15,
+    fontWeight: 700,
+    color: "var(--text)",
+  },
+  inline104: {
+    fontSize: 11,
+    color: "var(--text-muted)",
+    fontFamily: "var(--font-mono)",
+  },
+  inline105: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 6,
+    flex: 1,
+  },
+  inline106: {
+    display: "none",
+  },
+  inline107: {
+    background: "none",
+    border: "none",
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    fontSize: 20,
+    lineHeight: 1,
+    padding: "2px 6px",
+  },
+  inline108: {
+    flex: 1,
+    display: "flex",
+    overflow: "hidden",
+  },
+  inline109: {
+    display: "flex",
+    flexDirection: "column",
+    flexShrink: 0,
+    background: "var(--bg-panel)",
+  },
+  inline110: {
+    flex: 1,
+    overflowY: "auto",
+    padding: "8px 6px",
+  },
+  inline111: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    padding: "5px 8px",
+    borderRadius: 5,
+    cursor: "pointer",
+  },
+  inline112: {
+    fontSize: 12,
+    color: "var(--text)",
+    flex: 1,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  inline113: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    padding: "5px 8px",
+    borderRadius: 5,
+    cursor: "pointer",
+  },
+  inline114: {
+    fontSize: 12,
+    color: "var(--text)",
+    flex: 1,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  inline115: {
+    margin: "4px 8px",
+    borderTop: "1px solid var(--border)",
+  },
+  inline116: {
+    padding: "10px 8px",
+    fontSize: 12,
+    color: "var(--text-muted)",
+  },
+  inline117: {
+    marginBottom: 2,
+  },
+  inline118: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "7px 8px",
+    borderRadius: 5,
+    cursor: "pointer",
+  },
+  inline119: {
+    color: "var(--text-dim)",
+    flexShrink: 0,
+  },
+  inline120: {
+    fontSize: 12,
+    color: "var(--text)",
+    fontFamily: "var(--font-mono)",
+    flex: 1,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  inline121: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "5px 8px 5px 26px",
+    borderRadius: 5,
+    cursor: "pointer",
+  },
+  inline122: {
+    fontSize: 11,
+    fontFamily: "var(--font-mono)",
+    flex: 1,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  inline123: {
+    fontSize: 9,
+    padding: "1px 4px",
+    background: "rgba(99,102,241,0.12)",
+    color: "rgba(99,102,241,0.8)",
+    borderRadius: 3,
+    flexShrink: 0,
+  },
+  inline124: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    padding: "4px 8px 4px 26px",
+    borderRadius: 5,
+    cursor: "pointer",
+    color: "var(--text-dim)",
+  },
+  inline125: {
+    fontSize: 11,
+  },
+  inline126: {
+    borderTop: "1px solid var(--border)",
+    padding: "8px 6px",
+  },
+  inline127: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    width: "100%",
+    padding: "6px 0",
+    background: "none",
+    border: "1px dashed var(--border)",
+    borderRadius: 5,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    fontSize: 12,
+  },
+  inline128: {
+    flex: 1,
+    overflowY: "auto",
+    padding: 20,
+  },
+  inline129: {
+    height: "100%",
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  inline130: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text)",
+  },
+  inline131: {
+    fontSize: 11,
+    color: "var(--text-muted)",
+  },
+  inline132: {
+    flex: 1,
+    minHeight: 280,
+    resize: "none",
+    padding: 12,
+    borderRadius: 6,
+    background: "var(--bg-panel)",
+    color: "var(--text)",
+    fontFamily: "var(--font-mono)",
+    fontSize: 12,
+    lineHeight: 1.5,
+    outline: "none",
+  },
+  inline133: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 8,
+  },
+  inline134: {
+    color: "#16a34a",
+    fontSize: 11,
+    marginRight: "auto",
+  },
+  inline135: {
+    height: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "var(--text-dim)",
+    fontSize: 13,
+  },
+  inline136: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 10,
+    padding: "10px 18px",
+    borderTop: "1px solid var(--border)",
+    flexShrink: 0,
+  },
+  inline137: {
+    flex: 1,
+    minWidth: 0,
+  },
+  inline138: {
+    fontSize: 12,
+    color: "#f87171",
+  },
+  inline139: {
+    fontSize: 12,
+    color: "#16a34a",
+  },
+  inline140: {
+    padding: "6px 14px",
+    background: "none",
+    border: "1px solid var(--border)",
+    borderRadius: 6,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    fontSize: 13,
+  },
+  inline141: {
+    position: "relative",
+    padding: "6px 16px",
+    minWidth: 92,
+    border: "none",
+    borderRadius: 6,
+    fontSize: 13,
+    fontWeight: 600,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    transition: "background-color 0.2s ease, color 0.2s ease",
+  },
+  inline142: {
+    strokeDasharray: 18,
+    animation: "saved-check-draw 0.35s ease forwards",
+    flexShrink: 0,
+  },
+})

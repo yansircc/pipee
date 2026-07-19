@@ -1,3 +1,4 @@
+import * as stylex from "@stylexjs/stylex"
 import { Fragment, useState, useRef, useEffect, useMemo } from "react"
 import { Clock, DateTime, Effect, Option } from "effect"
 import { MarkdownBody } from "./MarkdownBody"
@@ -22,15 +23,16 @@ import type {
   ThinkingContent,
   JsonValue,
 } from "@/api/contract"
-
 const MAX_THINKING_CACHE_ENTRIES = 100
 const thinkingContentCache = new Map<string, string>()
-
 function loadThinkingContent(
   sessionId: string,
   entryId: string,
   blockIndex: number,
-  callbacks: { readonly onSuccess: (thinking: string) => void; readonly onFailure: (error: unknown) => void },
+  callbacks: {
+    readonly onSuccess: (thinking: string) => void
+    readonly onFailure: (error: unknown) => void
+  },
 ) {
   const key = `${sessionId}:${entryId}:${blockIndex}`
   const cached = thinkingContentCache.get(key)
@@ -40,12 +42,16 @@ function loadThinkingContent(
     callbacks.onSuccess(cached)
     return () => undefined
   }
-
   return runApi(
     withApi((api) =>
       api.sessions.thinking({
-        params: { id: sessionId },
-        query: { entryId, blockIndex },
+        params: {
+          id: sessionId,
+        },
+        query: {
+          entryId,
+          blockIndex,
+        },
       }),
     ),
     {
@@ -61,7 +67,6 @@ function loadThinkingContent(
     },
   )
 }
-
 interface Props {
   message: AgentMessage
   isStreaming?: boolean
@@ -81,7 +86,6 @@ interface Props {
   turnUsage?: TurnUsage
   hideUsage?: boolean
 }
-
 function formatTime(ts?: number): string | null {
   if (!ts) return null
   const date = DateTime.make(ts)
@@ -97,7 +101,6 @@ function formatTime(ts?: number): string | null {
       }),
   })
 }
-
 export function MessageView({
   message,
   isStreaming,
@@ -165,80 +168,35 @@ export function MessageView({
   }
   return null
 }
-
 function BashExecutionMessageView({ message, running = false }: { message: BashExecutionMessage; running?: boolean }) {
   const { t } = useI18n()
   const status = running
     ? t("Running…")
     : message.cancelled
       ? t("Cancelled")
-      : t("Exit code {code}", { code: message.exitCode ?? "—" })
-
+      : t("Exit code {code}", {
+          code: message.exitCode ?? "—",
+        })
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div
-        style={{
-          overflow: "hidden",
-          border: "1px solid var(--border)",
-          borderRadius: 9,
-          background: "var(--bg-panel)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "7px 10px",
-            borderBottom: "1px solid var(--border)",
-            color: "var(--text-muted)",
-            fontSize: 11,
-          }}
-        >
-          <span style={{ color: "var(--accent)", fontFamily: "var(--font-mono)", fontWeight: 700 }}>$</span>
-          <code style={{ flex: 1, minWidth: 0, color: "var(--text)", overflowWrap: "anywhere" }}>
-            {message.command}
-          </code>
-          <span style={{ flexShrink: 0 }}>{status}</span>
+    <div {...stylex.props(inlineStyles.inline1)}>
+      <div {...stylex.props(inlineStyles.inline2)}>
+        <div {...stylex.props(inlineStyles.inline3)}>
+          <span {...stylex.props(inlineStyles.inline4)}>$</span>
+          <code {...stylex.props(inlineStyles.inline5)}>{message.command}</code>
+          <span {...stylex.props(inlineStyles.inline6)}>{status}</span>
         </div>
-        <pre
-          style={{
-            margin: 0,
-            padding: "10px 12px",
-            maxHeight: 420,
-            overflow: "auto",
-            color: "var(--text-muted)",
-            fontFamily: "var(--font-mono)",
-            fontSize: 12,
-            lineHeight: 1.55,
-            whiteSpace: "pre-wrap",
-            overflowWrap: "anywhere",
-          }}
-        >
+        <pre {...stylex.props(inlineStyles.inline7)}>
           {message.output || (running ? t("Running…") : t("No output"))}
         </pre>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "6px 10px",
-            borderTop: "1px solid var(--border)",
-            color: "var(--text-dim)",
-            fontSize: 10,
-          }}
-        >
+        <div {...stylex.props(inlineStyles.inline8)}>
           <span>{message.excludeFromContext ? t("Excluded from context") : t("Included in context")}</span>
           {message.truncated && <span>· {t("Output truncated")}</span>}
-          {message.fullOutputPath && (
-            <code style={{ marginLeft: "auto", overflowWrap: "anywhere" }}>{message.fullOutputPath}</code>
-          )}
+          {message.fullOutputPath && <code {...stylex.props(inlineStyles.inline9)}>{message.fullOutputPath}</code>}
         </div>
       </div>
     </div>
   )
 }
-
 function UserMessageView({
   message,
   cwd,
@@ -263,7 +221,6 @@ function UserMessageView({
   const { t } = useI18n()
   const [hovered, setHovered] = useState(false)
   const [copied, setCopied] = useState(false)
-
   const content =
     typeof message.content === "string"
       ? message.content
@@ -271,14 +228,11 @@ function UserMessageView({
           .filter((b): b is TextContent => b.type === "text")
           .map((b) => b.text)
           .join("\n")
-
   const imageBlocks: ImageContent[] =
     typeof message.content === "string" ? [] : message.content.filter((b): b is ImageContent => b.type === "image")
-
   const time = formatTime(message.timestamp)
   const canFork = !!entryId && !!onFork
   const canNavigate = !!prevAssistantEntryId && !!onNavigate
-
   const copyContent = () => {
     runBrowser(
       copyText(content).pipe(
@@ -286,53 +240,32 @@ function UserMessageView({
         Effect.andThen(Effect.sleep("1500 millis")),
         Effect.tap(() => Effect.sync(() => setCopied(false))),
       ),
-      { onSuccess: () => undefined },
+      {
+        onSuccess: () => undefined,
+      },
     )
   }
-
   return (
     <div
-      style={{ marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "flex-end" }}
+      {...stylex.props(inlineStyles.inline10)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            background: "var(--user-bg)",
-            border: "1px solid rgba(59,130,246,0.2)",
-            borderRadius: 12,
-            padding: "8px 12px",
-            fontSize: 14,
-            lineHeight: 1.6,
-            color: "var(--text)",
-            wordBreak: "break-word",
-          }}
-        >
+      <div {...stylex.props(inlineStyles.inline11)}>
+        <div {...stylex.props(inlineStyles.inline12)}>
           {imageBlocks.length > 0 && (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: content ? 8 : 0 }}>
+            <div
+              {...stylex.props(inlineStyles.inline13)}
+              style={{
+                marginBottom: content ? 8 : 0,
+              }}
+            >
               {imageBlocks.map((img, i) => {
                 const src =
                   img.source.type === "base64"
                     ? `data:${img.source.media_type};base64,${img.source.data}`
                     : img.source.url
-                return (
-                  <img
-                    key={i}
-                    src={src}
-                    alt=""
-                    style={{
-                      maxWidth: 240,
-                      maxHeight: 240,
-                      borderRadius: 6,
-                      objectFit: "contain",
-                      display: "block",
-                      border: "1px solid rgba(59,130,246,0.15)",
-                    }}
-                  />
-                )
+                return <img key={i} src={src} alt="" {...stylex.props(inlineStyles.inline14)} />
               })}
             </div>
           )}
@@ -345,42 +278,20 @@ function UserMessageView({
       </div>
 
       {/* Bottom row: action buttons + timestamp */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "flex-end",
-          gap: 6,
-          marginTop: 3,
-        }}
-      >
+      <div {...stylex.props(inlineStyles.inline15)}>
         <div
+          {...stylex.props(inlineStyles.inline16)}
           style={{
-            display: "flex",
-            gap: 3,
             opacity: hovered ? 1 : 0,
             pointerEvents: hovered ? "auto" : "none",
-            transition: "opacity 0.12s",
           }}
         >
           <button
             onClick={copyContent}
             title={t("Copy message")}
+            {...stylex.props(inlineStyles.inline17)}
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "3px 8px",
-              height: 22,
-              background: "none",
-              border: "none",
-              borderRadius: 5,
               color: copied ? "var(--accent)" : "var(--text-dim)",
-              cursor: "pointer",
-              fontSize: 11,
-              fontWeight: 400,
-              whiteSpace: "nowrap",
-              transition: "color 0.12s",
             }}
             onMouseEnter={(e) => {
               if (!copied) e.currentTarget.style.color = "var(--accent)"
@@ -422,12 +333,10 @@ function UserMessageView({
         </div>
         {(canFork || canNavigate) && (
           <div
+            {...stylex.props(inlineStyles.inline18)}
             style={{
-              display: "flex",
-              gap: 3,
               opacity: hovered || forking ? 1 : 0,
               pointerEvents: hovered || forking ? "auto" : "none",
-              transition: "opacity 0.12s",
             }}
           >
             {canNavigate && (
@@ -437,22 +346,7 @@ function UserMessageView({
                   onEditContent?.(content)
                 }}
                 title={t("Edit from here — branches within this session")}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  padding: "3px 8px",
-                  height: 22,
-                  background: "none",
-                  border: "none",
-                  borderRadius: 5,
-                  color: "var(--text-dim)",
-                  cursor: "pointer",
-                  fontSize: 11,
-                  fontWeight: 400,
-                  whiteSpace: "nowrap",
-                  transition: "color 0.12s",
-                }}
+                {...stylex.props(inlineStyles.inline19)}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.color = "var(--accent)"
                 }}
@@ -483,21 +377,10 @@ function UserMessageView({
                 }}
                 disabled={forking}
                 title={forking ? "Creating new session…" : "New session — creates an independent copy from here"}
+                {...stylex.props(inlineStyles.inline20)}
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  padding: "3px 8px",
-                  height: 22,
-                  background: "none",
-                  border: "none",
-                  borderRadius: 5,
                   color: forking ? "var(--accent)" : "var(--text-dim)",
                   cursor: forking ? "not-allowed" : "pointer",
-                  fontSize: 11,
-                  fontWeight: 400,
-                  whiteSpace: "nowrap",
-                  transition: "color 0.12s",
                 }}
                 onMouseEnter={(e) => {
                   if (!forking) e.currentTarget.style.color = "var(--accent)"
@@ -526,12 +409,11 @@ function UserMessageView({
             )}
           </div>
         )}
-        {time && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{time}</span>}
+        {time && <span {...stylex.props(inlineStyles.inline21)}>{time}</span>}
       </div>
     </div>
   )
 }
-
 function AssistantMessageView({
   message,
   isStreaming,
@@ -562,8 +444,16 @@ function AssistantMessageView({
   const { t } = useI18n()
   const time = showTimestamp ? formatTime(message.timestamp) : null
   const blockItems = (message.content ?? [])
-    .map((block, originalIndex) => ({ block, originalIndex }))
-    .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming }))
+    .map((block, originalIndex) => ({
+      block,
+      originalIndex,
+    }))
+    .filter(
+      ({ block }) =>
+        !isEmptyThinkingBlock(block, {
+          isStreaming,
+        }),
+    )
   const blocks = blockItems.map(({ block }) => block)
   const [hovered, setHovered] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -598,18 +488,24 @@ function AssistantMessageView({
     }
     return map
   }, [toolResults, message.timestamp])
-
   const textContent = blocks
     .filter((b): b is TextContent => b.type === "text")
     .map((b) => b.text)
     .join("\n")
   const termination =
     message.stopReason === "aborted"
-      ? { label: t("Cancelled"), message: undefined, error: false }
+      ? {
+          label: t("Cancelled"),
+          message: undefined,
+          error: false,
+        }
       : message.errorMessage?.trim()
-        ? { label: t("Error"), message: message.errorMessage.trim(), error: true }
+        ? {
+            label: t("Error"),
+            message: message.errorMessage.trim(),
+            error: true,
+          }
         : undefined
-
   const copyContent = () => {
     runBrowser(
       copyText(textContent).pipe(
@@ -617,10 +513,11 @@ function AssistantMessageView({
         Effect.andThen(Effect.sleep("1500 millis")),
         Effect.tap(() => Effect.sync(() => setCopied(false))),
       ),
-      { onSuccess: () => undefined },
+      {
+        onSuccess: () => undefined,
+      },
     )
   }
-
   useEffect(() => {
     if (!isStreaming) {
       // Finalise any un-finished thinking block durations on stream end
@@ -662,7 +559,6 @@ function AssistantMessageView({
         }
         return changed ? next : prev
       })
-
       let chars = 0
       for (const b of bs) {
         if (b.type === "text") chars += (b as TextContent).text?.length ?? 0
@@ -680,25 +576,20 @@ function AssistantMessageView({
         Effect.andThen(Effect.sleep("300 millis")),
         Effect.forever,
       ),
-      { onSuccess: () => undefined },
+      {
+        onSuccess: () => undefined,
+      },
     )
   }, [isStreaming])
-
   if (blocks.length === 0 && termination === undefined && !isStreaming) return null
-
   return (
-    <div style={{ marginBottom: 16 }} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+    <div
+      {...stylex.props(inlineStyles.inline22)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       {/* Model label */}
-      <div
-        style={{
-          fontSize: 11,
-          color: "var(--text-dim)",
-          marginBottom: 4,
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-        }}
-      >
+      <div {...stylex.props(inlineStyles.inline23)}>
         {message.provider && (
           <span>
             {modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model}
@@ -716,11 +607,8 @@ function AssistantMessageView({
             return (
               <>
                 {est > 0 && (
-                  <span
-                    style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text)" }}
-                    title={t("Estimated token count while streaming")}
-                  >
-                    <span style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, fontWeight: 400 }}>
+                  <span {...stylex.props(inlineStyles.inline24)} title={t("Estimated token count while streaming")}>
+                    <span {...stylex.props(inlineStyles.inline25)}>
                       <svg
                         width="10"
                         height="10"
@@ -741,14 +629,9 @@ function AssistantMessageView({
                         const bg = tps >= 50 ? "#53b3cb" : tps >= 30 ? "#9bc53d" : tps >= 15 ? "#f9c22e" : "#e01a4f"
                         return (
                           <span
+                            {...stylex.props(inlineStyles.inline26)}
                             style={{
-                              marginLeft: 6,
-                              padding: "1px 6px",
-                              borderRadius: 4,
                               background: bg,
-                              color: "#fff",
-                              fontSize: 11,
-                              fontWeight: 400,
                             }}
                           >
                             {tps.toFixed(1)} t/s
@@ -762,20 +645,15 @@ function AssistantMessageView({
           })()}
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div {...stylex.props(inlineStyles.inline27)}>
         {termination !== undefined && (
           <div
             role={termination.error ? "alert" : "status"}
+            {...stylex.props(inlineStyles.inline28)}
             style={{
-              padding: "9px 11px",
               border: termination.error ? "1px solid rgba(220, 38, 38, 0.35)" : "1px solid var(--border)",
-              borderRadius: 8,
               background: termination.error ? "rgba(220, 38, 38, 0.08)" : "var(--bg-panel)",
               color: termination.error ? "#dc2626" : "var(--text-muted)",
-              fontSize: 12,
-              lineHeight: 1.5,
-              whiteSpace: "pre-wrap",
-              overflowWrap: "anywhere",
             }}
           >
             {termination.label}
@@ -802,18 +680,11 @@ function AssistantMessageView({
         ))}
       </div>
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          marginTop: 4,
-        }}
-      >
+      <div {...stylex.props(inlineStyles.inline29)}>
         {turnUsage && !isStreaming ? (
           <TurnUsageSummary usage={turnUsage} />
         ) : message.usage && !isStreaming && !hideUsage ? (
-          <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
+          <div {...stylex.props(inlineStyles.inline30)}>
             {formatUsage(message.usage, elapsedDuration(prevTimestamp, message.timestamp))}
           </div>
         ) : null}
@@ -821,23 +692,11 @@ function AssistantMessageView({
           <button
             onClick={copyContent}
             title={t("Copy message")}
+            {...stylex.props(inlineStyles.inline31)}
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "3px 8px",
-              height: 22,
-              background: "none",
-              border: "none",
-              borderRadius: 5,
               color: copied ? "var(--accent)" : "var(--text-dim)",
-              cursor: "pointer",
-              fontSize: 11,
-              fontWeight: 400,
-              whiteSpace: "nowrap",
               opacity: hovered ? 1 : 0,
               pointerEvents: hovered ? "auto" : "none",
-              transition: "opacity 0.12s, color 0.12s",
             }}
             onMouseEnter={(e) => {
               if (!copied) e.currentTarget.style.color = "var(--accent)"
@@ -877,14 +736,11 @@ function AssistantMessageView({
             {copied ? "Copied" : "Copy"}
           </button>
         )}
-        {time && !isStreaming && (
-          <span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: "auto" }}>{time}</span>
-        )}
+        {time && !isStreaming && <span {...stylex.props(inlineStyles.inline32)}>{time}</span>}
       </div>
     </div>
   )
 }
-
 function BlockView({
   block,
   toolResults,
@@ -930,7 +786,6 @@ function BlockView({
   }
   return null
 }
-
 function TextBlock({
   block,
   isStreaming,
@@ -948,7 +803,6 @@ function TextBlock({
     </MarkdownBody>
   )
 }
-
 function ThinkingBlock({
   block,
   duration,
@@ -967,7 +821,6 @@ function ThinkingBlock({
   const [content, setContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
   const toggle = () => {
     const nextExpanded = !expanded
     setExpanded(nextExpanded)
@@ -976,7 +829,6 @@ function ThinkingBlock({
       setError("Thinking content unavailable")
       return
     }
-
     setLoading(true)
     setError(null)
     loadThinkingContent(sessionId, entryId, blockIndex, {
@@ -990,51 +842,17 @@ function ThinkingBlock({
       },
     })
   }
-
   return (
-    <div
-      style={{
-        border: "1px solid var(--border)",
-        borderRadius: 6,
-        overflow: "hidden",
-        fontSize: 13,
-      }}
-    >
-      <button
-        onClick={toggle}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          width: "100%",
-          padding: "6px 10px",
-          background: "var(--bg-panel)",
-          border: "none",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          fontSize: 12,
-          textAlign: "left",
-        }}
-      >
+    <div {...stylex.props(inlineStyles.inline33)}>
+      <button onClick={toggle} {...stylex.props(inlineStyles.inline34)}>
         <span>{t("Thinking")}</span>
-        {duration !== undefined && (
-          <span
-            style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}
-          >
-            {duration}s
-          </span>
-        )}
+        {duration !== undefined && <span {...stylex.props(inlineStyles.inline35)}>{duration}s</span>}
       </button>
       {expanded && (
         <div
+          {...stylex.props(inlineStyles.inline36)}
           style={{
-            padding: "8px 10px",
             color: error ? "#f87171" : "var(--text-muted)",
-            fontSize: 12,
-            lineHeight: 1.6,
-            whiteSpace: "pre-wrap",
-            background: "var(--bg-panel)",
-            borderTop: "1px solid var(--border)",
           }}
         >
           {loading ? "Loading thinking..." : (error ?? (block.deferred ? content : block.thinking))}
@@ -1043,7 +861,6 @@ function ThinkingBlock({
     </div>
   )
 }
-
 function ToolCallBlock({
   block,
   result,
@@ -1061,71 +878,39 @@ function ToolCallBlock({
   // Result display
   const resultText = result
     ? result.content
-        .filter((b): b is { type: "text"; text: string } => b.type === "text")
+        .filter(
+          (
+            b,
+          ): b is {
+            type: "text"
+            text: string
+          } => b.type === "text",
+        )
         .map((b) => b.text)
         .join("\n")
     : null
   const resultIsEmpty = resultText === null ? false : resultText.trim() === "(no output)" || resultText.trim() === ""
   const isError = result?.isError ?? false
-
   return (
     <div
+      {...stylex.props(inlineStyles.inline37)}
       style={{
-        borderRadius: 7,
-        overflow: "hidden",
-        fontSize: 12,
         border: isError ? "1px solid rgba(248,113,113,0.45)" : "1px solid rgba(34,197,94,0.25)",
         background: isError ? "rgba(248,113,113,0.05)" : "rgba(34,197,94,0.04)",
       }}
     >
       {/* ── Tool call header ── */}
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 7,
-          width: "100%",
-          padding: "6px 10px",
-          background: "none",
-          border: "none",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          fontSize: 12,
-          textAlign: "left",
-          minWidth: 0,
-        }}
-      >
+      <button onClick={() => setExpanded((v) => !v)} {...stylex.props(inlineStyles.inline38)}>
         <span
+          {...stylex.props(inlineStyles.inline39)}
           style={{
             color: isError ? "#f87171" : "#16a34a",
-            fontFamily: "var(--font-mono)",
-            fontWeight: 600,
-            fontSize: 11,
-            flexShrink: 0,
           }}
         >
           {block.toolName}
         </span>
-        <span
-          style={{
-            color: "var(--text-dim)",
-            fontFamily: "var(--font-mono)",
-            fontSize: 11,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            flex: 1,
-            minWidth: 0,
-          }}
-        >
-          {getToolPreview(block)}
-        </span>
-        {duration !== undefined && (
-          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
-            {duration}s
-          </span>
-        )}
+        <span {...stylex.props(inlineStyles.inline40)}>{getToolPreview(block)}</span>
+        {duration !== undefined && <span {...stylex.props(inlineStyles.inline41)}>{duration}s</span>}
         <svg
           width="10"
           height="10"
@@ -1135,7 +920,10 @@ function ToolCallBlock({
           strokeWidth="1.6"
           strokeLinecap="round"
           strokeLinejoin="round"
-          style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}
+          {...stylex.props(inlineStyles.inline42)}
+          style={{
+            transform: expanded ? "rotate(180deg)" : "none",
+          }}
         >
           <polyline points="2 3.5 5 6.5 8 3.5" />
         </svg>
@@ -1144,17 +932,9 @@ function ToolCallBlock({
       {/* ── Expanded: input args ── */}
       {expanded && !isEditTool && (
         <pre
+          {...stylex.props(inlineStyles.inline43)}
           style={{
-            margin: 0,
-            padding: "8px 10px",
-            color: "var(--text-muted)",
-            fontSize: 12,
-            lineHeight: 1.5,
-            overflow: "auto",
-            background: "var(--bg-subtle)",
             borderTop: isError ? "1px solid rgba(248,113,113,0.25)" : "1px solid rgba(34,197,94,0.2)",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-all",
           }}
         >
           {inputStr}
@@ -1172,67 +952,44 @@ function ToolCallBlock({
     </div>
   )
 }
-
 interface ResultDiff {
   text: string
 }
-
 function PairedDiffResult({ diff }: { diff: ResultDiff }) {
   return (
-    <div
-      style={{
-        borderTop: "1px solid rgba(34,197,94,0.15)",
-        background: "var(--bg)",
-      }}
-    >
+    <div {...stylex.props(inlineStyles.inline44)}>
       <SplitPatchView text={diff.text} />
     </div>
   )
 }
-
 function SplitPatchView({ text }: { text: string }) {
   const files = useMemo(() => parseUnifiedPatch(text), [text])
   if (!files) return <PatchTextView text={text} />
   const showFileHeaders = files.length > 1
-
   return (
-    <div style={{ maxHeight: 560, overflowY: "auto", overflowX: "hidden", background: "var(--bg)" }}>
+    <div {...stylex.props(inlineStyles.inline45)}>
       {files.map((file, fileIndex) => (
         <div
           key={fileIndex}
+          {...stylex.props(inlineStyles.inline46)}
           style={{
-            minWidth: 0,
             borderTop: fileIndex === 0 ? "none" : "1px solid var(--border)",
-            fontFamily: "var(--font-mono)",
-            fontSize: 12,
-            lineHeight: 1.55,
           }}
         >
           {showFileHeaders && (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-                position: "sticky",
-                top: 0,
-                zIndex: 1,
-                background: "var(--bg-panel)",
-                borderBottom: "1px solid var(--border)",
-              }}
-            >
+            <div {...stylex.props(inlineStyles.inline47)}>
               <SplitDiffHeader title={file.oldPath || "Before"} side="left" />
               <SplitDiffHeader title={file.newPath || "After"} side="right" />
             </div>
           )}
 
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)" }}>
+          <div {...stylex.props(inlineStyles.inline48)}>
             {file.rows.map((row, rowIndex) => {
               if (row.type === "hunk") {
                 return null
               }
-
               return (
-                <div key={rowIndex} style={{ display: "contents" }}>
+                <div key={rowIndex} {...stylex.props(inlineStyles.inline49)}>
                   <SplitDiffCellView cell={row.left} side="left" />
                   <SplitDiffCellView cell={row.right} side="right" />
                 </div>
@@ -1244,25 +1001,19 @@ function SplitPatchView({ text }: { text: string }) {
     </div>
   )
 }
-
 function SplitDiffHeader({ title, side }: { title: string; side: "left" | "right" }) {
   return (
     <div
       title={title}
+      {...stylex.props(inlineStyles.inline50)}
       style={{
-        padding: "5px 10px",
-        color: "var(--text-dim)",
         borderRight: side === "left" ? "1px solid var(--border)" : "none",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
       }}
     >
       {title}
     </div>
   )
 }
-
 function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" | "right" }) {
   const bg =
     cell.type === "added"
@@ -1274,50 +1025,28 @@ function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" |
           : "transparent"
   const marker = cell.type === "added" ? "+" : cell.type === "removed" ? "-" : " "
   const markerColor = cell.type === "added" ? "#22c55e" : cell.type === "removed" ? "#f87171" : "var(--text-dim)"
-
   return (
     <div
+      {...stylex.props(inlineStyles.inline51)}
       style={{
-        display: "flex",
-        minWidth: 0,
         background: bg,
         borderRight: side === "left" ? "1px solid var(--border)" : "none",
       }}
     >
+      <span {...stylex.props(inlineStyles.inline52)}>{cell.lineNo ?? ""}</span>
       <span
+        {...stylex.props(inlineStyles.inline53)}
         style={{
-          width: 42,
-          padding: "0 6px",
-          textAlign: "right",
-          color: "var(--text-dim)",
-          userSelect: "none",
-          background: "var(--bg-panel)",
-          borderRight: "1px solid var(--border)",
-          flexShrink: 0,
-        }}
-      >
-        {cell.lineNo ?? ""}
-      </span>
-      <span
-        style={{
-          width: 18,
-          padding: "0 5px",
           color: markerColor,
-          userSelect: "none",
           fontWeight: cell.type === "context" || cell.type === "empty" ? 400 : 700,
-          flexShrink: 0,
         }}
       >
         {marker}
       </span>
       <span
+        {...stylex.props(inlineStyles.inline54)}
         style={{
-          flex: 1,
-          minWidth: 0,
-          padding: "0 10px 0 0",
           color: cell.type === "empty" ? "var(--text-dim)" : "var(--text)",
-          whiteSpace: "pre-wrap",
-          overflowWrap: "anywhere",
         }}
       >
         {cell.text || "\u00a0"}
@@ -1325,22 +1054,10 @@ function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" |
     </div>
   )
 }
-
 function PatchTextView({ text }: { text: string }) {
   const lines = text.split(/\r?\n/)
-
   return (
-    <div
-      style={{
-        maxHeight: 520,
-        overflowY: "auto",
-        overflowX: "hidden",
-        fontFamily: "var(--font-mono)",
-        fontSize: 12,
-        lineHeight: 1.55,
-        minWidth: 0,
-      }}
-    >
+    <div {...stylex.props(inlineStyles.inline55)}>
       {lines.map((line, i) => {
         const kind = line.startsWith("@@")
           ? "hunk"
@@ -1365,12 +1082,11 @@ function PatchTextView({ text }: { text: string }) {
               : kind === "hunk"
                 ? "var(--accent)"
                 : "var(--text)"
-
         return (
           <div
             key={i}
+            {...stylex.props(inlineStyles.inline56)}
             style={{
-              display: "flex",
               background: bg,
               borderLeft:
                 kind === "added"
@@ -1382,21 +1098,13 @@ function PatchTextView({ text }: { text: string }) {
                       : "3px solid transparent",
             }}
           >
+            <span {...stylex.props(inlineStyles.inline57)}>{i + 1}</span>
             <span
+              {...stylex.props(inlineStyles.inline58)}
               style={{
-                width: 48,
-                padding: "0 8px",
-                color: "var(--text-dim)",
-                background: "var(--bg-panel)",
-                borderRight: "1px solid var(--border)",
-                textAlign: "right",
-                userSelect: "none",
-                flexShrink: 0,
+                color,
               }}
             >
-              {i + 1}
-            </span>
-            <span style={{ padding: "0 10px", whiteSpace: "pre-wrap", overflowWrap: "anywhere", color }}>
               {line || "\u00a0"}
             </span>
           </div>
@@ -1405,20 +1113,25 @@ function PatchTextView({ text }: { text: string }) {
     </div>
   )
 }
-
 function getResultDiff(result: ToolResultMessage): ResultDiff | null {
-  const details = (result as ToolResultMessage & { details?: unknown }).details
+  const details = (
+    result as ToolResultMessage & {
+      details?: unknown
+    }
+  ).details
   if (!isRecord(details)) return null
-
   const patch = typeof details.patch === "string" ? details.patch : null
-  if (patch) return { text: patch }
-
+  if (patch)
+    return {
+      text: patch,
+    }
   const diff = typeof details.diff === "string" ? details.diff : null
-  if (diff) return { text: diff }
-
+  if (diff)
+    return {
+      text: diff,
+    }
   return null
 }
-
 function isEditToolName(toolName: string): boolean {
   const name = toolName.toLowerCase()
   return (
@@ -1430,11 +1143,9 @@ function isEditToolName(toolName: string): boolean {
     name.includes("replace_editor")
   )
 }
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
-
 function PairedResult({ text, isEmpty, isError }: { text: string; isEmpty: boolean; isError: boolean }) {
   return (
     <div
@@ -1444,17 +1155,9 @@ function PairedResult({ text, isEmpty, isError }: { text: string; isEmpty: boole
       }}
     >
       <pre
+        {...stylex.props(inlineStyles.inline59)}
         style={{
-          margin: 0,
-          padding: "8px 10px",
           color: isError ? "#f87171" : isEmpty ? "var(--text-dim)" : "var(--text-muted)",
-          fontSize: 12,
-          lineHeight: 1.5,
-          overflow: "auto",
-          maxHeight: 400,
-          background: "var(--bg)",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-all",
           fontStyle: isEmpty ? "italic" : "normal",
           opacity: isEmpty ? 0.6 : 1,
         }}
@@ -1464,48 +1167,27 @@ function PairedResult({ text, isEmpty, isError }: { text: string; isEmpty: boole
     </div>
   )
 }
-
 function CompactionMessageView({ message }: { message: CustomMessage }) {
   const summary = getMessageText(message.content)
   const parsedSummary = useMemo(() => parseCompactionSummary(summary), [summary])
   const time = formatTime(message.timestamp)
-
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div
-        style={{
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          overflow: "hidden",
-          background: "var(--bg)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "7px 10px",
-            borderBottom: "1px solid var(--border)",
-            background: "var(--bg-panel)",
-            color: "var(--text-muted)",
-          }}
-        >
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>compaction</span>
-          {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
+    <div {...stylex.props(inlineStyles.inline60)}>
+      <div {...stylex.props(inlineStyles.inline61)}>
+        <div {...stylex.props(inlineStyles.inline62)}>
+          <span {...stylex.props(inlineStyles.inline63)}>compaction</span>
+          {time && <span {...stylex.props(inlineStyles.inline64)}>{time}</span>}
         </div>
 
-        <div style={{ padding: "11px 13px 12px" }}>
-          <div style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, lineHeight: 1.35 }}>
-            Conversation compacted
-          </div>
-          <div style={{ marginTop: 3, marginBottom: 10, color: "var(--text)", fontSize: 14, lineHeight: 1.5 }}>
+        <div {...stylex.props(inlineStyles.inline65)}>
+          <div {...stylex.props(inlineStyles.inline66)}>Conversation compacted</div>
+          <div {...stylex.props(inlineStyles.inline67)}>
             The conversation history before this point was compacted into the following summary:
           </div>
           {parsedSummary.body ? (
             <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
           ) : (
-            <span style={{ color: "var(--text-dim)", fontSize: 12 }}>(no summary)</span>
+            <span {...stylex.props(inlineStyles.inline68)}>(no summary)</span>
           )}
           <CompactionFileMetadata readFiles={parsedSummary.readFiles} modifiedFiles={parsedSummary.modifiedFiles} />
         </div>
@@ -1513,17 +1195,14 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
     </div>
   )
 }
-
 function CompactionFileMetadata({ readFiles, modifiedFiles }: { readFiles: string[]; modifiedFiles: string[] }) {
   const { locale, t } = useI18n()
   const total = readFiles.length + modifiedFiles.length
   if (total === 0) return null
-
   const parts = []
   if (readFiles.length > 0) parts.push(locale === "zh-CN" ? `读取 ${readFiles.length} 个` : `${readFiles.length} read`)
   if (modifiedFiles.length > 0)
     parts.push(locale === "zh-CN" ? `修改 ${modifiedFiles.length} 个` : `${modifiedFiles.length} modified`)
-
   return (
     <details className="compaction-file-details">
       <summary>
@@ -1534,7 +1213,6 @@ function CompactionFileMetadata({ readFiles, modifiedFiles }: { readFiles: strin
     </details>
   )
 }
-
 function CompactionFileList({ title, files }: { title: string; files: string[] }) {
   return (
     <div className="compaction-file-section">
@@ -1547,7 +1225,6 @@ function CompactionFileList({ title, files }: { title: string; files: string[] }
     </div>
   )
 }
-
 function CustomMessageView({
   message,
   cwd,
@@ -1567,7 +1244,6 @@ function CustomMessageView({
   const detailsText = hasDetails ? safeJson(message.details) : ""
   const title = formatCustomType(message.customType)
   const time = formatTime(message.timestamp)
-
   const copyContent = () => {
     runBrowser(
       copyText(text || detailsText).pipe(
@@ -1575,62 +1251,39 @@ function CustomMessageView({
         Effect.andThen(Effect.sleep("1500 millis")),
         Effect.tap(() => Effect.sync(() => setCopied(false))),
       ),
-      { onSuccess: () => undefined },
+      {
+        onSuccess: () => undefined,
+      },
     )
   }
-
   return (
-    <div style={{ marginBottom: 16 }}>
+    <div {...stylex.props(inlineStyles.inline69)}>
       <div
+        {...stylex.props(inlineStyles.inline70)}
         style={{
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          overflow: "hidden",
           background: isHiddenDisplay ? "var(--bg-subtle)" : "var(--bg)",
           opacity: isHiddenDisplay && !contentExpanded ? 0.82 : 1,
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "7px 10px",
-            borderBottom: "1px solid var(--border)",
-            background: "var(--bg-panel)",
-            color: "var(--text-muted)",
-            fontSize: 12,
-          }}
-        >
-          <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>
-            {title}
-          </span>
-          {isHiddenDisplay && <span style={{ color: "var(--text-dim)", fontSize: 11 }}>hidden extension message</span>}
-          {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
+        <div {...stylex.props(inlineStyles.inline71)}>
+          <span {...stylex.props(inlineStyles.inline72)}>{title}</span>
+          {isHiddenDisplay && <span {...stylex.props(inlineStyles.inline73)}>hidden extension message</span>}
+          {time && <span {...stylex.props(inlineStyles.inline74)}>{time}</span>}
         </div>
 
         {contentExpanded ? (
-          <div style={{ padding: "6px 9px" }}>
+          <div {...stylex.props(inlineStyles.inline75)}>
             {images.length > 0 && (
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: text ? 8 : 0 }}>
+              <div
+                {...stylex.props(inlineStyles.inline76)}
+                style={{
+                  marginBottom: text ? 8 : 0,
+                }}
+              >
                 {images.map((img, i) => {
                   const src = imageSource(img)
                   if (!src) return null
-                  return (
-                    <img
-                      key={i}
-                      src={src}
-                      alt=""
-                      style={{
-                        maxWidth: 240,
-                        maxHeight: 240,
-                        borderRadius: 6,
-                        objectFit: "contain",
-                        display: "block",
-                        border: "1px solid var(--border)",
-                      }}
-                    />
-                  )
+                  return <img key={i} src={src} alt="" {...stylex.props(inlineStyles.inline77)} />
                 })}
               </div>
             )}
@@ -1639,48 +1292,22 @@ function CustomMessageView({
                 {text}
               </MarkdownBody>
             ) : (
-              <span style={{ color: "var(--text-dim)", fontSize: 12 }}>(no message)</span>
+              <span {...stylex.props(inlineStyles.inline78)}>(no message)</span>
             )}
           </div>
         ) : (
-          <button
-            onClick={() => setContentExpanded(true)}
-            style={{
-              display: "block",
-              width: "100%",
-              padding: "8px 10px",
-              border: "none",
-              background: "transparent",
-              color: "var(--text-dim)",
-              cursor: "pointer",
-              fontSize: 12,
-              textAlign: "left",
-            }}
-          >
+          <button onClick={() => setContentExpanded(true)} {...stylex.props(inlineStyles.inline79)}>
             {text ? previewText(text) : "Show extension message"}
           </button>
         )}
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "4px 9px",
-            borderTop: "1px solid var(--border)",
-            background: "var(--bg-subtle)",
-          }}
-        >
+        <div {...stylex.props(inlineStyles.inline80)}>
           {text || detailsText ? (
             <button
               onClick={copyContent}
+              {...stylex.props(inlineStyles.inline81)}
               style={{
-                padding: "3px 7px",
-                border: "none",
-                background: "none",
                 color: copied ? "var(--accent)" : "var(--text-dim)",
-                cursor: "pointer",
-                fontSize: 11,
               }}
             >
               {copied ? "Copied" : "Copy"}
@@ -1692,15 +1319,7 @@ function CustomMessageView({
                 if (isHiddenDisplay) setContentExpanded((v) => !v)
                 else setDetailsExpanded((v) => !v)
               }}
-              style={{
-                marginLeft: "auto",
-                padding: "3px 7px",
-                border: "none",
-                background: "none",
-                color: "var(--text-dim)",
-                cursor: "pointer",
-                fontSize: 11,
-              }}
+              {...stylex.props(inlineStyles.inline82)}
             >
               {isHiddenDisplay
                 ? contentExpanded
@@ -1714,30 +1333,12 @@ function CustomMessageView({
         </div>
 
         {hasDetails && ((isHiddenDisplay && contentExpanded) || (!isHiddenDisplay && detailsExpanded)) && (
-          <pre
-            style={{
-              margin: 0,
-              padding: "9px 10px",
-              borderTop: "1px solid var(--border)",
-              background: "var(--bg)",
-              color: "var(--text-muted)",
-              fontSize: 12,
-              lineHeight: 1.5,
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              maxHeight: 360,
-              overflow: "auto",
-              fontFamily: "var(--font-mono)",
-            }}
-          >
-            {detailsText}
-          </pre>
+          <pre {...stylex.props(inlineStyles.inline83)}>{detailsText}</pre>
         )}
       </div>
     </div>
   )
 }
-
 function getMessageText(content: CustomMessage["content"]): string {
   if (typeof content === "string") return content
   return content
@@ -1745,30 +1346,24 @@ function getMessageText(content: CustomMessage["content"]): string {
     .map((b) => b.text)
     .join("\n")
 }
-
 function getMessageImages(content: CustomMessage["content"]): ImageContent[] {
   if (typeof content === "string") return []
   return content.filter((b): b is ImageContent => b.type === "image")
 }
-
 function imageSource(img: ImageContent): string {
   return img.source.type === "base64" ? `data:${img.source.media_type};base64,${img.source.data}` : img.source.url
 }
-
 function safeJson(value: JsonValue): string {
   return JSON.stringify(value, null, 2)
 }
-
 function formatCustomType(type: string): string {
   return type || "extension"
 }
-
 function previewText(text: string): string {
   const normalized = text.replace(/\s+/g, " ").trim()
   if (!normalized) return "Show extension message"
   return normalized.length > 140 ? `${normalized.slice(0, 140)}...` : normalized
 }
-
 function getToolPreview(block: ToolCallContent): string {
   const input = block.input
   if (!input || typeof input !== "object") return ""
@@ -1781,15 +1376,12 @@ function getToolPreview(block: ToolCallContent): string {
   if ("file_path" in input) return previewToolValue(input.file_path)
   if ("pattern" in input) return previewToolValue(input.pattern)
   if ("query" in input) return previewToolValue(input.query)
-
   const first = input[keys[0]]
   return previewToolValue(first)
 }
-
 function previewToolValue(value: JsonValue): string {
   return (typeof value === "string" ? value : JSON.stringify(value)).slice(0, 120)
 }
-
 export function TurnUsageSummary({ usage, ongoing = false }: { usage: TurnUsage; ongoing?: boolean }) {
   const { locale, t } = useI18n()
   const callCount =
@@ -1809,25 +1401,12 @@ export function TurnUsageSummary({ usage, ongoing = false }: { usage: TurnUsage;
       ? [[t("Last call duration"), formatDuration(usage.lastCallDurationMs)] as [string, string]]
       : []),
   ]
-
   return (
-    <details style={{ position: "relative", fontVariantNumeric: "tabular-nums" }}>
-      <summary
-        title={t("Show turn usage details")}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 5,
-          listStyle: "none",
-          color: "var(--text-dim)",
-          cursor: "pointer",
-          fontSize: 11,
-          whiteSpace: "nowrap",
-        }}
-      >
+    <details {...stylex.props(inlineStyles.inline84)}>
+      <summary title={t("Show turn usage details")} {...stylex.props(inlineStyles.inline85)}>
         <span>{ongoing ? t("Turn in progress") : t("This turn")}</span>
         <span>·</span>
-        <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>${usage.cost.toFixed(4)}</span>
+        <span {...stylex.props(inlineStyles.inline86)}>${usage.cost.toFixed(4)}</span>
         {!ongoing && usage.durationMs !== null && (
           <>
             <span>·</span>
@@ -1841,26 +1420,13 @@ export function TurnUsageSummary({ usage, ongoing = false }: { usage: TurnUsage;
           </>
         )}
       </summary>
-      <div
-        style={{
-          position: "absolute",
-          bottom: "calc(100% + 7px)",
-          left: 0,
-          zIndex: 70,
-          width: "min(280px, calc(100vw - 48px))",
-          padding: "10px 12px",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          background: "var(--bg-panel)",
-          boxShadow: "0 10px 28px rgba(0,0,0,0.18)",
-        }}
-      >
-        <div style={{ marginBottom: 8, color: "var(--text)", fontSize: 12, fontWeight: 600 }}>{t("Turn usage")}</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "5px 16px", fontSize: 11 }}>
+      <div {...stylex.props(inlineStyles.inline87)}>
+        <div {...stylex.props(inlineStyles.inline88)}>{t("Turn usage")}</div>
+        <div {...stylex.props(inlineStyles.inline89)}>
           {rows.map(([label, value]) => (
             <Fragment key={label}>
-              <span style={{ color: "var(--text-muted)" }}>{label}</span>
-              <span style={{ color: "var(--text)", textAlign: "right" }}>{value}</span>
+              <span {...stylex.props(inlineStyles.inline90)}>{label}</span>
+              <span {...stylex.props(inlineStyles.inline91)}>{value}</span>
             </Fragment>
           ))}
         </div>
@@ -1868,14 +1434,15 @@ export function TurnUsageSummary({ usage, ongoing = false }: { usage: TurnUsage;
     </details>
   )
 }
-
 function formatUsage(
   usage: {
     input: number
     output: number
     cacheRead: number
     cacheWrite: number
-    cost: { total: number }
+    cost: {
+      total: number
+    }
   },
   durationMs: number | null,
 ): string {
@@ -1887,3 +1454,632 @@ function formatUsage(
   if (durationMs !== null) parts.push(formatDuration(durationMs))
   return parts.join(" · ")
 }
+const inlineStyles = stylex.create({
+  inline1: {
+    marginBottom: 16,
+  },
+  inline2: {
+    overflow: "hidden",
+    border: "1px solid var(--border)",
+    borderRadius: 9,
+    background: "var(--bg-panel)",
+  },
+  inline3: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "7px 10px",
+    borderBottom: "1px solid var(--border)",
+    color: "var(--text-muted)",
+    fontSize: 11,
+  },
+  inline4: {
+    color: "var(--accent)",
+    fontFamily: "var(--font-mono)",
+    fontWeight: 700,
+  },
+  inline5: {
+    flex: 1,
+    minWidth: 0,
+    color: "var(--text)",
+    overflowWrap: "anywhere",
+  },
+  inline6: {
+    flexShrink: 0,
+  },
+  inline7: {
+    margin: 0,
+    padding: "10px 12px",
+    maxHeight: 420,
+    overflow: "auto",
+    color: "var(--text-muted)",
+    fontFamily: "var(--font-mono)",
+    fontSize: 12,
+    lineHeight: 1.55,
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
+  },
+  inline8: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "6px 10px",
+    borderTop: "1px solid var(--border)",
+    color: "var(--text-dim)",
+    fontSize: 10,
+  },
+  inline9: {
+    marginLeft: "auto",
+    overflowWrap: "anywhere",
+  },
+  inline10: {
+    marginBottom: 16,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-end",
+  },
+  inline11: {
+    display: "flex",
+    alignItems: "flex-end",
+    gap: 6,
+    maxWidth: "85%",
+  },
+  inline12: {
+    flex: 1,
+    minWidth: 0,
+    background: "var(--user-bg)",
+    border: "1px solid rgba(59,130,246,0.2)",
+    borderRadius: 12,
+    padding: "8px 12px",
+    fontSize: 14,
+    lineHeight: 1.6,
+    color: "var(--text)",
+    wordBreak: "break-word",
+  },
+  inline13: {
+    display: "flex",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  inline14: {
+    maxWidth: 240,
+    maxHeight: 240,
+    borderRadius: 6,
+    objectFit: "contain",
+    display: "block",
+    border: "1px solid rgba(59,130,246,0.15)",
+  },
+  inline15: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 6,
+    marginTop: 3,
+  },
+  inline16: {
+    display: "flex",
+    gap: 3,
+    transition: "opacity 0.12s",
+  },
+  inline17: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    padding: "3px 8px",
+    height: 22,
+    background: "none",
+    border: "none",
+    borderRadius: 5,
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 400,
+    whiteSpace: "nowrap",
+    transition: "color 0.12s",
+  },
+  inline18: {
+    display: "flex",
+    gap: 3,
+    transition: "opacity 0.12s",
+  },
+  inline19: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    padding: "3px 8px",
+    height: 22,
+    background: "none",
+    border: "none",
+    borderRadius: 5,
+    color: "var(--text-dim)",
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 400,
+    whiteSpace: "nowrap",
+    transition: "color 0.12s",
+  },
+  inline20: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    padding: "3px 8px",
+    height: 22,
+    background: "none",
+    border: "none",
+    borderRadius: 5,
+    fontSize: 11,
+    fontWeight: 400,
+    whiteSpace: "nowrap",
+    transition: "color 0.12s",
+  },
+  inline21: {
+    fontSize: 10,
+    color: "var(--text-dim)",
+  },
+  inline22: {
+    marginBottom: 16,
+  },
+  inline23: {
+    fontSize: 11,
+    color: "var(--text-dim)",
+    marginBottom: 4,
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+  },
+  inline24: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    color: "var(--text)",
+  },
+  inline25: {
+    display: "flex",
+    alignItems: "center",
+    gap: 2,
+    fontSize: 11,
+    fontWeight: 400,
+  },
+  inline26: {
+    marginLeft: 6,
+    padding: "1px 6px",
+    borderRadius: 4,
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: 400,
+  },
+  inline27: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  inline28: {
+    padding: "9px 11px",
+    borderRadius: 8,
+    fontSize: 12,
+    lineHeight: 1.5,
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
+  },
+  inline29: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 4,
+  },
+  inline30: {
+    fontSize: 11,
+    color: "var(--text-dim)",
+  },
+  inline31: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    padding: "3px 8px",
+    height: 22,
+    background: "none",
+    border: "none",
+    borderRadius: 5,
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 400,
+    whiteSpace: "nowrap",
+    transition: "opacity 0.12s, color 0.12s",
+  },
+  inline32: {
+    fontSize: 10,
+    color: "var(--text-dim)",
+    marginLeft: "auto",
+  },
+  inline33: {
+    border: "1px solid var(--border)",
+    borderRadius: 6,
+    overflow: "hidden",
+    fontSize: 13,
+  },
+  inline34: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    width: "100%",
+    padding: "6px 10px",
+    background: "var(--bg-panel)",
+    border: "none",
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    fontSize: 12,
+    textAlign: "left",
+  },
+  inline35: {
+    marginLeft: "auto",
+    fontSize: 11,
+    color: "var(--text-dim)",
+    fontVariantNumeric: "tabular-nums",
+  },
+  inline36: {
+    padding: "8px 10px",
+    fontSize: 12,
+    lineHeight: 1.6,
+    whiteSpace: "pre-wrap",
+    background: "var(--bg-panel)",
+    borderTop: "1px solid var(--border)",
+  },
+  inline37: {
+    borderRadius: 7,
+    overflow: "hidden",
+    fontSize: 12,
+  },
+  inline38: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    width: "100%",
+    padding: "6px 10px",
+    background: "none",
+    border: "none",
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    fontSize: 12,
+    textAlign: "left",
+    minWidth: 0,
+  },
+  inline39: {
+    fontFamily: "var(--font-mono)",
+    fontWeight: 600,
+    fontSize: 11,
+    flexShrink: 0,
+  },
+  inline40: {
+    color: "var(--text-dim)",
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    flex: 1,
+    minWidth: 0,
+  },
+  inline41: {
+    fontSize: 11,
+    color: "var(--text-dim)",
+    flexShrink: 0,
+    fontVariantNumeric: "tabular-nums",
+  },
+  inline42: {
+    flexShrink: 0,
+    transition: "transform 0.15s",
+  },
+  inline43: {
+    margin: 0,
+    padding: "8px 10px",
+    color: "var(--text-muted)",
+    fontSize: 12,
+    lineHeight: 1.5,
+    overflow: "auto",
+    background: "var(--bg-subtle)",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-all",
+  },
+  inline44: {
+    borderTop: "1px solid rgba(34,197,94,0.15)",
+    background: "var(--bg)",
+  },
+  inline45: {
+    maxHeight: 560,
+    overflowY: "auto",
+    overflowX: "hidden",
+    background: "var(--bg)",
+  },
+  inline46: {
+    minWidth: 0,
+    fontFamily: "var(--font-mono)",
+    fontSize: 12,
+    lineHeight: 1.55,
+  },
+  inline47: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+    position: "sticky",
+    top: 0,
+    zIndex: 1,
+    background: "var(--bg-panel)",
+    borderBottom: "1px solid var(--border)",
+  },
+  inline48: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+  },
+  inline49: {
+    display: "contents",
+  },
+  inline50: {
+    padding: "5px 10px",
+    color: "var(--text-dim)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  inline51: {
+    display: "flex",
+    minWidth: 0,
+  },
+  inline52: {
+    width: 42,
+    padding: "0 6px",
+    textAlign: "right",
+    color: "var(--text-dim)",
+    userSelect: "none",
+    background: "var(--bg-panel)",
+    borderRight: "1px solid var(--border)",
+    flexShrink: 0,
+  },
+  inline53: {
+    width: 18,
+    padding: "0 5px",
+    userSelect: "none",
+    flexShrink: 0,
+  },
+  inline54: {
+    flex: 1,
+    minWidth: 0,
+    padding: "0 10px 0 0",
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
+  },
+  inline55: {
+    maxHeight: 520,
+    overflowY: "auto",
+    overflowX: "hidden",
+    fontFamily: "var(--font-mono)",
+    fontSize: 12,
+    lineHeight: 1.55,
+    minWidth: 0,
+  },
+  inline56: {
+    display: "flex",
+  },
+  inline57: {
+    width: 48,
+    padding: "0 8px",
+    color: "var(--text-dim)",
+    background: "var(--bg-panel)",
+    borderRight: "1px solid var(--border)",
+    textAlign: "right",
+    userSelect: "none",
+    flexShrink: 0,
+  },
+  inline58: {
+    padding: "0 10px",
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
+  },
+  inline59: {
+    margin: 0,
+    padding: "8px 10px",
+    fontSize: 12,
+    lineHeight: 1.5,
+    overflow: "auto",
+    maxHeight: 400,
+    background: "var(--bg)",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-all",
+  },
+  inline60: {
+    marginBottom: 16,
+  },
+  inline61: {
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    overflow: "hidden",
+    background: "var(--bg)",
+  },
+  inline62: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "7px 10px",
+    borderBottom: "1px solid var(--border)",
+    background: "var(--bg-panel)",
+    color: "var(--text-muted)",
+  },
+  inline63: {
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    fontWeight: 650,
+  },
+  inline64: {
+    marginLeft: "auto",
+    color: "var(--text-dim)",
+    fontSize: 10,
+  },
+  inline65: {
+    padding: "11px 13px 12px",
+  },
+  inline66: {
+    color: "var(--text)",
+    fontSize: 15,
+    fontWeight: 700,
+    lineHeight: 1.35,
+  },
+  inline67: {
+    marginTop: 3,
+    marginBottom: 10,
+    color: "var(--text)",
+    fontSize: 14,
+    lineHeight: 1.5,
+  },
+  inline68: {
+    color: "var(--text-dim)",
+    fontSize: 12,
+  },
+  inline69: {
+    marginBottom: 16,
+  },
+  inline70: {
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  inline71: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "7px 10px",
+    borderBottom: "1px solid var(--border)",
+    background: "var(--bg-panel)",
+    color: "var(--text-muted)",
+    fontSize: 12,
+  },
+  inline72: {
+    color: "var(--text-muted)",
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    fontWeight: 650,
+  },
+  inline73: {
+    color: "var(--text-dim)",
+    fontSize: 11,
+  },
+  inline74: {
+    marginLeft: "auto",
+    color: "var(--text-dim)",
+    fontSize: 10,
+  },
+  inline75: {
+    padding: "6px 9px",
+  },
+  inline76: {
+    display: "flex",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  inline77: {
+    maxWidth: 240,
+    maxHeight: 240,
+    borderRadius: 6,
+    objectFit: "contain",
+    display: "block",
+    border: "1px solid var(--border)",
+  },
+  inline78: {
+    color: "var(--text-dim)",
+    fontSize: 12,
+  },
+  inline79: {
+    display: "block",
+    width: "100%",
+    padding: "8px 10px",
+    border: "none",
+    background: "transparent",
+    color: "var(--text-dim)",
+    cursor: "pointer",
+    fontSize: 12,
+    textAlign: "left",
+  },
+  inline80: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "4px 9px",
+    borderTop: "1px solid var(--border)",
+    background: "var(--bg-subtle)",
+  },
+  inline81: {
+    padding: "3px 7px",
+    border: "none",
+    background: "none",
+    cursor: "pointer",
+    fontSize: 11,
+  },
+  inline82: {
+    marginLeft: "auto",
+    padding: "3px 7px",
+    border: "none",
+    background: "none",
+    color: "var(--text-dim)",
+    cursor: "pointer",
+    fontSize: 11,
+  },
+  inline83: {
+    margin: 0,
+    padding: "9px 10px",
+    borderTop: "1px solid var(--border)",
+    background: "var(--bg)",
+    color: "var(--text-muted)",
+    fontSize: 12,
+    lineHeight: 1.5,
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+    maxHeight: 360,
+    overflow: "auto",
+    fontFamily: "var(--font-mono)",
+  },
+  inline84: {
+    position: "relative",
+    fontVariantNumeric: "tabular-nums",
+  },
+  inline85: {
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+    listStyle: "none",
+    color: "var(--text-dim)",
+    cursor: "pointer",
+    fontSize: 11,
+    whiteSpace: "nowrap",
+  },
+  inline86: {
+    color: "var(--text-muted)",
+    fontWeight: 500,
+  },
+  inline87: {
+    position: "absolute",
+    bottom: "calc(100% + 7px)",
+    left: 0,
+    zIndex: 70,
+    width: "min(280px, calc(100vw - 48px))",
+    padding: "10px 12px",
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    background: "var(--bg-panel)",
+    boxShadow: "0 10px 28px rgba(0,0,0,0.18)",
+  },
+  inline88: {
+    marginBottom: 8,
+    color: "var(--text)",
+    fontSize: 12,
+    fontWeight: 600,
+  },
+  inline89: {
+    display: "grid",
+    gridTemplateColumns: "1fr auto",
+    gap: "5px 16px",
+    fontSize: 11,
+  },
+  inline90: {
+    color: "var(--text-muted)",
+  },
+  inline91: {
+    color: "var(--text)",
+    textAlign: "right",
+  },
+})

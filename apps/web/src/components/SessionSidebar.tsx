@@ -1,3 +1,4 @@
+import * as stylex from "@stylexjs/stylex"
 import {
   useEffect,
   useLayoutEffect,
@@ -17,7 +18,6 @@ import { useBrowserPreferences } from "@/browser/preferences-react"
 import { after, observeCurrentTime } from "@/browser/timing"
 import { BrowserPlatform } from "@/browser/browser-platform"
 import { observeRunningSessions } from "@/features/session/session-controller"
-
 interface Props {
   selectedSessionId: string | null
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void
@@ -33,13 +33,11 @@ interface Props {
   explorerRefreshKey?: number
   onAtMention?: (relativePath: string, isDir: boolean) => void
 }
-
 interface WorktreeEntry {
   path: string
   branch: string | null
   isMain: boolean
 }
-
 interface WorktreeState {
   /** The cwd this data was fetched for — guards against stale responses */
   forCwd: string
@@ -50,7 +48,6 @@ interface WorktreeState {
   isTopLevel: boolean
   worktrees: WorktreeEntry[]
 }
-
 function formatRelativeTime(dateStr: string, locale: Locale, nowMillis: number): string {
   const parsed = DateTime.make(dateStr)
   if (Option.isNone(parsed)) return dateStr
@@ -70,7 +67,12 @@ function formatRelativeTime(dateStr: string, locale: Locale, nowMillis: number):
     if (hours < 24) return `${hours}h ago`
     if (days < 7) return `${days}d ago`
   }
-  return DateTime.formatLocal(date, { locale, year: "numeric", month: "numeric", day: "numeric" })
+  return DateTime.formatLocal(date, {
+    locale,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  })
 }
 
 /**
@@ -117,21 +119,17 @@ function PathLabel({ text, style }: { text: string; style?: CSSProperties }) {
         ...style,
       }}
     >
-      <span style={{ unicodeBidi: "plaintext" }}>{text}</span>
+      <span {...stylex.props(inlineStyles.inline1)}>{text}</span>
     </span>
   )
 }
-
 const DROPDOWN_ANIMATION_MS = 140
-
 function AnimatedDropdown({ open, children, style }: { open: boolean; children: ReactNode; style: CSSProperties }) {
   const [mounted, setMounted] = useState(open)
   const [visible, setVisible] = useState(open)
-
   useEffect(() => {
     let cancelFrame: Cancel | undefined
     let cancelDelay: Cancel | undefined
-
     if (open) {
       setMounted(true)
       setVisible(false)
@@ -142,7 +140,9 @@ function AnimatedDropdown({ open, children, style }: { open: boolean; children: 
           yield* browser.nextAnimationFrame
           yield* Effect.sync(() => setVisible(true))
         }),
-        { onSuccess: () => undefined },
+        {
+          onSuccess: () => undefined,
+        },
       )
     } else {
       setVisible(false)
@@ -153,15 +153,12 @@ function AnimatedDropdown({ open, children, style }: { open: boolean; children: 
         },
       )
     }
-
     return () => {
       cancelFrame?.()
       cancelDelay?.()
     }
   }, [open])
-
   if (!mounted) return null
-
   return (
     <div
       style={{
@@ -177,16 +174,17 @@ function AnimatedDropdown({ open, children, style }: { open: boolean; children: 
     </div>
   )
 }
-
 interface SessionTreeNode {
   session: SessionInfo
   children: SessionTreeNode[]
 }
-
 function buildSessionTree(sessions: SessionInfo[]): SessionTreeNode[] {
   const byId = new Map<string, SessionTreeNode>()
   for (const s of sessions) {
-    byId.set(s.id, { session: s, children: [] })
+    byId.set(s.id, {
+      session: s,
+      children: [],
+    })
   }
 
   // Build a map of parentSessionId chains so we can resolve missing ancestors
@@ -207,7 +205,6 @@ function buildSessionTree(sessions: SessionInfo[]): SessionTreeNode[] {
     }
     return null
   }
-
   const roots: SessionTreeNode[] = []
   for (const node of byId.values()) {
     const ancestor = resolveAncestor(node.session.id)
@@ -226,13 +223,10 @@ function buildSessionTree(sessions: SessionInfo[]): SessionTreeNode[] {
   sort(roots)
   return roots
 }
-
 const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*"
-
 function useScramble(target: string, running: boolean): string {
   const [display, setDisplay] = useState(target)
   const iterRef = useRef(0)
-
   useEffect(() => {
     if (!running) {
       setDisplay(target)
@@ -240,7 +234,6 @@ function useScramble(target: string, running: boolean): string {
     }
     iterRef.current = 0
     const totalFrames = target.length * 4
-
     return runBrowser(
       Effect.gen(function* () {
         const browser = yield* BrowserPlatform
@@ -264,38 +257,35 @@ function useScramble(target: string, running: boolean): string {
         }
         yield* Effect.sync(() => setDisplay(target))
       }),
-      { onSuccess: () => undefined },
+      {
+        onSuccess: () => undefined,
+      },
     )
   }, [target, running])
-
   return display
 }
-
 function PiAgentTitle() {
   const [showVersion, setShowVersion] = useState(false)
   const [scrambling, setScrambling] = useState(false)
   const scrambleDelayRef = useRef<Cancel | null>(null)
   const revertDelayRef = useRef<Cancel | null>(null)
-
   const target = showVersion ? `${__APP_VERSION__}p${__PI_VERSION__}` : "Pi Agent Web"
   const display = useScramble(target, scrambling)
-
   const triggerScramble = useCallback((toVersion: boolean) => {
     setShowVersion(toVersion)
     setScrambling(true)
     scrambleDelayRef.current?.()
     scrambleDelayRef.current = runBrowser(
       after(Duration.millis((toVersion ? 6 : 8) * 4 * (1000 / 60) + 100), () => setScrambling(false)),
-      { onSuccess: () => undefined },
+      {
+        onSuccess: () => undefined,
+      },
     )
   }, [])
-
   const handleClick = useCallback(() => {
     revertDelayRef.current?.()
-
     const next = !showVersion
     triggerScramble(next)
-
     if (next) {
       revertDelayRef.current = runBrowser(
         after("3 seconds", () => triggerScramble(false)),
@@ -305,7 +295,6 @@ function PiAgentTitle() {
       )
     }
   }, [showVersion, triggerScramble])
-
   useEffect(
     () => () => {
       scrambleDelayRef.current?.()
@@ -313,28 +302,18 @@ function PiAgentTitle() {
     },
     [],
   )
-
   return (
     <button
       onClick={handleClick}
+      {...stylex.props(inlineStyles.inline2)}
       style={{
-        background: "none",
-        border: "none",
-        padding: 0,
-        cursor: "default",
-        fontWeight: 700,
-        fontSize: 15,
-        letterSpacing: "-0.01em",
         color: showVersion ? "var(--accent)" : "var(--text)",
-        fontFamily: "var(--font-mono)",
-        minWidth: "6ch",
       }}
     >
       {display}
     </button>
   )
 }
-
 export function SessionSidebar({
   selectedSessionId,
   onSelectSession,
@@ -395,7 +374,6 @@ export function SessionSidebar({
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set())
   const sessionRefreshTimerRef = useRef<Cancel | null>(null)
   const explorerRefreshTimerRef = useRef<Cancel | null>(null)
-
   useEffect(
     () =>
       runBrowser(observeCurrentTime("1 minute", setCurrentTimeMillis), {
@@ -403,7 +381,6 @@ export function SessionSidebar({
       }),
     [],
   )
-
   const loadSessions = useCallback(
     (showLoading = false) => {
       if (showLoading) setLoading(true)
@@ -411,7 +388,9 @@ export function SessionSidebar({
         withApi((api) => api.sessions.list({})),
         {
           onSuccess: (data) => {
-            const sessions = data.sessions.map((session) => ({ ...session }))
+            const sessions = data.sessions.map((session) => ({
+              ...session,
+            }))
             setAllSessions(sessions)
             // Drop unread markers for sessions that no longer exist (e.g. deleted).
             const existingIds = new Set(sessions.map((s) => s.id))
@@ -442,14 +421,12 @@ export function SessionSidebar({
     },
     [updateUnreadSessionIds],
   )
-
   const initialLoadDone = useRef(false)
   useEffect(() => {
     const isFirst = !initialLoadDone.current
     initialLoadDone.current = true
     loadSessions(isFirst)
   }, [loadSessions, refreshKey])
-
   useEffect(() => {
     return runApi(
       observeRunningSessions({
@@ -466,12 +443,10 @@ export function SessionSidebar({
       },
     )
   }, [])
-
   useEffect(() => {
     const previous = previousRunningSessionIdsRef.current
     const completedInBackground = [...previous].filter((id) => !runningSessionIds.has(id) && id !== selectedSessionId)
     const newlyRunning = [...runningSessionIds]
-
     if (completedInBackground.length > 0 || newlyRunning.length > 0) {
       updateUnreadSessionIds((prev) => {
         const next = new Set(prev)
@@ -480,10 +455,8 @@ export function SessionSidebar({
         return next
       })
     }
-
     previousRunningSessionIdsRef.current = runningSessionIds
   }, [runningSessionIds, selectedSessionId, updateUnreadSessionIds])
-
   useEffect(() => {
     if (!selectedSessionId) return
     updateUnreadSessionIds((prev) => {
@@ -493,11 +466,9 @@ export function SessionSidebar({
       return next
     })
   }, [selectedSessionId, updateUnreadSessionIds])
-
   useEffect(() => {
     if (explorerRefreshKey !== undefined) setExplorerKey((k) => k + 1)
   }, [explorerRefreshKey])
-
   useEffect(() => {
     return runApi(
       withApi((api) => api.workspace.home({})),
@@ -506,7 +477,6 @@ export function SessionSidebar({
       },
     )
   }, [])
-
   const restoredRef = useRef(false)
 
   /** Resolve the project root for a cwd from the freshest data available */
@@ -554,7 +524,13 @@ export function SessionSidebar({
     }
     setWorktreeLoadingCwd(selectedCwd)
     return runApi(
-      withApi((api) => api.workspace.worktrees({ query: { cwd: selectedCwd } })),
+      withApi((api) =>
+        api.workspace.worktrees({
+          query: {
+            cwd: selectedCwd,
+          },
+        }),
+      ),
       {
         onSuccess: ({ project, worktrees }) => {
           setWorktreeLoadingCwd(null)
@@ -563,7 +539,9 @@ export function SessionSidebar({
             projectRoot: project.projectRoot,
             isGit: worktrees.length > 0,
             isTopLevel: project.isTopLevel,
-            worktrees: worktrees.map((worktree) => ({ ...worktree })),
+            worktrees: worktrees.map((worktree) => ({
+              ...worktree,
+            })),
           })
         },
         onFailure: () => {
@@ -577,7 +555,6 @@ export function SessionSidebar({
   // Auto-select cwd and restore session from URL on first load
   useEffect(() => {
     if (loading) return
-
     if (initialSessionId && !restoredRef.current) {
       restoredRef.current = true
       const target = allSessions.find((session) => session.id === initialSessionId)
@@ -588,23 +565,25 @@ export function SessionSidebar({
       }
       onInitialRestoreDone?.()
     }
-
     if (allSessions.length === 0) return
-
     if (selectedCwd === null) {
       const projects = getRecentProjects(allSessions)
       if (projects.length > 0) setSelectedCwd(projects[0])
     }
   }, [allSessions, loading, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone])
-
   const commitCustomPath = useCallback(() => {
     const path = customPathValue.trim()
     if (!path || customPathValidating) return
-
     setCustomPathValidating(true)
     setCustomPathError(null)
     runApi(
-      withApi((api) => api.workspace.validateCwd({ payload: { cwd: path } })),
+      withApi((api) =>
+        api.workspace.validateCwd({
+          payload: {
+            cwd: path,
+          },
+        }),
+      ),
       {
         onSuccess: ({ cwd }) => {
           setSelectedCwd(cwd)
@@ -620,14 +599,16 @@ export function SessionSidebar({
       },
     )
   }, [customPathValue, customPathValidating])
-
   const pickCustomPath = useCallback(() => {
     if (customPathValidating) return
-
     setCustomPathValidating(true)
     setCustomPathError(null)
     runApi(
-      withApi((api) => api.workspace.pickCwd({ payload: {} })),
+      withApi((api) =>
+        api.workspace.pickCwd({
+          payload: {},
+        }),
+      ),
       {
         onSuccess: ({ cwd }) => {
           if (cwd === null) {
@@ -647,10 +628,13 @@ export function SessionSidebar({
       },
     )
   }, [customPathValidating])
-
   const handleDefaultCwd = useCallback(() => {
     runApi(
-      withApi((api) => api.workspace.defaultCwd({ payload: {} })),
+      withApi((api) =>
+        api.workspace.defaultCwd({
+          payload: {},
+        }),
+      ),
       {
         onSuccess: ({ cwd }) => {
           setSelectedCwd(cwd)
@@ -662,7 +646,6 @@ export function SessionSidebar({
       },
     )
   }, [])
-
   const handleCreateWorktree = useCallback(() => {
     const branch = wtNewBranch.trim()
     if (!branch || wtBusy || !worktreeState) return
@@ -671,7 +654,10 @@ export function SessionSidebar({
     runApi(
       withApi((api) =>
         api.workspace.createWorktree({
-          payload: { cwd: worktreeState.projectRoot, branch },
+          payload: {
+            cwd: worktreeState.projectRoot,
+            branch,
+          },
         }),
       ),
       {
@@ -687,7 +673,14 @@ export function SessionSidebar({
               ? {
                   ...prev,
                   forCwd: data.path,
-                  worktrees: [...prev.worktrees, { path: data.path, branch, isMain: false }],
+                  worktrees: [
+                    ...prev.worktrees,
+                    {
+                      path: data.path,
+                      branch,
+                      isMain: false,
+                    },
+                  ],
                 }
               : prev,
           )
@@ -702,7 +695,6 @@ export function SessionSidebar({
       },
     )
   }, [wtNewBranch, wtBusy, worktreeState])
-
   const handleRemoveWorktree = useCallback(
     (path: string, force: boolean) => {
       if (!worktreeState || wtBusy) return
@@ -711,7 +703,11 @@ export function SessionSidebar({
       runApi(
         withApi((api) =>
           api.workspace.removeWorktree({
-            payload: { cwd: worktreeState.projectRoot, path, force },
+            payload: {
+              cwd: worktreeState.projectRoot,
+              path,
+              force,
+            },
           }),
         ),
         {
@@ -770,12 +766,10 @@ export function SessionSidebar({
     },
     [onSelectSession],
   )
-
   const handleNewSession = useCallback(() => {
     if (!selectedCwd || newSessionPending) return
     onNewSession?.(selectedCwd)
   }, [newSessionPending, selectedCwd, onNewSession])
-
   const recentProjects = getRecentProjects(allSessions)
   const showProjectFilter = recentProjects.length > 8
   const visibleProjects = projectFilter.trim()
@@ -814,43 +808,28 @@ export function SessionSidebar({
 
   // Build parent-child tree within the filtered set
   const sessionTree = buildSessionTree(filteredSessions)
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+    <div {...stylex.props(inlineStyles.inline3)}>
       {/* Header */}
-      <div
-        style={{
-          padding: "12px 10px 10px",
-          borderBottom: "1px solid var(--border)",
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+      <div {...stylex.props(inlineStyles.inline4)}>
+        <div {...stylex.props(inlineStyles.inline5)}>
           <PiAgentTitle />
-          <div style={{ display: "flex", gap: 6 }}>
+          <div {...stylex.props(inlineStyles.inline6)}>
             <button
               onClick={handleNewSession}
               disabled={!selectedCwd || newSessionPending}
+              {...stylex.props(inlineStyles.inline7)}
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 5,
-                background: "var(--bg-hover)",
-                border: "1px solid var(--border)",
                 color: selectedCwd ? "var(--text-muted)" : "var(--text-dim)",
                 cursor: selectedCwd && !newSessionPending ? "pointer" : "not-allowed",
-                height: 32,
-                paddingLeft: 10,
-                paddingRight: 12,
-                borderRadius: 7,
-                fontSize: 12,
-                fontWeight: 500,
-                letterSpacing: "-0.01em",
-                flexShrink: 0,
-                transition: "background 0.12s, color 0.12s, border-color 0.12s",
               }}
-              title={selectedCwd ? t("New session in {cwd}", { cwd: selectedCwd }) : t("Select a project first")}
+              title={
+                selectedCwd
+                  ? t("New session in {cwd}", {
+                      cwd: selectedCwd,
+                    })
+                  : t("Select a project first")
+              }
               onMouseEnter={(e) => {
                 if (!selectedCwd || newSessionPending) return
                 e.currentTarget.style.background = "var(--bg-selected)"
@@ -879,20 +858,11 @@ export function SessionSidebar({
             </button>
             <button
               onClick={() => loadSessions(false)}
+              {...stylex.props(inlineStyles.inline8)}
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
                 background: sessionRefreshDone ? "rgba(74,222,128,0.18)" : "var(--bg-hover)",
                 border: `1px solid ${sessionRefreshDone ? "rgba(74,222,128,0.4)" : "var(--border)"}`,
                 color: sessionRefreshDone ? "#4ade80" : "var(--text-muted)",
-                cursor: "pointer",
-                width: 32,
-                height: 32,
-                borderRadius: 7,
-                padding: 0,
-                flexShrink: 0,
-                transition: "background 0.3s, color 0.3s, border-color 0.3s",
               }}
               onMouseEnter={(e) => {
                 if (sessionRefreshDone) return
@@ -941,23 +911,14 @@ export function SessionSidebar({
         </div>
 
         {/* CWD picker */}
-        <div ref={dropdownRef} style={{ position: "relative" }}>
+        <div ref={dropdownRef} {...stylex.props(inlineStyles.inline9)}>
           <button
             onClick={() => setDropdownOpen((v) => !v)}
             title={selectedProject ?? selectedCwd ?? ""}
+            {...stylex.props(inlineStyles.inline10)}
             style={{
-              width: "100%",
-              display: "flex",
-              alignItems: "center",
-              padding: "6px 10px",
               background: selectedCwd ? "var(--bg-hover)" : "rgba(37,99,235,0.06)",
               border: selectedCwd ? "1px solid var(--border)" : "1px solid rgba(37,99,235,0.4)",
-              borderRadius: 7,
-              cursor: "pointer",
-              fontSize: 12,
-              color: "var(--text)",
-              textAlign: "left",
-              transition: "border-color 0.15s, background 0.15s",
             }}
           >
             {selectedCwd ? (
@@ -971,17 +932,7 @@ export function SessionSidebar({
                 }}
               />
             ) : (
-              <span
-                style={{
-                  flex: 1,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 11,
-                  color: "var(--text-dim)",
-                }}
-              >
+              <span {...stylex.props(inlineStyles.inline11)}>
                 {initialSessionId && !restoredRef.current ? "" : t("Select project…")}
               </span>
             )}
@@ -1003,7 +954,7 @@ export function SessionSidebar({
             }}
           >
             {showProjectFilter && (
-              <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
+              <div {...stylex.props(inlineStyles.inline12)}>
                 <input
                   value={projectFilter}
                   onChange={(e) => setProjectFilter(e.target.value)}
@@ -1015,22 +966,11 @@ export function SessionSidebar({
                   }}
                   placeholder={t("Filter projects…")}
                   autoFocus
-                  style={{
-                    width: "100%",
-                    fontSize: 11,
-                    fontFamily: "var(--font-mono)",
-                    padding: "5px 8px",
-                    border: "1px solid var(--border)",
-                    borderRadius: 5,
-                    outline: "none",
-                    background: "var(--bg)",
-                    color: "var(--text)",
-                    boxSizing: "border-box",
-                  }}
+                  {...stylex.props(inlineStyles.inline13)}
                 />
               </div>
             )}
-            <div style={{ maxHeight: "min(50vh, 380px)", overflowY: "auto" }}>
+            <div {...stylex.props(inlineStyles.inline14)}>
               {visibleProjects.map((project) => (
                 <button
                   key={project}
@@ -1042,23 +982,9 @@ export function SessionSidebar({
                     setCustomPathError(null)
                     setDropdownOpen(false)
                   }}
+                  {...stylex.props(inlineStyles.inline15)}
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 7,
-                    width: "100%",
-                    padding: "8px 10px",
-                    background: "var(--bg)",
-                    border: "none",
-                    borderBottom: "1px solid var(--border)",
                     color: project === selectedProject ? "var(--text)" : "var(--text-muted)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontSize: 11,
-                    fontFamily: "var(--font-mono)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
                   }}
                   title={project}
                 >
@@ -1072,19 +998,22 @@ export function SessionSidebar({
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      style={{ flexShrink: 0 }}
+                      {...stylex.props(inlineStyles.inline16)}
                     >
                       <polyline points="1.5 5 4 7.5 8.5 2.5" />
                     </svg>
                   )}
-                  {project !== selectedProject && <span style={{ width: 10, flexShrink: 0 }} />}
-                  <PathLabel text={displayCwd(project, homeDir)} style={{ flex: 1 }} />
+                  {project !== selectedProject && <span {...stylex.props(inlineStyles.inline17)} />}
+                  <PathLabel
+                    text={displayCwd(project, homeDir)}
+                    style={{
+                      flex: 1,
+                    }}
+                  />
                 </button>
               ))}
               {visibleProjects.length === 0 && projectFilter.trim() && (
-                <div style={{ padding: "8px 10px", fontSize: 11, color: "var(--text-dim)" }}>
-                  {t("No matching projects")}
-                </div>
+                <div {...stylex.props(inlineStyles.inline18)}>{t("No matching projects")}</div>
               )}
             </div>
 
@@ -1095,19 +1024,9 @@ export function SessionSidebar({
                   e.stopPropagation()
                   handleDefaultCwd()
                 }}
+                {...stylex.props(inlineStyles.inline19)}
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
-                  width: "100%",
-                  padding: "8px 10px",
-                  background: "none",
-                  border: "none",
                   borderTop: visibleProjects.length > 0 ? "1px solid var(--border)" : "none",
-                  color: "var(--text-muted)",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  fontSize: 11,
                 }}
               >
                 <svg
@@ -1119,7 +1038,7 @@ export function SessionSidebar({
                   strokeWidth="1.1"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  style={{ flexShrink: 0 }}
+                  {...stylex.props(inlineStyles.inline20)}
                 >
                   <path d="M1 3A1 1 0 0 1 2 2H4L5 3.5H8.5a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-7A.5.5 0 0 1 1 8V3Z" />
                 </svg>
@@ -1135,18 +1054,9 @@ export function SessionSidebar({
                   pickCustomPath()
                 }}
                 disabled={customPathValidating}
+                {...stylex.props(inlineStyles.inline21)}
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
-                  width: "100%",
-                  padding: "8px 10px",
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-muted)",
                   cursor: customPathValidating ? "wait" : "pointer",
-                  textAlign: "left",
-                  fontSize: 11,
                   opacity: customPathValidating ? 0.65 : 1,
                 }}
               >
@@ -1159,7 +1069,7 @@ export function SessionSidebar({
                   strokeWidth="1.1"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  style={{ flexShrink: 0 }}
+                  {...stylex.props(inlineStyles.inline22)}
                 >
                   <path d="M1 3A1 1 0 0 1 2 2H4L5 3.5H8.5a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-7A.5.5 0 0 1 1 8V3Z" />
                 </svg>
@@ -1181,19 +1091,7 @@ export function SessionSidebar({
                     },
                   )
                 }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 7,
-                  width: "100%",
-                  padding: "8px 10px",
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-muted)",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  fontSize: 11,
-                }}
+                {...stylex.props(inlineStyles.inline23)}
               >
                 <svg
                   width="10"
@@ -1203,7 +1101,7 @@ export function SessionSidebar({
                   stroke="currentColor"
                   strokeWidth="1.1"
                   strokeLinecap="round"
-                  style={{ flexShrink: 0 }}
+                  {...stylex.props(inlineStyles.inline24)}
                 >
                   <line x1="5" y1="1" x2="5" y2="9" />
                   <line x1="1" y1="5" x2="9" y2="5" />
@@ -1211,7 +1109,12 @@ export function SessionSidebar({
                 <span>{t("Enter path manually…")}</span>
               </button>
             ) : (
-              <div style={{ padding: "6px 8px", borderTop: visibleProjects.length > 0 ? "none" : undefined }}>
+              <div
+                {...stylex.props(inlineStyles.inline25)}
+                style={{
+                  borderTop: visibleProjects.length > 0 ? "none" : undefined,
+                }}
+              >
                 <input
                   ref={customPathInputRef}
                   value={customPathValue}
@@ -1231,32 +1134,14 @@ export function SessionSidebar({
                     }
                   }}
                   placeholder="/path/to/project"
-                  style={{
-                    width: "100%",
-                    fontSize: 11,
-                    fontFamily: "var(--font-mono)",
-                    padding: "5px 8px",
-                    border: "1px solid var(--accent)",
-                    borderRadius: 5,
-                    outline: "none",
-                    background: "var(--bg)",
-                    color: "var(--text)",
-                    boxSizing: "border-box",
-                  }}
+                  {...stylex.props(inlineStyles.inline26)}
                 />
-                <div style={{ display: "flex", gap: 5, marginTop: 5 }}>
+                <div {...stylex.props(inlineStyles.inline27)}>
                   <button
                     onClick={() => commitCustomPath()}
                     disabled={customPathValidating || !customPathValue.trim()}
+                    {...stylex.props(inlineStyles.inline28)}
                     style={{
-                      flex: 1,
-                      padding: "4px 0",
-                      background: "var(--accent)",
-                      border: "none",
-                      borderRadius: 5,
-                      color: "#fff",
-                      fontSize: 11,
-                      fontWeight: 600,
                       cursor: customPathValidating || !customPathValue.trim() ? "not-allowed" : "pointer",
                       opacity: customPathValidating || !customPathValue.trim() ? 0.65 : 1,
                     }}
@@ -1269,35 +1154,14 @@ export function SessionSidebar({
                       setCustomPathValue("")
                       setCustomPathError(null)
                     }}
-                    style={{
-                      flex: 1,
-                      padding: "4px 0",
-                      background: "var(--bg-hover)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 5,
-                      color: "var(--text-muted)",
-                      fontSize: 11,
-                      cursor: "pointer",
-                    }}
+                    {...stylex.props(inlineStyles.inline29)}
                   >
                     {t("Cancel")}
                   </button>
                 </div>
               </div>
             )}
-            {customPathError && (
-              <div
-                style={{
-                  padding: "0 8px 7px",
-                  color: "#dc2626",
-                  fontSize: 11,
-                  lineHeight: 1.35,
-                  overflowWrap: "anywhere",
-                }}
-              >
-                {customPathError}
-              </div>
-            )}
+            {customPathError && <div {...stylex.props(inlineStyles.inline30)}>{customPathError}</div>}
           </AnimatedDropdown>
         </div>
 
@@ -1315,27 +1179,11 @@ export function SessionSidebar({
               worktreeState.worktrees.find((w) => w.path === selectedCwd) ??
               worktreeState.worktrees.find((w) => w.isMain)
             return (
-              <div ref={wtDropdownRef} style={{ position: "relative", marginTop: 6 }}>
+              <div ref={wtDropdownRef} {...stylex.props(inlineStyles.inline31)}>
                 <button
                   onClick={() => setWtDropdownOpen((v) => !v)}
                   title={currentWt ? `${t("Switch worktree")}: ${currentWt.path}` : t("Switch worktree")}
-                  style={{
-                    width: "100%",
-                    height: 29,
-                    boxSizing: "border-box",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "0 10px",
-                    background: "var(--bg-hover)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 7,
-                    cursor: "pointer",
-                    fontSize: 11,
-                    lineHeight: 1.35,
-                    color: "var(--text-muted)",
-                    textAlign: "left",
-                  }}
+                  {...stylex.props(inlineStyles.inline32)}
                 >
                   <svg
                     width="11"
@@ -1346,8 +1194,8 @@ export function SessionSidebar({
                     strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
+                    {...stylex.props(inlineStyles.inline33)}
                     style={{
-                      flexShrink: 0,
                       color: currentWt && !currentWt.isMain ? "var(--accent)" : "var(--text-dim)",
                     }}
                   >
@@ -1358,15 +1206,15 @@ export function SessionSidebar({
                   </svg>
                   <PathLabel
                     text={currentWt ? (currentWt.branch ?? displayCwd(currentWt.path, homeDir)) : "…"}
-                    style={{ flex: 1, fontFamily: "var(--font-mono)", color: "var(--text)" }}
+                    style={{
+                      flex: 1,
+                      fontFamily: "var(--font-mono)",
+                      color: "var(--text)",
+                    }}
                   />
-                  {currentWt?.isMain && (
-                    <span style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 10 }}>main</span>
-                  )}
+                  {currentWt?.isMain && <span {...stylex.props(inlineStyles.inline34)}>main</span>}
                   {worktreeState.worktrees.length > 1 && (
-                    <span style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 10 }}>
-                      {worktreeState.worktrees.length}
-                    </span>
+                    <span {...stylex.props(inlineStyles.inline35)}>{worktreeState.worktrees.length}</span>
                   )}
                   <svg
                     width="9"
@@ -1377,7 +1225,7 @@ export function SessionSidebar({
                     strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    style={{ flexShrink: 0 }}
+                    {...stylex.props(inlineStyles.inline36)}
                   >
                     <polyline points="2 3.5 5 6.5 8 3.5" />
                   </svg>
@@ -1398,77 +1246,32 @@ export function SessionSidebar({
                     overflow: "hidden",
                   }}
                 >
-                  <div style={{ maxHeight: "min(40vh, 300px)", overflowY: "auto" }}>
+                  <div {...stylex.props(inlineStyles.inline37)}>
                     {worktreeState.worktrees.map((wt) => {
                       const isCurrent =
                         wt.path === selectedCwd ||
                         (wt.isMain && !worktreeState.worktrees.some((w) => w.path === selectedCwd))
                       if (wtConfirmRemove === wt.path) {
                         return (
-                          <div
-                            key={wt.path}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 6,
-                              padding: "7px 10px",
-                              borderBottom: "1px solid var(--border)",
-                              background: "rgba(239,68,68,0.06)",
-                            }}
-                          >
-                            <span
-                              style={{
-                                flex: 1,
-                                fontSize: 11,
-                                color: "var(--text)",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
+                          <div key={wt.path} {...stylex.props(inlineStyles.inline38)}>
+                            <span {...stylex.props(inlineStyles.inline39)}>
                               {t("Uncommitted changes. Force remove checkout?")}
                             </span>
                             <button
                               onClick={() => handleRemoveWorktree(wt.path, true)}
                               disabled={wtBusy}
-                              style={{
-                                padding: "3px 9px",
-                                background: "#ef4444",
-                                border: "none",
-                                borderRadius: 5,
-                                color: "#fff",
-                                fontSize: 11,
-                                fontWeight: 600,
-                                cursor: "pointer",
-                                flexShrink: 0,
-                              }}
+                              {...stylex.props(inlineStyles.inline40)}
                             >
                               {t("Force")}
                             </button>
-                            <button
-                              onClick={() => setWtConfirmRemove(null)}
-                              style={{
-                                padding: "3px 9px",
-                                background: "var(--bg-hover)",
-                                border: "1px solid var(--border)",
-                                borderRadius: 5,
-                                color: "var(--text-muted)",
-                                fontSize: 11,
-                                cursor: "pointer",
-                                flexShrink: 0,
-                              }}
-                            >
+                            <button onClick={() => setWtConfirmRemove(null)} {...stylex.props(inlineStyles.inline41)}>
                               {t("Cancel")}
                             </button>
                           </div>
                         )
                       }
                       return (
-                        <div
-                          key={wt.path}
-                          className="wt-row"
-                          style={{ display: "flex", alignItems: "center", borderBottom: "1px solid var(--border)" }}
-                        >
+                        <div key={wt.path} className="wt-row" {...stylex.props(inlineStyles.inline42)}>
                           <button
                             onClick={() => {
                               setSelectedCwd(wt.path)
@@ -1476,20 +1279,9 @@ export function SessionSidebar({
                               setWtError(null)
                             }}
                             title={wt.path}
+                            {...stylex.props(inlineStyles.inline43)}
                             style={{
-                              flex: 1,
-                              minWidth: 0,
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 7,
-                              padding: "8px 10px",
-                              background: "var(--bg)",
-                              border: "none",
                               color: isCurrent ? "var(--text)" : "var(--text-muted)",
-                              cursor: "pointer",
-                              textAlign: "left",
-                              fontSize: 11,
-                              fontFamily: "var(--font-mono)",
                             }}
                           >
                             {isCurrent ? (
@@ -1502,39 +1294,27 @@ export function SessionSidebar({
                                 strokeWidth="2"
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
-                                style={{ flexShrink: 0 }}
+                                {...stylex.props(inlineStyles.inline44)}
                               >
                                 <polyline points="1.5 5 4 7.5 8.5 2.5" />
                               </svg>
                             ) : (
-                              <span style={{ width: 10, flexShrink: 0 }} />
+                              <span {...stylex.props(inlineStyles.inline45)} />
                             )}
-                            <PathLabel text={wt.branch ?? displayCwd(wt.path, homeDir)} style={{ flex: 1 }} />
-                            {wt.isMain && (
-                              <span style={{ flexShrink: 0, color: "var(--text-dim)", fontSize: 10 }}>main</span>
-                            )}
+                            <PathLabel
+                              text={wt.branch ?? displayCwd(wt.path, homeDir)}
+                              style={{
+                                flex: 1,
+                              }}
+                            />
+                            {wt.isMain && <span {...stylex.props(inlineStyles.inline46)}>main</span>}
                           </button>
                           {!wt.isMain && (
                             <button
                               onClick={() => handleRemoveWorktree(wt.path, false)}
                               disabled={wtBusy}
                               title={`Remove worktree checkout ${wt.path}; the branch is kept`}
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                width: 34,
-                                height: 28,
-                                padding: 0,
-                                marginRight: 4,
-                                background: "none",
-                                border: "none",
-                                color: "var(--text-dim)",
-                                cursor: "pointer",
-                                borderRadius: 5,
-                                flexShrink: 0,
-                                transition: "color 0.12s, background 0.12s",
-                              }}
+                              {...stylex.props(inlineStyles.inline47)}
                               onMouseEnter={(e) => {
                                 e.currentTarget.style.color = "#ef4444"
                                 e.currentTarget.style.background = "rgba(239,68,68,0.08)"
@@ -1580,19 +1360,7 @@ export function SessionSidebar({
                         )
                       }}
                       title={t("Create a worktree checkout for a branch")}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 7,
-                        width: "100%",
-                        padding: "8px 10px",
-                        background: "none",
-                        border: "none",
-                        color: "var(--text-muted)",
-                        cursor: "pointer",
-                        textAlign: "left",
-                        fontSize: 11,
-                      }}
+                      {...stylex.props(inlineStyles.inline48)}
                     >
                       <svg
                         width="10"
@@ -1602,7 +1370,7 @@ export function SessionSidebar({
                         stroke="currentColor"
                         strokeWidth="1.1"
                         strokeLinecap="round"
-                        style={{ flexShrink: 0 }}
+                        {...stylex.props(inlineStyles.inline49)}
                       >
                         <line x1="5" y1="1" x2="5" y2="9" />
                         <line x1="1" y1="5" x2="9" y2="5" />
@@ -1610,7 +1378,7 @@ export function SessionSidebar({
                       <span>{t("New worktree…")}</span>
                     </button>
                   ) : (
-                    <div style={{ padding: "6px 8px" }}>
+                    <div {...stylex.props(inlineStyles.inline50)}>
                       <input
                         ref={wtNewInputRef}
                         value={wtNewBranch}
@@ -1630,32 +1398,14 @@ export function SessionSidebar({
                           }
                         }}
                         placeholder={t("branch name")}
-                        style={{
-                          width: "100%",
-                          fontSize: 11,
-                          fontFamily: "var(--font-mono)",
-                          padding: "5px 8px",
-                          border: "1px solid var(--accent)",
-                          borderRadius: 5,
-                          outline: "none",
-                          background: "var(--bg)",
-                          color: "var(--text)",
-                          boxSizing: "border-box",
-                        }}
+                        {...stylex.props(inlineStyles.inline51)}
                       />
-                      <div style={{ display: "flex", gap: 5, marginTop: 5 }}>
+                      <div {...stylex.props(inlineStyles.inline52)}>
                         <button
                           onClick={() => handleCreateWorktree()}
                           disabled={wtBusy || !wtNewBranch.trim()}
+                          {...stylex.props(inlineStyles.inline53)}
                           style={{
-                            flex: 1,
-                            padding: "4px 0",
-                            background: "var(--accent)",
-                            border: "none",
-                            borderRadius: 5,
-                            color: "#fff",
-                            fontSize: 11,
-                            fontWeight: 600,
                             cursor: wtBusy || !wtNewBranch.trim() ? "not-allowed" : "pointer",
                             opacity: wtBusy || !wtNewBranch.trim() ? 0.65 : 1,
                           }}
@@ -1668,35 +1418,14 @@ export function SessionSidebar({
                             setWtNewBranch("")
                             setWtError(null)
                           }}
-                          style={{
-                            flex: 1,
-                            padding: "4px 0",
-                            background: "var(--bg-hover)",
-                            border: "1px solid var(--border)",
-                            borderRadius: 5,
-                            color: "var(--text-muted)",
-                            fontSize: 11,
-                            cursor: "pointer",
-                          }}
+                          {...stylex.props(inlineStyles.inline54)}
                         >
                           Cancel
                         </button>
                       </div>
                     </div>
                   )}
-                  {wtError && (
-                    <div
-                      style={{
-                        padding: "5px 10px 8px",
-                        color: "#dc2626",
-                        fontSize: 11,
-                        lineHeight: 1.35,
-                        overflowWrap: "anywhere",
-                      }}
-                    >
-                      {wtError}
-                    </div>
-                  )}
+                  {wtError && <div {...stylex.props(inlineStyles.inline55)}>{wtError}</div>}
                 </AnimatedDropdown>
               </div>
             )
@@ -1707,26 +1436,7 @@ export function SessionSidebar({
             aria-disabled="true"
             tabIndex={-1}
             title={inactiveWorktreeSelector.title}
-            style={{
-              width: "100%",
-              height: 29,
-              boxSizing: "border-box",
-              marginTop: 6,
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "0 10px",
-              border: "1px solid var(--border)",
-              borderRadius: 7,
-              background: "var(--bg-hover)",
-              color: "var(--text-dim)",
-              fontSize: 11,
-              lineHeight: 1.35,
-              whiteSpace: "nowrap",
-              textAlign: "left",
-              cursor: "default",
-              opacity: 0.82,
-            }}
+            {...stylex.props(inlineStyles.inline56)}
           >
             <svg
               width="11"
@@ -1737,33 +1447,29 @@ export function SessionSidebar({
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-              style={{ flexShrink: 0 }}
+              {...stylex.props(inlineStyles.inline57)}
             >
               <line x1="6" y1="3" x2="6" y2="15" />
               <circle cx="18" cy="6" r="3" />
               <circle cx="6" cy="18" r="3" />
               <path d="M18 9a9 9 0 0 1-9 9" />
             </svg>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{inactiveWorktreeSelector.label}</span>
+            <span {...stylex.props(inlineStyles.inline58)}>{inactiveWorktreeSelector.label}</span>
           </button>
         )}
       </div>
 
       {/* Session list */}
       <div
+        {...stylex.props(inlineStyles.inline59)}
         style={{
           flex: explorerOpen && (selectedCwdProp || selectedCwd) ? "1 1 0" : "1 1 auto",
-          overflowY: "auto",
-          padding: "0",
-          minHeight: 80,
         }}
       >
-        {loading && (
-          <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>{t("Loading...")}</div>
-        )}
-        {error && <div style={{ padding: "12px 14px", color: "#f87171", fontSize: 12 }}>{error}</div>}
+        {loading && <div {...stylex.props(inlineStyles.inline60)}>{t("Loading...")}</div>}
+        {error && <div {...stylex.props(inlineStyles.inline61)}>{error}</div>}
         {!loading && !error && filteredSessions.length === 0 && (
-          <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>{t("No sessions found")}</div>
+          <div {...stylex.props(inlineStyles.inline62)}>{t("No sessions found")}</div>
         )}
         {sessionTree.map((node) => (
           <SessionTreeItem
@@ -1787,35 +1493,16 @@ export function SessionSidebar({
       {/* File Explorer section */}
       {(selectedCwdProp || selectedCwd) && (
         <div
+          {...stylex.props(inlineStyles.inline63)}
           style={{
-            borderTop: "1px solid var(--border)",
-            display: "flex",
-            flexDirection: "column",
             flex: explorerOpen ? "1 1 0" : "0 0 auto",
-            minHeight: 0,
-            overflow: "hidden",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+          <div {...stylex.props(inlineStyles.inline64)}>
             <button
               onClick={() => setExplorerOpen((v) => !v)}
               aria-expanded={explorerOpen}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                flex: 1,
-                padding: "6px 10px",
-                background: "none",
-                border: "none",
-                color: "var(--text-muted)",
-                cursor: "pointer",
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: "0.05em",
-                textTransform: "uppercase",
-                textAlign: "left",
-              }}
+              {...stylex.props(inlineStyles.inline65)}
             >
               <svg
                 width="9"
@@ -1826,10 +1513,9 @@ export function SessionSidebar({
                 strokeWidth="1.8"
                 strokeLinecap="round"
                 strokeLinejoin="round"
+                {...stylex.props(inlineStyles.inline66)}
                 style={{
                   transform: explorerOpen ? "rotate(90deg)" : "none",
-                  transition: "transform 0.15s",
-                  flexShrink: 0,
                 }}
               >
                 <polyline points="3 2 7 5 3 8" />
@@ -1849,21 +1535,10 @@ export function SessionSidebar({
                 )
               }}
               title={t("Refresh explorer")}
+              {...stylex.props(inlineStyles.inline67)}
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 26,
-                height: 26,
-                padding: 0,
-                marginRight: 6,
                 background: explorerRefreshDone ? "rgba(74,222,128,0.18)" : "none",
-                border: "none",
                 color: explorerRefreshDone ? "#4ade80" : "var(--text-dim)",
-                cursor: "pointer",
-                borderRadius: 5,
-                flexShrink: 0,
-                transition: "color 0.3s, background 0.3s",
               }}
               onMouseEnter={(e) => {
                 if (explorerRefreshDone) return
@@ -1907,7 +1582,7 @@ export function SessionSidebar({
             </button>
           </div>
           {explorerOpen && (
-            <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+            <div {...stylex.props(inlineStyles.inline68)}>
               <FileExplorer
                 cwd={selectedCwd ?? selectedCwdProp!}
                 onOpenFile={onOpenFile ?? (() => {})}
@@ -1921,7 +1596,6 @@ export function SessionSidebar({
     </div>
   )
 }
-
 function SessionTreeItem({
   node,
   selectedSessionId,
@@ -1945,21 +1619,15 @@ function SessionTreeItem({
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const hasChildren = node.children.length > 0
-
   return (
     <div>
-      <div style={{ position: "relative" }}>
+      <div {...stylex.props(inlineStyles.inline69)}>
         {/* Indent line for child sessions */}
         {depth > 0 && (
           <div
+            {...stylex.props(inlineStyles.inline70)}
             style={{
-              position: "absolute",
               left: depth * 12 + 6,
-              top: 0,
-              bottom: 0,
-              width: 1,
-              background: "var(--border)",
-              pointerEvents: "none",
             }}
           />
         )}
@@ -1999,24 +1667,18 @@ function SessionTreeItem({
     </div>
   )
 }
-
 function RunningSessionIndicator() {
   const { t } = useI18n()
   return (
-    <span
-      title={t("Agent running…")}
-      aria-label={t("Agent running")}
-      style={{
-        width: 14,
-        height: 14,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-        color: "var(--accent)",
-      }}
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ display: "block" }}>
+    <span title={t("Agent running…")} aria-label={t("Agent running")} {...stylex.props(inlineStyles.inline71)}>
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        {...stylex.props(inlineStyles.inline72)}
+      >
         <g>
           <path d="M21 12a9 9 0 1 1-3.8-7.4" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" />
           <animateTransform
@@ -2032,24 +1694,18 @@ function RunningSessionIndicator() {
     </span>
   )
 }
-
 function UnreadSessionIndicator() {
   const { t } = useI18n()
   return (
-    <span
-      title={t("New activity")}
-      aria-label={t("New session activity")}
-      style={{
-        width: 14,
-        height: 14,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-        color: "#0891b2",
-      }}
-    >
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" style={{ display: "block" }}>
+    <span title={t("New activity")} aria-label={t("New session activity")} {...stylex.props(inlineStyles.inline73)}>
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 14 14"
+        fill="none"
+        aria-hidden="true"
+        {...stylex.props(inlineStyles.inline74)}
+      >
         <circle cx="7" cy="7" r="2.5" fill="currentColor" />
         <circle cx="7" cy="7" r="3" stroke="currentColor" strokeWidth="1.4" opacity="0.32">
           <animate attributeName="r" values="3;6;3" dur="1.6s" repeatCount="indefinite" />
@@ -2059,7 +1715,6 @@ function UnreadSessionIndicator() {
     </span>
   )
 }
-
 function SessionItem({
   session,
   isSelected,
@@ -2094,9 +1749,7 @@ function SessionItem({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-
   const title = session.name || session.firstMessage.slice(0, 50) || session.id.slice(0, 12)
-
   const startRename = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation()
@@ -2104,36 +1757,50 @@ function SessionItem({
       setRenaming(true)
       runBrowser(
         after("0 millis", () => inputRef.current?.select()),
-        { onSuccess: () => undefined },
+        {
+          onSuccess: () => undefined,
+        },
       )
     },
     [session.name],
   )
-
   const commitRename = useCallback(() => {
     const name = renameValue.trim()
     setRenaming(false)
     if (name === (session.name ?? "")) return
     runApi(
-      withApi((api) => api.sessions.rename({ params: { id: session.id }, payload: { name } })),
+      withApi((api) =>
+        api.sessions.rename({
+          params: {
+            id: session.id,
+          },
+          payload: {
+            name,
+          },
+        }),
+      ),
       {
         onSuccess: () => onRenamed?.(),
       },
     )
   }, [renameValue, session.id, session.name, onRenamed])
-
   const handleDeleteClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     setConfirmDelete(true)
   }, [])
-
   const handleDeleteConfirm = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation()
       setConfirmDelete(false)
       setDeleting(true)
       runApi(
-        withApi((api) => api.sessions.remove({ params: { id: session.id } })),
+        withApi((api) =>
+          api.sessions.remove({
+            params: {
+              id: session.id,
+            },
+          }),
+        ),
         {
           onSuccess: () => onDeleted?.(session.id),
           onFailure: () => setDeleting(false),
@@ -2142,7 +1809,6 @@ function SessionItem({
     },
     [session.id, onDeleted],
   )
-
   const handleDeleteCancel = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     setConfirmDelete(false)
@@ -2150,7 +1816,6 @@ function SessionItem({
 
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
   const ITEM_HEIGHT = 54
-
   return (
     <div
       data-session-id={session.id}
@@ -2159,12 +1824,10 @@ function SessionItem({
       onMouseLeave={() => {
         setHovered(false)
       }}
+      {...stylex.props(inlineStyles.inline75)}
       style={{
         height: ITEM_HEIGHT,
-        display: "flex",
-        alignItems: "center",
         paddingLeft: depth > 0 ? depth * 12 + 14 : 14,
-        paddingRight: 8,
         cursor: confirmDelete || renaming ? "default" : "pointer",
         background: confirmDelete
           ? "rgba(239,68,68,0.06)"
@@ -2178,53 +1841,21 @@ function SessionItem({
           : isSelected
             ? "2px solid var(--accent)"
             : "2px solid transparent",
-        transition: "background 0.1s",
         opacity: deleting ? 0.5 : 1,
-        gap: 6,
-        overflow: "hidden",
       }}
     >
-      {confirmDelete ? (
-        /* ── Delete confirmation: same height, two flat buttons ── */
+      {confirmDelete /* ── Delete confirmation: same height, two flat buttons ── */ ? (
         <>
-          <div
-            style={{
-              flex: 1,
-              minWidth: 0,
-              fontSize: 12,
-              color: "var(--text)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
+          <div {...stylex.props(inlineStyles.inline76)}>
             {t("Delete")}{" "}
-            <span style={{ fontWeight: 600 }}>
+            <span {...stylex.props(inlineStyles.inline77)}>
               &ldquo;{title.slice(0, 22)}
               {title.length > 22 ? "…" : ""}&rdquo;
             </span>
             ?
           </div>
-          <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
-            <button
-              onClick={handleDeleteConfirm}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 4,
-                height: 30,
-                padding: "0 11px",
-                background: "#ef4444",
-                border: "none",
-                borderRadius: 6,
-                color: "#fff",
-                cursor: "pointer",
-                fontSize: 12,
-                fontWeight: 600,
-                whiteSpace: "nowrap",
-              }}
-            >
+          <div {...stylex.props(inlineStyles.inline78)}>
+            <button onClick={handleDeleteConfirm} {...stylex.props(inlineStyles.inline79)}>
               <svg
                 width="12"
                 height="12"
@@ -2242,30 +1873,12 @@ function SessionItem({
               </svg>
               {t("Delete")}
             </button>
-            <button
-              onClick={handleDeleteCancel}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                height: 30,
-                padding: "0 11px",
-                background: "var(--bg)",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                color: "var(--text-muted)",
-                cursor: "pointer",
-                fontSize: 12,
-                fontWeight: 500,
-                whiteSpace: "nowrap",
-              }}
-            >
+            <button onClick={handleDeleteCancel} {...stylex.props(inlineStyles.inline80)}>
               {t("Cancel")}
             </button>
           </div>
         </>
-      ) : renaming ? (
-        /* ── Rename: input fills the same row ── */
+      ) : renaming /* ── Rename: input fills the same row ── */ ? (
         <input
           ref={inputRef}
           value={renameValue}
@@ -2276,17 +1889,7 @@ function SessionItem({
             if (e.key === "Escape") setRenaming(false)
           }}
           autoFocus
-          style={{
-            flex: 1,
-            fontSize: 12,
-            padding: "5px 8px",
-            border: "1px solid var(--accent)",
-            borderRadius: 5,
-            outline: "none",
-            background: "var(--bg)",
-            color: "var(--text)",
-            height: 30,
-          }}
+          {...stylex.props(inlineStyles.inline81)}
         />
       ) : (
         /* ── Normal view ── */
@@ -2302,7 +1905,7 @@ function SessionItem({
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-              style={{ flexShrink: 0 }}
+              {...stylex.props(inlineStyles.inline82)}
             >
               <line x1="6" y1="3" x2="6" y2="15" />
               <circle cx="18" cy="6" r="3" />
@@ -2310,42 +1913,24 @@ function SessionItem({
               <path d="M18 9a9 9 0 0 1-9 9" />
             </svg>
           )}
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div {...stylex.props(inlineStyles.inline83)}>
             <div
+              {...stylex.props(inlineStyles.inline84)}
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 5,
-                minWidth: 0,
-                fontSize: 12,
                 fontWeight: isSelected ? 500 : 400,
-                lineHeight: 1.4,
-                color: "var(--text)",
               }}
               title={
                 isRunning ? `${title} · ${t("Agent running…")}` : isUnread ? `${title} · ${t("New activity")}` : title
               }
             >
               {isRunning ? <RunningSessionIndicator /> : isUnread ? <UnreadSessionIndicator /> : null}
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                {title}
-              </span>
+              <span {...stylex.props(inlineStyles.inline85)}>{title}</span>
             </div>
-            <div style={{ marginTop: 2, display: "flex", gap: 8, color: "var(--text-dim)", fontSize: 11, minWidth: 0 }}>
+            <div {...stylex.props(inlineStyles.inline86)}>
               <span title={session.modified}>{formatRelativeTime(session.modified, locale, currentTimeMillis)}</span>
               <span>{locale === "zh-CN" ? `${session.messageCount} 条消息` : `${session.messageCount} msgs`}</span>
               {session.worktreeBranch && (
-                <span
-                  title={`Worktree: ${session.cwd}`}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 3,
-                    color: "var(--accent)",
-                    minWidth: 0,
-                    overflow: "hidden",
-                  }}
-                >
+                <span title={`Worktree: ${session.cwd}`} {...stylex.props(inlineStyles.inline87)}>
                   <svg
                     width="9"
                     height="9"
@@ -2355,16 +1940,14 @@ function SessionItem({
                     strokeWidth="2.4"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    style={{ flexShrink: 0 }}
+                    {...stylex.props(inlineStyles.inline88)}
                   >
                     <line x1="6" y1="3" x2="6" y2="15" />
                     <circle cx="18" cy="6" r="3" />
                     <circle cx="6" cy="18" r="3" />
                     <path d="M18 9a9 9 0 0 1-9 9" />
                   </svg>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {session.worktreeBranch}
-                  </span>
+                  <span {...stylex.props(inlineStyles.inline89)}>{session.worktreeBranch}</span>
                 </span>
               )}
             </div>
@@ -2378,20 +1961,9 @@ function SessionItem({
                 onToggleCollapse?.()
               }}
               title={t(collapsed ? "Expand forks" : "Collapse forks")}
+              {...stylex.props(inlineStyles.inline90)}
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 20,
-                height: 20,
-                padding: 0,
-                flexShrink: 0,
-                background: "none",
-                border: "none",
-                color: "var(--text-dim)",
-                cursor: "pointer",
                 transform: collapsed ? "rotate(-90deg)" : "none",
-                transition: "transform 0.15s",
               }}
             >
               <svg
@@ -2411,25 +1983,11 @@ function SessionItem({
 
           {/* Action buttons — shown on hover */}
           {hovered && (
-            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+            <div {...stylex.props(inlineStyles.inline91)}>
               <button
                 onClick={startRename}
                 title={t("Rename")}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: 32,
-                  height: 32,
-                  padding: 0,
-                  background: "var(--bg-hover)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 7,
-                  color: "var(--text-muted)",
-                  cursor: "pointer",
-                  flexShrink: 0,
-                  transition: "background 0.12s, color 0.12s, border-color 0.12s",
-                }}
+                {...stylex.props(inlineStyles.inline92)}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = "var(--bg-selected)"
                   e.currentTarget.style.color = "var(--accent)"
@@ -2457,21 +2015,7 @@ function SessionItem({
               <button
                 onClick={handleDeleteClick}
                 title={t("Delete")}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: 32,
-                  height: 32,
-                  padding: 0,
-                  background: "var(--bg-hover)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 7,
-                  color: "var(--text-muted)",
-                  cursor: "pointer",
-                  flexShrink: 0,
-                  transition: "background 0.12s, color 0.12s, border-color 0.12s",
-                }}
+                {...stylex.props(inlineStyles.inline93)}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.background = "rgba(239,68,68,0.08)"
                   e.currentTarget.style.color = "#ef4444"
@@ -2506,3 +2050,719 @@ function SessionItem({
     </div>
   )
 }
+const inlineStyles = stylex.create({
+  inline1: {
+    unicodeBidi: "plaintext",
+  },
+  inline2: {
+    background: "none",
+    border: "none",
+    padding: 0,
+    cursor: "default",
+    fontWeight: 700,
+    fontSize: 15,
+    letterSpacing: "-0.01em",
+    fontFamily: "var(--font-mono)",
+    minWidth: "6ch",
+  },
+  inline3: {
+    display: "flex",
+    flexDirection: "column",
+    height: "100%",
+    overflow: "hidden",
+  },
+  inline4: {
+    padding: "12px 10px 10px",
+    borderBottom: "1px solid var(--border)",
+    flexShrink: 0,
+  },
+  inline5: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  inline6: {
+    display: "flex",
+    gap: 6,
+  },
+  inline7: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    background: "var(--bg-hover)",
+    border: "1px solid var(--border)",
+    height: 32,
+    paddingLeft: 10,
+    paddingRight: 12,
+    borderRadius: 7,
+    fontSize: 12,
+    fontWeight: 500,
+    letterSpacing: "-0.01em",
+    flexShrink: 0,
+    transition: "background 0.12s, color 0.12s, border-color 0.12s",
+  },
+  inline8: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    width: 32,
+    height: 32,
+    borderRadius: 7,
+    padding: 0,
+    flexShrink: 0,
+    transition: "background 0.3s, color 0.3s, border-color 0.3s",
+  },
+  inline9: {
+    position: "relative",
+  },
+  inline10: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    padding: "6px 10px",
+    borderRadius: 7,
+    cursor: "pointer",
+    fontSize: 12,
+    color: "var(--text)",
+    textAlign: "left",
+    transition: "border-color 0.15s, background 0.15s",
+  },
+  inline11: {
+    flex: 1,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    color: "var(--text-dim)",
+  },
+  inline12: {
+    padding: "6px 8px",
+    borderBottom: "1px solid var(--border)",
+  },
+  inline13: {
+    width: "100%",
+    fontSize: 11,
+    fontFamily: "var(--font-mono)",
+    padding: "5px 8px",
+    border: "1px solid var(--border)",
+    borderRadius: 5,
+    outline: "none",
+    background: "var(--bg)",
+    color: "var(--text)",
+    boxSizing: "border-box",
+  },
+  inline14: {
+    maxHeight: "min(50vh, 380px)",
+    overflowY: "auto",
+  },
+  inline15: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    width: "100%",
+    padding: "8px 10px",
+    background: "var(--bg)",
+    border: "none",
+    borderBottom: "1px solid var(--border)",
+    cursor: "pointer",
+    textAlign: "left",
+    fontSize: 11,
+    fontFamily: "var(--font-mono)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  inline16: {
+    flexShrink: 0,
+  },
+  inline17: {
+    width: 10,
+    flexShrink: 0,
+  },
+  inline18: {
+    padding: "8px 10px",
+    fontSize: 11,
+    color: "var(--text-dim)",
+  },
+  inline19: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    width: "100%",
+    padding: "8px 10px",
+    background: "none",
+    border: "none",
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    textAlign: "left",
+    fontSize: 11,
+  },
+  inline20: {
+    flexShrink: 0,
+  },
+  inline21: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    width: "100%",
+    padding: "8px 10px",
+    background: "none",
+    border: "none",
+    color: "var(--text-muted)",
+    textAlign: "left",
+    fontSize: 11,
+  },
+  inline22: {
+    flexShrink: 0,
+  },
+  inline23: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    width: "100%",
+    padding: "8px 10px",
+    background: "none",
+    border: "none",
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    textAlign: "left",
+    fontSize: 11,
+  },
+  inline24: {
+    flexShrink: 0,
+  },
+  inline25: {
+    padding: "6px 8px",
+  },
+  inline26: {
+    width: "100%",
+    fontSize: 11,
+    fontFamily: "var(--font-mono)",
+    padding: "5px 8px",
+    border: "1px solid var(--accent)",
+    borderRadius: 5,
+    outline: "none",
+    background: "var(--bg)",
+    color: "var(--text)",
+    boxSizing: "border-box",
+  },
+  inline27: {
+    display: "flex",
+    gap: 5,
+    marginTop: 5,
+  },
+  inline28: {
+    flex: 1,
+    padding: "4px 0",
+    background: "var(--accent)",
+    border: "none",
+    borderRadius: 5,
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: 600,
+  },
+  inline29: {
+    flex: 1,
+    padding: "4px 0",
+    background: "var(--bg-hover)",
+    border: "1px solid var(--border)",
+    borderRadius: 5,
+    color: "var(--text-muted)",
+    fontSize: 11,
+    cursor: "pointer",
+  },
+  inline30: {
+    padding: "0 8px 7px",
+    color: "#dc2626",
+    fontSize: 11,
+    lineHeight: 1.35,
+    overflowWrap: "anywhere",
+  },
+  inline31: {
+    position: "relative",
+    marginTop: 6,
+  },
+  inline32: {
+    width: "100%",
+    height: 29,
+    boxSizing: "border-box",
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "0 10px",
+    background: "var(--bg-hover)",
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    cursor: "pointer",
+    fontSize: 11,
+    lineHeight: 1.35,
+    color: "var(--text-muted)",
+    textAlign: "left",
+  },
+  inline33: {
+    flexShrink: 0,
+  },
+  inline34: {
+    flexShrink: 0,
+    color: "var(--text-dim)",
+    fontSize: 10,
+  },
+  inline35: {
+    flexShrink: 0,
+    color: "var(--text-dim)",
+    fontSize: 10,
+  },
+  inline36: {
+    flexShrink: 0,
+  },
+  inline37: {
+    maxHeight: "min(40vh, 300px)",
+    overflowY: "auto",
+  },
+  inline38: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "7px 10px",
+    borderBottom: "1px solid var(--border)",
+    background: "rgba(239,68,68,0.06)",
+  },
+  inline39: {
+    flex: 1,
+    fontSize: 11,
+    color: "var(--text)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  inline40: {
+    padding: "3px 9px",
+    background: "#ef4444",
+    border: "none",
+    borderRadius: 5,
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  inline41: {
+    padding: "3px 9px",
+    background: "var(--bg-hover)",
+    border: "1px solid var(--border)",
+    borderRadius: 5,
+    color: "var(--text-muted)",
+    fontSize: 11,
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  inline42: {
+    display: "flex",
+    alignItems: "center",
+    borderBottom: "1px solid var(--border)",
+  },
+  inline43: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    padding: "8px 10px",
+    background: "var(--bg)",
+    border: "none",
+    cursor: "pointer",
+    textAlign: "left",
+    fontSize: 11,
+    fontFamily: "var(--font-mono)",
+  },
+  inline44: {
+    flexShrink: 0,
+  },
+  inline45: {
+    width: 10,
+    flexShrink: 0,
+  },
+  inline46: {
+    flexShrink: 0,
+    color: "var(--text-dim)",
+    fontSize: 10,
+  },
+  inline47: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 34,
+    height: 28,
+    padding: 0,
+    marginRight: 4,
+    background: "none",
+    border: "none",
+    color: "var(--text-dim)",
+    cursor: "pointer",
+    borderRadius: 5,
+    flexShrink: 0,
+    transition: "color 0.12s, background 0.12s",
+  },
+  inline48: {
+    display: "flex",
+    alignItems: "center",
+    gap: 7,
+    width: "100%",
+    padding: "8px 10px",
+    background: "none",
+    border: "none",
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    textAlign: "left",
+    fontSize: 11,
+  },
+  inline49: {
+    flexShrink: 0,
+  },
+  inline50: {
+    padding: "6px 8px",
+  },
+  inline51: {
+    width: "100%",
+    fontSize: 11,
+    fontFamily: "var(--font-mono)",
+    padding: "5px 8px",
+    border: "1px solid var(--accent)",
+    borderRadius: 5,
+    outline: "none",
+    background: "var(--bg)",
+    color: "var(--text)",
+    boxSizing: "border-box",
+  },
+  inline52: {
+    display: "flex",
+    gap: 5,
+    marginTop: 5,
+  },
+  inline53: {
+    flex: 1,
+    padding: "4px 0",
+    background: "var(--accent)",
+    border: "none",
+    borderRadius: 5,
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: 600,
+  },
+  inline54: {
+    flex: 1,
+    padding: "4px 0",
+    background: "var(--bg-hover)",
+    border: "1px solid var(--border)",
+    borderRadius: 5,
+    color: "var(--text-muted)",
+    fontSize: 11,
+    cursor: "pointer",
+  },
+  inline55: {
+    padding: "5px 10px 8px",
+    color: "#dc2626",
+    fontSize: 11,
+    lineHeight: 1.35,
+    overflowWrap: "anywhere",
+  },
+  inline56: {
+    width: "100%",
+    height: 29,
+    boxSizing: "border-box",
+    marginTop: 6,
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "0 10px",
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    background: "var(--bg-hover)",
+    color: "var(--text-dim)",
+    fontSize: 11,
+    lineHeight: 1.35,
+    whiteSpace: "nowrap",
+    textAlign: "left",
+    cursor: "default",
+    opacity: 0.82,
+  },
+  inline57: {
+    flexShrink: 0,
+  },
+  inline58: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  inline59: {
+    overflowY: "auto",
+    padding: "0",
+    minHeight: 80,
+  },
+  inline60: {
+    padding: "16px 14px",
+    color: "var(--text-muted)",
+    fontSize: 12,
+  },
+  inline61: {
+    padding: "12px 14px",
+    color: "#f87171",
+    fontSize: 12,
+  },
+  inline62: {
+    padding: "16px 14px",
+    color: "var(--text-muted)",
+    fontSize: 12,
+  },
+  inline63: {
+    borderTop: "1px solid var(--border)",
+    display: "flex",
+    flexDirection: "column",
+    minHeight: 0,
+    overflow: "hidden",
+  },
+  inline64: {
+    display: "flex",
+    alignItems: "center",
+    flexShrink: 0,
+  },
+  inline65: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    flex: 1,
+    padding: "6px 10px",
+    background: "none",
+    border: "none",
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: "0.05em",
+    textTransform: "uppercase",
+    textAlign: "left",
+  },
+  inline66: {
+    transition: "transform 0.15s",
+    flexShrink: 0,
+  },
+  inline67: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 26,
+    height: 26,
+    padding: 0,
+    marginRight: 6,
+    border: "none",
+    cursor: "pointer",
+    borderRadius: 5,
+    flexShrink: 0,
+    transition: "color 0.3s, background 0.3s",
+  },
+  inline68: {
+    flex: 1,
+    overflowY: "auto",
+    overflowX: "hidden",
+  },
+  inline69: {
+    position: "relative",
+  },
+  inline70: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 1,
+    background: "var(--border)",
+    pointerEvents: "none",
+  },
+  inline71: {
+    width: 14,
+    height: 14,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    color: "var(--accent)",
+  },
+  inline72: {
+    display: "block",
+  },
+  inline73: {
+    width: 14,
+    height: 14,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    color: "#0891b2",
+  },
+  inline74: {
+    display: "block",
+  },
+  inline75: {
+    display: "flex",
+    alignItems: "center",
+    paddingRight: 8,
+    transition: "background 0.1s",
+    gap: 6,
+    overflow: "hidden",
+  },
+  inline76: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    color: "var(--text)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  inline77: {
+    fontWeight: 600,
+  },
+  inline78: {
+    display: "flex",
+    gap: 5,
+    flexShrink: 0,
+  },
+  inline79: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    height: 30,
+    padding: "0 11px",
+    background: "#ef4444",
+    border: "none",
+    borderRadius: 6,
+    color: "#fff",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+  },
+  inline80: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 30,
+    padding: "0 11px",
+    background: "var(--bg)",
+    border: "1px solid var(--border)",
+    borderRadius: 6,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 500,
+    whiteSpace: "nowrap",
+  },
+  inline81: {
+    flex: 1,
+    fontSize: 12,
+    padding: "5px 8px",
+    border: "1px solid var(--accent)",
+    borderRadius: 5,
+    outline: "none",
+    background: "var(--bg)",
+    color: "var(--text)",
+    height: 30,
+  },
+  inline82: {
+    flexShrink: 0,
+  },
+  inline83: {
+    flex: 1,
+    minWidth: 0,
+  },
+  inline84: {
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 1.4,
+    color: "var(--text)",
+  },
+  inline85: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    minWidth: 0,
+  },
+  inline86: {
+    marginTop: 2,
+    display: "flex",
+    gap: 8,
+    color: "var(--text-dim)",
+    fontSize: 11,
+    minWidth: 0,
+  },
+  inline87: {
+    display: "flex",
+    alignItems: "center",
+    gap: 3,
+    color: "var(--accent)",
+    minWidth: 0,
+    overflow: "hidden",
+  },
+  inline88: {
+    flexShrink: 0,
+  },
+  inline89: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  inline90: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 20,
+    height: 20,
+    padding: 0,
+    flexShrink: 0,
+    background: "none",
+    border: "none",
+    color: "var(--text-dim)",
+    cursor: "pointer",
+    transition: "transform 0.15s",
+  },
+  inline91: {
+    display: "flex",
+    gap: 4,
+    flexShrink: 0,
+  },
+  inline92: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 32,
+    height: 32,
+    padding: 0,
+    background: "var(--bg-hover)",
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    flexShrink: 0,
+    transition: "background 0.12s, color 0.12s, border-color 0.12s",
+  },
+  inline93: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 32,
+    height: 32,
+    padding: 0,
+    background: "var(--bg-hover)",
+    border: "1px solid var(--border)",
+    borderRadius: 7,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    flexShrink: 0,
+    transition: "background 0.12s, color 0.12s, border-color 0.12s",
+  },
+})
