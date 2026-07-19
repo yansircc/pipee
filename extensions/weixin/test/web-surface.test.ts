@@ -10,6 +10,16 @@ describe("Weixin Web Surface algebra", () => {
     expect(() =>
       Schema.decodeUnknownSync(WeixinWebAction)({ _tag: "Send", text: "open" }),
     ).toThrow();
+    expect(
+      Schema.decodeUnknownSync(WeixinWebAction)({
+        _tag: "SetDefault",
+        sessionId: "session-2",
+        cwd: "/workspace/two",
+      }),
+    ).toEqual({ _tag: "SetDefault", sessionId: "session-2", cwd: "/workspace/two" });
+    expect(() =>
+      Schema.decodeUnknownSync(WeixinWebAction)({ _tag: "SetDefault", sessionId: "session-2" }),
+    ).toThrow();
   });
 
   it("projects account state without becoming a second owner", () => {

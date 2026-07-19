@@ -5,6 +5,7 @@
     "src/browser/service-worker.ts",
     "src/browser/popup.ts",
     "src/browser/injected/snapshot.ts",
+    "src/web/app.ts",
     "test-suite/**/*.test.ts",
     "test-suite/**/*.js"
   ],

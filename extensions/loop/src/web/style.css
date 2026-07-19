@@ -30,6 +30,11 @@ body {
 .top p {
   margin: 5px 0 0;
 }
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .live {
   color: #6558d9;
   font-size: 12px;
@@ -110,7 +115,10 @@ body {
 }
 .row {
   display: grid;
-  grid-template-columns: 42px minmax(220px, 1.5fr) minmax(150px, 0.8fr) 110px 160px;
+  grid-template-columns: 42px minmax(220px, 1.5fr) minmax(140px, 0.75fr) minmax(
+      150px,
+      0.8fr
+    ) 90px 160px;
   align-items: center;
   padding: 15px 18px;
   border-bottom: 1px solid #eff0f3;
@@ -128,10 +136,20 @@ body {
   place-items: center;
 }
 .name b,
-.schedule b {
+.schedule b,
+.owner b {
   display: block;
   font-size: 13px;
   margin-bottom: 4px;
+}
+.owner button {
+  display: block;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  color: #6558d9;
+  background: transparent;
+  font-size: 11px;
 }
 .phase {
   font-size: 12px;
@@ -240,7 +258,8 @@ button.primary {
   .row {
     grid-template-columns: 36px 1fr 120px;
   }
-  .schedule {
+  .schedule,
+  .owner {
     display: none;
   }
   .actions {

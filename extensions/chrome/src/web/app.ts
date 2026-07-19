@@ -1,7 +1,18 @@
 import { connectWebSurfaceBrowser } from "@pi-suite/companion-contracts/web-surface-browser";
-import type { JsonValue } from "@pi-suite/companion-contracts/web-surface";
+import type {
+  JsonValue,
+  WebSurfaceSessionContext,
+} from "@pi-suite/companion-contracts/web-surface";
+
 type Tab = { id: number; active: boolean; title: string; url: string };
 type Receipt = { at: number; operation: string; tabId?: number; result: string; evidence?: string };
+type Activity = { operation: string; startedAt: number };
+type ActivityEvent = {
+  at: number;
+  operation: string;
+  phase: "started" | "completed" | "failed";
+  message?: string;
+};
 type View = {
   status: {
     state: string;
@@ -11,17 +22,26 @@ type View = {
   };
   tabs: Tab[];
   receipts: Receipt[];
+  activity: Activity | null;
+  events: ActivityEvent[];
 };
+type SessionActivity = { session: WebSurfaceSessionContext; view: View };
+
 const root = document.querySelector<HTMLDivElement>("#app")!;
-let view: View | null = null;
-let newTab = false;
-const esc = (v: string | number | null | undefined) =>
-  String(v ?? "").replace(
+const sessions = new Map<string, WebSurfaceSessionContext>();
+const views = new Map<string, SessionActivity>();
+let liveSessionId: string | null = null;
+let installOpen = false;
+
+const esc = (value: string | number | null | undefined) =>
+  String(value ?? "").replace(
     /[&<>"']/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!,
+    (character) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!,
   );
-const asView = (v: JsonValue | null): View | null =>
-  v && typeof v === "object" && !Array.isArray(v) ? (v as unknown as View) : null;
+const asView = (value: JsonValue | null): View | null =>
+  value && typeof value === "object" && !Array.isArray(value) ? (value as unknown as View) : null;
+const sessionName = (session: WebSurfaceSessionContext) => session.name || session.sessionId;
 const host = (url: string) => {
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -32,65 +52,172 @@ const time = new Intl.DateTimeFormat("zh-CN", {
   minute: "2-digit",
   second: "2-digit",
 });
-function render() {
-  if (!view) return;
-  const ready = view.status.state === "ready";
-  root.innerHTML = `<header class="top"><div><h1>Chrome 自动化</h1><p>session-bound Web Surface · @yansircc/pi-chrome</p></div><div class="top-actions"><button data-action="chat">在对话中执行任务</button><button class="primary" data-action="new" ${ready ? "" : "disabled"}>＋ 新建页面</button></div></header><main class="content"><section class="hero"><div class="connector"><div class="chrome">C</div><div><span class="muted">当前 Chrome Connector</span><h2>${esc(view.status.connector?.label ?? "等待 Chrome extension")}</h2><p class="muted">${esc(view.status.state)} · bridge ${esc(view.status.bridge)}</p></div></div><div class="metric"><span>Session-owned tabs</span><strong>${view.tabs.length}</strong><p class="muted">${view.tabs.filter((t) => t.active).length} 个活动页面</p></div><div class="metric"><span>本次运行</span><strong>${view.receipts.length}</strong><p class="muted">typed operations</p></div><div class="metric"><span>证据产物</span><strong>${view.receipts.filter((r) => r.evidence).length}</strong><p class="muted">snapshot / screenshot</p></div></section><div class="note">这里只管理当前 Session 拥有的 tabs。聚焦、snapshot、截图和关闭直接执行；导航、点击、填写等复杂任务交给 Agent。所有动作绑定精确 tab id。</div><div class="section"><h3>当前页面</h3><p class="muted">没有 active-tab fallback</p></div><div class="layout"><section class="card">${view.tabs.length ? view.tabs.map((tab) => `<div class="tab" data-id="${tab.id}"><span class="favicon">${esc(host(tab.url).slice(0, 2).toUpperCase() || "C")}</span><span class="tab-copy"><b>${esc(tab.title || "Untitled")}</b><span class="muted">${esc(host(tab.url))} · tab ${tab.id}</span></span><span class="state ${tab.active ? "active" : ""}">${tab.active ? "● 当前页面" : "后台页面"}</span><span class="actions"><button class="icon" data-action="activate" title="聚焦">⌗</button><button class="icon" data-action="snapshot" title="Snapshot">◉</button><button class="icon" data-action="screenshot" title="截图">▣</button><button class="icon danger" data-action="close" title="关闭">×</button></span></div>`).join("") : `<div class="empty">当前 Session 尚无页面。</div>`}</section><section class="card health"><h4>Connector 健康</h4><div class="health-row"><i class="dot"></i><div><b>Loopback bridge</b><p class="muted">${esc(view.status.bridge)}</p></div></div><div class="health-row"><i class="dot"></i><div><b>Chrome extension</b><p class="muted">${esc(view.status.connector?.connected ? "connected" : "offline")}</p></div></div><div class="health-row"><i class="dot"></i><div><b>Single flight</b><p class="muted">由 Runtime controller 强制</p></div></div>${view.status.errorMessage ? `<p class="muted">${esc(view.status.errorMessage)}</p>` : ""}</section></div><section class="card log"><h4>最近操作与证据</h4>${view.receipts.length ? view.receipts.map((r) => `<div class="receipt"><time>${time.format(r.at)}</time><span class="op">${esc(r.operation)}</span><span>tab ${esc(r.tabId ?? "—")}</span><span>${esc(r.evidence ?? r.result)}</span></div>`).join("") : `<p class="muted">尚无 Web Surface 操作。</p>`}</section></main>`;
-  if (newTab)
-    root.insertAdjacentHTML(
-      "beforeend",
-      `<div class="overlay"><form class="modal" id="new-tab"><h2>新建 Session-owned 页面</h2><input name="url" type="url" value="https://" required placeholder="https://example.com"><p class="muted">创建后归当前 Pi Session 所有。</p><div class="foot"><button type="button" data-action="cancel">取消</button><button class="primary">创建页面</button></div></form></div>`,
+const currentTab = (view: View) => view.tabs.find((tab) => tab.active) ?? view.tabs[0];
+const activities = () =>
+  [...views.values()]
+    .filter(({ view }) => view.activity !== null)
+    .sort(
+      (left, right) =>
+        (right.view.receipts[0]?.at ?? 0) - (left.view.receipts[0]?.at ?? 0) ||
+        left.session.sessionId.localeCompare(right.session.sessionId),
     );
+
+function renderLive(activity: SessionActivity) {
+  const tab = currentTab(activity.view);
+  root.insertAdjacentHTML(
+    "beforeend",
+    `<div class="overlay"><section class="live-modal"><header><div><h2>${esc(sessionName(activity.session))}</h2><p>Chrome 现场直播 · 只读 projection</p></div><button data-action="close-live" aria-label="关闭">×</button></header><div class="live-body"><div class="live-stage"><div class="browser-bar"><span></span><span></span><span></span><b>${esc(tab ? host(tab.url) : "等待页面")}</b></div><div class="browser-page"><strong>${esc(tab?.title ?? "Agent 尚未打开页面")}</strong><p>${esc(tab?.url ?? "")}</p><div class="page-placeholder">真实页面接管仍通过 Chrome Companion 完成</div></div></div><aside class="live-events"><h3>最近事件</h3><div class="event-list">${
+      activity.view.events.length
+        ? activity.view.events
+            .slice(0, 60)
+            .map(
+              (entry) =>
+                `<div class="event"><time>${time.format(entry.at)}</time><div><b>${esc(entry.operation)}</b><p>${esc(entry.phase)}${entry.message ? ` · ${esc(entry.message)}` : ""}</p></div></div>`,
+            )
+            .join("")
+        : `<p class="muted">尚无可投影事件。</p>`
+    }</div></aside></div><footer><button data-action="open" data-session="${esc(activity.session.sessionId)}">打开所属对话</button><span>事件列表最多保留 60 条，超出后从最旧事件淘汰。</span></footer></section></div>`,
+  );
 }
+
+function renderInstall() {
+  root.insertAdjacentHTML(
+    "beforeend",
+    `<div class="overlay"><section class="install-modal"><header><div><h2>安装 Chrome Companion</h2><p>ZIP 可以直接拖入扩展程序页面，无需解压。</p></div><button data-action="close-install" aria-label="关闭">×</button></header><div class="install-steps"><div class="install-step"><b>1</b><div><strong>下载扩展 ZIP</strong><p>下载由当前 pi-chrome package 提供的精确构建产物。</p></div><button class="primary" data-action="download">下载 ZIP</button></div><div class="install-step"><b>2</b><div><strong>打开 Chrome 扩展程序页面</strong><p>在地址栏输入 <code>chrome://extensions</code>，然后开启右上角“开发者模式”。</p></div></div><div class="install-step"><b>3</b><div><strong>把 ZIP 直接拖入页面</strong><p>出现“Chrome Companion 已连接”且兼容性验证通过，即代表安装成功。</p></div></div><details><summary>如果当前 Chrome 或策略拒绝 ZIP</summary><p>仅此时解压 ZIP，再点击“加载已解压的扩展程序”选择该目录。</p></details></div></section></div>`,
+  );
+}
+
+function render() {
+  const all = activities();
+  const allViews = [...views.values()];
+  const activeSessionIds = new Set(all.map(({ session }) => session.sessionId));
+  const connector = allViews.find(({ view }) => view.status.connector?.connected)?.view.status
+    .connector;
+  const results = allViews
+    .flatMap((activity) => {
+      const receipt = activity.view.receipts[0];
+      return receipt === undefined
+        ? []
+        : [{ activity, receipt, evidenceCount: activity.view.receipts.length }];
+    })
+    .sort((left, right) => right.receipt.at - left.receipt.at);
+  const tabs = allViews.flatMap((activity) =>
+    activeSessionIds.has(activity.session.sessionId)
+      ? []
+      : activity.view.tabs.map((tab) => ({ activity, tab })),
+  );
+  root.innerHTML = `<header class="top"><div><h1>Chrome 自动化</h1><p>browser activity supervision · @yansircc/pi-chrome</p></div><div class="connector-status"><i class="${connector ? "ok" : ""}"></i><span>Chrome Companion ${connector ? "已连接" : "未连接"}</span><button data-action="connector">${connector ? "查看安装说明" : "安装 Companion"}</button></div></header><main class="content"><div class="note">Agent 自主操作 Chrome。这里用于观察进度、查看结果和处理明确异常；不会把导航、点击、填写重新做成人工按钮。</div><div class="section"><div><h3>正在进行</h3><p class="muted">按 Session 展示浏览器活动</p></div></div><section class="activity-list">${
+    all.length
+      ? all
+          .map((activity) => {
+            const tab = currentTab(activity.view);
+            return `<article class="activity-card"><div class="activity-mark">C</div><div class="activity-copy"><span class="running"><i></i>Agent 正在操作</span><h2>${esc(sessionName(activity.session))}</h2><p>${esc(tab?.title ?? "等待 Agent 打开页面")}</p><small>${esc(tab ? host(tab.url) : activity.session.cwd)} · 当前操作：${esc(activity.view.activity?.operation)} · ${activity.view.tabs.length} 个页面</small></div><div class="activity-actions"><button data-action="open" data-session="${esc(activity.session.sessionId)}">打开对话</button><button class="primary" data-action="live" data-session="${esc(activity.session.sessionId)}">现场直播</button><button class="danger" data-action="terminate" data-session="${esc(activity.session.sessionId)}">终止操作</button></div></article>`;
+          })
+          .join("")
+      : `<div class="empty">当前没有进行中的浏览器任务。</div>`
+  }</section><div class="section results-heading"><div><h3>最近证据</h3><p class="muted">每个 Session 只展示最新摘要，不展开完整 tool 流水账</p></div></div><section class="card results">${
+    results.length
+      ? results
+          .slice(0, 12)
+          .map(
+            ({ activity, receipt, evidenceCount }) =>
+              `<div class="result-row"><time>${time.format(receipt.at)}</time><div><b>${esc(sessionName(activity.session))}</b><p>最新动作 ${esc(receipt.operation)} · ${evidenceCount} 条近期证据</p></div><span>${esc(receipt.evidence ?? "Receipt")}</span><button data-action="open" data-session="${esc(activity.session.sessionId)}">打开对话</button></div>`,
+          )
+          .join("")
+      : `<div class="empty">尚无浏览器证据。</div>`
+  }</section><details class="card idle"><summary>闲置资源 <span>${tabs.length} 个 Session-owned tabs · 默认折叠</span></summary>${
+    tabs.length
+      ? tabs
+          .map(
+            ({ activity, tab }) =>
+              `<div class="idle-row" data-session="${esc(activity.session.sessionId)}" data-tab="${tab.id}"><div><b>${esc(tab.title || "Untitled")}</b><p>${esc(sessionName(activity.session))} · ${esc(host(tab.url))}</p></div><button data-action="close-tab">关闭</button></div>`,
+          )
+          .join("")
+      : `<div class="empty">没有闲置页面。</div>`
+  }</details></main>`;
+  const live = liveSessionId ? views.get(liveSessionId) : undefined;
+  if (live) renderLive(live);
+  if (installOpen) renderInstall();
+}
+
 void connectWebSurfaceBrowser({
-  projection: (v) => {
-    view = asView(v);
+  sessions: (next) => {
+    sessions.clear();
+    for (const session of next) sessions.set(session.sessionId, session);
+    render();
+  },
+  projection: (session, value) => {
+    const view = asView(value);
+    if (view) views.set(session.sessionId, { session, view });
+    else views.delete(session.sessionId);
+    render();
+  },
+  sessionClosed: (sessionId) => {
+    views.delete(sessionId);
+    if (liveSessionId === sessionId) liveSessionId = null;
     render();
   },
 }).then((client) => {
   root.addEventListener("click", (event) => {
     const button = (event.target as Element).closest<HTMLButtonElement>("button[data-action]");
-    if (!button || !view) return;
+    if (!button) return;
     const action = button.dataset["action"];
-    if (action === "chat") return client.navigate("/");
-    if (action === "new") {
-      newTab = true;
-      return render();
+    const sessionId =
+      button.dataset["session"] ??
+      button.closest<HTMLElement>("[data-session]")?.dataset["session"];
+    if (action === "connector") {
+      installOpen = true;
+      render();
+      return;
     }
-    if (action === "cancel") {
-      newTab = false;
-      return render();
+    if (action === "close-install") {
+      installOpen = false;
+      render();
+      return;
     }
-    const row = button.closest<HTMLElement>("[data-id]");
-    const tabId = Number(row?.dataset["id"]);
+    if (action === "download") {
+      client.navigate("/api/packages/plugins/pi-chrome/browser-extension.zip");
+      return;
+    }
+    if (action === "open" && sessionId) {
+      client.navigate(`/?session=${encodeURIComponent(sessionId)}`);
+      return;
+    }
+    if (action === "live" && sessionId) {
+      liveSessionId = sessionId;
+      render();
+      return;
+    }
+    if (action === "close-live") {
+      liveSessionId = null;
+      render();
+      return;
+    }
+    if (action === "terminate" && sessionId) {
+      void client
+        .confirm("终止 Chrome 操作", "中断 Agent 当前正在执行的 Chrome tool？")
+        .then((confirmed) => {
+          if (!confirmed) return;
+          void client.dispatch(sessionId, { _tag: "Terminate" }).then((outcome) => {
+            if (outcome._tag !== "Accepted")
+              client.notify(
+                outcome._tag === "Rejected" ? outcome.reason : outcome.message,
+                "error",
+              );
+          });
+        });
+      return;
+    }
+    if (action !== "close-tab" || !sessionId) return;
+    const row = button.closest<HTMLElement>("[data-tab]");
+    const tabId = Number(row?.dataset["tab"]);
     if (!Number.isInteger(tabId)) return;
-    const tags = {
-      activate: "Activate",
-      snapshot: "Snapshot",
-      screenshot: "Screenshot",
-      close: "Close",
-    } as const;
-    const dispatch = () =>
-      client.dispatch({ _tag: tags[action as keyof typeof tags], tabId }).then((outcome) => {
+    void client.confirm("关闭 Chrome 页面", `确定关闭 tab ${tabId}？`).then((confirmed) => {
+      if (!confirmed) return;
+      void client.dispatch(sessionId, { _tag: "Close", tabId }).then((outcome) => {
         if (outcome._tag !== "Accepted")
           client.notify(outcome._tag === "Rejected" ? outcome.reason : outcome.message, "error");
       });
-    if (action !== "close") return void dispatch();
-    void client.confirm("关闭 Chrome 页面", `确定关闭 tab ${tabId}？`).then((confirmed) => {
-      if (confirmed) void dispatch();
-    });
-  });
-  root.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const data = new FormData(event.target as HTMLFormElement);
-    const value = data.get("url");
-    if (typeof value !== "string") return;
-    void client.dispatch({ _tag: "NewTab", url: value }).then((outcome) => {
-      if (outcome._tag === "Accepted") {
-        newTab = false;
-        client.notify("页面已创建");
-        render();
-      } else client.notify(outcome._tag === "Rejected" ? outcome.reason : outcome.message, "error");
     });
   });
 });

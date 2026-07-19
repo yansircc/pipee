@@ -476,6 +476,7 @@ export const SessionIndex = Schema.Struct({
   sessions: Schema.Array(SessionInfo),
   runningSessionIds: Schema.Array(Schema.String),
 })
+export type SessionIndex = typeof SessionIndex.Type
 
 export const RunScopedEvent = Schema.Union([
   Schema.TaggedStruct("RunStarted", { runId: RunId }),
@@ -773,10 +774,12 @@ export const PluginResourceInfo = Schema.Struct({
 export const PluginPackageInfo = Schema.Struct({
   source: Schema.String,
   scope: PluginScope,
+  ownerCwd: Schema.optionalKey(Schema.String),
   filtered: Schema.Boolean,
   disabled: Schema.Boolean,
   installedPath: Schema.optionalKey(Schema.String),
   packageName: Schema.optionalKey(Schema.String),
+  description: Schema.optionalKey(Schema.String),
   version: Schema.optionalKey(Schema.String),
   chromeExtensionId: Schema.optionalKey(Schema.String),
   chromeExtensionDirectory: Schema.optionalKey(Schema.String),
@@ -1225,6 +1228,14 @@ const AuthApi = HttpApiGroup.make("auth").add(
 )
 
 const PackagesApi = HttpApiGroup.make("packages").add(
+  HttpApiEndpoint.get("pluginOverview", "/api/packages/plugins/overview", {
+    success: PluginsResponse,
+    error: CommonErrors,
+  }),
+  HttpApiEndpoint.get("globalPlugins", "/api/packages/plugins/global", {
+    success: PluginsResponse,
+    error: CommonErrors,
+  }),
   HttpApiEndpoint.get("globalChromePlugin", "/api/packages/plugins/pi-chrome", {
     success: GlobalChromePluginResponse,
     error: CommonErrors,

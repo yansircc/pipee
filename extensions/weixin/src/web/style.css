@@ -100,6 +100,9 @@ body {
   font-size: 20px;
   margin: 12px 0 5px;
 }
+.metric button {
+  margin-top: 9px;
+}
 .ok {
   color: #079b4e;
 }
@@ -208,6 +211,26 @@ button.primary {
   align-items: center;
   justify-content: space-between;
 }
+.session-list {
+  overflow: hidden;
+}
+.session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 17px;
+  border-bottom: 1px solid #eef0f2;
+}
+.session-row:last-child {
+  border-bottom: 0;
+}
+.session-row b {
+  font-size: 13px;
+}
+.session-row p {
+  margin: 4px 0 0;
+}
 .session b {
   font-size: 13px;
 }
@@ -237,6 +260,16 @@ button.primary {
 }
 .modal h3 {
   margin: 5px 0;
+}
+.modal-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.modal-title button {
+  border: 0;
+  padding: 4px 7px;
+  font-size: 20px;
 }
 .qr {
   width: 260px;

@@ -1901,11 +1901,17 @@ const adapterLive = Effect.gen(function* () {
       const packageJson = yield* fs.readFileString(path.join(root, "package.json")).pipe(Effect.option)
       if (Option.isNone(packageJson)) return {}
       const parsed = yield* Effect.try({
-        try: () => JSON.parse(packageJson.value) as { readonly name?: unknown; readonly version?: unknown },
+        try: () =>
+          JSON.parse(packageJson.value) as {
+            readonly name?: unknown
+            readonly description?: unknown
+            readonly version?: unknown
+          },
         catch: () => new PiAdapterError({ operation: "plugins.metadata", message: "Invalid package metadata" }),
       }).pipe(Effect.option)
       if (Option.isNone(parsed)) return {}
       const packageName = typeof parsed.value.name === "string" ? parsed.value.name : undefined
+      const description = typeof parsed.value.description === "string" ? parsed.value.description : undefined
       const version = typeof parsed.value.version === "string" ? parsed.value.version : undefined
       let chromeExtensionId: string | undefined
       let chromeExtensionDirectory: string | undefined
@@ -1933,6 +1939,7 @@ const adapterLive = Effect.gen(function* () {
       }
       return {
         ...(packageName === undefined ? {} : { packageName }),
+        ...(description === undefined ? {} : { description }),
         ...(version === undefined ? {} : { version }),
         ...(chromeExtensionId === undefined ? {} : { chromeExtensionId }),
         ...(chromeExtensionDirectory === undefined ? {} : { chromeExtensionDirectory }),
