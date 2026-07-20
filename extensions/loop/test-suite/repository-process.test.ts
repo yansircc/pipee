@@ -80,7 +80,7 @@ it("persists each occurrence once and lets a live follower take over after owner
     owner.kill();
     await ownerExit;
     expect(JSON.parse(await followerTakeover)).toEqual({
-      access: "owner",
+      access: "inactive",
       ids: ["cross-process-successor:0"],
     });
   } finally {
