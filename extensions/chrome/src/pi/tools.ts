@@ -1,6 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import * as Schema from "effect/Schema";
-import { ATOMIC_TOOL_DESCRIPTORS } from "../protocol/operation-contract.js";
+import { ATOMIC_TOOL_DESCRIPTORS, EmptyToolParameters } from "../protocol/operation-contract.js";
 import { toJsonSchema } from "../protocol/schema.js";
 
 export type ToolResult = {
@@ -24,7 +23,7 @@ const CHROME_STATUS_TOOL_NAME = "chrome_status";
 export const CHROME_ATOMIC_TOOL_NAMES = ATOMIC_TOOL_DESCRIPTORS.map(({ name }) => name);
 export const CHROME_TOOL_NAMES = [...CHROME_ATOMIC_TOOL_NAMES, CHROME_STATUS_TOOL_NAME];
 
-const StatusParameters = Schema.Struct({});
+const StatusParameters = EmptyToolParameters;
 
 export const registerChromeTools = (
   pi: ExtensionAPI,
