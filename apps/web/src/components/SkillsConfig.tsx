@@ -21,6 +21,11 @@ interface Skill {
     scope?: string
   }
 }
+const DESKTOP_WORKSPACE_DIMENSIONS = {
+  add: { height: "min(520px, calc(100dvh - 48px))", width: "min(820px, calc(100vw - 32px))" },
+  detail: { height: "min(720px, 82vh)", width: "min(960px, 92vw)" },
+  library: { height: "min(820px, 92vh)", width: "min(1280px, 96vw)" },
+} as const
 function shortenPath(p: string): string {
   // Match common home dir patterns: /Users/xxx, /home/xxx
   return p.replace(/^\/(?:Users|home)\/[^/]+/, "~")
@@ -232,8 +237,6 @@ function AddSkillPanel({ cwd, onInstalled }: { cwd: string; onInstalled: () => v
     <div {...stylex.props(inlineStyles.inline14)}>
       {/* ── Header area ── */}
       <div {...stylex.props(inlineStyles.inline15)}>
-        <div {...stylex.props(inlineStyles.inline16)}>Add Skill</div>
-
         {/* Search row */}
         <div {...stylex.props(inlineStyles.inline17)}>
           <input
@@ -332,11 +335,13 @@ function AddSkillPanel({ cwd, onInstalled }: { cwd: string; onInstalled: () => v
         !searchError &&
         !searching && (
           <div {...stylex.props(inlineStyles.inline35)}>
-            Search{" "}
-            <a href="https://skills.sh" target="_blank" rel="noreferrer" {...stylex.props(inlineStyles.inline36)}>
-              skills.sh
-            </a>{" "}
-            to discover and install skills for your agent.
+            <span>
+              Search{" "}
+              <a href="https://skills.sh" target="_blank" rel="noreferrer" {...stylex.props(inlineStyles.inline36)}>
+                skills.sh
+              </a>{" "}
+              to discover and install skills for your agent.
+            </span>
           </div>
         )
       )}
@@ -469,6 +474,8 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
   )
   const enabledCount = skills.filter((skill) => !skill.disableModelInvocation).length
   const libraryMode = !addMode && selectedSkill === null
+  const workspaceMode = libraryMode ? "library" : addMode ? "add" : "detail"
+  const workspaceDimensions = DESKTOP_WORKSPACE_DIMENSIONS[workspaceMode]
   return (
     <SettingsWorkspace
       actions={
@@ -528,17 +535,17 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
         ) : undefined
       }
       context={
-        selectedSkill ? undefined : (
+        selectedSkill || isMobile ? undefined : (
           <code {...stylex.props(inlineStyles.inline42)}>
             {skills.length} {t("Skills")} · {enabledCount} {t("Enabled")} · {skills.length - enabledCount}{" "}
             {t("Disabled")}
           </code>
         )
       }
-      height={isMobile ? "100dvh" : libraryMode ? "min(820px, 92vh)" : "min(720px, 82vh)"}
+      height={isMobile ? "100dvh" : workspaceDimensions.height}
       onClose={onClose}
       title={selectedSkill?.name ?? (addMode ? t("Add skill") : "Skill Library")}
-      width={isMobile ? "100vw" : libraryMode ? "min(1280px, 96vw)" : "min(960px, 92vw)"}
+      width={isMobile ? "100vw" : workspaceDimensions.width}
     >
       <div
         {...stylex.props(inlineStyles.inline44)}
@@ -862,47 +869,65 @@ const inlineStyles = stylex.create({
     lineHeight: 1.6,
   },
   inline14: {
+    boxSizing: "border-box",
     display: "flex",
     flexDirection: "column",
     height: "100%",
+    margin: "0 auto",
+    maxWidth: 800,
+    padding: {
+      default: "22px 24px 24px",
+      "@media (max-width: 760px)": "16px 14px 20px",
+    },
+    width: "100%",
   },
   inline15: {
+    background: "var(--bg-raised)",
+    border: "1px solid var(--border)",
+    borderRadius: 10,
     display: "flex",
     flexDirection: "column",
-    gap: 12,
-    marginBottom: 20,
-  },
-  inline16: {
-    fontSize: 14,
-    fontWeight: 600,
-    color: "var(--text)",
+    gap: 10,
+    marginBottom: 14,
+    padding: {
+      default: 16,
+      "@media (max-width: 760px)": 12,
+    },
   },
   inline17: {
     display: "flex",
     gap: 8,
   },
   inline18: {
-    flex: 1,
-    padding: "7px 10px",
-    fontSize: 13,
-    background: "var(--bg-panel)",
+    background: "var(--bg)",
     border: "1px solid var(--border)",
-    borderRadius: 6,
+    borderRadius: 7,
     color: "var(--text)",
+    flex: 1,
+    fontSize: 13,
+    height: 38,
+    minWidth: 0,
     outline: "none",
+    padding: "0 11px",
+    ":focus": {
+      borderColor: "color-mix(in srgb, var(--accent) 55%, var(--border))",
+      boxShadow: "0 0 0 3px var(--accent-soft)",
+    },
   },
   inline19: {
-    padding: "7px 16px",
-    fontSize: 13,
-    borderRadius: 6,
-    border: "none",
     background: "var(--accent)",
+    border: "none",
+    borderRadius: 7,
     color: "#fff",
+    fontSize: 12,
     flexShrink: 0,
+    height: 38,
+    padding: "0 18px",
   },
   inline20: {
-    display: "flex",
     alignItems: "center",
+    display: "flex",
+    flexWrap: "wrap",
     gap: 10,
   },
   inline21: {
@@ -936,8 +961,12 @@ const inlineStyles = stylex.create({
     wordBreak: "break-word",
   },
   inline26: {
+    background: "var(--bg-raised)",
+    border: "1px solid var(--border)",
+    borderRadius: 10,
     flex: 1,
     overflowY: "auto",
+    padding: "0 14px",
   },
   inline27: {
     display: "flex",
@@ -987,9 +1016,19 @@ const inlineStyles = stylex.create({
     transition: "color 0.12s",
   },
   inline35: {
-    fontSize: 13,
+    alignItems: "center",
+    background: "var(--bg-raised)",
+    border: "1px dashed var(--border)",
+    borderRadius: 10,
     color: "var(--text-dim)",
+    display: "flex",
+    flex: 1,
+    fontSize: 12,
+    justifyContent: "center",
     lineHeight: 1.8,
+    minHeight: 124,
+    padding: 20,
+    textAlign: "center",
   },
   inline36: {
     color: "var(--accent)",
@@ -1021,6 +1060,7 @@ const inlineStyles = stylex.create({
     cursor: "pointer",
     fontSize: 12,
     padding: "7px 10px",
+    whiteSpace: "nowrap",
   },
   primaryAction: {
     background: "var(--text)",
