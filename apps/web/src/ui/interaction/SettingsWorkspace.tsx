@@ -85,12 +85,14 @@ const styles = stylex.create({
     display: "flex",
     flexShrink: 0,
     gap: 12,
-    padding: "12px 18px",
+    minHeight: 58,
+    padding: "0 14px 0 17px",
   },
   identity: {
-    alignItems: "baseline",
+    alignItems: "flex-start",
     display: "flex",
-    gap: 10,
+    flexDirection: "column",
+    gap: 2,
     minWidth: 0,
   },
   title: {
@@ -117,6 +119,7 @@ const styles = stylex.create({
     cursor: "pointer",
     fontSize: 20,
     lineHeight: 1,
+    marginLeft: "auto",
     outline: "none",
     padding: "2px 6px",
     ":focus-visible": {
