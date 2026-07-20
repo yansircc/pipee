@@ -1,0 +1,26 @@
+---
+import BrandMark from "./BrandMark.astro";
+---
+<header class="site-header">
+  <a class="logo" href="/"><BrandMark /><strong>pipee</strong><small>FOR PI</small></a>
+  <button class="menu" type="button" aria-expanded="false" aria-controls="site-nav">菜单</button>
+  <nav id="site-nav" aria-label="主导航">
+    <a href="/docs">文档</a><a href="/extensions">Extensions</a><a href="/developers">开发</a>
+  </nav>
+  <a class="launch" href="/#install">安装 Pipee <span>→</span></a>
+</header>
+<script>
+  const button = document.querySelector<HTMLButtonElement>(".site-header .menu");
+  const nav = document.querySelector<HTMLElement>("#site-nav");
+  button?.addEventListener("click", () => {
+    const open = button.getAttribute("aria-expanded") === "true";
+    button.setAttribute("aria-expanded", String(!open));
+    button.textContent = open ? "菜单" : "关闭";
+    nav?.classList.toggle("open", !open);
+  });
+  nav?.querySelectorAll("a").forEach((link) => link.addEventListener("click", () => {
+    button?.setAttribute("aria-expanded", "false");
+    if (button) button.textContent = "菜单";
+    nav.classList.remove("open");
+  }));
+</script>
