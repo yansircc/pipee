@@ -82,9 +82,12 @@ const styles = stylex.create({
   },
   close: {
     alignItems: "center",
-    backgroundColor: "var(--bg-panel)",
-    border: "1px solid var(--border)",
-    borderRadius: 16,
+    backgroundColor: {
+      default: "transparent",
+      ":hover": "var(--bg-hover)",
+    },
+    border: "none",
+    borderRadius: 7,
     color: "var(--text-muted)",
     cursor: "pointer",
     display: "flex",
