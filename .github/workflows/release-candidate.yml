@@ -115,7 +115,7 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           name: ${{ needs.candidate.outputs.artifact }}
-          path: .
+          path: release
       - id: chrome
         run: pnpm --filter @yansircc/pi-chrome run release:check
       - run: pnpm verify:chrome-candidate
@@ -145,7 +145,7 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           name: ${{ needs.candidate.outputs.artifact }}
-          path: .
+          path: release
       - run: pnpm verify:platform
 
   witness:
