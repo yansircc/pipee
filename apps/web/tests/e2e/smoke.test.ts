@@ -119,6 +119,29 @@ test("preserves the normalized visual foundation", async ({ page }) => {
   expect(contract.topbarHeight).toBe("58px")
 })
 
+test("sizes user bubbles by content up to the responsive maximum", async ({ page }) => {
+  const measureBubble = async () =>
+    page
+      .locator(".markdown-user-message")
+      .first()
+      .evaluate((message) => {
+        const bubble = message.parentElement
+        const row = bubble?.parentElement
+        const turn = row?.parentElement
+        if (!bubble || !turn) throw new Error("user bubble inventory is incomplete")
+        return { bubble: bubble.getBoundingClientRect().width, row: turn.getBoundingClientRect().width }
+      })
+
+  await page.goto("/?session=00000000-0000-4000-8000-000000000001")
+  const short = await measureBubble()
+  await page.goto("/?session=00000000-0000-4000-8000-000000000003")
+  const long = await measureBubble()
+
+  expect(short.bubble).toBeLessThan(short.row * 0.35)
+  expect(long.bubble).toBeGreaterThan(short.bubble)
+  expect(long.bubble).toBeLessThanOrEqual(long.row * 0.7)
+})
+
 test("projects assistant speech as conversation events and keeps execution details separate", async ({ page }) => {
   await page.goto("/?session=00000000-0000-4000-8000-000000000005")
 
@@ -186,8 +209,23 @@ test("opens the session branch catalog and switches by leaf", async ({ page }) =
 
   const menu = page.getByRole("menu", { name: "会话分支" })
   await expect(menu).toBeVisible()
+  await menu.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)))
   await expect(menu.getByRole("menuitem")).toHaveCount(2)
   await expect(menu.getByRole("menuitem", { name: /当前分支/ })).toHaveAttribute("aria-current", "true")
+  const geometry = await page.evaluate(() => {
+    const trigger = document.querySelector<HTMLElement>('[aria-label="分支"]')
+    const menu = document.querySelector<HTMLElement>('[aria-label="会话分支"]')
+    if (!trigger || !menu) throw new Error("branch popup inventory is incomplete")
+    const anchor = trigger.getBoundingClientRect()
+    const popup = menu.getBoundingClientRect()
+    return {
+      gap: popup.top - anchor.bottom,
+      leftDelta: Math.abs(popup.left - anchor.left),
+      rightOverflow: Math.max(0, popup.right - window.innerWidth),
+      width: popup.width,
+    }
+  })
+  expect(geometry).toEqual({ gap: 8, leftDelta: 0, rightOverflow: 0, width: 310 })
 
   await menu.getByRole("menuitem", { name: /alternate fixture branch/ }).click()
   await expect(menu).toBeHidden()
