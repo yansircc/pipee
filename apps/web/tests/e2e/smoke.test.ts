@@ -206,8 +206,14 @@ test("shows immediate metrics, session prompt, and the extension drawer", async 
 
   await page.getByRole("button", { name: "调试信息", exact: true }).click()
   const sessionInspector = page.locator(".session-info-popover")
+  await expect(sessionInspector.getByText("Session Inspector", { exact: true })).toBeVisible()
+  await expect(sessionInspector.getByRole("button", { name: "复制全部", exact: true })).toBeVisible()
   await expect(sessionInspector.getByText("系统提示词", { exact: true })).toBeVisible()
   await expect(sessionInspector).not.toContainText("发送消息后加载系统提示词")
+  expect(await sessionInspector.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThanOrEqual(320)
+  expect(await sessionInspector.locator("pre").evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(
+    true,
+  )
 
   await page.getByRole("button", { name: "插件", exact: true }).click()
   const drawer = page.getByRole("dialog", { name: "插件" })
