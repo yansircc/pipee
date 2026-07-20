@@ -48,4 +48,21 @@ describe("multi-Session Web Surface channel contract", () => {
       }),
     ).toMatchObject({ session: { sessionId: "session-1" } })
   })
+
+  it("exposes candidate-bound companion actions without accepting paths or extension ids", () => {
+    expect(
+      Schema.decodeUnknownSync(WebSurfaceClientMessage)({
+        _tag: "browser-companion-probe",
+        requestId: "probe-1",
+      }),
+    ).toEqual({ _tag: "browser-companion-probe", requestId: "probe-1" })
+    expect(() =>
+      Schema.decodeUnknownSync(WebSurfaceClientMessage, { onExcessProperty: "error" })({
+        _tag: "browser-companion-download",
+        requestId: "download-1",
+        extensionId: "attacker-controlled",
+        path: "/tmp/other-extension",
+      }),
+    ).toThrow()
+  })
 })

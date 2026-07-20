@@ -167,17 +167,8 @@ export default function piChrome(pi: ExtensionAPI): void {
   const admitTool = (context: ExtensionContext) =>
     Effect.gen(function* () {
       const scope = yield* requireScope(context);
-      const snapshot = yield* bridge.status;
-      if (!snapshot.connector) {
-        return yield* new ChromeUnavailable({
-          message: `Chrome extension is not connected. Load the unpacked extension from ${EXTENSION_PATH}`,
-        });
-      }
-      if (!snapshot.connector.connected) {
-        return yield* new ChromeUnavailable({
-          message: `Chrome profile ${snapshot.connector.label} is offline. Open that profile and retry.`,
-        });
-      }
+      yield* bridge.awaitReady(8_000);
+      yield* requireScope(context);
       return { scope, claim: { background: false } };
     });
 

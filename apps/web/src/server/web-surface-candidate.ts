@@ -6,6 +6,12 @@ import {
   WebSurfaceManifest,
   type WebSurfaceManifest as WebSurfaceManifestValue,
 } from "@pi-suite/companion-contracts/web-surface"
+import {
+  BrowserCompanionExpectation,
+  BrowserCompanionManifest,
+  type BrowserCompanionExpectation as BrowserCompanionExpectationValue,
+  type BrowserCompanionManifest as BrowserCompanionManifestValue,
+} from "@pi-suite/companion-contracts/browser-companion"
 import type { PluginsResponse } from "@/api/contract"
 
 export class WebSurfaceCandidateError extends Data.TaggedError("WebSurfaceCandidateError")<{
@@ -20,10 +26,17 @@ export interface WebSurfaceCandidate {
   readonly webRoot: string
   readonly documentPath: string
   readonly manifest: WebSurfaceManifestValue
+  readonly browserCompanion?: {
+    readonly manifest: BrowserCompanionManifestValue
+    readonly expectation: BrowserCompanionExpectationValue
+    readonly directory: string
+  }
   readonly files: ReadonlyArray<string>
 }
 
 const decodeManifest = Schema.decodeUnknownSync(WebSurfaceManifest)
+const decodeBrowserCompanionManifest = Schema.decodeUnknownSync(BrowserCompanionManifest)
+const decodeBrowserCompanionExpectation = Schema.decodeUnknownSync(BrowserCompanionExpectation)
 const decodePackageName = Schema.decodeUnknownSync(Schema.NonEmptyString)
 const decodeImpossible = Schema.decodeUnknownSync(Schema.Never)
 const fail = (message: string): never => decodeImpossible(new WebSurfaceCandidateError({ message }))
@@ -61,7 +74,7 @@ const admittedFile = (root: string, relative: string) =>
     return resolved
   })
 
-const walkWebFiles = (
+const walkFiles = (
   root: string,
   directory = "dist/web",
 ): Effect.Effect<ReadonlyArray<string>, WebSurfaceCandidateError, FileSystem.FileSystem | Path.Path> =>
@@ -89,7 +102,7 @@ const walkWebFiles = (
           const info = yield* fs
             .stat(canonical)
             .pipe(Effect.mapError(mapFsError(`Missing candidate path: ${relative}`)))
-          if (info.type === "Directory") return yield* walkWebFiles(root, relative)
+          if (info.type === "Directory") return yield* walkFiles(root, relative)
           if (info.type !== "File")
             return yield* new WebSurfaceCandidateError({ message: `Unsupported archive entry: ${relative}` })
           yield* admittedFile(root, relative)
@@ -137,6 +150,17 @@ export const readWebSurfaceCandidate = (inputRoot: string) =>
       try: () => decodeManifest(web),
       catch: (error) => new WebSurfaceCandidateError({ message: String(error) }),
     })
+    const companionValue =
+      typeof piSuite === "object" && piSuite !== null
+        ? (piSuite as Record<string, unknown>).browserCompanion
+        : undefined
+    const companionManifest =
+      companionValue === undefined
+        ? undefined
+        : yield* Effect.try({
+            try: () => decodeBrowserCompanionManifest(companionValue),
+            catch: (error) => new WebSurfaceCandidateError({ message: String(error) }),
+          })
     const packageName = yield* Effect.try({
       try: () => decodePackageName(pkg.name),
       catch: () => new WebSurfaceCandidateError({ message: "Web surface package requires a name" }),
@@ -148,7 +172,33 @@ export const readWebSurfaceCandidate = (inputRoot: string) =>
     const document = normalizedRelative(manifest.document, "piSuite.web.document")
     if (!document.startsWith("dist/web/"))
       return yield* new WebSurfaceCandidateError({ message: "Web document must be inside dist/web" })
-    const files = ["package.json", ...extensions, ...(yield* walkWebFiles(packageRoot))]
+    let browserCompanion: WebSurfaceCandidate["browserCompanion"]
+    let companionFiles: ReadonlyArray<string> = []
+    if (companionManifest !== undefined) {
+      const directory = normalizedRelative(companionManifest.directory, "piSuite.browserCompanion.directory")
+      const evidence = normalizedRelative(companionManifest.evidence, "piSuite.browserCompanion.evidence")
+      if (!evidence.startsWith(`${directory}/`)) {
+        return yield* new WebSurfaceCandidateError({
+          message: "Browser companion evidence must be inside its directory",
+        })
+      }
+      const evidencePath = yield* admittedFile(packageRoot, evidence)
+      const evidenceText = yield* fs
+        .readFileString(evidencePath)
+        .pipe(Effect.mapError(mapFsError("Unable to read browser companion evidence")))
+      const expectation = yield* Effect.try({
+        try: () => decodeBrowserCompanionExpectation(JSON.parse(evidenceText) as unknown),
+        catch: (error) =>
+          new WebSurfaceCandidateError({ message: `Invalid browser companion evidence: ${String(error)}` }),
+      })
+      companionFiles = yield* walkFiles(packageRoot, directory)
+      browserCompanion = {
+        manifest: companionManifest,
+        expectation,
+        directory: path.resolve(packageRoot, ...directory.split("/")),
+      }
+    }
+    const files = ["package.json", ...extensions, ...(yield* walkFiles(packageRoot)), ...companionFiles]
     const unique = [...new Set(files)].sort()
     yield* Effect.forEach(unique, (relative) => admittedFile(packageRoot, relative), { concurrency: 8, discard: true })
     if (!unique.includes(document))
@@ -177,6 +227,7 @@ export const readWebSurfaceCandidate = (inputRoot: string) =>
       webRoot: path.join(packageRoot, "dist", "web"),
       documentPath: path.resolve(packageRoot, ...document.split("/")),
       manifest,
+      ...(browserCompanion === undefined ? {} : { browserCompanion }),
       files: unique,
     } satisfies WebSurfaceCandidate
   })

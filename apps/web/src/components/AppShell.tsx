@@ -1,6 +1,6 @@
 import { Suspense, useState, useCallback, useRef, useEffect, useMemo } from "react"
 import * as stylex from "@stylexjs/stylex"
-import { Effect, Schedule } from "effect"
+import { Effect } from "effect"
 import { getRouteApi } from "@tanstack/react-router"
 import { SessionSidebar } from "./SessionSidebar"
 import { ChatWindow } from "./ChatWindow"
@@ -21,7 +21,6 @@ import { BrowserPlatform } from "@/browser/browser-platform"
 import { ModelsConfig, SkillsConfig } from "@/browser/code-split"
 import { sessionController } from "@/features/session/session-controller"
 import { DEFAULT_TOOL_PRESET, getToolNamesForPreset } from "@/lib/tool-presets"
-import { probeChromeExtension, type ChromeExtensionHealth } from "@/lib/chrome-extension-installation"
 import type { ExtensionCatalogState } from "@/lib/web-surface-catalog-group"
 import { useApplicationHotkeys } from "@/ui/interaction/Hotkeys"
 type SelectedFinderFile = {
@@ -62,7 +61,6 @@ export function AppShell() {
   const [skillsCount, setSkillsCount] = useState(0)
   const [activeExtensionCount, setActiveExtensionCount] = useState(0)
   const [extensionCatalog, setExtensionCatalog] = useState<ExtensionCatalogState | null>(null)
-  const [chromeExtensionHealth, setChromeExtensionHealth] = useState<ChromeExtensionHealth | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false)
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
@@ -75,19 +73,6 @@ export function AppShell() {
   }, [])
   const chatInputRef = useRef<ChatInputHandle | null>(null)
   const topBarRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const check = withApi((api) => api.packages.globalChromePlugin()).pipe(
-      Effect.flatMap((response) => probeChromeExtension(response.package)),
-      Effect.tap((health) => Effect.sync(() => setChromeExtensionHealth(health))),
-      Effect.catch(() => Effect.void),
-      Effect.repeat({
-        schedule: Schedule.spaced("5 seconds"),
-      }),
-    )
-    return runApi(check, {
-      onSuccess: () => undefined,
-    })
-  }, [])
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchNodes, setBranchNodes] = useState<SessionBranchNode[]>([])
@@ -798,14 +783,17 @@ export function AppShell() {
         )}
         {settingsSurface?.kind === "plugins" && (
           <ExtensionDrawer
-            chromeHealth={chromeExtensionHealth}
             initialPackageName={settingsSurface.initialPackageName}
             onClose={() => setSettingsSurface(null)}
             onOpenPackage={(packageName) => {
               const surface = extensionCatalog?.groups.find((group) => group.item.packageName === packageName)
               if (!surface) return
               setSettingsSurface(null)
-              void navigate({ to: "/extensions/$surfaceId", params: { surfaceId: surface.item.surfaceId } })
+              void navigate({
+                to: "/extensions/$surfaceId",
+                params: { surfaceId: surface.item.surfaceId },
+                search: selectedSessionId === null ? {} : { returnSession: selectedSessionId },
+              })
             }}
             onReloaded={() => setSessionRefreshKey((key) => key + 1)}
             openablePackageNames={new Set(extensionCatalog?.groups.map((group) => group.item.packageName) ?? [])}

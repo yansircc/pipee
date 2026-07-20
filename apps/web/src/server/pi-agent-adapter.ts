@@ -20,7 +20,6 @@ import {
 } from "@earendil-works/pi-coding-agent"
 import { Type } from "@earendil-works/pi-ai"
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat"
-import { ChromeExtensionExpectation } from "@pi-suite/companion-contracts/chrome"
 import type {
   CandidateHash,
   WebSurfaceActionOutcome,
@@ -28,6 +27,7 @@ import type {
 } from "@pi-suite/companion-contracts/web-surface"
 import {
   Context,
+  Cause,
   Crypto,
   Deferred,
   Effect,
@@ -61,6 +61,7 @@ import {
   OAuthEvent,
   OAuthProvider,
   PluginsResponse,
+  PluginUpdatesResponse,
   QueuedMessages,
   RunId,
   RunScopedEvent,
@@ -77,6 +78,7 @@ import {
   ToolEntry,
   type ExtensionInteractionResponse as ExtensionInteractionResponseValue,
   type PluginsResponse as PluginsResponseValue,
+  type PluginUpdatesResponse as PluginUpdatesResponseValue,
   type RuntimeEnvelope as RuntimeEnvelopeValue,
 } from "@/api/contract"
 import { appendLiveBashOutput } from "@/lib/bash-command"
@@ -92,7 +94,6 @@ import {
   mergeBuiltinSelectionWithActiveExtensions,
 } from "@/lib/tool-presets"
 import {
-  PI_COMPANION_PACKAGE_NAMES,
   getPackageSource,
   isDisabledPackage,
   isLocalPackageSource,
@@ -108,6 +109,7 @@ import {
   findWebSurfaceCandidateForExtension,
   packageSetFingerprint,
 } from "./web-surface-candidate"
+import { SdkExtensionCacheOwner } from "./sdk-extension-cache-owner"
 
 export { PiOperationBusyError } from "./session-operation-slot"
 
@@ -280,6 +282,7 @@ export class PiAgentAdapter extends Context.Service<
     readonly submitOAuthInput: (provider: string, token: string, code: string) => Effect.Effect<void, PiAdapterError>
     readonly logout: (provider: string) => Effect.Effect<void, PiAdapterError>
     readonly plugins: (cwd: string) => Effect.Effect<PluginsResponseValue, PiAdapterError>
+    readonly pluginUpdates: (cwd: string) => Effect.Effect<PluginUpdatesResponseValue, PiAdapterError>
     readonly pluginAction: (
       cwd: string,
       action: PluginAction,
@@ -590,24 +593,6 @@ const collectPluginResources = (
   for (const resource of resolved.themes) add(resource, "themes", "theme")
   return { counts, resources, totals }
 }
-
-const createRpcRuntimeSession: CreateAgentSessionRuntimeFactory = (options) =>
-  createAgentSessionServices({ cwd: options.cwd, agentDir: options.agentDir }).then((services) => {
-    // Tools cannot execute until the completed session escapes this factory. The cell closes
-    // the construction cycle while keeping AgentSession.setSessionName as the sole event owner.
-    const sessionCell = {} as { current: AgentSessionLike }
-    return createAgentSessionFromServices({
-      services,
-      sessionManager: options.sessionManager,
-      sessionStartEvent: options.sessionStartEvent,
-      customTools: [
-        makeAgentSessionNameTool(options.sessionManager, (name) => sessionCell.current.setSessionName(name)),
-      ],
-    }).then((result) => {
-      sessionCell.current = result.session as unknown as AgentSessionLike
-      return { ...result, services, diagnostics: services.diagnostics }
-    })
-  })
 
 export const normalizeAgentSessionName = (value: string): string =>
   Array.from(value.replaceAll(/\s+/g, " ").trim()).slice(0, 30).join("")
@@ -1464,6 +1449,16 @@ const adapterLive = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
+  const sdkExtensionCache = yield* SdkExtensionCacheOwner.make
+  const adapterFibers = yield* FiberSet.make()
+  const runAdapterFork = yield* FiberSet.runtime(adapterFibers)()
+  const runAdapterPromise = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
+    new Promise((resolve, reject) => {
+      runAdapterFork(effect).addObserver((exit) => {
+        if (Exit.isSuccess(exit)) resolve(exit.value)
+        else reject(Cause.squash(exit.cause))
+      })
+    })
   const loginCallbacks = new Map<
     string,
     {
@@ -1927,38 +1922,10 @@ const adapterLive = Effect.gen(function* () {
       const packageName = typeof parsed.value.name === "string" ? parsed.value.name : undefined
       const description = typeof parsed.value.description === "string" ? parsed.value.description : undefined
       const version = typeof parsed.value.version === "string" ? parsed.value.version : undefined
-      let chromeExtensionId: string | undefined
-      let chromeExtensionDirectory: string | undefined
-      let chromeExtensionDisplayVersion: string | undefined
-      let chromeProtocolFingerprint: string | undefined
-      if (packageName === PI_COMPANION_PACKAGE_NAMES.chrome) {
-        chromeExtensionDirectory = path.join(root, "dist", "browser-extension")
-        const evidence = yield* fs
-          .readFileString(path.join(chromeExtensionDirectory, "evidence.json"))
-          .pipe(Effect.option)
-        if (Option.isSome(evidence)) {
-          const value = yield* Effect.try({
-            try: () => JSON.parse(evidence.value) as unknown,
-            catch: () => new PiAdapterError({ operation: "plugins.chromeEvidence", message: "Invalid evidence" }),
-          }).pipe(Effect.option)
-          const decoded = Schema.decodeUnknownOption(ChromeExtensionExpectation, {
-            onExcessProperty: "error",
-          })(Option.getOrUndefined(value))
-          if (Option.isSome(decoded)) {
-            chromeExtensionId = decoded.value.extensionId
-            chromeExtensionDisplayVersion = decoded.value.displayVersion
-            chromeProtocolFingerprint = decoded.value.protocolFingerprint
-          }
-        }
-      }
       return {
         ...(packageName === undefined ? {} : { packageName }),
         ...(description === undefined ? {} : { description }),
         ...(version === undefined ? {} : { version }),
-        ...(chromeExtensionId === undefined ? {} : { chromeExtensionId }),
-        ...(chromeExtensionDirectory === undefined ? {} : { chromeExtensionDirectory }),
-        ...(chromeExtensionDisplayVersion === undefined ? {} : { chromeExtensionDisplayVersion }),
-        ...(chromeProtocolFingerprint === undefined ? {} : { chromeProtocolFingerprint }),
       }
     })
 
@@ -2046,6 +2013,16 @@ const adapterLive = Effect.gen(function* () {
       })
     })
 
+  const readPackageFingerprint = (cwd: string) =>
+    Effect.gen(function* () {
+      const projection = yield* readPlugins(cwd)
+      return yield* packageSetFingerprint(projection).pipe(
+        Effect.provideService(FileSystem.FileSystem, fs),
+        Effect.provideService(Path.Path, path),
+        Effect.mapError(adapterError("plugins.fingerprint")),
+      )
+    })
+
   const setPackageDisabled = (
     settings: SettingsManager,
     source: string,
@@ -2106,6 +2083,70 @@ const adapterLive = Effect.gen(function* () {
       }
       return yield* readPlugins(cwd)
     })
+
+  const pluginUpdates = (cwd: string) =>
+    Effect.gen(function* () {
+      const settings = SettingsManager.create(cwd, getAgentDir())
+      const manager = new DefaultPackageManager({ cwd, agentDir: getAgentDir(), settingsManager: settings })
+      const available = yield* Effect.tryPromise({
+        try: () => manager.checkForAvailableUpdates(),
+        catch: adapterError("plugins.updates"),
+      })
+      const availableKeys = new Set(
+        available.map((update) => pluginKey(update.source, update.scope === "project" ? "project" : "global")),
+      )
+      return yield* decode(PluginUpdatesResponse, "plugins.updates.response", {
+        updates: manager.listConfiguredPackages().map((configured) => {
+          const scope = pluginScope(configured.scope)
+          return {
+            source: configured.source,
+            scope,
+            updateAvailable: availableKeys.has(pluginKey(configured.source, scope)),
+          }
+        }),
+      })
+    })
+
+  const createRpcRuntimeSession: CreateAgentSessionRuntimeFactory = (options) =>
+    runAdapterPromise(
+      Effect.gen(function* () {
+        const fingerprint = yield* readPackageFingerprint(options.cwd)
+        return yield* sdkExtensionCache.withCandidate(
+          { cwd: options.cwd, packageSetFingerprint: fingerprint },
+          Effect.tryPromise({
+            try: () => createAgentSessionServices({ cwd: options.cwd, agentDir: options.agentDir }),
+            catch: adapterError("runtime.services.create"),
+          }),
+          (services) =>
+            Effect.tryPromise({
+              try: () => services.resourceLoader.reload(),
+              catch: adapterError("runtime.services.reload"),
+            }),
+          (services) =>
+            Effect.gen(function* () {
+              // Tools cannot execute until the completed session escapes this factory. The cell closes
+              // the construction cycle while keeping AgentSession.setSessionName as the sole event owner.
+              const sessionCell = {} as { current: AgentSessionLike }
+              const result = yield* Effect.tryPromise({
+                try: () =>
+                  createAgentSessionFromServices({
+                    services,
+                    sessionManager: options.sessionManager,
+                    sessionStartEvent: options.sessionStartEvent,
+                    customTools: [
+                      makeAgentSessionNameTool(options.sessionManager, (name) =>
+                        sessionCell.current.setSessionName(name),
+                      ),
+                    ],
+                  }),
+                catch: adapterError("runtime.session.create"),
+              })
+              sessionCell.current = result.session as unknown as AgentSessionLike
+              return { ...result, services, diagnostics: services.diagnostics }
+            }),
+        )
+      }),
+    )
 
   const skills = (cwd: string) =>
     Effect.gen(function* () {
@@ -2246,12 +2287,7 @@ const adapterLive = Effect.gen(function* () {
       }),
     createRuntime: (options, identity) =>
       Effect.gen(function* () {
-        const packages = yield* readPlugins(options.cwd)
-        const fingerprint = yield* packageSetFingerprint(packages).pipe(
-          Effect.provideService(FileSystem.FileSystem, fs),
-          Effect.provideService(Path.Path, path),
-          Effect.mapError(adapterError("runtime.packageFingerprint")),
-        )
+        const fingerprint = yield* readPackageFingerprint(options.cwd)
         const manager =
           options.sessionFile === null ? SessionManager.create(options.cwd) : SessionManager.open(options.sessionFile)
         const created = manager.getHeader()?.timestamp ?? ""
@@ -2328,15 +2364,8 @@ const adapterLive = Effect.gen(function* () {
     submitOAuthInput,
     logout,
     plugins: readPlugins,
-    packageFingerprint: (cwd) =>
-      Effect.gen(function* () {
-        const projection = yield* readPlugins(cwd)
-        return yield* packageSetFingerprint(projection).pipe(
-          Effect.provideService(FileSystem.FileSystem, fs),
-          Effect.provideService(Path.Path, path),
-          Effect.mapError(adapterError("plugins.fingerprint")),
-        )
-      }),
+    pluginUpdates,
+    packageFingerprint: readPackageFingerprint,
     pluginAction,
     skills,
     skillFiles,

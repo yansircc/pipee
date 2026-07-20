@@ -112,6 +112,9 @@ const live = Effect.gen(function* () {
             candidateHash: candidate.candidateHash,
             title: candidate.manifest.title,
             documentUrl: `/extension-assets/${encodeURIComponent(sessionId)}/${candidate.surfaceId}/${candidate.candidateHash}/${candidate.manifest.document.slice("./dist/web/".length)}`,
+            ...(candidate.browserCompanion === undefined
+              ? {}
+              : { browserCompanion: candidate.browserCompanion.expectation }),
           })
           admitted.set(candidate.surfaceId, { candidate, item })
         }

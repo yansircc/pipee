@@ -39,6 +39,7 @@ vi.mock("../../src/pi/node-bridge.js", async () => {
             stop: Effect.sync(() => {
               record.stops += 1;
             }),
+            awaitReady: () => Effect.void,
             send,
             sendGuarded: (
               admission: import("effect/Effect").Effect<void, unknown, unknown>,

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./browser-companion": "./src/browser-companion.ts",
     "./chrome": "./src/chrome.ts",
     "./host-capabilities": "./src/host-capabilities.ts",
     "./loop": "./src/loop.ts",
