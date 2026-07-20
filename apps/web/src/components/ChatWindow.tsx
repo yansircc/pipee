@@ -115,6 +115,9 @@ const pulse = stylex.keyframes({
     opacity: 0.5,
   },
 })
+const spin = stylex.keyframes({
+  to: { transform: "rotate(360deg)" },
+})
 function hasFinalAssistantAnswer(message: AgentMessage): boolean {
   if (message.role !== "assistant") return false
   return splitFinalAssistantBlocks(message as AssistantMessage).answerBlocks.some(
@@ -162,10 +165,12 @@ function withAssistantBlocks(
 function ProcessDetailsGroup({
   messageCount,
   toolCallCount,
+  running,
   children,
 }: {
   messageCount: number
   toolCallCount: number
+  running: boolean
   children: ReactNode
 }) {
   const { locale, t } = useI18n()
@@ -180,7 +185,7 @@ function ProcessDetailsGroup({
         : `${toolCallCount} ${toolCallCount === 1 ? "tool call" : "tool calls"}`,
     )
   return (
-    <div {...stylex.props(inlineStyles.inline1)}>
+    <div aria-busy={running} {...stylex.props(inlineStyles.inline1)}>
       <button
         type="button"
         aria-expanded={expanded}
@@ -188,7 +193,7 @@ function ProcessDetailsGroup({
         {...stylex.props(inlineStyles.inline2)}
         title={t(expanded ? "Collapse process details" : "Expand process details")}
       >
-        <span {...stylex.props(inlineStyles.processStateDot)} aria-hidden="true" />
+        {running && <span {...stylex.props(inlineStyles.processStateDot)} aria-hidden="true" />}
         <span {...stylex.props(inlineStyles.processSummaryCopy)}>
           <strong {...stylex.props(inlineStyles.processSummaryTitle)}>{t("Process details")}</strong>
           <small {...stylex.props(inlineStyles.processSummaryMeta)}>{detailParts.join(" · ")}</small>
@@ -768,17 +773,6 @@ export function ChatWindow({
                         continue
                       }
                       const isLiveTail = runInProgress && endIdx === messages.length && userIdx === lastUserIdx
-                      if (isLiveTail) {
-                        for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
-                          rendered.push(
-                            renderMessage(renderIdx, {
-                              hideUsage: messages[renderIdx].role === "assistant",
-                            }),
-                          )
-                        }
-                        idx = endIdx
-                        continue
-                      }
                       rendered.push(renderMessage(userIdx))
                       const processIndices: number[] = []
                       for (let processIdx = userIdx + 1; processIdx < finalAssistantIdx; processIdx++) {
@@ -811,6 +805,7 @@ export function ChatWindow({
                         const processGroup = (
                           <ProcessDetailsGroup
                             messageCount={processCount}
+                            running={isLiveTail}
                             toolCallCount={
                               countToolCalls(messages, visibleProcessIndices) +
                               countToolCallBlocks(finalSplit.processBlocks)
@@ -872,11 +867,12 @@ export function ChatWindow({
                       if (finalAnswerMessage) {
                         rendered.push(
                           renderMessage(finalAssistantIdx, {
+                            hideUsage: isLiveTail,
                             messageOverride: finalAnswerMessage,
-                            turnUsage: turnUsage ?? undefined,
+                            turnUsage: isLiveTail ? undefined : (turnUsage ?? undefined),
                           }),
                         )
-                      } else if (turnUsage) {
+                      } else if (turnUsage && !isLiveTail) {
                         rendered.push(
                           <div
                             key={`turn-usage-${userIdx}-${finalAssistantIdx}`}
@@ -1474,6 +1470,10 @@ const inlineStyles = stylex.create({
     padding: "5px 11px 9px 29px",
   },
   processStateDot: {
+    animationDuration: "800ms",
+    animationIterationCount: "infinite",
+    animationName: spin,
+    animationTimingFunction: "linear",
     border: "2px solid var(--accent)",
     borderRightColor: "transparent",
     borderRadius: "50%",
