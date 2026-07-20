@@ -1,18 +1,13 @@
 import * as stylex from "@stylexjs/stylex"
-import { useState, useCallback, useMemo, useRef, useEffect } from "react"
-import { Effect } from "effect"
+import { useState, useCallback, useMemo } from "react"
 import type { SessionBranchNode } from "@/api/contract"
 import { useI18n } from "@/lib/i18n"
-import { BrowserPlatform } from "@/browser/browser-platform"
-import { runBrowser } from "@/browser/api-client"
 interface Props {
   branchNodes: ReadonlyArray<SessionBranchNode>
   activeLeafId: string | null
   onLeafChange: (leafId: string | null) => void
   /** When true, renders as a compact inline button for embedding in a top bar */
   inline?: boolean
-  /** When inline, use this ref's bounding rect to size/position the dropdown */
-  containerRef?: React.RefObject<HTMLElement | null>
   /** Controlled open state for inline mode */
   open?: boolean
   /** Called when the button is clicked in inline mode */
@@ -22,135 +17,77 @@ interface Props {
   /** When inline, render icon-only (no text label) to save horizontal space */
   compact?: boolean
 }
-interface BranchRow {
+interface BranchOption {
   readonly node: SessionBranchNode
-  readonly isLast: boolean
-  readonly parentLines: ReadonlyArray<boolean>
+  readonly entryCount: number
 }
 const branchView = (nodes: ReadonlyArray<SessionBranchNode>) => {
   const byId = new Map(nodes.map((node) => [node.entryId, node]))
-  const children = new Map<string | null, Array<SessionBranchNode>>()
+  const childCounts = new Map<string, number>()
   for (const node of nodes) {
-    const parentId = node.parentNodeId !== null && byId.has(node.parentNodeId) ? node.parentNodeId : null
-    const siblings = children.get(parentId) ?? []
-    siblings.push(node)
-    children.set(parentId, siblings)
+    if (node.parentNodeId !== null && byId.has(node.parentNodeId)) {
+      childCounts.set(node.parentNodeId, (childCounts.get(node.parentNodeId) ?? 0) + 1)
+    }
   }
-  const hasBranch = [...children.values()].some((siblings) => siblings.length > 1)
-  let frontier = children.get(null) ?? []
-  while (frontier.length === 1) {
-    const next = children.get(frontier[0]?.entryId ?? "") ?? []
-    if (next.length !== 1) break
-    frontier = next
+  const entryCount = (leaf: SessionBranchNode): number => {
+    let total = 0
+    let node: SessionBranchNode | undefined = leaf
+    const seen = new Set<string>()
+    while (node !== undefined && !seen.has(node.entryId)) {
+      seen.add(node.entryId)
+      total += node.compressedCount + 1
+      node = node.parentNodeId === null ? undefined : byId.get(node.parentNodeId)
+    }
+    return total
   }
-  const rows: Array<BranchRow> = []
-  const seen = new Set<string>()
-  const pending = frontier
-    .map((node, index) => ({
-      node,
-      isLast: index === frontier.length - 1,
-      parentLines: [] as ReadonlyArray<boolean>,
-    }))
-    .reverse()
-  while (pending.length > 0) {
-    const row = pending.pop()
-    if (row === undefined || seen.has(row.node.entryId)) continue
-    seen.add(row.node.entryId)
-    rows.push(row)
-    const descendants = children.get(row.node.entryId) ?? []
-    pending.push(
-      ...descendants.toReversed().map((node, reverseIndex) => ({
-        node,
-        isLast: reverseIndex === 0,
-        parentLines: [...row.parentLines, !row.isLast],
-      })),
-    )
-  }
+  const options: ReadonlyArray<BranchOption> = nodes
+    .filter((node) => node.active || !childCounts.has(node.entryId))
+    .map((node) => ({ node, entryCount: entryCount(node) }))
+    .toSorted((left, right) => Number(right.node.active) - Number(left.node.active))
   return {
-    byId,
-    branchCount: nodes.filter((node) => !children.has(node.entryId)).length,
-    hasBranch,
-    rows,
+    branchCount: options.length,
+    hasBranch: options.length > 1,
+    options,
   }
-}
-const activePath = (
-  nodes: ReadonlyArray<SessionBranchNode>,
-  byId: ReadonlyMap<string, SessionBranchNode>,
-  targetId: string | null,
-): Set<string> => {
-  if (targetId === null) return new Set()
-  let node = nodes.find((candidate) => candidate.entryId === targetId) ?? nodes.find((candidate) => candidate.active)
-  const path = new Set<string>()
-  while (node !== undefined && !path.has(node.entryId)) {
-    path.add(node.entryId)
-    node = node.parentNodeId === null ? undefined : byId.get(node.parentNodeId)
-  }
-  return path
 }
 interface BranchNodeProps {
-  row: BranchRow
-  activePathIds: Set<string>
+  option: BranchOption
+  activeLeafId: string | null
+  index: number
+  last: boolean
   onSelect: (id: string) => void
 }
-function BranchNodeView({ row, activePathIds, onSelect }: BranchNodeProps) {
-  const { node, isLast, parentLines } = row
-  const isActive = activePathIds.has(node.entryId)
-  const isOnPath = isActive
-  const skipped = node.compressedCount
-  const role = node.role ?? null
+function BranchNodeView({ option, activeLeafId, index, last, onSelect }: BranchNodeProps) {
+  const { t } = useI18n()
+  const { node, entryCount } = option
+  const isActive = node.entryId === activeLeafId || node.active
   return (
-    <div>
-      <div {...stylex.props(inlineStyles.inline1)} onClick={() => onSelect(node.entryId)}>
-        {parentLines.map((hasLine, i) => (
-          <div key={i} {...stylex.props(inlineStyles.inline2)}>
-            {hasLine && <div {...stylex.props(inlineStyles.inline3)} />}
-          </div>
-        ))}
-
-        <div {...stylex.props(inlineStyles.inline4)}>
-          <div
-            {...stylex.props(inlineStyles.inline5)}
-            style={{
-              bottom: isLast ? "50%" : 0,
-            }}
-          />
-          <div {...stylex.props(inlineStyles.inline6)} />
-        </div>
-
-        <div
-          {...stylex.props(inlineStyles.inline7)}
-          style={{
-            background: isActive ? "var(--accent)" : isOnPath ? "var(--text-muted)" : "var(--border)",
-            border: isActive ? "none" : "1px solid var(--text-dim)",
-          }}
-        />
-
-        {role && (
-          <span
-            {...stylex.props(inlineStyles.inline8)}
-            style={{
-              color: role === "user" ? "var(--accent)" : "var(--text-dim)",
-              background: role === "user" ? "rgba(37,99,235,0.08)" : "var(--bg-hover)",
-              border: `1px solid ${role === "user" ? "rgba(37,99,235,0.2)" : "var(--border)"}`,
-            }}
-          >
-            {role === "user" ? "U" : "A"}
-          </span>
-        )}
-
-        {skipped > 0 && <span {...stylex.props(inlineStyles.inline9)}>+{skipped}</span>}
-
+    <button
+      type="button"
+      role="menuitem"
+      aria-current={isActive ? "true" : undefined}
+      onClick={() => onSelect(node.entryId)}
+      {...stylex.props(inlineStyles.branchOption, isActive && inlineStyles.branchOptionActive)}
+    >
+      <span {...stylex.props(inlineStyles.branchRail)}>
         <span
-          {...stylex.props(inlineStyles.inline10)}
-          style={{
-            color: isActive ? "var(--text)" : isOnPath ? "var(--text-muted)" : "var(--text-dim)",
-            fontWeight: isActive ? 500 : 400,
-          }}
-        >
-          {node.label}
-        </span>
-      </div>
-    </div>
+          {...stylex.props(
+            inlineStyles.branchLine,
+            index === 0 && inlineStyles.branchLineFirst,
+            last && inlineStyles.branchLineLast,
+          )}
+        />
+        {index > 0 && <span {...stylex.props(inlineStyles.branchLineChild)} />}
+        <i {...stylex.props(inlineStyles.branchDot, !isActive && inlineStyles.branchDotInactive)} />
+      </span>
+      <span {...stylex.props(inlineStyles.branchCopy)}>
+        <strong {...stylex.props(inlineStyles.branchTitle)}>{isActive ? t("Current branch") : node.label}</strong>
+        <small {...stylex.props(inlineStyles.branchMeta)}>
+          {t(entryCount === 1 ? "{count} entry" : "{count} entries", { count: entryCount })}
+        </small>
+      </span>
+      {isActive && <em {...stylex.props(inlineStyles.branchCurrent)}>{t("Current")}</em>}
+    </button>
   )
 }
 export function BranchNavigator({
@@ -158,7 +95,6 @@ export function BranchNavigator({
   activeLeafId,
   onLeafChange,
   inline,
-  containerRef,
   open: openProp,
   onToggle,
   hasSession,
@@ -167,45 +103,20 @@ export function BranchNavigator({
   const { t } = useI18n()
   const [openInternal, setOpenInternal] = useState(false)
   const open = openProp !== undefined ? openProp : openInternal
-  const btnRef = useRef<HTMLButtonElement>(null)
-  const [dropdownPos, setDropdownPos] = useState<{
-    top: number
-    left: number
-    width: number
-  } | null>(null)
-  useEffect(() => {
-    if (!open || !inline) return
-    const anchor = containerRef?.current ?? btnRef.current
-    if (!anchor) return
-    const update = () => {
-      const rect = anchor.getBoundingClientRect()
-      setDropdownPos({
-        top: rect.bottom,
-        left: rect.left,
-        width: rect.width,
-      })
-    }
-    return runBrowser(BrowserPlatform.pipe(Effect.flatMap((browser) => browser.observeResize([anchor], update))), {
-      onSuccess: () => undefined,
-    })
-  }, [open, inline, containerRef])
   const view = useMemo(() => branchView(branchNodes), [branchNodes])
-  const activePathIds = useMemo(
-    () => activePath(branchNodes, view.byId, activeLeafId),
-    [activeLeafId, branchNodes, view.byId],
-  )
   const handleSelect = useCallback(
     (id: string) => {
       onLeafChange(id)
+      if (open) (onToggle ?? (() => setOpenInternal(false)))()
     },
-    [onLeafChange],
+    [onLeafChange, onToggle, open],
   )
   const noBranchReason = !hasSession
     ? t("No active session")
     : !view.hasBranch
       ? t("This session has no branches")
       : null
-  const hasContent = !noBranchReason && view.rows.length > 0
+  const hasContent = !noBranchReason && view.options.length > 0
   const branchIcon = (
     <svg
       width={inline ? 11 : 12}
@@ -250,7 +161,6 @@ export function BranchNavigator({
     return (
       <div {...stylex.props(inlineStyles.inline13)}>
         <button
-          ref={btnRef}
           onClick={() => (onToggle ? onToggle() : setOpenInternal((v) => !v))}
           {...stylex.props(inlineStyles.inline14)}
           style={{
@@ -265,7 +175,8 @@ export function BranchNavigator({
           }}
           title={t("Branches")}
           aria-label={t("Branches")}
-          aria-pressed={open}
+          aria-expanded={open}
+          aria-haspopup="menu"
         >
           {branchIcon}
           {!compact && (
@@ -277,28 +188,30 @@ export function BranchNavigator({
           )}
           {!compact && chevron}
         </button>
-        {open && dropdownPos && (
-          <div
-            {...stylex.props(inlineStyles.inline15)}
-            style={{
-              top: dropdownPos.top,
-              left: dropdownPos.left,
-              width: dropdownPos.width,
-            }}
-          >
+        {open && (
+          <div role="menu" aria-label={t("Session branches")} {...stylex.props(inlineStyles.inline15)}>
+            <header {...stylex.props(inlineStyles.branchHeader)}>
+              <strong {...stylex.props(inlineStyles.branchHeaderTitle)}>{t("Session branches")}</strong>
+              <small {...stylex.props(inlineStyles.branchHeaderCount)}>{view.branchCount}</small>
+            </header>
             {hasContent ? (
               <div {...stylex.props(inlineStyles.inline16)}>
-                {view.rows.map((row) => (
+                {view.options.map((option, index) => (
                   <BranchNodeView
-                    key={row.node.entryId}
-                    row={row}
-                    activePathIds={activePathIds}
+                    key={option.node.entryId}
+                    option={option}
+                    activeLeafId={activeLeafId}
+                    index={index}
+                    last={index === view.options.length - 1}
                     onSelect={handleSelect}
                   />
                 ))}
               </div>
             ) : (
               <div {...stylex.props(inlineStyles.inline17)}>{noBranchReason}</div>
+            )}
+            {hasContent && (
+              <footer {...stylex.props(inlineStyles.branchFooter)}>{t("Switching stays in this session")}</footer>
             )}
           </div>
         )}
@@ -319,11 +232,13 @@ export function BranchNavigator({
         <div {...stylex.props(inlineStyles.inline21)}>
           {hasContent ? (
             <div {...stylex.props(inlineStyles.inline22)}>
-              {view.rows.map((row) => (
+              {view.options.map((option, index) => (
                 <BranchNodeView
-                  key={row.node.entryId}
-                  row={row}
-                  activePathIds={activePathIds}
+                  key={option.node.entryId}
+                  option={option}
+                  activeLeafId={activeLeafId}
+                  index={index}
+                  last={index === view.options.length - 1}
                   onSelect={handleSelect}
                 />
               ))}
@@ -336,80 +251,97 @@ export function BranchNavigator({
     </div>
   )
 }
+const reveal = stylex.keyframes({
+  from: { opacity: 0, transform: "translateY(-4px)" },
+  to: { opacity: 1, transform: "translateY(0)" },
+})
 const inlineStyles = stylex.create({
-  inline1: {
-    display: "flex",
+  branchOption: {
     alignItems: "center",
-    height: 24,
+    background: "transparent",
+    border: 0,
+    borderRadius: 8,
     cursor: "pointer",
+    display: "grid",
+    gap: 8,
+    gridTemplateColumns: "25px minmax(0, 1fr) auto",
+    minHeight: 54,
+    padding: "7px 8px",
+    textAlign: "left",
+    width: "100%",
+    ":hover": { background: "var(--bg-subtle)" },
   },
-  inline2: {
-    width: 16,
-    flexShrink: 0,
+  branchOptionActive: {
+    background: "color-mix(in srgb, rgba(34, 197, 94, 0.14) 55%, transparent)",
+  },
+  branchRail: {
+    display: "grid",
+    height: 38,
+    placeItems: "center",
     position: "relative",
-    height: "100%",
-    alignSelf: "stretch",
+    width: 22,
   },
-  inline3: {
-    position: "absolute",
-    left: 7,
-    top: 0,
-    bottom: 0,
-    width: 1,
+  branchLine: {
     background: "var(--border)",
-  },
-  inline4: {
-    width: 16,
-    flexShrink: 0,
-    position: "relative",
-    height: "100%",
-    alignSelf: "stretch",
-  },
-  inline5: {
+    bottom: -7,
+    left: 10,
     position: "absolute",
-    left: 7,
-    top: 0,
+    top: -7,
     width: 1,
-    background: "var(--border)",
   },
-  inline6: {
-    position: "absolute",
-    left: 7,
-    top: "50%",
-    width: 9,
+  branchLineFirst: {
+    top: 18,
+  },
+  branchLineLast: {
+    bottom: 18,
+  },
+  branchLineChild: {
+    background: "var(--border)",
     height: 1,
-    background: "var(--border)",
+    left: 10,
+    position: "absolute",
+    top: 18,
+    width: 10,
   },
-  inline7: {
-    width: 7,
-    height: 7,
+  branchDot: {
+    background: "#16a34a",
+    border: "2px solid var(--bg-elevated)",
     borderRadius: "50%",
-    flexShrink: 0,
-    marginRight: 6,
-    transition: "background 0.12s",
+    boxShadow: "0 0 0 1px #16a34a",
+    height: 8,
+    position: "relative",
+    width: 8,
+    zIndex: 1,
   },
-  inline8: {
-    fontSize: 9,
-    fontFamily: "var(--font-mono)",
-    borderRadius: 3,
-    padding: "0 4px",
-    marginRight: 5,
-    flexShrink: 0,
-    lineHeight: "16px",
+  branchDotInactive: {
+    background: "var(--text-dim)",
+    boxShadow: "0 0 0 1px var(--text-dim)",
   },
-  inline9: {
-    fontSize: 10,
-    color: "var(--text-dim)",
-    marginRight: 5,
-    flexShrink: 0,
+  branchCopy: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+    minWidth: 0,
   },
-  inline10: {
-    fontSize: 11,
+  branchTitle: {
+    color: "var(--text)",
+    fontSize: 12,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
-    flex: 1,
-    minWidth: 0,
+  },
+  branchMeta: {
+    color: "var(--text-dim)",
+    fontFamily: "var(--font-mono)",
+    fontSize: 10,
+  },
+  branchCurrent: {
+    background: "rgba(34, 197, 94, 0.14)",
+    borderRadius: 8,
+    color: "#16a34a",
+    fontSize: 9,
+    fontStyle: "normal",
+    padding: "2px 6px",
   },
   inline11: {
     flexShrink: 0,
@@ -421,6 +353,7 @@ const inlineStyles = stylex.create({
   inline13: {
     display: "flex",
     alignItems: "center",
+    position: "relative",
   },
   inline14: {
     display: "flex",
@@ -436,13 +369,29 @@ const inlineStyles = stylex.create({
     transition: "color 0.1s, background 0.1s",
   },
   inline15: {
-    position: "fixed",
-    background: "var(--bg-panel)",
-    borderBottom: "1px solid var(--border)",
+    animationDuration: "130ms",
+    animationName: reveal,
+    animationTimingFunction: "ease",
+    background: "var(--bg-elevated)",
+    border: "1px solid var(--border)",
+    borderRadius: 11,
+    boxShadow: "var(--shadow-lg)",
+    left: 0,
+    padding: 6,
+    position: "absolute",
+    top: 35,
+    width: 310,
     zIndex: 500,
+    "@media (max-width: 760px)": {
+      left: 7,
+      position: "fixed",
+      right: 7,
+      top: "calc(var(--topbar-height) - 1px)",
+      width: "auto",
+    },
   },
   inline16: {
-    padding: "4px 12px 8px 12px",
+    padding: 0,
     maxHeight: 260,
     overflowY: "auto",
   },
@@ -451,6 +400,26 @@ const inlineStyles = stylex.create({
     fontSize: 12,
     color: "var(--text-muted)",
     fontStyle: "italic",
+  },
+  branchHeader: {
+    alignItems: "center",
+    borderBottom: "1px solid var(--border-soft)",
+    display: "flex",
+    height: 35,
+    justifyContent: "space-between",
+    padding: "0 8px",
+  },
+  branchHeaderTitle: {
+    fontSize: 12,
+  },
+  branchHeaderCount: {
+    color: "var(--text-dim)",
+    fontSize: 10,
+  },
+  branchFooter: {
+    color: "var(--text-dim)",
+    fontSize: 9,
+    padding: "7px 8px 3px",
   },
   inline18: {
     borderBottom: "1px solid var(--border)",

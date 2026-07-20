@@ -124,6 +124,7 @@ interface Props {
   sessionId?: string
   turnUsage?: TurnUsage
   hideUsage?: boolean
+  turnSegment?: boolean
 }
 function formatTime(ts?: number): string | null {
   if (!ts) return null
@@ -138,6 +139,14 @@ function formatTime(ts?: number): string | null {
         hour: "2-digit",
         minute: "2-digit",
       }),
+  })
+}
+function formatClockTime(ts?: number): string | null {
+  if (!ts) return null
+  const date = DateTime.make(ts)
+  return Option.match(date, {
+    onNone: () => null,
+    onSome: (value) => DateTime.formatLocal(value, { hour: "2-digit", minute: "2-digit" }),
   })
 }
 export function MessageView({
@@ -158,6 +167,7 @@ export function MessageView({
   sessionId,
   turnUsage,
   hideUsage,
+  turnSegment,
 }: Props) {
   if (message.role === "user") {
     return (
@@ -189,6 +199,7 @@ export function MessageView({
         entryId={entryId}
         turnUsage={turnUsage}
         hideUsage={hideUsage}
+        turnSegment={turnSegment}
       />
     )
   }
@@ -248,20 +259,6 @@ export function ProcessMessageView({
                 result={result}
                 duration={elapsedSeconds(assistant.timestamp, result?.timestamp)}
               />
-            )
-          }
-          if (block.type === "text") {
-            return (
-              <CompactProcessTextRow
-                key={`${entryId ?? "process"}-${blockIndex}`}
-                label="assistant"
-                text={(block as TextContent).text}
-              />
-            )
-          }
-          if (block.type === "image") {
-            return (
-              <CompactProcessTextRow key={`${entryId ?? "process"}-${blockIndex}`} label="assistant" text="Image" />
             )
           }
           return null
@@ -495,7 +492,7 @@ function UserMessageView({
   prevAssistantEntryId?: string
   onEditContent?: (content: string) => void
 }) {
-  const { locale, t } = useI18n()
+  const { t } = useI18n()
   const [hovered, setHovered] = useState(false)
   const [copied, setCopied] = useState(false)
   const content =
@@ -507,7 +504,6 @@ function UserMessageView({
           .join("\n")
   const imageBlocks: ImageContent[] =
     typeof message.content === "string" ? [] : message.content.filter((b): b is ImageContent => b.type === "image")
-  const time = formatTime(message.timestamp)
   const canFork = !!entryId && !!onFork
   const canNavigate = !!prevAssistantEntryId && !!onNavigate
   const copyContent = () => {
@@ -528,10 +524,6 @@ function UserMessageView({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div {...stylex.props(inlineStyles.userHeader)}>
-        <span {...stylex.props(inlineStyles.userAvatar)}>{locale === "zh-CN" ? "你" : "You"}</span>
-        {time && <span {...stylex.props(inlineStyles.userHeaderTime)}>{time}</span>}
-      </div>
       <div {...stylex.props(inlineStyles.inline11)}>
         <div {...stylex.props(inlineStyles.inline12)}>
           {imageBlocks.length > 0 && (
@@ -707,6 +699,7 @@ function AssistantMessageView({
   entryId,
   turnUsage,
   hideUsage,
+  turnSegment,
 }: {
   message: AssistantMessage
   isStreaming?: boolean
@@ -720,6 +713,7 @@ function AssistantMessageView({
   entryId?: string
   turnUsage?: TurnUsage
   hideUsage?: boolean
+  turnSegment?: boolean
 }) {
   const { t } = useI18n()
   const time = showTimestamp ? formatTime(message.timestamp) : null
@@ -737,8 +731,6 @@ function AssistantMessageView({
   const blocks = blockItems.map(({ block }) => block)
   const [hovered, setHovered] = useState(false)
   const [copied, setCopied] = useState(false)
-  const streamStartRef = useRef<number | null>(null)
-  const [tps, setTps] = useState<number | null>(null)
   const blockItemsRef = useRef(blockItems)
   blockItemsRef.current = blockItems
 
@@ -797,8 +789,6 @@ function AssistantMessageView({
   useEffect(() => {
     if (!isStreaming) {
       // Finalise any un-finished thinking block durations on stream end
-      streamStartRef.current = null
-      setTps(null)
       return runApi(Clock.currentTimeMillis, {
         onSuccess: (now) =>
           setStreamingDurations((prev: Map<number, number>) => {
@@ -812,7 +802,6 @@ function AssistantMessageView({
     }
     const tick = (now: number) => {
       const items = blockItemsRef.current
-      const bs = items.map(({ block }) => block)
 
       // Record start time for each block the first time we see it
       items.forEach(({ originalIndex }) => {
@@ -835,16 +824,6 @@ function AssistantMessageView({
         }
         return changed ? next : prev
       })
-      let chars = 0
-      for (const b of bs) {
-        if (b.type === "text") chars += (b as TextContent).text?.length ?? 0
-        else if (b.type === "thinking") chars += (b as ThinkingContent).thinking?.length ?? 0
-        else if (b.type === "toolCall") chars += JSON.stringify((b as ToolCallContent).input ?? {}).length
-      }
-      if (chars === 0) return
-      if (streamStartRef.current === null) streamStartRef.current = now
-      const elapsed = (now - streamStartRef.current) / 1000
-      if (elapsed > 0.5) setTps(chars / 4 / elapsed)
     }
     return runApi(
       Clock.currentTimeMillis.pipe(
@@ -861,66 +840,10 @@ function AssistantMessageView({
   return (
     <div
       {...stylex.props(inlineStyles.inline22)}
+      style={{ marginBottom: turnSegment ? 0 : undefined }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Model label */}
-      <div {...stylex.props(inlineStyles.inline23)}>
-        {message.provider && (
-          <span>
-            {modelNames?.[`${message.provider}:${message.model}`] ?? modelNames?.[message.model] ?? message.model}
-          </span>
-        )}
-        {isStreaming &&
-          (() => {
-            let chars = 0
-            for (const b of blocks) {
-              if (b.type === "text") chars += (b as TextContent).text?.length ?? 0
-              else if (b.type === "thinking") chars += (b as ThinkingContent).thinking?.length ?? 0
-              else if (b.type === "toolCall") chars += JSON.stringify((b as ToolCallContent).input ?? {}).length
-            }
-            const est = Math.round(chars / 4)
-            return (
-              <>
-                {est > 0 && (
-                  <span {...stylex.props(inlineStyles.inline24)} title={t("Estimated token count while streaming")}>
-                    <span {...stylex.props(inlineStyles.inline25)}>
-                      <svg
-                        width="10"
-                        height="10"
-                        viewBox="0 0 10 10"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <line x1="5" y1="1.5" x2="5" y2="8.5" />
-                        <polyline points="2 6 5 8.5 8 6" />
-                      </svg>
-                      {est}
-                    </span>
-                    {tps !== null &&
-                      (() => {
-                        const bg = tps >= 50 ? "#53b3cb" : tps >= 30 ? "#9bc53d" : tps >= 15 ? "#f9c22e" : "#e01a4f"
-                        return (
-                          <span
-                            {...stylex.props(inlineStyles.inline26)}
-                            style={{
-                              background: bg,
-                            }}
-                          >
-                            {tps.toFixed(1)} t/s
-                          </span>
-                        )
-                      })()}
-                  </span>
-                )}
-              </>
-            )
-          })()}
-      </div>
-
       <div {...stylex.props(inlineStyles.inline27)}>
         {termination !== undefined && (
           <div
@@ -958,7 +881,7 @@ function AssistantMessageView({
 
       <div {...stylex.props(inlineStyles.inline29)}>
         {turnUsage && !isStreaming ? (
-          <TurnUsageSummary usage={turnUsage} />
+          <TurnUsageSummary modelNames={modelNames} usage={turnUsage} />
         ) : message.usage && !isStreaming && !hideUsage ? (
           <div {...stylex.props(inlineStyles.inline30)}>
             {formatUsage(message.usage, elapsedDuration(prevTimestamp, message.timestamp))}
@@ -1629,13 +1552,27 @@ function getToolPreview(block: ToolCallContent): string {
 function previewToolValue(value: JsonValue): string {
   return (typeof value === "string" ? value : JSON.stringify(value)).slice(0, 120)
 }
-export function TurnUsageSummary({ usage, ongoing = false }: { usage: TurnUsage; ongoing?: boolean }) {
+export function TurnUsageSummary({
+  usage,
+  ongoing = false,
+  modelNames,
+  timestamp,
+}: {
+  usage: TurnUsage
+  ongoing?: boolean
+  modelNames?: Record<string, string>
+  timestamp?: number
+}) {
   const { locale, t } = useI18n()
+  const modelLabel = usage.models
+    .map(({ provider, model }) => modelNames?.[`${provider}:${model}`] ?? modelNames?.[model] ?? model)
+    .join(" / ")
   const callCount =
     locale === "zh-CN"
       ? `${usage.modelCalls} 次模型调用`
       : `${usage.modelCalls} model ${usage.modelCalls === 1 ? "call" : "calls"}`
   const rows: Array<[string, string]> = [
+    ...(modelLabel ? [[t("Model"), modelLabel] as [string, string]] : []),
     [t("Input"), usage.input.toLocaleString()],
     [t("Output"), usage.output.toLocaleString()],
     ...(usage.cacheRead > 0 ? [[t("Cache Read"), usage.cacheRead.toLocaleString()] as [string, string]] : []),
@@ -1651,6 +1588,12 @@ export function TurnUsageSummary({ usage, ongoing = false }: { usage: TurnUsage;
   return (
     <details {...stylex.props(inlineStyles.inline84)}>
       <summary title={t("Show turn usage details")} {...stylex.props(inlineStyles.inline85)}>
+        {modelLabel && (
+          <>
+            <span>{modelLabel}</span>
+            <span>·</span>
+          </>
+        )}
         <span>{ongoing ? t("Turn in progress") : t("This turn")}</span>
         <span>·</span>
         <span {...stylex.props(inlineStyles.inline86)}>${usage.cost.toFixed(4)}</span>
@@ -1665,6 +1608,9 @@ export function TurnUsageSummary({ usage, ongoing = false }: { usage: TurnUsage;
             <span>·</span>
             <span>{callCount}</span>
           </>
+        )}
+        {!ongoing && timestamp !== undefined && (
+          <time {...stylex.props(inlineStyles.turnTimestamp)}>{formatClockTime(timestamp)}</time>
         )}
       </summary>
       <div {...stylex.props(inlineStyles.inline87)}>
@@ -1775,9 +1721,9 @@ const inlineStyles = stylex.create({
   inline12: {
     flex: 1,
     minWidth: 0,
-    background: "var(--user-bg)",
-    border: "1px solid rgba(59,130,246,0.2)",
-    borderRadius: "12px 3px 12px 12px",
+    background: "var(--bg-subtle)",
+    border: "none",
+    borderRadius: 12,
     padding: "13px 15px",
     fontSize: 14,
     lineHeight: 1.6,
@@ -1862,60 +1808,8 @@ const inlineStyles = stylex.create({
     whiteSpace: "nowrap",
     transition: "color 0.12s",
   },
-  userHeader: {
-    alignItems: "center",
-    display: "flex",
-    marginBottom: 7,
-    width: "100%",
-  },
-  userAvatar: {
-    alignItems: "center",
-    background: "var(--text)",
-    borderRadius: 7,
-    color: "var(--bg-panel)",
-    display: "flex",
-    fontSize: 11,
-    fontWeight: 700,
-    height: 24,
-    justifyContent: "center",
-    width: 24,
-  },
-  userHeaderTime: {
-    color: "var(--text-dim)",
-    fontSize: 11,
-    marginLeft: "auto",
-  },
   inline22: {
     marginBottom: 25,
-  },
-  inline23: {
-    fontSize: 11,
-    color: "var(--text-dim)",
-    marginBottom: 4,
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-  },
-  inline24: {
-    display: "flex",
-    alignItems: "center",
-    gap: 4,
-    color: "var(--text)",
-  },
-  inline25: {
-    display: "flex",
-    alignItems: "center",
-    gap: 2,
-    fontSize: 11,
-    fontWeight: 400,
-  },
-  inline26: {
-    marginLeft: 6,
-    padding: "1px 6px",
-    borderRadius: 4,
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: 400,
   },
   inline27: {
     display: "flex",
@@ -2306,6 +2200,7 @@ const inlineStyles = stylex.create({
   inline84: {
     position: "relative",
     fontVariantNumeric: "tabular-nums",
+    width: "100%",
   },
   inline85: {
     display: "flex",
@@ -2320,6 +2215,11 @@ const inlineStyles = stylex.create({
   inline86: {
     color: "var(--text-muted)",
     fontWeight: 500,
+  },
+  turnTimestamp: {
+    color: "var(--text-dim)",
+    fontSize: 10,
+    marginLeft: "auto",
   },
   inline87: {
     position: "absolute",

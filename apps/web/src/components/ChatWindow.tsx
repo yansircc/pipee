@@ -17,9 +17,8 @@ import type {
   WeixinStatusProjection,
 } from "@/api/contract"
 import {
-  countToolCallBlocks,
-  getDisplayableAssistantBlocks,
-  splitFinalAssistantBlocks,
+  partitionAssistantBlocks,
+  segmentAssistantBlocks,
   summarizeTurnUsage,
   type TurnUsage,
 } from "@/lib/message-display"
@@ -118,40 +117,11 @@ const pulse = stylex.keyframes({
 const spin = stylex.keyframes({
   to: { transform: "rotate(360deg)" },
 })
-function hasFinalAssistantAnswer(message: AgentMessage): boolean {
-  if (message.role !== "assistant") return false
-  return splitFinalAssistantBlocks(message as AssistantMessage).answerBlocks.some(
-    (block) => block.type === "image" || (block.type === "text" && block.text.trim().length > 0),
-  )
-}
-function findFinalAssistantIndex(messages: AgentMessage[], userIdx: number, endIdx: number): number {
-  for (let candidateIdx = endIdx - 1; candidateIdx > userIdx; candidateIdx--) {
-    if (hasFinalAssistantAnswer(messages[candidateIdx])) return candidateIdx
-  }
-  for (let candidateIdx = endIdx - 1; candidateIdx > userIdx; candidateIdx--) {
-    if (messages[candidateIdx]?.role === "assistant") return candidateIdx
-  }
-  return -1
-}
-function countToolCalls(messages: AgentMessage[], indices: number[]): number {
-  let count = 0
-  for (const idx of indices) {
-    const msg = messages[idx]
-    if (msg?.role !== "assistant") continue
-    count += countToolCallBlocks(getDisplayableAssistantBlocks(msg as AssistantMessage))
-  }
-  return count
-}
-function hasDisplayableProcessMessage(message: AgentMessage): boolean {
-  if (message.role === "assistant") {
-    return getDisplayableAssistantBlocks(message as AssistantMessage).length > 0
-  }
-  return message.role === "custom"
-}
 function withAssistantBlocks(
   message: AssistantMessage,
   content: AssistantContentBlock[],
   options: {
+    omitTermination?: boolean
     omitUsage?: boolean
   } = {},
 ): AssistantMessage {
@@ -159,45 +129,71 @@ function withAssistantBlocks(
     ...message,
     content,
   }
+  if (options.omitTermination) {
+    next.stopReason = undefined
+    next.errorMessage = undefined
+  }
   if (options.omitUsage) next.usage = undefined
   return next
 }
-function ProcessDetailsGroup({
-  messageCount,
-  toolCallCount,
+function describeActivity(message: AgentMessage, locale: string): string {
+  if (message.role !== "assistant") return locale === "zh-CN" ? "扩展事件" : "Extension event"
+  const toolNames = partitionAssistantBlocks(message as AssistantMessage)
+    .processBlocks.filter((block) => block.type === "toolCall")
+    .map((block) => block.toolName.toLowerCase())
+  if (toolNames.length === 0) return locale === "zh-CN" ? "思考" : "Thinking"
+  const hasBrowser = toolNames.some((name) => name.startsWith("chrome_") || name.includes("browser"))
+  const hasEdits = toolNames.some((name) => /(^|_)(edit|write|patch|apply_patch)($|_)/.test(name))
+  const hasCommands = toolNames.some((name) => /(^|_)(bash|shell|exec|command)($|_)/.test(name))
+  const hasReads = toolNames.some((name) => /(^|_)(read|grep|find|ls|search)($|_)/.test(name))
+  if (locale === "zh-CN") {
+    if (hasBrowser) return "操作了浏览器"
+    if (hasEdits && hasCommands) return "编辑了文件并运行命令"
+    if (hasEdits) return "编辑了文件"
+    if (hasReads && hasCommands) return "读取文件并运行命令"
+    if (hasCommands) return toolNames.length === 1 ? "运行了命令" : "运行了多个命令"
+    if (hasReads) return "读取了文件"
+    return toolNames.length === 1 ? `调用了 ${toolNames[0]}` : `调用了 ${toolNames.length} 个工具`
+  }
+  if (hasBrowser) return "Used the browser"
+  if (hasEdits && hasCommands) return "Edited files and ran commands"
+  if (hasEdits) return "Edited files"
+  if (hasReads && hasCommands) return "Read files and ran commands"
+  if (hasCommands) return toolNames.length === 1 ? "Ran a command" : "Ran multiple commands"
+  if (hasReads) return "Read files"
+  return toolNames.length === 1 ? `Called ${toolNames[0]}` : `Called ${toolNames.length} tools`
+}
+
+function ActivityGroup({
+  message,
   running,
   children,
 }: {
-  messageCount: number
-  toolCallCount: number
+  message: AgentMessage
   running: boolean
   children: ReactNode
 }) {
   const { locale, t } = useI18n()
   const [expanded, setExpanded] = useState(true)
-  const detailParts = [
-    locale === "zh-CN" ? `${messageCount} 条消息` : `${messageCount} ${messageCount === 1 ? "message" : "messages"}`,
-  ]
-  if (toolCallCount > 0)
-    detailParts.push(
-      locale === "zh-CN"
-        ? `${toolCallCount} 次工具调用`
-        : `${toolCallCount} ${toolCallCount === 1 ? "tool call" : "tool calls"}`,
-    )
   return (
-    <div aria-busy={running} {...stylex.props(inlineStyles.inline1)}>
+    <div aria-busy={running} {...stylex.props(inlineStyles.activityGroup)}>
       <button
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded((v) => !v)}
-        {...stylex.props(inlineStyles.inline2)}
+        {...stylex.props(inlineStyles.activityToggle)}
         title={t(expanded ? "Collapse process details" : "Expand process details")}
       >
-        {running && <span {...stylex.props(inlineStyles.processStateDot)} aria-hidden="true" />}
-        <span {...stylex.props(inlineStyles.processSummaryCopy)}>
-          <strong {...stylex.props(inlineStyles.processSummaryTitle)}>{t("Process details")}</strong>
-          <small {...stylex.props(inlineStyles.processSummaryMeta)}>{detailParts.join(" · ")}</small>
-        </span>
+        {running ? (
+          <span {...stylex.props(inlineStyles.processStateDot)} aria-hidden="true" />
+        ) : (
+          <span {...stylex.props(inlineStyles.activityComplete)} aria-hidden="true">
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <polyline points="2.5 6 5 8.5 9.5 3.5" />
+            </svg>
+          </span>
+        )}
+        <strong {...stylex.props(inlineStyles.activityTitle)}>{describeActivity(message, locale)}</strong>
         <svg
           width="12"
           height="12"
@@ -207,7 +203,7 @@ function ProcessDetailsGroup({
           strokeWidth="1.6"
           strokeLinecap="round"
           strokeLinejoin="round"
-          {...stylex.props(inlineStyles.inline3)}
+          {...stylex.props(inlineStyles.activityChevron)}
           style={{
             transform: expanded ? "rotate(90deg)" : "none",
           }}
@@ -215,7 +211,7 @@ function ProcessDetailsGroup({
           <polyline points="4 2.5 7.5 6 4 9.5" />
         </svg>
       </button>
-      {expanded && <div {...stylex.props(inlineStyles.inline5)}>{children}</div>}
+      {expanded && <div {...stylex.props(inlineStyles.activityBody)}>{children}</div>}
     </div>
   )
 }
@@ -689,6 +685,7 @@ export function ChatWindow({
                         showTimestamp?: boolean
                         turnUsage?: TurnUsage
                         hideUsage?: boolean
+                        turnSegment?: boolean
                       } = {},
                     ): ReactNode => {
                       const msg = options.messageOverride ?? messages[idx]
@@ -743,6 +740,7 @@ export function ChatWindow({
                           sessionId={session.id}
                           turnUsage={options.turnUsage}
                           hideUsage={options.hideUsage}
+                          turnSegment={options.turnSegment}
                         />
                       )
                       if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view
@@ -763,134 +761,183 @@ export function ChatWindow({
                       const userIdx = idx
                       let endIdx = userIdx + 1
                       while (endIdx < messages.length && messages[endIdx].role !== "user") endIdx += 1
-                      const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx)
                       const turnUsage = summarizeTurnUsage(messages, userIdx, endIdx)
-                      if (finalAssistantIdx === -1) {
-                        for (let renderIdx = userIdx; renderIdx < endIdx; renderIdx++) {
-                          rendered.push(renderMessage(renderIdx))
-                        }
-                        idx = endIdx
-                        continue
-                      }
                       const isLiveTail = runInProgress && endIdx === messages.length && userIdx === lastUserIdx
                       rendered.push(renderMessage(userIdx))
-                      const processIndices: number[] = []
-                      for (let processIdx = userIdx + 1; processIdx < finalAssistantIdx; processIdx++) {
-                        processIndices.push(processIdx)
+                      const streamingAssistant =
+                        isLiveTail && streamState.streamingMessage?.role === "assistant"
+                          ? (streamState.streamingMessage as AssistantMessage)
+                          : null
+                      const streamingSegments = streamingAssistant
+                        ? segmentAssistantBlocks(streamingAssistant, { isStreaming: true })
+                        : []
+                      const persistedProcessIndices: number[] = []
+                      for (let messageIdx = userIdx + 1; messageIdx < endIdx; messageIdx++) {
+                        const turnMessage = messages[messageIdx]
+                        if (turnMessage.role === "assistant") {
+                          if (
+                            segmentAssistantBlocks(turnMessage as AssistantMessage).some(
+                              ({ kind }) => kind === "process",
+                            )
+                          ) {
+                            persistedProcessIndices.push(messageIdx)
+                          }
+                        }
                       }
-                      const visibleProcessIndices = processIndices.filter((processIdx) =>
-                        hasDisplayableProcessMessage(messages[processIdx]),
-                      )
-                      const finalAssistant = messages[finalAssistantIdx] as AssistantMessage
-                      const finalSplit = splitFinalAssistantBlocks(finalAssistant)
-                      const finalProcessMessage =
-                        finalSplit.processBlocks.length > 0
-                          ? withAssistantBlocks(finalAssistant, finalSplit.processBlocks, {
-                              omitUsage: true,
-                            })
-                          : null
-                      const finalAnswerMessage =
-                        finalSplit.answerBlocks.length > 0 ||
-                        finalAssistant.stopReason === "aborted" ||
-                        Boolean(finalAssistant.errorMessage?.trim())
-                          ? withAssistantBlocks(finalAssistant, finalSplit.answerBlocks)
-                          : null
-                      const processCount = visibleProcessIndices.length + (finalProcessMessage ? 1 : 0)
-                      if (processCount > 0) {
-                        const processRefIdx =
-                          visibleProcessIndices
-                            .map((processIdx) => visibleRefIndexByMessage.get(processIdx))
-                            .find((value): value is number => typeof value === "number") ??
-                          (finalAnswerMessage ? undefined : visibleRefIndexByMessage.get(finalAssistantIdx))
-                        const processGroup = (
-                          <ProcessDetailsGroup
-                            messageCount={processCount}
-                            running={isLiveTail}
-                            toolCallCount={
-                              countToolCalls(messages, visibleProcessIndices) +
-                              countToolCallBlocks(finalSplit.processBlocks)
-                            }
-                          >
-                            {visibleProcessIndices.map((processIdx) => (
-                              <ProcessMessageView
-                                key={`process-${processIdx}`}
-                                message={messages[processIdx]}
-                                toolResults={toolResultsMap}
-                                prevTimestamp={
-                                  processIdx > 0
-                                    ? (
-                                        messages[processIdx - 1] as AgentMessage & {
-                                          timestamp?: number
-                                        }
-                                      ).timestamp
-                                    : undefined
+                      const streamingHasProcess = streamingSegments.some(({ kind }) => kind === "process")
+                      const runningPersistedProcessIdx =
+                        isLiveTail && !streamingHasProcess ? persistedProcessIndices.at(-1) : undefined
+                      const turnSegments: ReactNode[] = []
+                      for (let messageIdx = userIdx + 1; messageIdx < endIdx; messageIdx++) {
+                        const turnMessage = messages[messageIdx]
+                        if (turnMessage.role === "toolResult") continue
+                        if (turnMessage.role !== "assistant") {
+                          if (turnMessage.role === "custom") {
+                            turnSegments.push(
+                              <ActivityGroup key={`activity-${messageIdx}`} message={turnMessage} running={false}>
+                                <ProcessMessageView
+                                  message={turnMessage}
+                                  toolResults={toolResultsMap}
+                                  prevTimestamp={messages[messageIdx - 1]?.timestamp}
+                                  sessionId={session.id}
+                                  entryId={entryIds[messageIdx]}
+                                />
+                              </ActivityGroup>,
+                            )
+                          } else {
+                            turnSegments.push(renderMessage(messageIdx, { turnSegment: true }))
+                          }
+                          continue
+                        }
+                        const assistant = turnMessage as AssistantMessage
+                        const segments = segmentAssistantBlocks(assistant)
+                        const lastProcessSegment = segments.findLastIndex(({ kind }) => kind === "process")
+                        segments.forEach((segment, segmentIndex) => {
+                          const segmentMessage = withAssistantBlocks(assistant, [...segment.blocks], {
+                            omitTermination: true,
+                            omitUsage: true,
+                          })
+                          if (segment.kind === "event") {
+                            turnSegments.push(
+                              renderMessage(messageIdx, {
+                                attachRef: segmentIndex === 0,
+                                hideUsage: true,
+                                keyPrefix: `turn-event-${segmentIndex}`,
+                                messageOverride: segmentMessage,
+                                showTimestamp: false,
+                                turnSegment: true,
+                              }),
+                            )
+                            return
+                          }
+                          const activityRefIdx =
+                            segmentIndex === 0 ? visibleRefIndexByMessage.get(messageIdx) : undefined
+                          turnSegments.push(
+                            <div
+                              key={`activity-${messageIdx}-${segmentIndex}`}
+                              ref={
+                                activityRefIdx === undefined
+                                  ? undefined
+                                  : (element) => {
+                                      messageRefs.current[activityRefIdx] = element
+                                    }
+                              }
+                            >
+                              <ActivityGroup
+                                message={segmentMessage}
+                                running={
+                                  messageIdx === runningPersistedProcessIdx && segmentIndex === lastProcessSegment
                                 }
-                                sessionId={session.id}
-                                entryId={entryIds[processIdx]}
-                              />
-                            ))}
-                            {finalProcessMessage && (
-                              <ProcessMessageView
-                                key={`process-final-${finalAssistantIdx}`}
-                                message={finalProcessMessage}
-                                toolResults={toolResultsMap}
-                                prevTimestamp={
-                                  finalAssistantIdx > 0
-                                    ? (
-                                        messages[finalAssistantIdx - 1] as AgentMessage & {
-                                          timestamp?: number
-                                        }
-                                      ).timestamp
-                                    : undefined
-                                }
-                                sessionId={session.id}
-                                entryId={entryIds[finalAssistantIdx]}
-                              />
-                            )}
-                          </ProcessDetailsGroup>
-                        )
-                        rendered.push(
-                          <div
-                            key={`process-group-${userIdx}-${finalAssistantIdx}`}
-                            ref={
-                              processRefIdx === undefined
-                                ? undefined
-                                : (el) => {
-                                    messageRefs.current[processRefIdx] = el
+                              >
+                                <ProcessMessageView
+                                  message={segmentMessage}
+                                  toolResults={toolResultsMap}
+                                  prevTimestamp={
+                                    messageIdx > 0 ? (messages[messageIdx - 1] as AgentMessage).timestamp : undefined
                                   }
-                            }
-                          >
-                            {processGroup}
-                          </div>,
+                                  sessionId={session.id}
+                                  entryId={entryIds[messageIdx]}
+                                />
+                              </ActivityGroup>
+                            </div>,
+                          )
+                        })
+                        if (assistant.stopReason === "aborted" || assistant.errorMessage?.trim()) {
+                          turnSegments.push(
+                            renderMessage(messageIdx, {
+                              attachRef: segments.length === 0,
+                              hideUsage: true,
+                              keyPrefix: "turn-termination",
+                              messageOverride: withAssistantBlocks(assistant, [], { omitUsage: true }),
+                              showTimestamp: false,
+                              turnSegment: true,
+                            }),
+                          )
+                        }
+                      }
+                      if (streamingAssistant) {
+                        const lastStreamingProcess = streamingSegments.findLastIndex(({ kind }) => kind === "process")
+                        streamingSegments.forEach((segment, segmentIndex) => {
+                          const segmentMessage = withAssistantBlocks(streamingAssistant, [...segment.blocks], {
+                            omitTermination: true,
+                            omitUsage: true,
+                          })
+                          turnSegments.push(
+                            segment.kind === "event" ? (
+                              <MessageView
+                                key={`streaming-event-${userIdx}-${segmentIndex}`}
+                                message={segmentMessage}
+                                isStreaming
+                                modelNames={modelNames}
+                                cwd={messageCwd}
+                                onOpenFile={onOpenFile}
+                                turnSegment
+                              />
+                            ) : (
+                              <ActivityGroup
+                                key={`streaming-activity-${userIdx}-${segmentIndex}`}
+                                message={segmentMessage}
+                                running={segmentIndex === lastStreamingProcess}
+                              >
+                                <ProcessMessageView
+                                  message={segmentMessage}
+                                  toolResults={toolResultsMap}
+                                  prevTimestamp={messages.at(-1)?.timestamp}
+                                  sessionId={session.id}
+                                />
+                              </ActivityGroup>
+                            ),
+                          )
+                        })
+                      }
+                      const footerUsage = isLiveTail ? liveTurnUsage : turnUsage
+                      if (footerUsage) {
+                        const turnTimestamp = messages
+                          .slice(userIdx + 1, endIdx)
+                          .findLast((message) => message.role === "assistant")?.timestamp
+                        turnSegments.push(
+                          <TurnUsageSummary
+                            key={`turn-usage-${userIdx}`}
+                            modelNames={modelNames}
+                            usage={footerUsage}
+                            ongoing={isLiveTail}
+                            timestamp={turnTimestamp}
+                          />,
                         )
                       }
-                      if (finalAnswerMessage) {
+                      if (turnSegments.length > 0) {
                         rendered.push(
-                          renderMessage(finalAssistantIdx, {
-                            hideUsage: isLiveTail,
-                            messageOverride: finalAnswerMessage,
-                            turnUsage: isLiveTail ? undefined : (turnUsage ?? undefined),
-                          }),
-                        )
-                      } else if (turnUsage && !isLiveTail) {
-                        rendered.push(
-                          <div
-                            key={`turn-usage-${userIdx}-${finalAssistantIdx}`}
-                            {...stylex.props(inlineStyles.inline23)}
-                          >
-                            <TurnUsageSummary usage={turnUsage} />
+                          <div key={`assistant-turn-${userIdx}`} {...stylex.props(inlineStyles.assistantTurn)}>
+                            {turnSegments}
                           </div>,
                         )
-                      }
-                      for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
-                        rendered.push(renderMessage(renderIdx))
                       }
                       idx = endIdx
                     }
                     return rendered
                   })()}
 
-                  {streamState.isStreaming && streamState.streamingMessage && (
+                  {streamState.isStreaming && streamState.streamingMessage && liveUserIndex < 0 && (
                     <MessageView
                       message={streamState.streamingMessage as AgentMessage}
                       isStreaming
@@ -923,12 +970,6 @@ export function ChatWindow({
                   {agentRunning && !streamState.streamingMessage && (
                     <div {...stylex.props(styles.agentPhase)}>
                       <span {...stylex.props(styles.pulse)}>{phaseLabel(agentPhase, t)}</span>
-                    </div>
-                  )}
-
-                  {runInProgress && liveTurnUsage && (
-                    <div {...stylex.props(inlineStyles.inline24)}>
-                      <TurnUsageSummary usage={liveTurnUsage} ongoing />
                     </div>
                   )}
 
@@ -1436,38 +1477,61 @@ function ExtensionDialog({
   )
 }
 const inlineStyles = stylex.create({
-  inline1: {
-    marginBottom: 16,
-    overflow: "hidden",
-    border: "1px solid var(--border)",
-    borderRadius: 11,
-    background: "var(--bg-panel)",
+  assistantTurn: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 20,
+    marginBottom: 25,
   },
-  inline2: {
+  activityGroup: {
+    color: "var(--text-muted)",
+    position: "relative",
+  },
+  activityToggle: {
     display: "flex",
     alignItems: "center",
-    gap: 9,
+    gap: 8,
     width: "100%",
-    minHeight: 52,
-    padding: "8px 11px",
+    minHeight: 34,
+    padding: "2px 6px 2px 2px",
     border: "none",
+    borderRadius: 8,
     background: "transparent",
     color: "var(--text-muted)",
     cursor: "pointer",
-    fontSize: 12,
     textAlign: "left",
     ":hover": {
       background: "var(--bg-subtle)",
+      color: "var(--text)",
     },
   },
-  inline3: {
+  activityComplete: {
+    alignItems: "center",
+    background: "rgba(34,197,94,0.12)",
+    borderRadius: "50%",
+    color: "#16a34a",
+    display: "flex",
+    flex: "0 0 auto",
+    height: 20,
+    justifyContent: "center",
+    width: 20,
+  },
+  activityTitle: {
+    fontSize: 12,
+    fontWeight: 600,
+  },
+  activityChevron: {
+    color: "var(--text-dim)",
     flexShrink: 0,
-    order: 3,
+    marginLeft: 1,
     transition: "transform 0.15s",
   },
-  inline5: {
-    borderTop: "1px solid var(--border-soft)",
-    padding: "5px 11px 9px 29px",
+  activityBody: {
+    borderLeft: "1px solid var(--border)",
+    display: "flex",
+    flexDirection: "column",
+    marginLeft: 10,
+    padding: "3px 0 3px 20px",
   },
   processStateDot: {
     animationDuration: "800ms",
@@ -1478,23 +1542,9 @@ const inlineStyles = stylex.create({
     borderRightColor: "transparent",
     borderRadius: "50%",
     flexShrink: 0,
-    height: 9,
-    width: 9,
-  },
-  processSummaryCopy: {
-    display: "flex",
-    flex: 1,
-    flexDirection: "column",
-    minWidth: 0,
-    textAlign: "left",
-  },
-  processSummaryTitle: {
-    color: "var(--text)",
-    fontSize: 12,
-  },
-  processSummaryMeta: {
-    color: "var(--text-dim)",
-    fontSize: 11,
+    height: 12,
+    margin: 4,
+    width: 12,
   },
   inline6: {
     transformOrigin: "center",

@@ -293,7 +293,17 @@ deepSession.appendMessage({
 const seededSession = SessionManager.create(workspace, undefined, {
   id: "00000000-0000-4000-8000-000000000001",
 })
-seededSession.appendMessage({ role: "user", content: "seed root", timestamp: 1_700_000_000_000 })
+const seededRootId = seededSession.appendMessage({
+  role: "user",
+  content: "seed root",
+  timestamp: 1_700_000_000_000,
+})
+seededSession.appendMessage({
+  role: "user",
+  content: "alternate fixture branch",
+  timestamp: 1_700_000_000_002,
+})
+seededSession.branch(seededRootId)
 seededSession.appendMessage({
   role: "assistant",
   content: [{ type: "text", text: "seed reply" }],
@@ -310,6 +320,59 @@ seededSession.appendMessage({
   },
   stopReason: "stop",
   timestamp: 1_700_000_000_001,
+})
+const processSession = SessionManager.create(workspace, undefined, {
+  id: "00000000-0000-4000-8000-000000000005",
+})
+processSession.appendMessage({ role: "user", content: "exercise the process projection", timestamp: 1_700_000_010_000 })
+processSession.appendMessage({
+  role: "assistant",
+  content: [
+    { type: "thinking", thinking: "inspect the request" },
+    { type: "text", text: "I will inspect the workspace first." },
+    { type: "toolCall", toolCallId: "fixture-call-1", toolName: "read", input: { path: "hello.txt" } },
+  ],
+  api: "anthropic-messages",
+  provider: "fixture-provider",
+  model: "fixture-model",
+  usage: {
+    input: 10,
+    output: 4,
+    cacheRead: 2,
+    cacheWrite: 0,
+    totalTokens: 16,
+    cost: { input: 0.01, output: 0.01, cacheRead: 0, cacheWrite: 0, total: 0.02 },
+  },
+  stopReason: "toolUse",
+  timestamp: 1_700_000_010_100,
+})
+processSession.appendMessage({
+  role: "toolResult",
+  toolCallId: "fixture-call-1",
+  toolName: "read",
+  content: [{ type: "text", text: "hello from the isolated e2e workspace" }],
+  isError: false,
+  timestamp: 1_700_000_010_200,
+})
+processSession.appendMessage({
+  role: "assistant",
+  content: [
+    { type: "thinking", thinking: "summarize the result" },
+    { type: "text", text: "The workspace read succeeded; I am preparing the result." },
+  ],
+  api: "anthropic-messages",
+  provider: "fixture-provider",
+  model: "fixture-model",
+  usage: {
+    input: 12,
+    output: 6,
+    cacheRead: 2,
+    cacheWrite: 0,
+    totalTokens: 20,
+    cost: { input: 0.01, output: 0.02, cacheRead: 0, cacheWrite: 0, total: 0.03 },
+  },
+  stopReason: "stop",
+  timestamp: 1_700_000_010_300,
 })
 const failedSession = SessionManager.create(workspace, undefined, {
   id: "00000000-0000-4000-8000-000000000002",

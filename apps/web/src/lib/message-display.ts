@@ -1,10 +1,4 @@
-import type {
-  AgentMessage,
-  AssistantContentBlock,
-  AssistantMessage,
-  ThinkingContent,
-  ToolCallContent,
-} from "@/api/contract"
+import type { AgentMessage, AssistantContentBlock, AssistantMessage, ThinkingContent } from "@/api/contract"
 import { elapsedDuration } from "./duration"
 
 interface DisplayOptions {
@@ -12,6 +6,7 @@ interface DisplayOptions {
 }
 
 export interface TurnUsage {
+  models: ReadonlyArray<{ provider: string; model: string }>
   modelCalls: number
   input: number
   output: number
@@ -24,8 +19,14 @@ export interface TurnUsage {
   lastCallDurationMs: number | null
 }
 
+export interface AssistantDisplaySegment {
+  readonly kind: "event" | "process"
+  readonly blocks: ReadonlyArray<AssistantContentBlock>
+}
+
 export function summarizeTurnUsage(messages: AgentMessage[], userIndex: number, endIndex: number): TurnUsage | null {
   const usage: TurnUsage = {
+    models: [],
     modelCalls: 0,
     input: 0,
     output: 0,
@@ -38,6 +39,7 @@ export function summarizeTurnUsage(messages: AgentMessage[], userIndex: number, 
     lastCallDurationMs: null,
   }
   let usageRecords = 0
+  const models = new Map<string, { provider: string; model: string }>()
   const turnStartedAt = messages[userIndex]?.timestamp
   let previousTimestamp = turnStartedAt
   let turnEndedAt: number | undefined
@@ -45,6 +47,12 @@ export function summarizeTurnUsage(messages: AgentMessage[], userIndex: number, 
   for (let index = userIndex + 1; index < endIndex; index++) {
     const message = messages[index]
     if (message?.role === "assistant") {
+      if (message.provider && message.model) {
+        models.set(`${message.provider}:${message.model}`, {
+          provider: message.provider,
+          model: message.model,
+        })
+      }
       usage.modelCalls += 1
       usage.lastCallCost = message.usage?.cost?.total ?? null
       usage.lastCallDurationMs = elapsedDuration(previousTimestamp, message.timestamp)
@@ -62,6 +70,7 @@ export function summarizeTurnUsage(messages: AgentMessage[], userIndex: number, 
   }
 
   if (usageRecords === 0) return null
+  usage.models = [...models.values()]
   usage.totalTokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite
   usage.durationMs = elapsedDuration(turnStartedAt, turnEndedAt)
   return usage
@@ -81,25 +90,31 @@ export function getDisplayableAssistantBlocks(
   return (message.content ?? []).filter((block) => !isEmptyThinkingBlock(block, options))
 }
 
-function isFinalAnswerBlock(block: AssistantContentBlock): boolean {
-  return block.type === "text" || block.type === "image"
+function isConversationEventBlock(block: AssistantContentBlock): boolean {
+  return block.type === "image" || (block.type === "text" && block.text.trim().length > 0)
 }
 
-export function splitFinalAssistantBlocks(
+export function partitionAssistantBlocks(
   message: AssistantMessage,
   options: DisplayOptions = {},
-): { answerBlocks: AssistantContentBlock[]; processBlocks: AssistantContentBlock[] } {
+): { eventBlocks: AssistantContentBlock[]; processBlocks: AssistantContentBlock[] } {
   const blocks = getDisplayableAssistantBlocks(message, options)
-  const lastProcessIndex = blocks.findLastIndex((block) => !isFinalAnswerBlock(block))
-  if (lastProcessIndex === -1) {
-    return { answerBlocks: blocks, processBlocks: [] }
-  }
   return {
-    answerBlocks: blocks.slice(lastProcessIndex + 1),
-    processBlocks: blocks.slice(0, lastProcessIndex + 1),
+    eventBlocks: blocks.filter(isConversationEventBlock),
+    processBlocks: blocks.filter((block) => !isConversationEventBlock(block)),
   }
 }
 
-export function countToolCallBlocks(blocks: AssistantContentBlock[]): number {
-  return blocks.filter((block): block is ToolCallContent => block.type === "toolCall").length
+export function segmentAssistantBlocks(
+  message: AssistantMessage,
+  options: DisplayOptions = {},
+): ReadonlyArray<AssistantDisplaySegment> {
+  const segments: Array<{ kind: "event" | "process"; blocks: AssistantContentBlock[] }> = []
+  for (const block of getDisplayableAssistantBlocks(message, options)) {
+    const kind = isConversationEventBlock(block) ? "event" : "process"
+    const previous = segments.at(-1)
+    if (previous?.kind === kind) previous.blocks.push(block)
+    else segments.push({ kind, blocks: [block] })
+  }
+  return segments
 }
