@@ -63,6 +63,10 @@ function resourceSummary(pkg: PluginPackageInfo): string {
   ].filter(Boolean)
   return parts.length ? parts.join(" · ") : "No resources"
 }
+function packageSubtitle(pkg: PluginPackageInfo): string {
+  const version = pkg.version ?? pkg.configuredVersion
+  return [pkg.source, version ? `v${version}` : null, pkg.scope, resourceSummary(pkg)].filter(Boolean).join(" · ")
+}
 function versionSummary(pkg: PluginPackageInfo): string {
   const parts = []
   if (pkg.version) parts.push(`installed ${pkg.version}`)
@@ -569,7 +573,6 @@ export function PluginsConfig({
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionMessage, setActionMessage] = useState<string | null>(null)
-  const [pageFilter, setPageFilter] = useState<"all" | "active" | "disabled" | "updates">("all")
   const [pageQuery, setPageQuery] = useState("")
   const packages = useMemo(() => data?.packages ?? [], [data?.packages])
   const selectedPackage = packages.find((pkg) => packageKey(pkg) === selected) ?? null
@@ -764,25 +767,11 @@ export function PluginsConfig({
   const hasUpdate = (pkg: PluginPackageInfo) =>
     pkg.version !== undefined && pkg.configuredVersion !== undefined && pkg.version !== pkg.configuredVersion
   const visiblePackages = packages.filter((pkg) => {
-    const matchesFilter =
-      pageFilter === "all" ||
-      (pageFilter === "active" && !pkg.disabled) ||
-      (pageFilter === "disabled" && pkg.disabled) ||
-      (pageFilter === "updates" && hasUpdate(pkg))
     const query = pageQuery.trim().toLowerCase()
-    return (
-      matchesFilter && (query.length === 0 || `${pkg.packageName ?? ""} ${pkg.source}`.toLowerCase().includes(query))
-    )
+    return query.length === 0 || `${pkg.packageName ?? ""} ${pkg.source}`.toLowerCase().includes(query)
   })
   if (presentation === "page") {
     const activeCount = packages.filter((pkg) => !pkg.disabled).length
-    const updateCount = packages.filter(hasUpdate).length
-    const filters = [
-      ["all", "全部", packages.length],
-      ["active", "已激活", activeCount],
-      ["disabled", "已禁用", packages.length - activeCount],
-      ["updates", "有更新", updateCount],
-    ] as const
     return (
       <div {...stylex.props(inlineStyles.page)}>
         <header {...stylex.props(inlineStyles.pageHeader)}>
@@ -792,32 +781,33 @@ export function PluginsConfig({
               已激活 {activeCount} / {packages.length} · 当前设备
             </p>
           </div>
-          <button {...stylex.props(inlineStyles.pagePrimary)} onClick={() => setAddMode(true)}>
-            ＋ 添加拓展
-          </button>
         </header>
         <main {...stylex.props(inlineStyles.pageBody)}>
           <div {...stylex.props(inlineStyles.pageToolbar)}>
-            <div {...stylex.props(inlineStyles.pageFilters)}>
-              {filters.map(([filter, label, count]) => (
-                <button
-                  key={filter}
-                  {...stylex.props(inlineStyles.pageFilter, pageFilter === filter && inlineStyles.pageFilterActive)}
-                  onClick={() => setPageFilter(filter)}
-                >
-                  {label} <span {...stylex.props(inlineStyles.pageFilterCount)}>{count}</span>
-                </button>
-              ))}
-            </div>
             <label {...stylex.props(inlineStyles.pageSearch)}>
-              <span aria-hidden>⌕</span>
+              <svg
+                aria-hidden="true"
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
               <input
                 value={pageQuery}
                 onChange={(event) => setPageQuery(event.target.value)}
-                placeholder="搜索已安装拓展"
+                placeholder="搜索拓展…"
                 {...stylex.props(inlineStyles.pageSearchInput)}
               />
             </label>
+            <button {...stylex.props(inlineStyles.pagePrimary)} onClick={() => setAddMode(true)}>
+              ＋ 添加
+            </button>
           </div>
           <section {...stylex.props(inlineStyles.pageList)}>
             {loading ? (
@@ -840,6 +830,7 @@ export function PluginsConfig({
                     tabIndex={actionable ? 0 : undefined}
                     role={actionable ? "link" : undefined}
                     {...stylex.props(inlineStyles.pageRow, !pkg.disabled && inlineStyles.pageRowActive)}
+                    style={{ cursor: actionable ? "pointer" : "default" }}
                     onClick={() => actionable && pkg.packageName && onOpenPackage?.(pkg.packageName)}
                     onKeyDown={(event) => {
                       if (
@@ -856,31 +847,16 @@ export function PluginsConfig({
                     <div {...stylex.props(inlineStyles.pageMain)}>
                       <div {...stylex.props(inlineStyles.pageName)}>
                         <h3 {...stylex.props(inlineStyles.pagePackageTitle)}>{displayName}</h3>
-                        <span {...stylex.props(inlineStyles.pageState, !pkg.disabled && inlineStyles.pageStateActive)}>
-                          {pkg.disabled ? "已禁用" : "已激活"}
-                        </span>
                         {hasUpdate(pkg) && <span {...stylex.props(inlineStyles.pageUpdate)}>可更新</span>}
                       </div>
                       <div {...stylex.props(inlineStyles.pageSummary)}>
-                        <p {...stylex.props(inlineStyles.pageDescription)}>{pkg.description ?? resourceSummary(pkg)}</p>
-                        <span {...stylex.props(inlineStyles.pageSummarySeparator)} aria-hidden>
-                          ·
-                        </span>
-                        <span {...stylex.props(inlineStyles.pageMetaItem)}>{pkg.source}</span>
-                        <span {...stylex.props(inlineStyles.pageSummarySeparator)} aria-hidden>
-                          ·
-                        </span>
-                        <span {...stylex.props(inlineStyles.pageMetaItem)}>{versionSummary(pkg)}</span>
-                        <span {...stylex.props(inlineStyles.pageSummarySeparator)} aria-hidden>
-                          ·
-                        </span>
-                        <span {...stylex.props(inlineStyles.pageMetaItem)}>{pkg.scope}</span>
-                        {pkg.ownerCwd && (
-                          <span {...stylex.props(inlineStyles.pageMetaItem)}>{shortenPath(pkg.ownerCwd)}</span>
-                        )}
+                        <span {...stylex.props(inlineStyles.pageMetaItem)}>{packageSubtitle(pkg)}</span>
                       </div>
                     </div>
                     <div {...stylex.props(inlineStyles.pageActions)} onClick={(event) => event.stopPropagation()}>
+                      <span {...stylex.props(inlineStyles.pageState, !pkg.disabled && inlineStyles.pageStateActive)}>
+                        {pkg.disabled ? "已禁用" : "已启用"}
+                      </span>
                       {hasUpdate(pkg) && (
                         <button
                           title="立即更新"
@@ -909,15 +885,32 @@ export function PluginsConfig({
                         label={`${pkg.disabled ? "激活" : "禁用"} ${displayName}`}
                         onToggle={() => runAction(pkg.disabled ? "enable" : "disable", pkg)}
                       />
+                      {actionable && (
+                        <svg
+                          aria-hidden="true"
+                          width="11"
+                          height="11"
+                          viewBox="0 0 12 12"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          {...stylex.props(inlineStyles.pageChevron)}
+                        >
+                          <polyline points="4 2.5 7.5 6 4 9.5" />
+                        </svg>
+                      )}
                     </div>
                   </article>
                 )
               })
             )}
           </section>
-          <p {...stylex.props(inlineStyles.pageFootnote)}>
-            激活、禁用、安装和删除只写入 Pi package settings；领域配置由各拓展页面自己拥有。
-          </p>
+          <footer {...stylex.props(inlineStyles.pageFootnote)}>
+            <span>安装与启用状态来自 plugin overview</span>
+            <span>独立 UI 来自当前 session runtime</span>
+          </footer>
           {actionMessage && <div {...stylex.props(inlineStyles.inline62)}>{actionMessage}</div>}
           {actionError && <div {...stylex.props(inlineStyles.inline63)}>{actionError}</div>}
         </main>
@@ -1629,55 +1622,40 @@ const inlineStyles = stylex.create({
   pageTitle: { fontSize: 14, margin: 0 },
   pageSubtitle: { color: "var(--text-muted)", fontSize: 11, marginBlock: 4 },
   pagePrimary: {
+    alignItems: "center",
     backgroundColor: "var(--text)",
     border: "1px solid var(--text)",
-    borderRadius: 8,
+    borderRadius: 7,
     color: "white",
     cursor: "pointer",
-    paddingBlock: 8,
-    paddingInline: 12,
-  },
-  pageBody: { display: "flex", flex: 1, flexDirection: "column", minHeight: 0, overflow: "hidden", padding: 10 },
-  pageToolbar: {
-    alignItems: "center",
     display: "flex",
-    gap: 14,
-    justifyContent: "space-between",
-    borderBottom: "1px solid var(--border-soft)",
-    flexWrap: "wrap",
-    margin: "-10px -10px 8px",
-    padding: "8px 10px",
-  },
-  pageFilters: { alignItems: "center", display: "flex", gap: 4 },
-  pageFilter: {
-    backgroundColor: "transparent",
-    border: "1px solid transparent",
-    borderRadius: 8,
-    color: "var(--text-muted)",
-    cursor: "pointer",
+    flexShrink: 0,
     fontSize: 12,
-    height: 32,
+    height: 34,
     paddingInline: 10,
   },
-  pageFilterActive: {
-    backgroundColor: "var(--bg-selected)",
-    borderColor: "color-mix(in srgb, var(--accent) 28%, var(--border))",
-    color: "var(--accent)",
-    fontWeight: 700,
+  pageBody: { display: "flex", flex: 1, flexDirection: "column", minHeight: 0, overflow: "hidden" },
+  pageToolbar: {
+    alignItems: "center",
+    borderBottom: "1px solid var(--border-soft)",
+    display: "flex",
+    flexShrink: 0,
+    gap: 7,
+    minHeight: 54,
+    padding: "8px 10px",
   },
-  pageFilterCount: { color: "var(--text-dim)", marginLeft: 3 },
   pageSearch: {
     alignItems: "center",
     backgroundColor: "var(--bg-panel)",
     border: "1px solid var(--border)",
-    borderRadius: 9,
+    borderRadius: 7,
     color: "var(--text-dim)",
     display: "flex",
     gap: 7,
     height: 34,
     paddingInline: 10,
     flex: 1,
-    minWidth: 180,
+    minWidth: 0,
   },
   pageSearchInput: {
     backgroundColor: "transparent",
@@ -1703,10 +1681,11 @@ const inlineStyles = stylex.create({
     alignContent: "start",
     display: "grid",
     flex: 1,
-    gap: 2,
+    gap: 0,
     gridTemplateColumns: "minmax(0, 1fr)",
     gridAutoRows: "max-content",
     overflowY: "auto",
+    padding: 10,
   },
   pageRow: {
     alignItems: "center",
@@ -1744,20 +1723,16 @@ const inlineStyles = stylex.create({
     gridTemplateAreas: '"name" "summary"',
     gridTemplateColumns: "minmax(0, 1fr)",
     minWidth: 0,
-    rowGap: 6,
+    rowGap: 3,
   },
   pageName: { alignItems: "center", display: "flex", gap: 7, gridArea: "name", whiteSpace: "nowrap" },
   pagePackageTitle: { fontSize: 13, margin: 0 },
   pageState: {
-    backgroundColor: "var(--bg-hover)",
-    borderRadius: 999,
     color: "var(--text-muted)",
-    fontSize: 10,
-    fontWeight: 700,
-    paddingBlock: 3,
-    paddingInline: 6,
+    flexShrink: 0,
+    fontSize: 11,
   },
-  pageStateActive: { backgroundColor: "var(--success-soft)", color: "var(--success)" },
+  pageStateActive: { color: "var(--success)" },
   pageUpdate: {
     backgroundColor: "rgba(245,158,11,.12)",
     borderRadius: 999,
@@ -1767,35 +1742,23 @@ const inlineStyles = stylex.create({
     paddingBlock: 3,
     paddingInline: 6,
   },
-  pageDescription: {
-    color: "var(--text-muted)",
-    fontSize: 10,
-    flexShrink: 1,
-    margin: 0,
-    maxWidth: "60%",
-    minWidth: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
   pageSummary: {
     alignItems: "center",
     display: "flex",
-    gap: 6,
     gridArea: "summary",
     minWidth: 0,
     overflow: "hidden",
     whiteSpace: "nowrap",
   },
-  pageSummarySeparator: { color: "var(--text-dim)", flexShrink: 0, fontSize: 10 },
   pageMetaItem: {
     color: "var(--text-dim)",
     fontFamily: "var(--font-mono)",
-    fontSize: 10,
+    fontSize: 11,
     overflow: "hidden",
     textOverflow: "ellipsis",
   },
-  pageActions: { alignItems: "center", display: "flex", gap: 6 },
+  pageActions: { alignItems: "center", display: "flex", flexShrink: 0, gap: 7 },
+  pageChevron: { color: "var(--text-dim)", flexShrink: 0 },
   pageIconButton: {
     alignItems: "center",
     backgroundColor: "transparent",
@@ -1813,12 +1776,14 @@ const inlineStyles = stylex.create({
   pageEmpty: { color: "var(--text-muted)", padding: 46, textAlign: "center" },
   pageError: { color: "#ef4444", padding: 20 },
   pageFootnote: {
-    backgroundColor: "var(--bg-hover)",
-    borderRadius: 9,
+    borderTop: "1px solid var(--border-soft)",
     color: "var(--text-muted)",
-    fontSize: 11,
-    margin: "8px 0 0",
-    padding: 11,
+    display: "flex",
+    flexDirection: "column",
+    flexShrink: 0,
+    fontSize: 10,
+    gap: 3,
+    padding: "10px 15px",
   },
   pageOverlay: {
     alignItems: "center",
