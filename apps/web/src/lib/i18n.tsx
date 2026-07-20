@@ -128,6 +128,8 @@ const zhCN: Record<string, string> = {
   "Expand forks": "展开分支会话",
   "Collapse forks": "收起分支会话",
   Branches: "分支",
+  "{count} branch": "{count} 个分支",
+  "{count} branches": "{count} 个分支",
   "No active session": "没有活动会话",
   "This session has no branches": "此会话没有分支",
   Close: "关闭",
