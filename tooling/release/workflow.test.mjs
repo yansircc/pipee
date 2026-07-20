@@ -70,6 +70,17 @@ it("keeps public propagation separate from irreversible publication", () => {
   assert.doesNotMatch(publicAcceptance, /id-token: write|contents: write|npm publish/);
 });
 
+it("reconstructs the release artifact root for every downstream consumer", () => {
+  const downloads = [...(candidate + promotion).matchAll(
+    /- uses: actions\/download-artifact@v7\n([\s\S]*?)(?=\n      - )/g,
+  )];
+  assert.equal(downloads.length, 4);
+  for (const [, options] of downloads) {
+    assert.match(options, /\n          path: release(?:\n|$)/);
+    assert.doesNotMatch(options, /\n          path: \.(?:\n|$)/);
+  }
+});
+
 it("has one release entry and no compatibility release path", () => {
   const manifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
   assert.equal(manifest.scripts["release:submit"], "node tooling/release/submit-release-candidate.mjs");
