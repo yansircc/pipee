@@ -7,6 +7,7 @@ import { root, run } from "./lib.mjs";
 const candidate = readFileSync(resolve(root, ".github/workflows/release-candidate.yml"), "utf8");
 const promotion = readFileSync(resolve(root, ".github/workflows/release-promote.yml"), "utf8");
 const promoter = readFileSync(resolve(root, "tooling/release/promote-candidate.mjs"), "utf8");
+const submitter = readFileSync(resolve(root, "tooling/release/submit-release-candidate.mjs"), "utf8");
 const materializer = readFileSync(
   resolve(root, "tooling/release/materialize-release-candidate.mjs"),
   "utf8",
@@ -80,6 +81,7 @@ it("has one release entry and no compatibility release path", () => {
   }
   assert.doesNotMatch(candidate + promotion, /queue: max|NODE_AUTH_TOKEN|NPM_TOKEN|_authToken/);
   assert.match(materializer, /"commit-tree"[\s\S]*"-p", base, "-p", source/);
+  assert.match(submitter, /typeof output === "string" \? output\.trim\(\) : ""/);
 });
 
 it("reports an ordinary nonzero child exit without dereferencing a null spawn error", () => {
