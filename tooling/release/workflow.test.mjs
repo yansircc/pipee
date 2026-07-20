@@ -86,6 +86,15 @@ it("has one release entry and no compatibility release path", () => {
   assert.doesNotMatch(candidate + promotion, /queue: max|NODE_AUTH_TOKEN|NPM_TOKEN|_authToken/);
   assert.match(materializer, /"commit-tree"[\s\S]*"-p", base, "-p", source/);
   assert.match(submitter, /typeof output === "string" \? output\.trim\(\) : ""/);
+  assert.match(submitter, /git", \["fetch", "origin", "main"\]/);
+  assert.match(
+    submitter,
+    /refs\/remotes\/origin\/main[\s\S]*publish the release control plane before creating an immutable candidate/,
+  );
+  assert.ok(
+    submitter.indexOf('git", ["fetch", "origin", "main"') <
+      submitter.indexOf("materialize-release-candidate.mjs"),
+  );
 });
 
 it("reports an ordinary nonzero child exit without dereferencing a null spawn error", () => {
