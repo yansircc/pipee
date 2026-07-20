@@ -67,6 +67,45 @@ function loadThinkingContent(
     },
   )
 }
+function useThinkingDisclosure(
+  block: ThinkingContent,
+  sessionId: string | undefined,
+  entryId: string | undefined,
+  blockIndex: number,
+) {
+  const [expanded, setExpanded] = useState(false)
+  const [content, setContent] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const toggle = () => {
+    const nextExpanded = !expanded
+    setExpanded(nextExpanded)
+    if (!nextExpanded || !block.deferred || content !== null) return
+    if (!sessionId || !entryId) {
+      setError("Thinking content unavailable")
+      return
+    }
+    setLoading(true)
+    setError(null)
+    loadThinkingContent(sessionId, entryId, blockIndex, {
+      onSuccess: (thinking) => {
+        setContent(thinking)
+        setLoading(false)
+      },
+      onFailure: (failure) => {
+        setError(failure instanceof Error ? failure.message : String(failure))
+        setLoading(false)
+      },
+    })
+  }
+  return {
+    content,
+    detail: loading ? "Loading thinking..." : (error ?? (block.deferred ? content : block.thinking)),
+    error,
+    expanded,
+    toggle,
+  }
+}
 interface Props {
   message: AgentMessage
   isStreaming?: boolean
@@ -168,6 +207,244 @@ export function MessageView({
   }
   return null
 }
+export function ProcessMessageView({
+  message,
+  toolResults,
+  prevTimestamp,
+  sessionId,
+  entryId,
+}: {
+  message: AgentMessage
+  toolResults?: Map<string, ToolResultMessage>
+  prevTimestamp?: number
+  sessionId?: string
+  entryId?: string
+}) {
+  if (message.role === "assistant") {
+    const assistant = message as AssistantMessage
+    return (
+      <>
+        {(assistant.content ?? []).map((block, blockIndex) => {
+          if (block.type === "thinking" && !block.deferred && block.thinking.trim() === "") return null
+          if (block.type === "thinking") {
+            return (
+              <CompactThinkingRow
+                key={`${entryId ?? "process"}-${blockIndex}`}
+                block={block as ThinkingContent}
+                duration={elapsedSeconds(prevTimestamp, assistant.timestamp)}
+                sessionId={sessionId}
+                entryId={entryId}
+                blockIndex={blockIndex}
+              />
+            )
+          }
+          if (block.type === "toolCall") {
+            const toolCall = block as ToolCallContent
+            const result = toolResults?.get(toolCall.toolCallId)
+            return (
+              <CompactToolCallRow
+                key={`${entryId ?? "process"}-${blockIndex}`}
+                block={toolCall}
+                result={result}
+                duration={elapsedSeconds(assistant.timestamp, result?.timestamp)}
+              />
+            )
+          }
+          if (block.type === "text") {
+            return (
+              <CompactProcessTextRow
+                key={`${entryId ?? "process"}-${blockIndex}`}
+                label="assistant"
+                text={(block as TextContent).text}
+              />
+            )
+          }
+          if (block.type === "image") {
+            return (
+              <CompactProcessTextRow key={`${entryId ?? "process"}-${blockIndex}`} label="assistant" text="Image" />
+            )
+          }
+          return null
+        })}
+      </>
+    )
+  }
+  if (message.role === "custom") {
+    const custom = message as CustomMessage
+    return <CompactProcessTextRow label={formatCustomType(custom.customType)} text={getMessageText(custom.content)} />
+  }
+  return null
+}
+
+function elapsedSeconds(start?: number, end?: number): number | undefined {
+  if (start === undefined || end === undefined) return undefined
+  const seconds = Math.round((end - start) / 1000)
+  return seconds > 0 ? seconds : undefined
+}
+
+function CompactProcessRow({
+  label,
+  preview,
+  duration,
+  isError = false,
+  running = false,
+  expanded,
+  onToggle,
+  children,
+}: {
+  label: string
+  preview: string
+  duration?: number
+  isError?: boolean
+  running?: boolean
+  expanded?: boolean
+  onToggle?: () => void
+  children?: React.ReactNode
+}) {
+  const rowContent = (
+    <>
+      <span
+        {...stylex.props(inlineStyles.processRowState)}
+        style={{
+          background: isError ? "rgba(248,113,113,0.12)" : running ? "var(--accent-soft)" : "rgba(34,197,94,0.12)",
+          color: isError ? "#f87171" : running ? "var(--accent)" : "#16a34a",
+        }}
+        aria-hidden="true"
+      >
+        {running ? (
+          <i {...stylex.props(inlineStyles.processRowRunningDot)} />
+        ) : (
+          <svg
+            width="9"
+            height="9"
+            viewBox="0 0 12 12"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            {isError ? <path d="M3 3l6 6m0-6L3 9" /> : <polyline points="2.5 6 5 8.5 9.5 3.5" />}
+          </svg>
+        )}
+      </span>
+      <span {...stylex.props(inlineStyles.processRowCopy)}>
+        <strong
+          {...stylex.props(inlineStyles.processRowLabel)}
+          style={{ color: isError ? "#f87171" : running ? "var(--accent)" : "#16a34a" }}
+        >
+          {label}
+        </strong>
+        <code {...stylex.props(inlineStyles.processRowPreview)}>{preview}</code>
+      </span>
+      {duration !== undefined && <time {...stylex.props(inlineStyles.processRowDuration)}>{duration}s</time>}
+      {onToggle && (
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          {...stylex.props(inlineStyles.processRowChevron)}
+          style={{ transform: expanded ? "rotate(180deg)" : "none" }}
+          aria-hidden="true"
+        >
+          <polyline points="2 3.5 5 6.5 8 3.5" />
+        </svg>
+      )}
+    </>
+  )
+  return (
+    <div className="compact-process-row">
+      <div {...stylex.props(inlineStyles.processRow)}>
+        {onToggle ? (
+          <button type="button" onClick={onToggle} {...stylex.props(inlineStyles.processRowButton)}>
+            {rowContent}
+          </button>
+        ) : (
+          <div {...stylex.props(inlineStyles.processRowButton)}>{rowContent}</div>
+        )}
+        {expanded && children}
+      </div>
+    </div>
+  )
+}
+
+function CompactThinkingRow({
+  block,
+  duration,
+  sessionId,
+  entryId,
+  blockIndex,
+}: {
+  block: ThinkingContent
+  duration?: number
+  sessionId?: string
+  entryId?: string
+  blockIndex: number
+}) {
+  const { t } = useI18n()
+  const disclosure = useThinkingDisclosure(block, sessionId, entryId, blockIndex)
+  return (
+    <CompactProcessRow
+      label={t("Thinking")}
+      preview={previewText(block.deferred ? (disclosure.content ?? "Deferred reasoning") : block.thinking)}
+      duration={duration}
+      expanded={disclosure.expanded}
+      onToggle={disclosure.toggle}
+    >
+      <pre {...stylex.props(inlineStyles.processRowDetails)}>{disclosure.detail}</pre>
+    </CompactProcessRow>
+  )
+}
+
+function CompactToolCallRow({
+  block,
+  result,
+  duration,
+}: {
+  block: ToolCallContent
+  result?: ToolResultMessage
+  duration?: number
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const isError = result?.isError ?? false
+  const resultText = getToolResultText(result) ?? ""
+  return (
+    <CompactProcessRow
+      label={block.toolName}
+      preview={getToolPreview(block) || (result ? previewText(resultText) : "Waiting for tool result…")}
+      duration={duration}
+      isError={isError}
+      running={!result}
+      expanded={expanded}
+      onToggle={() => setExpanded((value) => !value)}
+    >
+      <div {...stylex.props(inlineStyles.processRowDetailsStack)}>
+        <pre {...stylex.props(inlineStyles.processRowDetails)}>{JSON.stringify(block.input, null, 2)}</pre>
+        {result && <pre {...stylex.props(inlineStyles.processRowDetails)}>{resultText || "(no output)"}</pre>}
+      </div>
+    </CompactProcessRow>
+  )
+}
+
+function CompactProcessTextRow({ label, text }: { label: string; text: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const normalized = text.trim()
+  return (
+    <CompactProcessRow
+      label={label}
+      preview={previewText(normalized || "(no message)")}
+      expanded={expanded}
+      onToggle={() => setExpanded((value) => !value)}
+    >
+      <pre {...stylex.props(inlineStyles.processRowDetails)}>{normalized || "(no message)"}</pre>
+    </CompactProcessRow>
+  )
+}
 function BashExecutionMessageView({ message, running = false }: { message: BashExecutionMessage; running?: boolean }) {
   const { t } = useI18n()
   const status = running
@@ -218,7 +495,7 @@ function UserMessageView({
   prevAssistantEntryId?: string
   onEditContent?: (content: string) => void
 }) {
-  const { t } = useI18n()
+  const { locale, t } = useI18n()
   const [hovered, setHovered] = useState(false)
   const [copied, setCopied] = useState(false)
   const content =
@@ -251,6 +528,10 @@ function UserMessageView({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
+      <div {...stylex.props(inlineStyles.userHeader)}>
+        <span {...stylex.props(inlineStyles.userAvatar)}>{locale === "zh-CN" ? "你" : "You"}</span>
+        {time && <span {...stylex.props(inlineStyles.userHeaderTime)}>{time}</span>}
+      </div>
       <div {...stylex.props(inlineStyles.inline11)}>
         <div {...stylex.props(inlineStyles.inline12)}>
           {imageBlocks.length > 0 && (
@@ -409,7 +690,6 @@ function UserMessageView({
             )}
           </div>
         )}
-        {time && <span {...stylex.props(inlineStyles.inline21)}>{time}</span>}
       </div>
     </div>
   )
@@ -469,9 +749,7 @@ function AssistantMessageView({
   // Thinking duration derived from file timestamps: time from prev message end to this message end
   // This is the total generation time (thinking + any text before first tool call)
   const thinkingDurationFromFile = useMemo<number | undefined>(() => {
-    if (!message.timestamp || !prevTimestamp) return undefined
-    const secs = Math.round((message.timestamp - prevTimestamp) / 1000)
-    return secs > 0 ? secs : undefined
+    return elapsedSeconds(prevTimestamp, message.timestamp)
   }, [message.timestamp, prevTimestamp])
 
   // Tool call durations derived from session file timestamps (accurate for completed messages)
@@ -481,10 +759,8 @@ function AssistantMessageView({
     const map = new Map<string, number>()
     if (!toolResults || !message.timestamp) return map
     for (const [callId, result] of toolResults) {
-      if (result.timestamp && message.timestamp) {
-        const secs = Math.round((result.timestamp - message.timestamp) / 1000)
-        if (secs > 0) map.set(callId, secs)
-      }
+      const seconds = elapsedSeconds(message.timestamp, result.timestamp)
+      if (seconds !== undefined) map.set(callId, seconds)
     }
     return map
   }, [toolResults, message.timestamp])
@@ -817,45 +1093,21 @@ function ThinkingBlock({
   blockIndex: number
 }) {
   const { t } = useI18n()
-  const [expanded, setExpanded] = useState(false)
-  const [content, setContent] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const toggle = () => {
-    const nextExpanded = !expanded
-    setExpanded(nextExpanded)
-    if (!nextExpanded || !block.deferred || content !== null) return
-    if (!sessionId || !entryId) {
-      setError("Thinking content unavailable")
-      return
-    }
-    setLoading(true)
-    setError(null)
-    loadThinkingContent(sessionId, entryId, blockIndex, {
-      onSuccess: (thinking) => {
-        setContent(thinking)
-        setLoading(false)
-      },
-      onFailure: (failure) => {
-        setError(failure instanceof Error ? failure.message : String(failure))
-        setLoading(false)
-      },
-    })
-  }
+  const disclosure = useThinkingDisclosure(block, sessionId, entryId, blockIndex)
   return (
     <div {...stylex.props(inlineStyles.inline33)}>
-      <button onClick={toggle} {...stylex.props(inlineStyles.inline34)}>
+      <button onClick={disclosure.toggle} {...stylex.props(inlineStyles.inline34)}>
         <span>{t("Thinking")}</span>
         {duration !== undefined && <span {...stylex.props(inlineStyles.inline35)}>{duration}s</span>}
       </button>
-      {expanded && (
+      {disclosure.expanded && (
         <div
           {...stylex.props(inlineStyles.inline36)}
           style={{
-            color: error ? "#f87171" : "var(--text-muted)",
+            color: disclosure.error ? "#f87171" : "var(--text-muted)",
           }}
         >
-          {loading ? "Loading thinking..." : (error ?? (block.deferred ? content : block.thinking))}
+          {disclosure.detail}
         </div>
       )}
     </div>
@@ -876,19 +1128,7 @@ function ToolCallBlock({
   const resultDiff = result && !result.isError ? getResultDiff(result) : null
 
   // Result display
-  const resultText = result
-    ? result.content
-        .filter(
-          (
-            b,
-          ): b is {
-            type: "text"
-            text: string
-          } => b.type === "text",
-        )
-        .map((b) => b.text)
-        .join("\n")
-    : null
+  const resultText = getToolResultText(result)
   const resultIsEmpty = resultText === null ? false : resultText.trim() === "(no output)" || resultText.trim() === ""
   const isError = result?.isError ?? false
   return (
@@ -1364,6 +1604,13 @@ function previewText(text: string): string {
   if (!normalized) return "Show extension message"
   return normalized.length > 140 ? `${normalized.slice(0, 140)}...` : normalized
 }
+function getToolResultText(result?: ToolResultMessage): string | null {
+  if (!result) return null
+  return result.content
+    .filter((block): block is TextContent => block.type === "text")
+    .map((block) => block.text)
+    .join("\n")
+}
 function getToolPreview(block: ToolCallContent): string {
   const input = block.input
   if (!input || typeof input !== "object") return ""
@@ -1513,24 +1760,25 @@ const inlineStyles = stylex.create({
     overflowWrap: "anywhere",
   },
   inline10: {
-    marginBottom: 16,
+    marginBottom: 25,
     display: "flex",
     flexDirection: "column",
     alignItems: "flex-end",
+    position: "relative",
   },
   inline11: {
     display: "flex",
     alignItems: "flex-end",
     gap: 6,
-    maxWidth: "85%",
+    width: "68%",
   },
   inline12: {
     flex: 1,
     minWidth: 0,
     background: "var(--user-bg)",
     border: "1px solid rgba(59,130,246,0.2)",
-    borderRadius: 12,
-    padding: "8px 12px",
+    borderRadius: "12px 3px 12px 12px",
+    padding: "13px 15px",
     fontSize: 14,
     lineHeight: 1.6,
     color: "var(--text)",
@@ -1554,7 +1802,10 @@ const inlineStyles = stylex.create({
     alignItems: "center",
     justifyContent: "flex-end",
     gap: 6,
-    marginTop: 3,
+    bottom: -22,
+    marginTop: 0,
+    position: "absolute",
+    right: 0,
   },
   inline16: {
     display: "flex",
@@ -1611,12 +1862,31 @@ const inlineStyles = stylex.create({
     whiteSpace: "nowrap",
     transition: "color 0.12s",
   },
-  inline21: {
-    fontSize: 10,
+  userHeader: {
+    alignItems: "center",
+    display: "flex",
+    marginBottom: 7,
+    width: "100%",
+  },
+  userAvatar: {
+    alignItems: "center",
+    background: "var(--text)",
+    borderRadius: 7,
+    color: "var(--bg-panel)",
+    display: "flex",
+    fontSize: 11,
+    fontWeight: 700,
+    height: 24,
+    justifyContent: "center",
+    width: 24,
+  },
+  userHeaderTime: {
     color: "var(--text-dim)",
+    fontSize: 11,
+    marginLeft: "auto",
   },
   inline22: {
-    marginBottom: 16,
+    marginBottom: 25,
   },
   inline23: {
     fontSize: 11,
@@ -2081,5 +2351,89 @@ const inlineStyles = stylex.create({
   inline91: {
     color: "var(--text)",
     textAlign: "right",
+  },
+  processRow: {
+    minWidth: 0,
+    position: "relative",
+  },
+  processRowButton: {
+    alignItems: "center",
+    background: "transparent",
+    border: "none",
+    color: "var(--text-muted)",
+    display: "flex",
+    gap: 9,
+    minHeight: 37,
+    minWidth: 0,
+    padding: 0,
+    textAlign: "left",
+    width: "100%",
+  },
+  processRowState: {
+    alignItems: "center",
+    borderRadius: "50%",
+    display: "flex",
+    flex: "0 0 auto",
+    height: 17,
+    justifyContent: "center",
+    position: "relative",
+    width: 17,
+    zIndex: 1,
+  },
+  processRowRunningDot: {
+    background: "var(--accent)",
+    borderRadius: "50%",
+    boxShadow: "0 0 0 4px var(--accent-soft)",
+    height: 5,
+    width: 5,
+  },
+  processRowCopy: {
+    alignItems: "baseline",
+    display: "flex",
+    flex: 1,
+    gap: 8,
+    minWidth: 0,
+  },
+  processRowLabel: {
+    flex: "0 0 auto",
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    fontWeight: 600,
+  },
+  processRowPreview: {
+    color: "var(--text-dim)",
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  processRowDuration: {
+    color: "var(--text-dim)",
+    flex: "0 0 auto",
+    fontSize: 11,
+    fontVariantNumeric: "tabular-nums",
+  },
+  processRowChevron: {
+    color: "var(--text-dim)",
+    flex: "0 0 auto",
+    transition: "transform 0.14s",
+  },
+  processRowDetailsStack: {
+    borderTop: "1px solid var(--border-soft)",
+  },
+  processRowDetails: {
+    background: "var(--bg-subtle)",
+    border: "none",
+    color: "var(--text-muted)",
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    lineHeight: 1.55,
+    margin: 0,
+    maxHeight: 240,
+    overflow: "auto",
+    padding: "8px 10px 8px 26px",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
   },
 })

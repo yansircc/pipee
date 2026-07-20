@@ -23,7 +23,7 @@ import {
   summarizeTurnUsage,
   type TurnUsage,
 } from "@/lib/message-display"
-import { MessageView, TurnUsageSummary } from "./MessageView"
+import { MessageView, ProcessMessageView, TurnUsageSummary } from "./MessageView"
 import { ChatInput, type ChatInputHandle } from "./ChatInput"
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap"
 import { useAgentSession, type AgentPhase } from "@/hooks/useAgentSession"
@@ -169,13 +169,12 @@ function ProcessDetailsGroup({
   children: ReactNode
 }) {
   const { locale, t } = useI18n()
-  const [expanded, setExpanded] = useState(false)
-  const parts = [
-    t("Process details"),
+  const [expanded, setExpanded] = useState(true)
+  const detailParts = [
     locale === "zh-CN" ? `${messageCount} 条消息` : `${messageCount} ${messageCount === 1 ? "message" : "messages"}`,
   ]
   if (toolCallCount > 0)
-    parts.push(
+    detailParts.push(
       locale === "zh-CN"
         ? `${toolCallCount} 次工具调用`
         : `${toolCallCount} ${toolCallCount === 1 ? "tool call" : "tool calls"}`,
@@ -189,6 +188,11 @@ function ProcessDetailsGroup({
         {...stylex.props(inlineStyles.inline2)}
         title={t(expanded ? "Collapse process details" : "Expand process details")}
       >
+        <span {...stylex.props(inlineStyles.processStateDot)} aria-hidden="true" />
+        <span {...stylex.props(inlineStyles.processSummaryCopy)}>
+          <strong {...stylex.props(inlineStyles.processSummaryTitle)}>{t("Process details")}</strong>
+          <small {...stylex.props(inlineStyles.processSummaryMeta)}>{detailParts.join(" · ")}</small>
+        </span>
         <svg
           width="12"
           height="12"
@@ -205,7 +209,6 @@ function ProcessDetailsGroup({
         >
           <polyline points="4 2.5 7.5 6 4 9.5" />
         </svg>
-        <span {...stylex.props(inlineStyles.inline4)}>{parts.join(" · ")}</span>
       </button>
       {expanded && <div {...stylex.props(inlineStyles.inline5)}>{children}</div>}
     </div>
@@ -616,6 +619,7 @@ export function ChatWindow({
               <div
                 style={{
                   padding: `0 ${CHAT_COLUMN_PADDING}px`,
+                  paddingLeft: isMobile ? CHAT_COLUMN_PADDING : CHAT_INPUT_RIGHT_PADDING,
                 }}
               >
                 <div {...stylex.props(inlineStyles.inline20)}>
@@ -812,19 +816,42 @@ export function ChatWindow({
                               countToolCallBlocks(finalSplit.processBlocks)
                             }
                           >
-                            {visibleProcessIndices.map((processIdx) =>
-                              renderMessage(processIdx, {
-                                attachRef: false,
-                                keyPrefix: "process",
-                              }),
+                            {visibleProcessIndices.map((processIdx) => (
+                              <ProcessMessageView
+                                key={`process-${processIdx}`}
+                                message={messages[processIdx]}
+                                toolResults={toolResultsMap}
+                                prevTimestamp={
+                                  processIdx > 0
+                                    ? (
+                                        messages[processIdx - 1] as AgentMessage & {
+                                          timestamp?: number
+                                        }
+                                      ).timestamp
+                                    : undefined
+                                }
+                                sessionId={session.id}
+                                entryId={entryIds[processIdx]}
+                              />
+                            ))}
+                            {finalProcessMessage && (
+                              <ProcessMessageView
+                                key={`process-final-${finalAssistantIdx}`}
+                                message={finalProcessMessage}
+                                toolResults={toolResultsMap}
+                                prevTimestamp={
+                                  finalAssistantIdx > 0
+                                    ? (
+                                        messages[finalAssistantIdx - 1] as AgentMessage & {
+                                          timestamp?: number
+                                        }
+                                      ).timestamp
+                                    : undefined
+                                }
+                                sessionId={session.id}
+                                entryId={entryIds[finalAssistantIdx]}
+                              />
                             )}
-                            {finalProcessMessage &&
-                              renderMessage(finalAssistantIdx, {
-                                attachRef: false,
-                                keyPrefix: "process-final",
-                                messageOverride: finalProcessMessage,
-                                showTimestamp: false,
-                              })}
                           </ProcessDetailsGroup>
                         )
                         rendered.push(
@@ -1032,7 +1059,7 @@ const styles = stylex.create({
     paddingInline: 16,
   },
   chatColumn: {
-    maxWidth: 820,
+    maxWidth: 850,
     width: "100%",
   },
   emptyHeader: {
@@ -1414,34 +1441,60 @@ function ExtensionDialog({
 }
 const inlineStyles = stylex.create({
   inline1: {
-    marginBottom: 14,
+    marginBottom: 16,
+    overflow: "hidden",
+    border: "1px solid var(--border)",
+    borderRadius: 11,
+    background: "var(--bg-panel)",
   },
   inline2: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
-    width: "auto",
-    minHeight: 24,
-    padding: "2px 0",
+    gap: 9,
+    width: "100%",
+    minHeight: 52,
+    padding: "8px 11px",
     border: "none",
     background: "transparent",
     color: "var(--text-muted)",
     cursor: "pointer",
     fontSize: 12,
     textAlign: "left",
+    ":hover": {
+      background: "var(--bg-subtle)",
+    },
   },
   inline3: {
     flexShrink: 0,
+    order: 3,
     transition: "transform 0.15s",
   },
-  inline4: {
-    minWidth: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
   inline5: {
-    marginTop: 8,
+    borderTop: "1px solid var(--border-soft)",
+    padding: "5px 11px 9px 29px",
+  },
+  processStateDot: {
+    border: "2px solid var(--accent)",
+    borderRightColor: "transparent",
+    borderRadius: "50%",
+    flexShrink: 0,
+    height: 9,
+    width: 9,
+  },
+  processSummaryCopy: {
+    display: "flex",
+    flex: 1,
+    flexDirection: "column",
+    minWidth: 0,
+    textAlign: "left",
+  },
+  processSummaryTitle: {
+    color: "var(--text)",
+    fontSize: 12,
+  },
+  processSummaryMeta: {
+    color: "var(--text-dim)",
+    fontSize: 11,
   },
   inline6: {
     transformOrigin: "center",
@@ -1520,11 +1573,11 @@ const inlineStyles = stylex.create({
     pointerEvents: "none",
   },
   inline19: {
-    maxWidth: 820,
+    maxWidth: 850,
     margin: "0 auto",
   },
   inline20: {
-    maxWidth: 820,
+    maxWidth: 850,
     margin: "0 auto",
   },
   inline21: {
@@ -1565,7 +1618,7 @@ const inlineStyles = stylex.create({
     fontSize: 12,
   },
   inline26: {
-    maxWidth: 820,
+    maxWidth: 850,
     margin: "0 auto",
   },
   inline27: {

@@ -320,6 +320,19 @@ code {
 .markdown-body tr:last-child td {
   border-bottom: 0;
 }
+.compact-process-row {
+  min-width: 0;
+  position: relative;
+}
+.compact-process-row:not(:last-child)::after {
+  background: var(--border);
+  bottom: -12px;
+  content: "";
+  left: 8px;
+  position: absolute;
+  top: 25px;
+  width: 1px;
+}
 .markdown-body th {
   background: var(--bg-panel);
   color: color-mix(in srgb, var(--text) 88%, var(--text-muted));
