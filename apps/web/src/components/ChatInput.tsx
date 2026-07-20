@@ -303,7 +303,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
   }: Props,
   ref,
 ) {
-  const { t } = useI18n()
+  const { locale, t } = useI18n()
   const isMobile = useIsMobile()
   const [value, setValue] = useState(() => (draftKey ? (getDraft(draftKey)?.value ?? "") : ""))
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
@@ -1102,6 +1102,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     return thinkingLevelMap[lvl] ?? lvl
   })()
   const toolPresetOption = TOOL_PRESET_OPTIONS.find(({ preset }) => preset === (toolPreset ?? DEFAULT_TOOL_PRESET))!
+  const queuedMessageCount = (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -1167,13 +1168,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
           e.target.value = ""
         }}
       />
-      <div {...stylex.props(inlineStyles.inline6)}>
+      <div className={`${stylex.props(inlineStyles.inline6).className} chat-input-shell`}>
         {/* Queued steering / follow-up messages (delivered by pi on upcoming turns) */}
-        {(queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0) > 0 && (
+        {queuedMessageCount > 0 && (
           <div {...stylex.props(inlineStyles.inline7)}>
             <div {...stylex.props(inlineStyles.inline8)}>
               <span {...stylex.props(inlineStyles.inline9)}>
-                {t("Queued")} · {(queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)}
+                {t("Queued")} · {queuedMessageCount}
               </span>
               {onRecallQueue && (
                 <button
@@ -1316,7 +1317,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
         )}
 
         {/* Main input */}
-        <div {...stylex.props(inlineStyles.inline28)}>
+        <div
+          {...stylex.props(inlineStyles.inline28)}
+          style={{ borderRadius: queuedMessageCount > 0 ? 0 : "12px 12px 0 0" }}
+        >
           {slashMenuOpen && slashQuery !== null && (
             <div {...stylex.props(inlineStyles.inline29)}>
               <div {...stylex.props(inlineStyles.inline30)}>
@@ -1447,7 +1451,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                 alignItems: "flex-end",
                 background: "transparent",
                 border: "none",
-                padding: "12px 10px 6px 14px",
+                padding: "7px 7px 0",
               } as React.CSSProperties
             }
           >
@@ -1563,49 +1567,40 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                 aria-label={sessionLoading ? t("Loading...") : t("Send")}
                 {...stylex.props(inlineStyles.inline55)}
                 style={{
-                  background:
-                    !sessionLoading && (value.trim() || hasAttachments) && uploadingAttachments === 0
-                      ? "var(--accent)"
-                      : "var(--bg-panel)",
-                  color:
-                    !sessionLoading && (value.trim() || hasAttachments) && uploadingAttachments === 0
-                      ? "#fff"
-                      : "var(--text-dim)",
+                  background: "var(--text)",
+                  color: "var(--bg-panel)",
                   cursor:
                     !sessionLoading && (value.trim() || hasAttachments) && uploadingAttachments === 0
                       ? "pointer"
                       : "not-allowed",
-                  boxShadow:
-                    !sessionLoading && (value.trim() || hasAttachments) && uploadingAttachments === 0
-                      ? "0 1px 3px rgba(37,99,235,0.25)"
-                      : "none",
+                  opacity: !sessionLoading && (value.trim() || hasAttachments) && uploadingAttachments === 0 ? 1 : 0.25,
                 }}
               >
                 <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 14 14"
+                  width="13"
+                  height="17"
+                  viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2"
+                  strokeWidth="1.7"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
                   {sessionLoading ? (
-                    <circle cx="7" cy="7" r="4.5" strokeDasharray="18 10">
+                    <circle cx="12" cy="12" r="7" strokeDasharray="28 16">
                       <animateTransform
                         attributeName="transform"
                         type="rotate"
-                        from="0 7 7"
-                        to="360 7 7"
+                        from="0 12 12"
+                        to="360 12 12"
                         dur="0.8s"
                         repeatCount="indefinite"
                       />
                     </circle>
                   ) : (
                     <>
-                      <line x1="2" y1="7" x2="11" y2="7" />
-                      <polyline points="7.5 3 12 7 7.5 11" />
+                      <path d="m4 4 17 8-17 8 3-8-3-8Z" />
+                      <path d="M7 12h14" />
                     </>
                   )}
                 </svg>
@@ -1613,7 +1608,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
             )}
           </div>
         </div>
-
         {/* Bottom bar: left | center (context) | right */}
         <div
           {...stylex.props(inlineStyles.inline56)}
@@ -1650,22 +1644,20 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
               }}
             >
               <svg
-                width="15"
-                height="15"
+                width="14"
+                height="17"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="1.8"
+                strokeWidth="1.7"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <polyline points="21 15 16 10 5 21" />
+                <path d="m21 11.5-8.7 8.7a6 6 0 0 1-8.5-8.5l9.4-9.4a4 4 0 0 1 5.7 5.7l-9.5 9.5a2 2 0 0 1-2.8-2.8l8.8-8.8" />
               </svg>
             </button>
             <button type="button" onClick={() => insertPromptToken("/")} {...stylex.props(inlineStyles.promptToken)}>
-              / {t("Slash commands")}
+              / {locale === "zh-CN" ? "命令" : "Commands"}
             </button>
             <button type="button" onClick={() => insertPromptToken("@")} {...stylex.props(inlineStyles.promptToken)}>
               @ {t("Files")}
@@ -1705,10 +1697,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                   {...stylex.props(inlineStyles.inline60)}
                   style={{
                     justifyContent: isMobile ? "flex-start" : undefined,
-                    padding: isMobile ? "8px 10px" : "8px 12px",
+                    padding: isMobile ? "8px 10px" : "0 7px",
                     width: isMobile ? "100%" : undefined,
                     maxWidth: isMobile ? "100%" : 220,
-                    background: modelDropdownOpen ? "var(--bg-selected)" : "var(--bg-hover)",
+                    background: modelDropdownOpen ? "var(--bg-selected)" : "transparent",
                     cursor: isStreaming ? "not-allowed" : "pointer",
                     opacity: isStreaming ? 0.5 : 1,
                   }}
@@ -1718,32 +1710,23 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                     e.currentTarget.style.color = "var(--text)"
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = modelDropdownOpen ? "var(--bg-selected)" : "var(--bg-hover)"
+                    e.currentTarget.style.background = modelDropdownOpen ? "var(--bg-selected)" : "transparent"
                     e.currentTarget.style.color = "var(--text-muted)"
                   }}
                 >
+                  <span {...stylex.props(inlineStyles.modelStatusDot)} />
+                  <span {...stylex.props(inlineStyles.inline61)}>{currentName}</span>
                   <svg
-                    width="11"
-                    height="11"
+                    width="9"
+                    height="9"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+                    strokeWidth="1.7"
+                    style={{ transform: "rotate(90deg)" }}
                   >
-                    <rect x="4" y="4" width="16" height="16" rx="2" />
-                    <rect x="9" y="9" width="6" height="6" />
-                    <line x1="9" y1="1" x2="9" y2="4" />
-                    <line x1="15" y1="1" x2="15" y2="4" />
-                    <line x1="9" y1="20" x2="9" y2="23" />
-                    <line x1="15" y1="20" x2="15" y2="23" />
-                    <line x1="20" y1="9" x2="23" y2="9" />
-                    <line x1="20" y1="14" x2="23" y2="14" />
-                    <line x1="1" y1="9" x2="4" y2="9" />
-                    <line x1="1" y1="14" x2="4" y2="14" />
+                    <path d="m9 6 6 6-6 6" />
                   </svg>
-                  <span {...stylex.props(inlineStyles.inline61)}>{currentName}</span>
                 </button>
                 {modelDropdownOpen &&
                   modelDropdownRect &&
@@ -1927,7 +1910,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
               style={{
                 display: isMobile ? (controlsMenuOpen ? "flex" : "none") : "flex",
                 alignItems: "center",
-                gap: isMobile ? 1 : 2,
+                gap: isMobile ? 1 : 10,
+                width: isMobile ? "max-content" : "100%",
+                height: isMobile ? "auto" : 30,
+                paddingTop: isMobile ? 0 : 6,
                 ...(isMobile
                   ? {
                       position: "absolute",
@@ -1957,7 +1943,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                     aria-label={t("Change reasoning level")}
                     {...stylex.props(inlineStyles.inline70)}
                     style={{
-                      padding: isMobile ? "0 6px" : "8px 12px",
+                      padding: isMobile ? "0 6px" : 0,
                       width: isMobile ? "auto" : undefined,
                       background: thinkingDropdownOpen ? "var(--bg-hover)" : "none",
                       cursor: isStreaming ? "not-allowed" : "pointer",
@@ -1982,13 +1968,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
+                      style={{ display: isMobile ? "block" : "none" }}
                     >
                       <path d="M9.5 2A5.5 5.5 0 0 0 4 7.5c0 1.7.78 3.21 2 4.21V14a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-2.29c1.22-1 2-2.51 2-4.21A5.5 5.5 0 0 0 9.5 2z" />
                       <line x1="7" y1="18" x2="12" y2="18" />
                       <line x1="8" y1="21" x2="11" y2="21" />
                     </svg>
                     {(!isMobile || controlsMenuOpen) && (
-                      <span {...stylex.props(inlineStyles.inline71)}>{t(thinkingDisplayLabel)}</span>
+                      <span {...stylex.props(inlineStyles.inline71)}>
+                        {!isMobile && `${locale === "zh-CN" ? "推理" : "Reasoning"} · `}
+                        {t(thinkingDisplayLabel)}
+                      </span>
                     )}
                   </button>
                   {thinkingDropdownOpen && (
@@ -2061,7 +2051,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                     aria-label={t("Change tool preset")}
                     {...stylex.props(inlineStyles.inline80)}
                     style={{
-                      padding: isMobile ? "0 6px" : "8px 12px",
+                      padding: isMobile ? "0 6px" : 0,
                       width: isMobile ? "auto" : undefined,
                       background: toolDropdownOpen ? "var(--bg-hover)" : "none",
                       cursor: isStreaming ? "not-allowed" : "pointer",
@@ -2159,6 +2149,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                 </button>
               )}
 
+              <span {...stylex.props(inlineStyles.metaSpacer)} />
+
               {sessionStats && (
                 <Tooltip
                   content={
@@ -2177,7 +2169,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                   }
                 >
                   <button type="button" aria-label={t("Session total")} {...stylex.props(inlineStyles.metricButton)}>
-                    ${sessionStats.cost.toFixed(2)}
+                    <strong {...stylex.props(inlineStyles.metricCost)}>${sessionStats.cost.toFixed(4)}</strong>
+                    <small {...stylex.props(inlineStyles.metricLabel)}>Cost</small>
                   </button>
                 </Tooltip>
               )}
@@ -2191,7 +2184,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                     {...stylex.props(inlineStyles.contextRingButton)}
                     aria-label={t("Context usage")}
                   >
-                    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 22 22" aria-hidden="true">
                       <circle cx="11" cy="11" r="8" fill="none" stroke="var(--border)" strokeWidth="2.5" />
                       <circle
                         cx="11"
@@ -2207,6 +2200,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                         transform="rotate(-90 11 11)"
                       />
                     </svg>
+                    <small>{contextUsage.percent === null ? "?" : `${Math.round(contextUsage.percent)}%`}</small>
                   </button>
                 </Tooltip>
               ) : null}
@@ -2302,20 +2296,25 @@ const inlineStyles = stylex.create({
     display: "none",
   },
   inline6: {
-    background: "var(--bg-raised)",
-    border: "1px solid var(--border)",
-    borderRadius: 14,
-    boxShadow: "0 1px 2px rgba(20,21,18,.04), 0 12px 34px rgba(20,21,18,.08)",
+    borderRadius: 12,
     maxWidth: 850,
     margin: "0 auto",
     overflow: "visible",
   },
   inline7: {
-    marginBottom: 8,
+    marginBottom: 0,
     border: "1px solid var(--border)",
-    borderRadius: 6,
-    background: "var(--bg-panel)",
+    borderBottom: "none",
+    borderRadius: "9px 9px 0 0",
+    background: "var(--bg-hover)",
     padding: "5px 0",
+  },
+  inline28: {
+    background: "var(--bg-raised)",
+    border: "1px solid var(--composer-border)",
+    borderBottom: "none",
+    boxShadow: "0 9px 28px rgba(31,31,25,.1)",
+    position: "relative",
   },
   inline8: {
     display: "flex",
@@ -2467,9 +2466,6 @@ const inlineStyles = stylex.create({
     cursor: "pointer",
     padding: 0,
     color: "var(--text-muted)",
-  },
-  inline28: {
-    position: "relative",
   },
   inline29: {
     position: "absolute",
@@ -2638,11 +2634,12 @@ const inlineStyles = stylex.create({
     resize: "none",
     color: "var(--text)",
     fontSize: 14,
-    lineHeight: 1.6,
+    lineHeight: 1.5,
     fontFamily: "inherit",
-    minHeight: 44,
+    minHeight: 43,
     maxHeight: 120,
     overflow: "auto",
+    padding: "7px 9px",
   },
   inline52: {
     display: "flex",
@@ -2650,6 +2647,10 @@ const inlineStyles = stylex.create({
     gap: 6,
     flexShrink: 0,
     alignSelf: "flex-end",
+    bottom: -35,
+    position: "absolute",
+    right: 7,
+    zIndex: 1,
   },
   inline53: {
     display: "flex",
@@ -2681,41 +2682,50 @@ const inlineStyles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 6,
-    height: 34,
+    bottom: -35,
+    height: 29,
     justifyContent: "center",
     padding: 0,
-    width: 34,
+    width: 29,
     border: "none",
-    borderRadius: 8,
+    borderRadius: 7,
     fontSize: 13,
     fontWeight: 600,
     letterSpacing: "-0.01em",
     transition: "background 0.15s, box-shadow 0.15s",
+    position: "absolute",
+    right: 7,
+    zIndex: 1,
   },
   inline56: {
-    borderTop: "1px solid var(--border-soft)",
+    background: "var(--bg-raised)",
+    border: "1px solid var(--composer-border)",
+    borderTop: "none",
+    borderRadius: "0 0 12px 12px",
+    marginBottom: { default: 30, "@media (max-width: 760px)": 0 },
     minHeight: 42,
     alignItems: "center",
-    gap: 6,
-    padding: "4px 7px",
+    gap: 5,
+    padding: "6px 7px 7px",
+    position: "relative",
   },
   inline57: {
     minWidth: 0,
     display: "flex",
     alignItems: "center",
-    gap: 2,
+    gap: 5,
   },
   inline58: {
     flexShrink: 0,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    width: 30,
-    height: 32,
+    width: 28,
+    height: 28,
     padding: 0,
     background: "none",
     border: "none",
-    borderRadius: 9,
+    borderRadius: 7,
     transition: "background 0.12s, color 0.12s",
   },
   inline59: {
@@ -2725,14 +2735,14 @@ const inlineStyles = stylex.create({
   inline60: {
     display: "flex",
     alignItems: "center",
-    gap: 6,
-    height: 32,
+    gap: 5,
+    height: 27,
     overflow: "hidden",
-    background: "var(--bg-hover)",
+    background: "transparent",
     border: "1px solid var(--border-soft)",
     borderRadius: 7,
     color: "var(--text-muted)",
-    fontSize: 12,
+    fontSize: 11,
     transition: "background 0.12s, color 0.12s",
   },
   inline61: {
@@ -2806,8 +2816,12 @@ const inlineStyles = stylex.create({
     flex: "0 0 auto",
     display: "flex",
     alignItems: "center",
-    justifyContent: "flex-end",
-    position: "relative",
+    justifyContent: "flex-start",
+    position: { default: "absolute", "@media (max-width: 760px)": "relative" },
+    top: { default: "calc(100% + 1px)", "@media (max-width: 760px)": "auto" },
+    left: { default: 4, "@media (max-width: 760px)": "auto" },
+    right: { default: 4, "@media (max-width: 760px)": "auto" },
+    height: { default: 30, "@media (max-width: 760px)": "auto" },
   },
   inline68: {
     display: "flex",
@@ -2832,11 +2846,11 @@ const inlineStyles = stylex.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 5,
-    height: 32,
-    border: "1px solid var(--border-soft)",
+    height: 24,
+    border: "none",
     borderRadius: 7,
     color: "var(--text-muted)",
-    fontSize: 12,
+    fontSize: 11,
     transition: "background 0.12s, color 0.12s",
   },
   inline71: {
@@ -2895,11 +2909,11 @@ const inlineStyles = stylex.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 5,
-    height: 32,
+    height: 24,
     border: "none",
     borderRadius: 9,
     color: "var(--text-muted)",
-    fontSize: 12,
+    fontSize: 11,
     transition: "background 0.12s, color 0.12s",
   },
   inline81: {
@@ -3016,22 +3030,21 @@ const inlineStyles = stylex.create({
     color: "var(--text-muted)",
     cursor: "pointer",
     display: "flex",
-    fontFamily: "var(--font-mono)",
-    fontSize: 10,
-    gap: 4,
-    height: 32,
-    paddingInline: 8,
+    fontSize: 11,
+    gap: 5,
+    height: 24,
+    paddingInline: 5,
   },
   promptToken: {
-    background: "var(--bg-hover)",
+    background: "transparent",
     border: "1px solid var(--border-soft)",
     borderRadius: 7,
     color: "var(--text-muted)",
     cursor: "pointer",
     display: { default: "flex", "@media (max-width: 760px)": "none" },
     fontSize: 11,
-    height: 30,
-    padding: "0 8px",
+    height: 27,
+    padding: "0 7px",
     whiteSpace: "nowrap",
     ":hover": { color: "var(--text)", background: "var(--bg-selected)" },
   },
@@ -3049,10 +3062,32 @@ const inlineStyles = stylex.create({
     color: "var(--text-muted)",
     cursor: "pointer",
     display: "flex",
-    height: 32,
+    gap: 5,
+    height: 24,
     justifyContent: "center",
-    padding: 0,
-    width: 32,
+    padding: "0 5px",
+    width: "auto",
+  },
+  metaSpacer: {
+    flex: 1,
+  },
+  metricCost: {
+    color: "var(--text)",
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    fontWeight: 400,
+    letterSpacing: ".85px",
+  },
+  metricLabel: {
+    color: "var(--text-dim)",
+    fontSize: 10,
+  },
+  modelStatusDot: {
+    background: "var(--success)",
+    borderRadius: "50%",
+    flexShrink: 0,
+    height: 5,
+    width: 5,
   },
   inline95: {
     display: "flex",

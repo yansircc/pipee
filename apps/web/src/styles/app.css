@@ -136,6 +136,17 @@ button {
   border-radius: var(--radius-control);
 }
 
+.chat-input-shell {
+  --composer-border: color-mix(in srgb, var(--border) 65%, var(--text));
+}
+
+.chat-input-shell:focus-within {
+  --composer-border: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow:
+    0 10px 30px rgba(31, 31, 25, 0.13),
+    0 0 0 3px var(--accent-soft);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
