@@ -44,9 +44,15 @@ jobs:
       release_sha: ${{ steps.artifact.outputs.release_sha }}
       trusted_main: ${{ steps.artifact.outputs.trusted_main }}
     steps:
-      - uses: actions/checkout@v5
+      - if: github.event_name == 'workflow_run'
+        uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - id: artifact
         shell: bash
@@ -81,10 +87,18 @@ jobs:
             test "$(git rev-parse refs/remotes/origin/main)" = "$release_sha"
           fi
           git cat-file -e "$release_sha^{commit}"
-      - uses: actions/download-artifact@v7
+      - if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v7
         with:
           github-token: ${{ github.token }}
-          run-id: ${{ steps.artifact.outputs.candidate_run_id }}
+          run-id: ${{ github.event.workflow_run.id }}
+          name: ${{ steps.artifact.outputs.name }}
+          path: release
+      - if: github.event_name == 'workflow_dispatch'
+        uses: actions/download-artifact@v7
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.candidate_run_id }}
           name: ${{ steps.artifact.outputs.name }}
           path: release
       - id: verify
