@@ -20,7 +20,7 @@ on:
         type: string
 
 concurrency:
-  group: pi-suite-release-promotion
+  group: pipee-release-promotion
   cancel-in-progress: false
 
 permissions:
@@ -62,11 +62,11 @@ jobs:
             [[ "$EXPECTED_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
             test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.name + "\t" + .event + "\t" + .conclusion')" = $'Release Candidate\tworkflow_dispatch\tsuccess'
           fi
-          rows="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '[.artifacts[] | select(.expired == false and (.name | startswith("suite-candidates-")))] | unique_by(.id) | .[] | [.name, .digest] | @tsv')"
+          rows="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '[.artifacts[] | select(.expired == false and (.name | startswith("pipee-candidates-")))] | unique_by(.id) | .[] | [.name, .digest] | @tsv')"
           test "$(printf '%s\n' "$rows" | sed '/^$/d' | wc -l | tr -d ' ')" = "1"
           IFS=$'\t' read -r name digest <<< "$rows"
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-          release_sha="${name#suite-candidates-}"
+          release_sha="${name#pipee-candidates-}"
           [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]]
           if [[ -n "$EXPECTED_RELEASE_SHA" ]]; then
             test "$release_sha" = "$EXPECTED_RELEASE_SHA"

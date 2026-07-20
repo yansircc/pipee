@@ -9,7 +9,7 @@ on:
         type: string
 
 concurrency:
-  group: pi-suite-candidate-${{ inputs.release_sha }}
+  group: pipee-candidate-${{ inputs.release_sha }}
   cancel-in-progress: false
 
 permissions:
@@ -57,7 +57,11 @@ jobs:
           node-version: 24.11.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @yansircc/pi-web exec playwright install --with-deps chromium
+      - name: Install web candidate browser
+        shell: bash
+        run: |
+          web_path="$(node -p "JSON.parse(require('fs').readFileSync('release/suite.config.json')).packages.find((entry) => entry.id === 'web').path")"
+          pnpm --dir "$web_path" exec playwright install --with-deps chromium
       - run: pnpm verify
 
   candidate:
@@ -81,11 +85,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: node tooling/release/candidate-pipeline.mjs build "${{ needs.identity.outputs.release_sha }}"
       - run: pnpm verify:candidates
-      - run: pnpm --filter @yansircc/pi-web exec playwright install --with-deps chromium
+      - name: Install web candidate browser
+        shell: bash
+        run: |
+          web_path="$(node -p "JSON.parse(require('fs').readFileSync('release/suite.config.json')).packages.find((entry) => entry.id === 'web').path")"
+          pnpm --dir "$web_path" exec playwright install --with-deps chromium
       - run: pnpm verify:consumers
       - id: artifact
         shell: bash
-        run: echo "name=suite-candidates-${{ needs.identity.outputs.release_sha }}" >> "$GITHUB_OUTPUT"
+        run: echo "name=pipee-candidates-${{ needs.identity.outputs.release_sha }}" >> "$GITHUB_OUTPUT"
       - id: upload
         uses: actions/upload-artifact@v6
         with:
