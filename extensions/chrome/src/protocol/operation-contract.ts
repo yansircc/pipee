@@ -520,6 +520,8 @@ const callsOf = <
 type OperationStruct = Schema.Struct<Schema.Struct.Fields>;
 type OperationSchema = OperationStruct | Schema.Union<ReadonlyArray<OperationStruct>>;
 
+export const EmptyToolParameters = Schema.Record(Schema.String, Schema.Never);
+
 const operationMembers = (schema: OperationSchema): ReadonlyArray<OperationStruct> =>
   "members" in schema ? schema.members : [schema];
 
@@ -529,7 +531,7 @@ const atomicParameterMembers = (
     readonly toolCall: Schema.ConstraintDecoder<unknown>;
     readonly atomicTool?: AtomicToolContract | undefined;
   },
-): ReadonlyArray<OperationStruct> => {
+): ReadonlyArray<Schema.Constraint> => {
   const explicit = contract.atomicTool?.parameters;
   const members = operationMembers((explicit ?? contract.toolCall) as unknown as OperationSchema);
   return members.map((member) => {
@@ -538,15 +540,17 @@ const atomicParameterMembers = (
         ([name]) => explicit !== undefined || name !== (domain === "tab" ? "op" : "kind"),
       ),
     ) as Schema.Struct.Fields;
-    return Schema.Struct(
+    const parameterFields =
       domain === "page" || domain === "input"
         ? {
             target: optional(Target),
             background: optional(Schema.Boolean),
             ...fields,
           }
-        : fields,
-    );
+        : fields;
+    return Object.keys(parameterFields).length === 0
+      ? EmptyToolParameters
+      : Schema.Struct(parameterFields);
   });
 };
 
@@ -561,7 +565,7 @@ const atomicParametersFor = (
   return (members.length === 1
     ? members[0]!
     : Schema.Union(
-        members as [OperationStruct, OperationStruct, ...Array<OperationStruct>],
+        members as [Schema.Constraint, Schema.Constraint, ...Array<Schema.Constraint>],
       )) as unknown as Schema.ConstraintDecoder<unknown>;
 };
 
