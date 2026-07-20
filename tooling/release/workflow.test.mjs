@@ -27,6 +27,10 @@ it("owns one Linux archive set and fans out exact witnesses", () => {
   assert.equal((candidate.match(/candidate-pipeline\.mjs build/g) ?? []).length, 1);
   assert.match(candidate, /- run: pnpm verify\s/);
   assert.match(candidate, /- run: pnpm verify:candidates/);
+  assert.match(
+    candidate,
+    /pnpm exec playwright install --with-deps chromium[\s\S]*pnpm verify:consumers/,
+  );
   assert.match(candidate, /- run: pnpm verify:consumers/);
   assert.match(candidate, /pnpm --filter @yansircc\/pi-chrome run release:check/);
   assert.match(candidate, /- run: pnpm verify:chrome-candidate/);
