@@ -7,19 +7,28 @@ import {
   type WebSurfaceHostMessage as HostMessage,
   type WebSurfaceSessionContext,
 } from "./web-surface.ts";
+import type { BrowserCompanionProbe } from "./browser-companion.ts";
 
 export interface WebSurfaceBrowserClient {
   readonly dispatch: (sessionId: string, payload: JsonValue) => Promise<WebSurfaceActionOutcome>;
   readonly confirm: (title: string, message: string) => Promise<boolean>;
   readonly navigate: (path: string) => void;
   readonly notify: (message: string, level?: "info" | "warning" | "error") => void;
+  readonly wakeCompanion: () => Promise<boolean>;
+  readonly probeCompanion: () => Promise<boolean>;
+  readonly downloadCompanion: () => Promise<boolean>;
+  readonly copyText: (text: string) => Promise<boolean>;
 }
 
 export interface WebSurfaceBrowserCallbacks {
-  readonly sessions?: (sessions: ReadonlyArray<WebSurfaceSessionContext>) => void;
+  readonly sessions?: (
+    sessions: ReadonlyArray<WebSurfaceSessionContext>,
+    returnSessionId: string | undefined,
+  ) => void;
   readonly projection: (session: WebSurfaceSessionContext, view: JsonValue | null) => void;
   readonly sessionClosed?: (sessionId: string, reason: string) => void;
   readonly closed?: (reason: string) => void;
+  readonly browserCompanion?: (projection: BrowserCompanionProbe) => void;
 }
 
 const decodeHostMessage = Schema.decodeUnknownOption(WebSurfaceHostMessage);
@@ -44,6 +53,7 @@ export const connectWebSurfaceBrowser = (
       const port = event.ports[0]!;
       const pendingActions = new Map<string, (outcome: WebSurfaceActionOutcome) => void>();
       const pendingConfirms = new Map<string, (confirmed: boolean) => void>();
+      const pendingHostActions = new Map<string, (accepted: boolean) => void>();
       let requestSequence = 0;
       const requestId = () => `surface-${Date.now()}-${++requestSequence}`;
       const post = (message: object) => port.postMessage(message);
@@ -54,6 +64,8 @@ export const connectWebSurfaceBrowser = (
         for (const settle of pendingConfirms.values()) settle(false);
         pendingActions.clear();
         pendingConfirms.clear();
+        for (const settle of pendingHostActions.values()) settle(false);
+        pendingHostActions.clear();
       };
       port.onmessage = (messageEvent) => {
         const decoded = decodeHostMessage(messageEvent.data);
@@ -62,7 +74,7 @@ export const connectWebSurfaceBrowser = (
         if (message._tag === "init" || message._tag === "projection") {
           callbacks.projection(message.session, message.surface.view);
         } else if (message._tag === "sessions") {
-          callbacks.sessions?.(message.sessions);
+          callbacks.sessions?.(message.sessions, message.returnSessionId);
         } else if (message._tag === "session-closed") {
           callbacks.sessionClosed?.(message.sessionId, message.reason);
         } else if (message._tag === "action-result") {
@@ -71,6 +83,11 @@ export const connectWebSurfaceBrowser = (
         } else if (message._tag === "confirm-result") {
           pendingConfirms.get(message.requestId)?.(message.confirmed);
           pendingConfirms.delete(message.requestId);
+        } else if (message._tag === "browser-companion-projection") {
+          callbacks.browserCompanion?.(message.projection);
+        } else if (message._tag === "host-action-result") {
+          pendingHostActions.get(message.requestId)?.(message.accepted);
+          pendingHostActions.delete(message.requestId);
         } else if (message._tag === "closed") {
           closePending();
           callbacks.closed?.(message.reason);
@@ -93,6 +110,30 @@ export const connectWebSurfaceBrowser = (
           }),
         navigate: (path) => post({ _tag: "navigate", path }),
         notify: (message, level = "info") => post({ _tag: "notify", message, level }),
+        wakeCompanion: () =>
+          new Promise((settle) => {
+            const id = requestId();
+            pendingHostActions.set(id, settle);
+            post({ _tag: "browser-companion-wake", requestId: id });
+          }),
+        probeCompanion: () =>
+          new Promise((settle) => {
+            const id = requestId();
+            pendingHostActions.set(id, settle);
+            post({ _tag: "browser-companion-probe", requestId: id });
+          }),
+        downloadCompanion: () =>
+          new Promise((settle) => {
+            const id = requestId();
+            pendingHostActions.set(id, settle);
+            post({ _tag: "browser-companion-download", requestId: id });
+          }),
+        copyText: (text) =>
+          new Promise((settle) => {
+            const id = requestId();
+            pendingHostActions.set(id, settle);
+            post({ _tag: "copy-text", requestId: id, text });
+          }),
       };
       post({ _tag: "ready", contract: WEB_SURFACE_CHANNEL_CONTRACT });
       resolve(client);

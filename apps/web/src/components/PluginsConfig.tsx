@@ -3,11 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useIsMobile } from "@/hooks/useIsMobile"
 import type { PluginPackageInfo, PluginsResponse, WeixinStatusProjection } from "@/api/contract"
 import { useI18n } from "@/lib/i18n"
-import { withApi, runApi } from "@/browser/api-client"
-import { apiUrls, runBrowser } from "@/browser/api-client"
-import { BrowserPlatform } from "@/browser/browser-platform"
-import { Effect } from "effect"
-import type { ChromeExtensionHealth } from "@/lib/chrome-extension-installation"
+import { runApi, withApi } from "@/browser/api-client"
 import { PI_COMPANION_PACKAGE_NAMES } from "@/lib/plugin-package-settings"
 import { SettingsToggle as Toggle } from "@/ui/interaction/SettingsToggle"
 import { SettingsWorkspace } from "@/ui/interaction/SettingsWorkspace"
@@ -369,7 +365,6 @@ function PackageDetail({
   sessionId,
   onAction,
   onReloadSession,
-  chromeHealth,
   weixinStatus,
 }: {
   pkg: PluginPackageInfo
@@ -379,7 +374,6 @@ function PackageDetail({
   sessionId: string | null
   onAction: (action: PluginAction, pkg: PluginPackageInfo) => void
   onReloadSession: () => void
-  chromeHealth: ChromeExtensionHealth | null
   weixinStatus: WeixinStatusProjection | undefined
 }) {
   const { t } = useI18n()
@@ -387,65 +381,9 @@ function PackageDetail({
   const busy = busyKey?.endsWith(key) ?? false
   const reloadBusy = busyKey === "reload"
   const enabled = !pkg.disabled
-  const isChrome = pkg.scope === "global" && pkg.packageName === PI_COMPANION_PACKAGE_NAMES.chrome
   const isWeixin = pkg.scope === "global" && pkg.packageName === PI_COMPANION_PACKAGE_NAMES.weixin
-  const openChromeInstallationGuide = () => {
-    runBrowser(
-      BrowserPlatform.pipe(
-        Effect.flatMap((browser) =>
-          browser.openExternal(
-            "https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked",
-          ),
-        ),
-      ),
-      {
-        onSuccess: () => undefined,
-      },
-    )
-  }
   return (
     <div {...stylex.props(inlineStyles.inline26)}>
-      {isChrome && chromeHealth !== null && chromeHealth._tag !== "Ready" && chromeHealth._tag !== "NotInstalled" && (
-        <div {...stylex.props(inlineStyles.inline27)}>
-          <div>
-            <div {...stylex.props(inlineStyles.inline28)}>
-              {t(
-                chromeHealth._tag === "Missing"
-                  ? "Chrome browser extension required"
-                  : "Chrome browser extension needs updating",
-              )}
-            </div>
-            <div {...stylex.props(inlineStyles.inline29)}>
-              {t(
-                "Download the ZIP, extract it, then open Chrome Extensions, enable Developer mode, and choose Load unpacked.",
-              )}
-            </div>
-          </div>
-          <ol {...stylex.props(inlineStyles.inline30)}>
-            <li>{t("Download and extract the browser extension ZIP.")}</li>
-            <li>{t("Open chrome://extensions and enable Developer mode.")}</li>
-            <li>{t("Choose Load unpacked and select the extracted folder.")}</li>
-          </ol>
-          <div {...stylex.props(inlineStyles.inline31)}>
-            <button type="button" onClick={openChromeInstallationGuide} style={buttonStyle()}>
-              {t("Open installation guide")}
-            </button>
-            <a
-              href={apiUrls.packages.downloadChromeExtension()}
-              download={`pi-chrome-extension-${pkg.chromeExtensionDisplayVersion ?? pkg.version ?? "latest"}.zip`}
-              style={{
-                ...buttonStyle(),
-                background: "var(--accent)",
-                borderColor: "var(--accent)",
-                color: "white",
-                textDecoration: "none",
-              }}
-            >
-              {t("Download browser extension ZIP")}
-            </a>
-          </div>
-        </div>
-      )}
       {isWeixin && (
         <div data-weixin-global-status {...stylex.props(inlineStyles.inline32)}>
           <div {...stylex.props(inlineStyles.inline33)}>{t("Global Weixin status")}</div>
@@ -547,7 +485,6 @@ export function PluginsConfig({
   onClose,
   onReloaded,
   initialPackageName,
-  chromeHealth,
   weixinStatus,
   presentation = "dialog",
   onOpenPackage,
@@ -559,7 +496,6 @@ export function PluginsConfig({
   onClose: () => void
   onReloaded?: () => void
   initialPackageName?: string
-  chromeHealth: ChromeExtensionHealth | null
   weixinStatus: WeixinStatusProjection | undefined
   presentation?: "dialog" | "page"
   onOpenPackage?: (packageName: string) => void
@@ -580,6 +516,8 @@ export function PluginsConfig({
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [pageQuery, setPageQuery] = useState("")
+  const [updateKeys, setUpdateKeys] = useState<ReadonlySet<string>>(() => new Set())
+  const updateRequestEpoch = useRef(0)
   const packages = useMemo(() => data?.packages ?? [], [data?.packages])
   const selectedPackage = packages.find((pkg) => packageKey(pkg) === selected) ?? null
   const groupedPackages = useMemo(() => {
@@ -623,9 +561,27 @@ export function PluginsConfig({
       },
     })
   }, [cwd, initialPackageName, presentation])
+  const loadUpdates = useCallback(() => {
+    const epoch = ++updateRequestEpoch.current
+    runApi(
+      withApi((api) => api.packages.pluginUpdates()),
+      {
+        onSuccess: (response) => {
+          if (updateRequestEpoch.current !== epoch) return
+          setUpdateKeys(
+            new Set(response.updates.filter((update) => update.updateAvailable).map((update) => packageKey(update))),
+          )
+        },
+        onFailure: () => {
+          if (updateRequestEpoch.current === epoch) setUpdateKeys(new Set())
+        },
+      },
+    )
+  }, [])
   useEffect(() => {
     loadPlugins()
-  }, [loadPlugins])
+    loadUpdates()
+  }, [loadPlugins, loadUpdates])
   useEffect(() => {
     setInstallProjectCwd((current) =>
       current !== null && projectCwds.includes(current) ? current : (projectCwds[0] ?? null),
@@ -658,6 +614,7 @@ export function PluginsConfig({
               setBusyKey(null)
               pushToast({ message: t(pluginActionMessage(action)), type: "success" })
               loadPlugins()
+              loadUpdates()
               onReloaded?.()
               return
             }
@@ -669,6 +626,7 @@ export function PluginsConfig({
             }
             pushToast({ message: t(pluginActionMessage(action)), type: "success" })
             setBusyKey(null)
+            loadUpdates()
             onReloaded?.()
           },
           onFailure: (failure) => {
@@ -678,7 +636,7 @@ export function PluginsConfig({
         },
       )
     },
-    [cwd, loadPlugins, onReloaded, presentation, pushToast, t],
+    [cwd, loadPlugins, loadUpdates, onReloaded, presentation, pushToast, t],
   )
   const installPlugin = useCallback(() => {
     const source = installSource.trim()
@@ -711,6 +669,7 @@ export function PluginsConfig({
             pushToast({ message: t("Package installed."), type: "success" })
             setBusyKey(null)
             loadPlugins()
+            loadUpdates()
             onReloaded?.()
             return
           }
@@ -722,6 +681,7 @@ export function PluginsConfig({
           setInstallSource("")
           pushToast({ message: t("Package installed."), type: "success" })
           setBusyKey(null)
+          loadUpdates()
           onReloaded?.()
         },
         onFailure: (failure) => {
@@ -730,7 +690,18 @@ export function PluginsConfig({
         },
       },
     )
-  }, [cwd, installProjectCwd, installScope, installSource, loadPlugins, onReloaded, presentation, pushToast, t])
+  }, [
+    cwd,
+    installProjectCwd,
+    installScope,
+    installSource,
+    loadPlugins,
+    loadUpdates,
+    onReloaded,
+    presentation,
+    pushToast,
+    t,
+  ])
   const reloadSession = useCallback(() => {
     if (!sessionId) return
     setBusyKey("reload")
@@ -759,8 +730,7 @@ export function PluginsConfig({
     )
   }, [loadPlugins, onReloaded, pushToast, sessionId, t])
   const addBusy = busyKey?.startsWith("install:") ?? false
-  const hasUpdate = (pkg: PluginPackageInfo) =>
-    pkg.version !== undefined && pkg.configuredVersion !== undefined && pkg.version !== pkg.configuredVersion
+  const hasUpdate = (pkg: PluginPackageInfo) => updateKeys.has(packageKey(pkg))
   const visiblePackages = packages.filter((pkg) => {
     const query = pageQuery.trim().toLowerCase()
     return query.length === 0 || `${pkg.packageName ?? ""} ${pkg.source}`.toLowerCase().includes(query)
@@ -1078,7 +1048,6 @@ export function PluginsConfig({
               sessionId={sessionId}
               onAction={runAction}
               onReloadSession={reloadSession}
-              chromeHealth={chromeHealth}
               weixinStatus={weixinStatus}
             />
           ) : (
@@ -1274,38 +1243,6 @@ const inlineStyles = stylex.create({
     flexDirection: "column",
     gap: 20,
     maxWidth: 680,
-  },
-  inline27: {
-    padding: 16,
-    border: "1px solid rgba(239,68,68,0.45)",
-    borderRadius: 8,
-    background: "rgba(239,68,68,0.07)",
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-  },
-  inline28: {
-    fontSize: 14,
-    fontWeight: 700,
-    color: "#ef4444",
-  },
-  inline29: {
-    marginTop: 4,
-    fontSize: 12,
-    lineHeight: 1.55,
-    color: "var(--text-muted)",
-  },
-  inline30: {
-    margin: 0,
-    paddingLeft: 20,
-    fontSize: 12,
-    lineHeight: 1.7,
-    color: "var(--text-muted)",
-  },
-  inline31: {
-    display: "flex",
-    gap: 8,
-    flexWrap: "wrap",
   },
   inline32: {
     padding: 16,

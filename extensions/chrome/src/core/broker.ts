@@ -213,7 +213,11 @@ export class CommandBroker {
     });
   }
 
-  next(connector: PublicConnector, timeoutMs: number): Effect.Effect<WireCommand | undefined> {
+  next(
+    connector: PublicConnector,
+    timeoutMs: number,
+    onConnected: Effect.Effect<void> = Effect.void,
+  ): Effect.Effect<WireCommand | undefined> {
     const stateRef = this.state;
     return Effect.gen(function* () {
       const brokerState = yield* SynchronizedRef.get(stateRef);
@@ -227,6 +231,7 @@ export class CommandBroker {
           : [true, { ...state, connection: { ...connector, lastSeenAt } }],
       );
       if (!active) return undefined;
+      yield* onConnected;
       return yield* mailbox.delivery.withPermits(1)(
         Effect.gen(function* () {
           const deliveryState = yield* SynchronizedRef.get(mailbox.state);

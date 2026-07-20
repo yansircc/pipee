@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "@effect/vitest"
@@ -22,6 +22,29 @@ const fixture = async () => {
   await writeFile(path.join(root, "dist/web/index.html"), "<script type=module src=./app.js></script>")
   await writeFile(path.join(root, "dist/web/app.js"), "export const answer = 42\n")
   return root
+}
+
+const addBrowserCompanion = async (root: string) => {
+  const packagePath = path.join(root, "package.json")
+  const pkg = JSON.parse(await readFile(packagePath, "utf8")) as {
+    piSuite: Record<string, unknown>
+  }
+  pkg.piSuite.browserCompanion = {
+    contract: "pi-suite/browser-companion@1",
+    directory: "./dist/browser-extension",
+    evidence: "./dist/browser-extension/evidence.json",
+  }
+  await writeFile(packagePath, JSON.stringify(pkg))
+  await mkdir(path.join(root, "dist/browser-extension"), { recursive: true })
+  await writeFile(
+    path.join(root, "dist/browser-extension/evidence.json"),
+    JSON.stringify({
+      extensionId: "abcdefghijklmnopabcdefghijklmnop",
+      displayVersion: "1.2.3",
+      protocolFingerprint: "f".repeat(64),
+    }),
+  )
+  await writeFile(path.join(root, "dist/browser-extension/service-worker.js"), "export const candidate = 1\n")
 }
 
 describe("web surface candidate", () => {
@@ -54,6 +77,38 @@ describe("web surface candidate", () => {
       yield* Effect.promise(() => symlink(outside, path.join(root, "dist/web/escape.js")))
       const error = yield* readWebSurfaceCandidate(root).pipe(Effect.flip)
       expect(error.message).toMatch(/escapes package root/)
+    }).pipe(Effect.provide(NodeServices.layer)),
+  )
+
+  it.effect("binds browser companion evidence and bytes into the candidate", () =>
+    Effect.gen(function* () {
+      const root = yield* Effect.promise(fixture)
+      yield* Effect.promise(() => addBrowserCompanion(root))
+      const first = yield* readWebSurfaceCandidate(root)
+      expect(first?.browserCompanion?.expectation).toMatchObject({
+        extensionId: "abcdefghijklmnopabcdefghijklmnop",
+        displayVersion: "1.2.3",
+      })
+      yield* Effect.promise(() =>
+        writeFile(path.join(root, "dist/browser-extension/service-worker.js"), "export const candidate = 2\n"),
+      )
+      expect((yield* readWebSurfaceCandidate(root))?.candidateHash).not.toBe(first?.candidateHash)
+    }).pipe(Effect.provide(NodeServices.layer)),
+  )
+
+  it.effect("rejects browser companion evidence outside its declared directory", () =>
+    Effect.gen(function* () {
+      const root = yield* Effect.promise(fixture)
+      const packagePath = path.join(root, "package.json")
+      const pkg = yield* Effect.promise(() => readFile(packagePath, "utf8").then(JSON.parse))
+      pkg.piSuite.browserCompanion = {
+        contract: "pi-suite/browser-companion@1",
+        directory: "./dist/browser-extension",
+        evidence: "./dist/web/evidence.json",
+      }
+      yield* Effect.promise(() => writeFile(packagePath, JSON.stringify(pkg)))
+      const failure = yield* readWebSurfaceCandidate(root).pipe(Effect.flip)
+      expect(failure.message).toContain("evidence must be inside")
     }).pipe(Effect.provide(NodeServices.layer)),
   )
 })

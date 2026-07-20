@@ -12,7 +12,7 @@ describe("external Chrome extension probe", () => {
     expect(
       handleChromeExtensionProbe(chromeExtensionProbeRequest, runtime, "f".repeat(64)),
     ).toEqual({
-      kind: "pi-chrome/extension-probe",
+      kind: "pi-suite/browser-companion-probe",
       version: 1,
       extension: {
         extensionId: runtime.id,

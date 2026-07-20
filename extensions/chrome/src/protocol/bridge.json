@@ -35,6 +35,12 @@
         "bodyLimit": "none",
         "responseLimit": "controlBody"
       },
+      "statusWait": {
+        "method": "GET",
+        "path": "/status/wait",
+        "bodyLimit": "none",
+        "responseLimit": "controlBody"
+      },
       "command": {
         "method": "POST",
         "path": "/command",

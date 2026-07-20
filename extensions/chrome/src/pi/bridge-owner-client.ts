@@ -169,6 +169,20 @@ export const statusFromOwner = (
     Effect.map((status) => ({ ...status, mode: "client" as const })),
   );
 
+export const waitForStatusFromOwner = (
+  url: string,
+  identity: BridgeOwnerIdentity,
+  timeoutMs: number,
+): Effect.Effect<
+  BridgeStatusResponse,
+  BridgeUnavailable | BridgeOwnerUnreachable | ProtocolFailure
+> =>
+  authenticatedOwnerRequest(url, "statusWait", identity, {}, timeoutMs).pipe(
+    Effect.flatMap(requireOwnerSuccess),
+    Effect.flatMap(decodeBridgeStatusJson),
+    Effect.map((status) => ({ ...status, mode: "client" as const })),
+  );
+
 export const forwardCommandToOwner = <AdmissionError, AdmissionRequirements>(
   url: string,
   identity: BridgeOwnerIdentity,

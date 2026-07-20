@@ -37,7 +37,14 @@ it.effect(
       expect({ active, starts, stops }).toEqual({ active: 1, starts: 2, stops: 1 });
       expect(maximumActive).toBe(1);
 
+      yield* Effect.all([owner.restart, owner.restart], {
+        concurrency: "unbounded",
+        discard: true,
+      });
+      expect({ active, starts, stops }).toEqual({ active: 1, starts: 4, stops: 3 });
+      expect(maximumActive).toBe(1);
+
       yield* owner.stop;
-      expect({ active, starts, stops }).toEqual({ active: 0, starts: 2, stops: 2 });
+      expect({ active, starts, stops }).toEqual({ active: 0, starts: 4, stops: 4 });
     }),
 );

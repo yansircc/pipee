@@ -5,7 +5,7 @@ import * as Schedule from "effect/Schedule";
 // perturb that shape to avoid synchronized loopback pressure.
 const cappedExponentialRetrySchedule = Schedule.min([
   Schedule.exponential("250 millis"),
-  Schedule.spaced("30 seconds"),
+  Schedule.spaced("2 seconds"),
 ]);
 
 export const localDurabilityRetrySchedule = cappedExponentialRetrySchedule;

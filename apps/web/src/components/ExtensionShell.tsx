@@ -8,7 +8,6 @@ import { connectWebSurface } from "@/browser/web-surface-channel"
 import { observeRunningSessions } from "@/features/session/session-controller"
 import {
   groupWebSurfaceCatalogs,
-  webSurfaceSessionContext,
   type ExtensionCatalogState,
   type ResolvedWebSurfaceCatalog,
 } from "@/lib/web-surface-catalog-group"
@@ -36,7 +35,13 @@ export const readWebSurfaceCatalogs = Effect.gen(function* () {
   )
 })
 
-export function ExtensionShell({ surfaceId }: { readonly surfaceId?: string }) {
+export function ExtensionShell({
+  surfaceId,
+  returnSessionId,
+}: {
+  readonly surfaceId?: string
+  readonly returnSessionId?: string
+}) {
   const navigate = useNavigate()
   const [catalog, setCatalog] = useState<ExtensionCatalogState | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -85,26 +90,23 @@ export function ExtensionShell({ surfaceId }: { readonly surfaceId?: string }) {
     () => catalog?.groups.find((group) => group.item.surfaceId === surfaceId) ?? null,
     [catalog, surfaceId],
   )
-  const sessions = useMemo(() => catalog?.index.sessions.map(webSurfaceSessionContext) ?? [], [catalog])
+  const sessions = useMemo(() => selected?.bindings.map((binding) => binding.session) ?? [], [selected])
+  const compatibleReturnSessionId = useMemo(
+    () => (sessions.some((session) => session.sessionId === returnSessionId) ? returnSessionId : undefined),
+    [returnSessionId, sessions],
+  )
 
   useEffect(() => {
     const iframe = iframeRef.current
     if (iframe === null || selected === null || loadEpoch === 0) return
     return runBrowser(
-      connectWebSurface(iframe, selected.bindings, sessions, {
+      connectWebSurface(iframe, selected.bindings, sessions, compatibleReturnSessionId, {
         state: (state, message) => setFrameState({ state, ...(message === undefined ? {} : { message }) }),
         notify: (message) => pushToast({ message, source: "extension", type: "info" }),
         confirm: (title, message) => new Promise<boolean>((resolve) => setConfirmation({ title, message, resolve })),
         navigate: (path) => {
           const target = new URL(path, globalThis.location.origin)
           if (target.origin !== globalThis.location.origin) return
-          if (target.pathname === "/api/packages/plugins/pi-chrome/browser-extension.zip") {
-            const anchor = document.createElement("a")
-            anchor.href = `${target.pathname}${target.search}`
-            anchor.download = "pi-chrome-extension.zip"
-            anchor.click()
-            return
-          }
           const allowed =
             target.pathname === "/" || target.pathname === "/extensions" || target.pathname.startsWith("/extensions/")
           if (!allowed) return
@@ -117,7 +119,7 @@ export function ExtensionShell({ surfaceId }: { readonly surfaceId?: string }) {
           setFrameState({ state: "failed", message: failure instanceof Error ? failure.message : String(failure) }),
       },
     )
-  }, [loadEpoch, navigate, pushToast, selected, sessions])
+  }, [compatibleReturnSessionId, loadEpoch, navigate, pushToast, selected, sessions])
 
   return (
     <section {...stylex.props(styles.shell)}>

@@ -44,6 +44,10 @@ import {
 } from "./platform.js";
 import { localDurabilityRetrySchedule, sharedBridgeRetrySchedule } from "./runtime-scheduling.js";
 import { handleChromeExtensionProbe } from "./external-probe.js";
+import {
+  BROWSER_COMPANION_WAKE_KIND,
+  isBrowserCompanionWakeRequest,
+} from "@pi-suite/companion-contracts/browser-companion";
 
 const KEEPALIVE_ALARM = "pi-chrome-runtime";
 const connectorIdentity = ConnectorIdentityOwner.makeUnsafe();
@@ -267,6 +271,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
+  if (isBrowserCompanionWakeRequest(message)) {
+    launch(
+      runtimeOwner.restart.pipe(
+        Effect.andThen(
+          Effect.sync(() =>
+            sendResponse({
+              kind: BROWSER_COMPANION_WAKE_KIND,
+              version: 1,
+              accepted: true,
+            }),
+          ),
+        ),
+      ),
+    );
+    return true;
+  }
   const response = handleChromeExtensionProbe(
     message,
     chrome.runtime,
