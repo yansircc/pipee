@@ -2706,7 +2706,7 @@ const inlineStyles = stylex.create({
     minHeight: 42,
     alignItems: "center",
     gap: 5,
-    padding: "6px 7px 7px",
+    padding: { default: "6px 7px 7px", "@media (max-width: 760px)": "6px 43px 7px 7px" },
     position: "relative",
   },
   inline57: {

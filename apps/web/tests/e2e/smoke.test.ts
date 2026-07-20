@@ -342,12 +342,22 @@ test("governs settings focus, dismissal, and restoration", async ({ page }) => {
 })
 
 test("exposes shared settings toggles as keyboard switches", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 780 })
   await page.goto("/?session=00000000-0000-4000-8000-000000000001")
+  await page.getByRole("button", { name: "更多控制项", exact: true }).click()
   await page.getByRole("button", { name: "技能", exact: true }).click()
-  await page
-    .getByRole("dialog", { name: "Skill Library" })
-    .getByRole("button", { name: /e2e-skill/ })
-    .click()
+  const skillWorkspace = page.getByRole("dialog", { name: "Skill Library" })
+  for (const label of ["全部", "项目", "全局", "路径"]) {
+    await expect(skillWorkspace.getByRole("button", { name: label, exact: true })).toHaveCSS("white-space", "nowrap")
+  }
+  await skillWorkspace.getByRole("button", { name: /e2e-skill/ }).click()
+  expect(
+    await page
+      .getByRole("dialog", { name: "e2e-skill" })
+      .locator("header")
+      .first()
+      .evaluate((header) => header.scrollWidth <= header.clientWidth),
+  ).toBe(true)
   const toggle = page.getByRole("switch").first()
   await expect(toggle).toBeVisible()
   await expect(toggle).toHaveAttribute("aria-label", /.+/)
