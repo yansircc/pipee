@@ -483,7 +483,7 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
           <>
             <span {...stylex.props(inlineStyles.skillSourcePill)}>{t(sourceLabel(selectedSkill))}</span>
             <span {...stylex.props(inlineStyles.modelInvocationAction)}>
-              <span>{t("Model invocation")}</span>
+              <span {...stylex.props(inlineStyles.modelInvocationLabel)}>{t("Model invocation")}</span>
               <Toggle
                 enabled={!selectedSkill.disableModelInvocation}
                 label={t(
@@ -505,7 +505,12 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
                 }}
                 {...stylex.props(inlineStyles.deleteSkill)}
               >
-                {confirmDelete ? `${t("Delete")}?` : t("Delete skill")}
+                <span {...stylex.props(inlineStyles.deleteSkillDesktop)}>
+                  {confirmDelete ? `${t("Delete")}?` : t("Delete skill")}
+                </span>
+                <span {...stylex.props(inlineStyles.deleteSkillMobile)}>
+                  {confirmDelete ? `${t("Delete")}?` : t("Delete")}
+                </span>
               </button>
             )}
           </>
@@ -530,7 +535,7 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
             }}
             {...stylex.props(inlineStyles.libraryBack)}
           >
-            ← Skill Library
+            ← <span {...stylex.props(inlineStyles.libraryBackLabel)}>Skill Library</span>
           </button>
         ) : undefined
       }
@@ -719,8 +724,11 @@ const inlineStyles = stylex.create({
     cursor: "pointer",
     fontSize: 11,
     paddingBlock: 6,
-    paddingInline: 10,
+    paddingInline: { default: 10, "@media (max-width: 760px)": 6 },
+    whiteSpace: "nowrap",
   },
+  deleteSkillDesktop: { display: { default: "inline", "@media (max-width: 760px)": "none" } },
+  deleteSkillMobile: { display: { default: "none", "@media (max-width: 760px)": "inline" } },
   skillToolbar: {
     alignItems: "center",
     borderBottom: "1px solid var(--border-soft)",
@@ -728,7 +736,10 @@ const inlineStyles = stylex.create({
     gap: 7,
     padding: "9px 14px",
   },
-  skillSearch: { flex: "1 1 260px", minWidth: 160 },
+  skillSearch: {
+    flex: { default: "1 1 260px", "@media (max-width: 760px)": "1 1 0" },
+    minWidth: { default: 160, "@media (max-width: 760px)": 0 },
+  },
   skillSearchInput: {
     backgroundColor: "var(--bg)",
     border: "1px solid var(--border)",
@@ -750,17 +761,21 @@ const inlineStyles = stylex.create({
   },
   skillFilters: {
     display: "flex",
+    flexShrink: 0,
     gap: 4,
     overflowX: "auto",
+    scrollbarWidth: "none",
   },
   filterButton: {
     border: "1px solid var(--border)",
     borderRadius: 7,
     color: "var(--text-muted)",
     cursor: "pointer",
+    flexShrink: 0,
     fontSize: 11,
     height: 30,
     padding: "0 9px",
+    whiteSpace: "nowrap",
   },
   skillFinder: { display: "grid", height: "100%", minHeight: 0, overflow: "hidden" },
   skillFileTree: {
@@ -1051,7 +1066,9 @@ const inlineStyles = stylex.create({
     cursor: "pointer",
     fontSize: 12,
     padding: "6px 8px",
+    whiteSpace: "nowrap",
   },
+  libraryBackLabel: { display: { default: "inline", "@media (max-width: 760px)": "none" } },
   libraryAction: {
     background: "var(--bg-hover)",
     border: "1px solid var(--border)",
@@ -1077,17 +1094,19 @@ const inlineStyles = stylex.create({
     color: "var(--success)",
     fontSize: 11,
     padding: "4px 7px",
+    display: { default: "inline", "@media (max-width: 760px)": "none" },
   },
   modelInvocationAction: {
     alignItems: "center",
-    border: "1px solid var(--border)",
+    border: { default: "1px solid var(--border)", "@media (max-width: 760px)": "none" },
     borderRadius: 7,
     color: "var(--text-muted)",
     display: "flex",
     fontSize: 11,
     gap: 7,
-    padding: "3px 7px 3px 9px",
+    padding: { default: "3px 7px 3px 9px", "@media (max-width: 760px)": 0 },
   },
+  modelInvocationLabel: { display: { default: "inline", "@media (max-width: 760px)": "none" } },
   skillError: {
     background: "rgba(239,68,68,.08)",
     color: "#ef4444",

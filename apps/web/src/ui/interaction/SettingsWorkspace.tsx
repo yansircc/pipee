@@ -93,12 +93,17 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     gap: 2,
+    flexShrink: 1,
     minWidth: 0,
   },
   title: {
     color: "var(--text)",
     fontSize: 15,
     fontWeight: 700,
+    maxWidth: "100%",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
   actions: {
     alignItems: "center",
