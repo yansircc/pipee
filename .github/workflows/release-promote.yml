@@ -56,7 +56,7 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ github.event.workflow_run.id }}
           name: ${{ steps.artifact.outputs.name }}
-          path: .
+          path: release
       - id: verify
         run: node tooling/release/promote-candidate.mjs verify release "${{ steps.artifact.outputs.release_sha }}" "${{ github.event.workflow_run.head_sha }}"
       - run: node tooling/release/promote-candidate.mjs promote release "${{ steps.artifact.outputs.release_sha }}" "${{ github.event.workflow_run.head_sha }}"
@@ -94,5 +94,5 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ github.event.workflow_run.id }}
           name: ${{ needs.promote-and-publish.outputs.artifact }}
-          path: .
+          path: release
       - run: pnpm verify:registry
