@@ -1899,7 +1899,7 @@ const inlineStyles = stylex.create({
     cursor: "default",
     fontWeight: 700,
     fontSize: 13,
-    letterSpacing: "-0.01em",
+    letterSpacing: "-0.015em",
     fontFamily: "inherit",
     minWidth: "6ch",
   },
