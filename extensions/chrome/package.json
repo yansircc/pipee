@@ -1,6 +1,6 @@
 {
   "name": "@yansircc/pi-chrome",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Let Pi use your existing signed-in Chrome profile through Agent-first tools.",
   "keywords": [
     "agent",
@@ -114,6 +114,11 @@
     ]
   },
   "piSuite": {
+    "browserCompanion": {
+      "contract": "pi-suite/browser-companion@1",
+      "directory": "./dist/browser-extension",
+      "evidence": "./dist/browser-extension/evidence.json"
+    },
     "web": {
       "contract": "pi-suite/web-surface@1",
       "document": "./dist/web/index.html",

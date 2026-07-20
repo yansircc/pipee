@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Ref from "effect/Ref";
+import * as PubSub from "effect/PubSub";
 import * as Semaphore from "effect/Semaphore";
 import * as Schema from "effect/Schema";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
@@ -99,6 +100,7 @@ import {
   forwardCommandToOwner,
   handshakeWithOwner,
   statusFromOwner,
+  waitForStatusFromOwner,
 } from "./bridge-owner-client.js";
 import {
   identifyConnectorRequest,
@@ -178,6 +180,7 @@ export class NodeBridge {
     private readonly broker: CommandBroker,
     private readonly lifecycleGate: Semaphore.Semaphore,
     private readonly ownership: Semaphore.Semaphore,
+    private readonly readinessSignals: PubSub.PubSub<void>,
   ) {}
 
   static make = (host: string, port: number, displayVersion: () => string, agentDir?: string) =>
@@ -186,10 +189,11 @@ export class NodeBridge {
       const broker = yield* CommandBroker.make;
       const connectors = yield* ConnectorOwner.make(broker);
       const credentialStore = yield* makeBridgeOwnerCredentialStore(agentDir);
-      const { ownerIdentityRef, lifecycleGate, ownership } = yield* Effect.all({
+      const { ownerIdentityRef, lifecycleGate, ownership, readinessSignals } = yield* Effect.all({
         ownerIdentityRef: Ref.make<BridgeOwnerIdentity | undefined>(undefined),
         lifecycleGate: Semaphore.make(1),
         ownership: Semaphore.make(1),
+        readinessSignals: PubSub.sliding<void>({ capacity: 1, replay: 1 }),
       });
       return new NodeBridge(
         host,
@@ -202,6 +206,7 @@ export class NodeBridge {
         broker,
         lifecycleGate,
         ownership,
+        readinessSignals,
       );
     });
 
@@ -268,6 +273,62 @@ export class NodeBridge {
       }
       return this.localStatus;
     });
+  }
+
+  awaitReady(timeoutMs: number): Effect.Effect<BridgeStatus, BridgeStartFailure | ProtocolFailure> {
+    const wait = Effect.suspend(() => {
+      if (this.runtime.mode === "client") {
+        return this.ownerIdentity.pipe(
+          Effect.flatMap((identity) => waitForStatusFromOwner(this.url, identity, timeoutMs + 250)),
+        );
+      }
+      if (this.runtime.mode === "server") return this.awaitLocalReady;
+      return Effect.fail(new BridgeUnavailable({ message: "Chrome bridge is not started" }));
+    });
+    return wait.pipe(
+      Effect.timeoutOrElse({
+        duration: `${timeoutMs} millis`,
+        orElse: () =>
+          this.status.pipe(
+            Effect.flatMap((status) =>
+              Effect.fail(
+                new BridgeUnavailable({
+                  message:
+                    status.connector === undefined
+                      ? `Chrome Companion did not connect within ${timeoutMs}ms`
+                      : `Chrome profile ${status.connector.label} remained offline for ${timeoutMs}ms`,
+                }),
+              ),
+            ),
+          ),
+      }),
+    );
+  }
+
+  private get awaitLocalReady(): Effect.Effect<BridgeStatus, ProtocolFailure> {
+    return Effect.scoped(
+      Effect.gen({ self: this }, function* () {
+        const signals = yield* PubSub.subscribe(this.readinessSignals);
+        while (true) {
+          const status = yield* this.localStatus;
+          const connector = status.connector;
+          if (connector !== undefined) {
+            const compatibility = classifyChromeConnectorCompatibility(
+              status.extensionExpectation,
+              connector,
+            );
+            if (compatibility._tag === "Incompatible") {
+              return yield* new ProtocolFailure({
+                message: `Chrome extension is incompatible: ${compatibility.mismatches.join(", ")}`,
+                cause: compatibility,
+              });
+            }
+            if (connector.connected) return status;
+          }
+          yield* PubSub.take(signals);
+        }
+      }),
+    );
   }
 
   send(
@@ -544,6 +605,7 @@ export class NodeBridge {
         ),
       );
       if (!accepted) return;
+      yield* PubSub.publish(this.readinessSignals, undefined);
       const identified = yield* this.identifyAuthorizedConnector(request, response, headers);
       if (!identified) return;
       const clientNonce = String(request.headers[CONNECTOR_CLIENT_NONCE_HEADER] ?? "");
@@ -778,6 +840,8 @@ export class NodeBridge {
         connectorHandshake: () => this.handleConnectorHandshake(request, response, headers),
         status: () =>
           this.localStatus.pipe(Effect.flatMap((status) => writeJson(response, 200, status))),
+        statusWait: () =>
+          this.awaitLocalReady.pipe(Effect.flatMap((status) => writeJson(response, 200, status))),
         command: () => this.handleOwnerCommand(ownerBody, response),
         poll: () => this.handleConnectorPoll(request, response, headers, path),
         result: () => this.handleConnectorResult(request, response, headers, path),
@@ -872,7 +936,11 @@ export class NodeBridge {
   ): Effect.Effect<void, ProtocolFailure> {
     return Effect.gen({ self: this }, function* () {
       if (yield* this.respondIfIncompatible(connector, response, headers)) return;
-      const command = yield* this.broker.next(connector, POLL_WAIT_DEADLINE_MS);
+      const command = yield* this.broker.next(
+        connector,
+        POLL_WAIT_DEADLINE_MS,
+        PubSub.publish(this.readinessSignals, undefined).pipe(Effect.asVoid),
+      );
       const expectation = this.extensionExpectation;
       yield* writeJson(
         response,

@@ -792,10 +792,6 @@ export const PluginPackageInfo = Schema.Struct({
   packageName: Schema.optionalKey(Schema.String),
   description: Schema.optionalKey(Schema.String),
   version: Schema.optionalKey(Schema.String),
-  chromeExtensionId: Schema.optionalKey(Schema.String),
-  chromeExtensionDirectory: Schema.optionalKey(Schema.String),
-  chromeExtensionDisplayVersion: Schema.optionalKey(Schema.String),
-  chromeProtocolFingerprint: Schema.optionalKey(Schema.String),
   configuredVersion: Schema.optionalKey(Schema.String),
   counts: PluginResourceCounts,
   resources: Schema.Array(PluginResourceInfo),
@@ -808,10 +804,15 @@ export const PluginsResponse = Schema.Struct({
   diagnostics: Schema.Array(PluginDiagnostic),
 })
 export type PluginsResponse = typeof PluginsResponse.Type
-export const GlobalChromePluginResponse = Schema.Struct({
-  package: Schema.NullOr(PluginPackageInfo),
+export const PluginUpdateInfo = Schema.Struct({
+  source: Schema.String,
+  scope: PluginScope,
+  ownerCwd: Schema.optionalKey(Schema.String),
+  updateAvailable: Schema.Boolean,
 })
-export type GlobalChromePluginResponse = typeof GlobalChromePluginResponse.Type
+export type PluginUpdateInfo = typeof PluginUpdateInfo.Type
+export const PluginUpdatesResponse = Schema.Struct({ updates: Schema.Array(PluginUpdateInfo) })
+export type PluginUpdatesResponse = typeof PluginUpdatesResponse.Type
 
 export const ToolEntry = Schema.Struct({
   name: Schema.String,
@@ -1243,16 +1244,12 @@ const PackagesApi = HttpApiGroup.make("packages").add(
     success: PluginsResponse,
     error: CommonErrors,
   }),
+  HttpApiEndpoint.get("pluginUpdates", "/api/packages/plugins/updates", {
+    success: PluginUpdatesResponse,
+    error: CommonErrors,
+  }),
   HttpApiEndpoint.get("globalPlugins", "/api/packages/plugins/global", {
     success: PluginsResponse,
-    error: CommonErrors,
-  }),
-  HttpApiEndpoint.get("globalChromePlugin", "/api/packages/plugins/pi-chrome", {
-    success: GlobalChromePluginResponse,
-    error: CommonErrors,
-  }),
-  HttpApiEndpoint.get("downloadChromeExtension", "/api/packages/plugins/pi-chrome/browser-extension.zip", {
-    success: HttpApiSchema.StreamUint8Array({ contentType: "application/zip" }),
     error: CommonErrors,
   }),
   HttpApiEndpoint.get("plugins", "/api/packages/plugins", {
@@ -1317,6 +1314,21 @@ const WebSurfacesApi = HttpApiGroup.make("webSurfaces")
       success: WebSurfaceCatalog,
       error: CommonErrors,
     }),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "downloadBrowserCompanion",
+      "/api/sessions/:id/web-surfaces/:surfaceId/:candidateHash/browser-companion.zip",
+      {
+        params: Schema.Struct({
+          id: Schema.String,
+          surfaceId: SurfaceId,
+          candidateHash: CandidateHash,
+        }),
+        success: HttpApiSchema.StreamUint8Array({ contentType: "application/zip" }),
+        error: CommonErrors,
+      },
+    ),
   )
   .add(
     HttpApiEndpoint.post(

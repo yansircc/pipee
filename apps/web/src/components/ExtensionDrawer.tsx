@@ -1,11 +1,9 @@
 import * as stylex from "@stylexjs/stylex"
 import { PluginsConfig } from "@/browser/code-split"
 import type { WeixinStatusProjection } from "@/api/contract"
-import type { ChromeExtensionHealth } from "@/lib/chrome-extension-installation"
 import { useI18n } from "@/lib/i18n"
 
 type ExtensionDrawerProps = {
-  readonly chromeHealth: ChromeExtensionHealth | null
   readonly initialPackageName?: string
   readonly onClose: () => void
   readonly onOpenPackage: (packageName: string) => void
@@ -16,7 +14,6 @@ type ExtensionDrawerProps = {
 }
 
 export function ExtensionDrawer({
-  chromeHealth,
   initialPackageName,
   onClose,
   onOpenPackage,
@@ -47,7 +44,6 @@ export function ExtensionDrawer({
           sessionId={null}
           projectCwds={projectCwds}
           initialPackageName={initialPackageName}
-          chromeHealth={chromeHealth}
           weixinStatus={weixinStatus}
           onClose={onClose}
           openablePackageNames={openablePackageNames}

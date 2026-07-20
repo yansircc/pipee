@@ -32,7 +32,7 @@ import { SessionRepository, SessionRepositoryError, SessionRepositoryLive } from
 import { WorkspaceIo, WorkspaceIoError, WorkspaceIoLive } from "@/server/workspace-io"
 import { WorkspaceError, WorkspaceService, WorkspaceServiceLive } from "@/server/workspace-service"
 import { activeSessionInfo, mergeSessionIndex } from "@/server/session-index"
-import { PI_COMPANION_PACKAGE_NAMES, isLocalPackageSource } from "@/lib/plugin-package-settings"
+import { isLocalPackageSource } from "@/lib/plugin-package-settings"
 import { WebSurfaceCatalog, WebSurfaceCatalogLive } from "@/server/web-surface-catalog"
 import { webSurfaceAssetHandler } from "@/server/web-surface-assets"
 
@@ -687,6 +687,11 @@ const PackagesLive = HttpApiBuilder.group(PiWebApi, "packages", (handlers) =>
       }
     }
     const readGlobalPlugins = adapter.plugins(config.home).pipe(Effect.map(globalProjection))
+    const readGlobalPluginUpdates = adapter.pluginUpdates(config.home).pipe(
+      Effect.map((projection) => ({
+        updates: projection.updates.filter((update) => update.scope === "global"),
+      })),
+    )
     const readPluginOverview = Effect.gen(function* () {
       const global = yield* readGlobalPlugins
       const sessions = yield* repository.list
@@ -736,12 +741,26 @@ const PackagesLive = HttpApiBuilder.group(PiWebApi, "packages", (handlers) =>
         diagnostics,
       }
     })
-    const readGlobalChromePlugin = readGlobalPlugins.pipe(
-      Effect.map(
-        (projection) =>
-          projection.packages.find((pkg) => pkg.packageName === PI_COMPANION_PACKAGE_NAMES.chrome) ?? null,
-      ),
-    )
+    const readPluginUpdates = Effect.gen(function* () {
+      const global = yield* readGlobalPluginUpdates
+      const sessions = yield* repository.list
+      const projectCwds = [...new Set(sessions.map((session) => session.cwd))]
+      const projects = yield* Effect.forEach(
+        projectCwds,
+        (ownerCwd) =>
+          adapter
+            .pluginUpdates(ownerCwd)
+            .pipe(
+              Effect.map((projection) =>
+                projection.updates
+                  .filter((update) => update.scope === "project")
+                  .map((update) => ({ ...update, ownerCwd })),
+              ),
+            ),
+        { concurrency: 4 },
+      )
+      return { updates: [...global.updates, ...projects.flat()] }
+    })
     const admitLocalPackageInstall = (cwd: string, action: PluginAction, source: string | undefined) => {
       const normalized = source?.trim()
       if (action !== "install" || normalized === undefined || !isLocalPackageSource(normalized)) return Effect.void
@@ -755,24 +774,8 @@ const PackagesLive = HttpApiBuilder.group(PiWebApi, "packages", (handlers) =>
     }
     return handlers
       .handle("pluginOverview", () => expose(readPluginOverview))
+      .handle("pluginUpdates", () => expose(readPluginUpdates))
       .handle("globalPlugins", () => expose(readGlobalPlugins))
-      .handle("globalChromePlugin", () => expose(readGlobalChromePlugin).pipe(Effect.map((pkg) => ({ package: pkg }))))
-      .handle("downloadChromeExtension", () =>
-        expose(readGlobalChromePlugin).pipe(
-          Effect.flatMap((pkg) =>
-            pkg?.chromeExtensionDirectory === undefined
-              ? Effect.fail(
-                  new NotFound({
-                    resource: "package",
-                    id: PI_COMPANION_PACKAGE_NAMES.chrome,
-                    message: "The installed pi-chrome package has no browser extension artifact",
-                  }),
-                )
-              : expose(packageIo.archiveDirectory(pkg.chromeExtensionDirectory)),
-          ),
-          Effect.map(Stream.make),
-        ),
-      )
       .handle("plugins", ({ query }) =>
         workspace.validateCwd(query.cwd).pipe(
           Effect.flatMap((cwd) => adapter.plugins(cwd)),
@@ -880,8 +883,29 @@ const WebSurfacesLive = HttpApiBuilder.group(PiWebApi, "webSurfaces", (handlers)
   Effect.gen(function* () {
     const catalog = yield* WebSurfaceCatalog
     const registry = yield* SessionRuntimeRegistry
+    const packageIo = yield* PackageIo
     return handlers
       .handle("catalog", ({ params }) => expose(catalog.read(params.id)).pipe(Effect.map((result) => result.public)))
+      .handle("downloadBrowserCompanion", ({ params }) =>
+        expose(catalog.read(params.id)).pipe(
+          Effect.flatMap((admitted) => {
+            const surface = admitted.admitted.get(params.surfaceId)
+            return surface === undefined ||
+              surface.candidate.candidateHash !== params.candidateHash ||
+              surface.candidate.browserCompanion === undefined
+              ? Effect.fail(
+                  new NotFound({
+                    resource: "browser-companion",
+                    id: params.surfaceId,
+                    message: "Browser companion candidate is not active",
+                  }),
+                )
+              : expose(packageIo.archiveDirectory(surface.candidate.browserCompanion.directory)).pipe(
+                  Effect.map(Stream.make),
+                )
+          }),
+        ),
+      )
       .handle("dispatch", ({ params, payload }) =>
         Effect.gen(function* () {
           const admitted = yield* expose(catalog.read(params.id))

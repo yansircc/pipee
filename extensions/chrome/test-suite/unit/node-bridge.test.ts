@@ -119,6 +119,30 @@ it.live("auto-registers the first compatible connector and delivers commands", (
   ),
 );
 
+it.live("awaits the connector signal without polling and releases the pending poll", () =>
+  withBridge((bridge) =>
+    Effect.gen(function* () {
+      const connector = yield* liveConnector;
+      const readiness = yield* Effect.forkChild(bridge.awaitReady(1_000));
+      const poll = yield* Effect.forkChild(connectorRequest(bridge.url, "poll", connector));
+      expect(yield* Fiber.join(readiness)).toMatchObject({
+        connector: { connectorId: connector.connectorId, connected: true },
+      });
+      yield* Fiber.interrupt(poll);
+    }),
+  ),
+);
+
+it.live("fails readiness with a specific deadline while no connector is online", () =>
+  withBridge((bridge) =>
+    Effect.gen(function* () {
+      const failure = yield* bridge.awaitReady(20).pipe(Effect.flip);
+      expect(failure).toMatchObject({ _tag: "BridgeUnavailable" });
+      expect(failure.message).toContain("did not connect within 20ms");
+    }),
+  ),
+);
+
 it.live("stops immediately while an automatically registered connector is polling", () =>
   withBridge((bridge) =>
     Effect.gen(function* () {

@@ -3,6 +3,17 @@ import type {
   JsonValue,
   WebSurfaceSessionContext,
 } from "@pi-suite/companion-contracts/web-surface";
+import {
+  projectCompanionReadiness,
+  type ChromeStatusProjection,
+  type CompanionReadiness,
+} from "@pi-suite/companion-contracts/chrome";
+import type { BrowserCompanionProbe } from "@pi-suite/companion-contracts/browser-companion";
+import * as Clock from "effect/Clock";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as Schedule from "effect/Schedule";
 
 type Tab = { id: number; active: boolean; title: string; url: string };
 type Receipt = { at: number; operation: string; tabId?: number; result: string; evidence?: string };
@@ -14,12 +25,7 @@ type ActivityEvent = {
   message?: string;
 };
 type View = {
-  status: {
-    state: string;
-    bridge: string;
-    connector?: { label: string; connected: boolean; lastSeenAt?: number };
-    errorMessage?: string;
-  };
+  status: ChromeStatusProjection;
   tabs: Tab[];
   receipts: Receipt[];
   activity: Activity | null;
@@ -32,6 +38,11 @@ const sessions = new Map<string, WebSurfaceSessionContext>();
 const views = new Map<string, SessionActivity>();
 let liveSessionId: string | null = null;
 let installOpen = false;
+let browserProbe: BrowserCompanionProbe | null = null;
+let currentTime = 0;
+let connectionStartedAt = 0;
+let returnSessionId: string | null = null;
+const webRuntime = ManagedRuntime.make(Layer.empty);
 
 const esc = (value: string | number | null | undefined) =>
   String(value ?? "").replace(
@@ -83,16 +94,52 @@ function renderLive(activity: SessionActivity) {
 function renderInstall() {
   root.insertAdjacentHTML(
     "beforeend",
-    `<div class="overlay"><section class="install-modal"><header><div><h2>安装 Chrome Companion</h2><p>ZIP 可以直接拖入扩展程序页面，无需解压。</p></div><button data-action="close-install" aria-label="关闭">×</button></header><div class="install-steps"><div class="install-step"><b>1</b><div><strong>下载扩展 ZIP</strong><p>下载由当前 pi-chrome package 提供的精确构建产物。</p></div><button class="primary" data-action="download">下载 ZIP</button></div><div class="install-step"><b>2</b><div><strong>打开 Chrome 扩展程序页面</strong><p>在地址栏输入 <code>chrome://extensions</code>，然后开启右上角“开发者模式”。</p></div></div><div class="install-step"><b>3</b><div><strong>把 ZIP 直接拖入页面</strong><p>出现“Chrome Companion 已连接”且兼容性验证通过，即代表安装成功。</p></div></div><details><summary>如果当前 Chrome 或策略拒绝 ZIP</summary><p>仅此时解压 ZIP，再点击“加载已解压的扩展程序”选择该目录。</p></details></div></section></div>`,
+    `<div class="overlay"><section class="install-modal"><header><div><h2>安装 Chrome Companion</h2><p>安装页会自动检测并完成安全连接。</p></div><button data-action="close-install" aria-label="关闭">×</button></header><div class="install-steps"><div class="install-step"><b>1</b><div><strong>下载并解压扩展 ZIP</strong><p>ZIP 来自当前 pi-chrome package 的精确 candidate。</p></div><button class="primary" data-action="download">下载 ZIP</button></div><div class="install-step"><b>2</b><div><strong>进入 Chrome 扩展程序页面</strong><p>复制 <code>chrome://extensions</code> 到地址栏，并开启“开发者模式”。</p></div><button data-action="copy-extensions-url">复制地址</button></div><div class="install-step"><b>3</b><div><strong>加载已解压的扩展程序</strong><p>选择刚才解压的目录；回到这里后会自动连接，无需刷新。</p></div></div></div></section></div>`,
   );
 }
+
+const readiness = (): CompanionReadiness => {
+  const allStatuses = [...views.values()].map(({ view }) => view.status);
+  const status =
+    allStatuses.find((value) => value.state === "ready") ??
+    allStatuses.find((value) => value.bridge === "running") ??
+    allStatuses[0] ??
+    null;
+  return projectCompanionReadiness({
+    expected: browserProbe?.expected ?? null,
+    probe: browserProbe,
+    status,
+    startedAt: connectionStartedAt,
+    now: currentTime,
+  });
+};
+
+const readinessText = (value: CompanionReadiness) => {
+  switch (value._tag) {
+    case "PackageMissing":
+      return { label: "Package 不可用", action: "安装 Companion" };
+    case "CompanionMissing":
+      return { label: "Chrome Companion 未安装", action: "安装 Companion" };
+    case "CompanionIncompatible":
+      return { label: "Chrome Companion 版本不匹配", action: "重新安装" };
+    case "Connecting":
+      return { label: "正在建立安全连接…", action: "查看安装说明" };
+    case "Ready":
+      return {
+        label: `Chrome ${value.expected.displayVersion} · 协议匹配 · ${value.connector.label}`,
+        action: "查看安装说明",
+      };
+    case "ConnectionFailed":
+      return { label: value.message, action: "重新连接" };
+  }
+};
 
 function render() {
   const all = activities();
   const allViews = [...views.values()];
   const activeSessionIds = new Set(all.map(({ session }) => session.sessionId));
-  const connector = allViews.find(({ view }) => view.status.connector?.connected)?.view.status
-    .connector;
+  const currentReadiness = readiness();
+  const companion = readinessText(currentReadiness);
   const results = allViews
     .flatMap((activity) => {
       const receipt = activity.view.receipts[0];
@@ -106,7 +153,7 @@ function render() {
       ? []
       : activity.view.tabs.map((tab) => ({ activity, tab })),
   );
-  root.innerHTML = `<header class="top"><div><h1>Chrome 自动化</h1><p>browser activity supervision · @yansircc/pi-chrome</p></div><div class="connector-status"><i class="${connector ? "ok" : ""}"></i><span>Chrome Companion ${connector ? "已连接" : "未连接"}</span><button data-action="connector">${connector ? "查看安装说明" : "安装 Companion"}</button></div></header><main class="content"><div class="note">Agent 自主操作 Chrome。这里用于观察进度、查看结果和处理明确异常；不会把导航、点击、填写重新做成人工按钮。</div><div class="section"><div><h3>正在进行</h3><p class="muted">按 Session 展示浏览器活动</p></div></div><section class="activity-list">${
+  root.innerHTML = `<header class="top"><div><h1>Chrome 自动化</h1><p>browser activity supervision · @yansircc/pi-chrome</p></div><div class="connector-status"><i class="${currentReadiness._tag === "Ready" ? "ok" : ""}"></i><span>${esc(companion.label)}</span><button data-action="${currentReadiness._tag === "ConnectionFailed" ? "reconnect" : "connector"}">${esc(companion.action)}</button>${currentReadiness._tag === "ConnectionFailed" ? '<button data-action="connector">重新下载安装</button>' : ""}${currentReadiness._tag === "Ready" ? '<button class="primary" data-action="return-chat">返回对话并使用 Chrome</button>' : ""}</div></header><main class="content">${currentReadiness._tag === "ConnectionFailed" ? `<div class="note">连接诊断：${esc(currentReadiness.reason)} · ${esc(currentReadiness.message)}</div>` : '<div class="note">Agent 自主操作 Chrome。这里用于观察进度、查看结果和处理明确异常；不会把导航、点击、填写重新做成人工按钮。</div>'}<div class="section"><div><h3>正在进行</h3><p class="muted">按 Session 展示浏览器活动</p></div></div><section class="activity-list">${
     all.length
       ? all
           .map((activity) => {
@@ -141,9 +188,17 @@ function render() {
 }
 
 void connectWebSurfaceBrowser({
-  sessions: (next) => {
+  browserCompanion: (projection) => {
+    if (projection._tag === "Compatible" && browserProbe?._tag !== "Compatible") {
+      connectionStartedAt = currentTime;
+    }
+    browserProbe = projection;
+    render();
+  },
+  sessions: (next, preferredReturnSessionId) => {
     sessions.clear();
     for (const session of next) sessions.set(session.sessionId, session);
+    returnSessionId = preferredReturnSessionId ?? null;
     render();
   },
   projection: (session, value) => {
@@ -158,6 +213,19 @@ void connectWebSurfaceBrowser({
     render();
   },
 }).then((client) => {
+  webRuntime.runFork(
+    Clock.currentTimeMillis.pipe(
+      Effect.tap((now) =>
+        Effect.sync(() => {
+          currentTime = now;
+          if (connectionStartedAt === 0) connectionStartedAt = now;
+          if (readiness()._tag === "Connecting") render();
+        }),
+      ),
+      Effect.repeat(Schedule.spaced("1 second")),
+      Effect.asVoid,
+    ),
+  );
   root.addEventListener("click", (event) => {
     const button = (event.target as Element).closest<HTMLButtonElement>("button[data-action]");
     if (!button) return;
@@ -176,7 +244,34 @@ void connectWebSurfaceBrowser({
       return;
     }
     if (action === "download") {
-      client.navigate("/api/packages/plugins/pi-chrome/browser-extension.zip");
+      void client.downloadCompanion();
+      return;
+    }
+    if (action === "copy-extensions-url") {
+      void client.copyText("chrome://extensions").then((copied) => {
+        client.notify(
+          copied ? "已复制 chrome://extensions" : "复制失败",
+          copied ? "info" : "error",
+        );
+      });
+      return;
+    }
+    if (action === "reconnect") {
+      connectionStartedAt = currentTime;
+      void client
+        .wakeCompanion()
+        .then(() => client.probeCompanion())
+        .then(() => render());
+      render();
+      return;
+    }
+    if (action === "return-chat") {
+      const target =
+        (returnSessionId === null ? undefined : sessions.get(returnSessionId)) ??
+        [...sessions.values()].sort((left, right) =>
+          right.modified.localeCompare(left.modified),
+        )[0];
+      client.navigate(target ? `/?session=${encodeURIComponent(target.sessionId)}` : "/");
       return;
     }
     if (action === "open" && sessionId) {
@@ -221,3 +316,5 @@ void connectWebSurfaceBrowser({
     });
   });
 });
+
+globalThis.addEventListener("pagehide", () => void webRuntime.dispose(), { once: true });

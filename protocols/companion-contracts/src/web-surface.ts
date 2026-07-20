@@ -1,4 +1,8 @@
 import { Schema } from "effect";
+import {
+  BrowserCompanionExpectation,
+  BrowserCompanionProbe,
+} from "@pi-suite/companion-contracts/browser-companion";
 
 export const WEB_SURFACE_CONTRACT = "pi-suite/web-surface@1" as const;
 export const WEB_SURFACE_RUNTIME_CONTRACT = "pi-suite/web-surface-runtime@1" as const;
@@ -78,6 +82,7 @@ export const WebSurfaceCatalogItem = Schema.Struct({
   candidateHash: CandidateHash,
   title: Schema.NonEmptyString,
   documentUrl: Schema.String,
+  browserCompanion: Schema.optionalKey(BrowserCompanionExpectation),
 });
 export type WebSurfaceCatalogItem = typeof WebSurfaceCatalogItem.Type;
 
@@ -131,7 +136,10 @@ export const WebSurfaceHostMessage = Schema.Union([
     runtime: WebSurfaceRuntimeIdentity,
     surface: WebSurfaceProjection,
   }),
-  Schema.TaggedStruct("sessions", { sessions: Schema.Array(WebSurfaceSessionContext) }),
+  Schema.TaggedStruct("sessions", {
+    sessions: Schema.Array(WebSurfaceSessionContext),
+    returnSessionId: Schema.optionalKey(Schema.NonEmptyString),
+  }),
   Schema.TaggedStruct("session-closed", {
     sessionId: Schema.NonEmptyString,
     reason: Schema.NonEmptyString,
@@ -143,6 +151,12 @@ export const WebSurfaceHostMessage = Schema.Union([
   Schema.TaggedStruct("confirm-result", {
     requestId: Schema.NonEmptyString,
     confirmed: Schema.Boolean,
+  }),
+  Schema.TaggedStruct("browser-companion-projection", { projection: BrowserCompanionProbe }),
+  Schema.TaggedStruct("host-action-result", {
+    requestId: Schema.NonEmptyString,
+    accepted: Schema.Boolean,
+    message: Schema.optionalKey(Schema.String),
   }),
   Schema.TaggedStruct("closed", { reason: Schema.NonEmptyString }),
 ]);
@@ -165,5 +179,9 @@ export const WebSurfaceClientMessage = Schema.Union([
     title: Schema.NonEmptyString,
     message: Schema.String,
   }),
+  Schema.TaggedStruct("browser-companion-wake", { requestId: Schema.NonEmptyString }),
+  Schema.TaggedStruct("browser-companion-probe", { requestId: Schema.NonEmptyString }),
+  Schema.TaggedStruct("browser-companion-download", { requestId: Schema.NonEmptyString }),
+  Schema.TaggedStruct("copy-text", { requestId: Schema.NonEmptyString, text: Schema.String }),
 ]);
 export type WebSurfaceClientMessage = typeof WebSurfaceClientMessage.Type;
