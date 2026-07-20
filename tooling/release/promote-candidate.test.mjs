@@ -138,3 +138,47 @@ it("verifies release identity and npm archive bytes without candidate dependenci
     rmSync(value.remote, { recursive: true, force: true });
   }
 });
+
+it("resumes an already-promoted candidate only before a later public release", () => {
+  const value = makeCandidate();
+  const promote = () =>
+    run(value.root, process.execPath, [
+      "tooling/release/promote-candidate.mjs",
+      "promote",
+      "release",
+      value.release,
+      value.base,
+    ]);
+  const verify = () =>
+    run(value.root, process.execPath, [
+      "tooling/release/promote-candidate.mjs",
+      "verify",
+      "release",
+      value.release,
+      value.base,
+    ]);
+  try {
+    assert.match(promote(), /Promoted exact release commit/);
+    git(value.root, "checkout", "--detach", value.release);
+    writeFileSync(join(value.root, "RECOVERY.md"), "release recovery control plane\n");
+    git(value.root, "add", "RECOVERY.md");
+    git(value.root, "commit", "-m", "fix: recover release publication");
+    git(value.root, "push", "origin", "HEAD:main");
+    git(value.root, "fetch", "origin", "main");
+    assert.match(verify(), /Verified privileged boundary/);
+    assert.match(promote(), /already promoted on main/);
+
+    const manifestPath = join(value.root, "apps", "web", "package.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.version = "1.4.0";
+    writeJson(manifestPath, manifest);
+    git(value.root, "add", manifestPath);
+    git(value.root, "commit", "-m", "chore: later release");
+    git(value.root, "push", "origin", "HEAD:main");
+    git(value.root, "fetch", "origin", "main");
+    assert.throws(verify, /main contains a later public package release/);
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+    rmSync(value.remote, { recursive: true, force: true });
+  }
+});
