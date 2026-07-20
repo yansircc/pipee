@@ -68,6 +68,7 @@ const branchView = (nodes: ReadonlyArray<SessionBranchNode>) => {
   }
   return {
     byId,
+    branchCount: nodes.filter((node) => !children.has(node.entryId)).length,
     hasBranch,
     rows,
   }
@@ -207,41 +208,42 @@ export function BranchNavigator({
   const hasContent = !noBranchReason && view.rows.length > 0
   const branchIcon = (
     <svg
-      width="12"
-      height="12"
+      width={inline ? 11 : 12}
+      height={inline ? 17 : 12}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth={inline ? 1.7 : 2}
       strokeLinecap="round"
       strokeLinejoin="round"
       {...stylex.props(inlineStyles.inline11)}
       style={{
-        color: hasContent ? "var(--accent)" : "var(--text-dim)",
+        color: inline ? "var(--text-muted)" : hasContent ? "var(--accent)" : "var(--text-dim)",
       }}
     >
-      <line x1="6" y1="3" x2="6" y2="15" />
-      <circle cx="18" cy="6" r="3" />
-      <circle cx="6" cy="18" r="3" />
-      <path d="M18 9a9 9 0 0 1-9 9" />
+      <circle cx="6" cy="5" r="2" />
+      <circle cx="18" cy="7" r="2" />
+      <circle cx="6" cy="19" r="2" />
+      <path d="M6 7v10M8 14c5 0 2-7 8-7" />
     </svg>
   )
   const chevron = (
     <svg
-      width="10"
-      height="10"
-      viewBox="0 0 10 10"
+      width={inline ? 11 : 10}
+      height={inline ? 17 : 10}
+      viewBox="0 0 24 24"
       fill="none"
       stroke="var(--text-dim)"
-      strokeWidth="1.6"
+      strokeWidth={inline ? 1.7 : 2}
       strokeLinecap="round"
       strokeLinejoin="round"
       {...stylex.props(inlineStyles.inline12)}
       style={{
-        transform: open ? "rotate(180deg)" : "none",
+        marginLeft: inline ? 0 : 2,
+        transform: inline ? (open ? "rotate(-90deg)" : "rotate(90deg)") : open ? "rotate(180deg)" : "none",
       }}
     >
-      <polyline points="2 3.5 5 6.5 8 3.5" />
+      <path d="m9 6 6 6-6 6" />
     </svg>
   )
   if (inline) {
@@ -252,8 +254,7 @@ export function BranchNavigator({
           onClick={() => (onToggle ? onToggle() : setOpenInternal((v) => !v))}
           {...stylex.props(inlineStyles.inline14)}
           style={{
-            background: open ? "var(--bg-selected)" : "none",
-            borderTop: open ? "2px solid var(--accent)" : "2px solid transparent",
+            background: open ? "var(--bg-selected)" : "var(--bg-panel)",
             color: open ? "var(--text)" : "var(--text-muted)",
           }}
           onMouseEnter={(e) => {
@@ -267,7 +268,14 @@ export function BranchNavigator({
           aria-pressed={open}
         >
           {branchIcon}
-          {!compact && <span>{t("Branches")}</span>}
+          {!compact && (
+            <span>
+              {view.branchCount > 0
+                ? t(view.branchCount === 1 ? "{count} branch" : "{count} branches", { count: view.branchCount })
+                : t("Branches")}
+            </span>
+          )}
+          {!compact && chevron}
         </button>
         {open && dropdownPos && (
           <div
@@ -411,18 +419,17 @@ const inlineStyles = stylex.create({
     transition: "transform 0.15s",
   },
   inline13: {
-    height: "100%",
     display: "flex",
-    alignItems: "stretch",
+    alignItems: "center",
   },
   inline14: {
     display: "flex",
     alignItems: "center",
-    gap: 6,
-    height: "100%",
-    padding: "0 12px",
-    border: "none",
-    borderRight: "1px solid var(--border)",
+    gap: 5,
+    height: 27,
+    padding: "0 8px",
+    border: "1px solid var(--border)",
+    borderRadius: 7,
     cursor: "pointer",
     fontSize: 11,
     whiteSpace: "nowrap",

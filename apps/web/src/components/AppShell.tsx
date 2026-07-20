@@ -644,12 +644,12 @@ export function AppShell() {
                 {...stylex.props(inlineStyles.inline10)}
               >
                 <svg
-                  width="16"
-                  height="16"
+                  width="15"
+                  height="17"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2"
+                  strokeWidth="1.7"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
@@ -685,7 +685,7 @@ export function AppShell() {
                   aria-label={tr("Export HTML")}
                   {...stylex.props(inlineStyles.topbarIconButton)}
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg width="15" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
                     <path d="M12 3v12m-4-4 4 4 4-4M4 20h16" />
                   </svg>
                 </button>
@@ -702,7 +702,7 @@ export function AppShell() {
                     activeTopPanel === "session" && inlineStyles.topbarIconButtonActive,
                   )}
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg width="15" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
                     <path d="M8 8h8v8a4 4 0 0 1-8 0Z" />
                     <path d="M9 8V6a3 3 0 0 1 6 0v2M4 13h4m8 0h4M5 7l3 2m8 0 3-2M5 19l3-2m8 0 3 2" />
                   </svg>
@@ -714,7 +714,7 @@ export function AppShell() {
                 aria-label={tr("Plugins")}
                 {...stylex.props(inlineStyles.inline58)}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <svg width="15" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
                   <path d="M8 3h3a2 2 0 1 1 4 0h3a2 2 0 0 1 2 2v4h-3a2 2 0 1 0 0 4h3v4a2 2 0 0 1-2 2h-4v-3a2 2 0 1 0-4 0v3H6a2 2 0 0 1-2-2v-4h3a2 2 0 1 0 0-4H4V5a2 2 0 0 1 2-2Z" />
                 </svg>
                 <span {...stylex.props(inlineStyles.extensionCount)}>{activeExtensionCount}</span>
@@ -996,7 +996,7 @@ const inlineStyles = stylex.create({
   topbarTitle: {
     color: "var(--text)",
     fontSize: 13,
-    fontWeight: 650,
+    fontWeight: 700,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -1005,7 +1005,8 @@ const inlineStyles = stylex.create({
     color: "var(--text-dim)",
     display: { default: "block", "@media (max-width: 760px)": "none" },
     fontFamily: "var(--font-mono)",
-    fontSize: 10,
+    fontSize: 11,
+    lineHeight: "13px",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -1013,7 +1014,7 @@ const inlineStyles = stylex.create({
   topbarActions: {
     alignItems: "center",
     display: "flex",
-    gap: 2,
+    gap: 7,
     flexShrink: 0,
   },
   topbarIconButton: {
@@ -1242,8 +1243,8 @@ const inlineStyles = stylex.create({
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    width: 33,
-    height: 33,
+    width: 34,
+    height: 34,
     padding: 0,
     background: "transparent",
     border: "none",
@@ -1256,7 +1257,7 @@ const inlineStyles = stylex.create({
   extensionCount: {
     alignItems: "center",
     backgroundColor: "var(--accent)",
-    borderRadius: 8,
+    borderRadius: 9,
     color: "white",
     display: "flex",
     fontSize: 9,
