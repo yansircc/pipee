@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react"
 import { Effect } from "effect"
 import type { Cancel } from "@/browser/api-client"
-import { after } from "@/browser/timing"
 import { useBrowserEffectScope } from "@/browser/use-browser-effect-scope"
 import { loadSessionSnapshot, observeSession, sessionController } from "@/features/session/session-controller"
 import {
@@ -11,17 +10,9 @@ import {
   sessionUiReducer,
 } from "@/features/session/session-ui-state"
 import { parseBashCommand } from "@/lib/bash-command"
-import {
-  createNotice,
-  getNextAutoDismissNotice,
-  noticeReducer,
-  NOTICE_AUTO_DISMISS_MS,
-  type NoticeSource,
-  type NoticeState,
-  type NoticeType,
-} from "@/lib/notices"
 import { copyText } from "@/lib/clipboard"
 import { DEFAULT_TOOL_PRESET, getPresetFromTools, getToolNamesForPreset, type ToolPreset } from "@/lib/tool-presets"
+import { useToast } from "@/ui/feedback/Toast"
 import type {
   ActiveBashExecution,
   AgentMessage,
@@ -156,13 +147,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [slashCommands, setSlashCommands] = useState<SlashCommandInfo[]>([])
   const [slashCommandsLoading, setSlashCommandsLoading] = useState(false)
   const [sessionStatsOverride, setSessionStatsOverride] = useState<SessionStatsInfo | null>(null)
-  const [noticeState, dispatchNotice] = useReducer(noticeReducer, { visible: [], pending: [] } satisfies NoticeState)
   const effectScopeOwner = `session:${session.id}`
   const runScoped = useBrowserEffectScope(effectScopeOwner)
+  const { push: addNotice } = useToast()
 
   const sessionIdRef = useRef(session.id)
   const observerRef = useRef<Cancel | null>(null)
-  const noticeSequenceRef = useRef(0)
   const bashSequenceRef = useRef(0)
   const contextSequenceRef = useRef(0)
   const snapshotSequenceRef = useRef(0)
@@ -170,19 +160,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const lastUserMsgRef = useRef<HTMLDivElement | null>(null)
   const handledCompletionRunIdRef = useRef<string | null>(null)
-
-  const addNotice = useCallback((input: { id?: string; type: NoticeType; message: string; source?: NoticeSource }) => {
-    if (input.id === undefined) noticeSequenceRef.current += 1
-    dispatchNotice({
-      type: "add",
-      notice: createNotice({
-        id: input.id ?? `notice-${noticeSequenceRef.current}`,
-        type: input.type,
-        message: input.message,
-        source: input.source ?? "app",
-      }),
-    })
-  }, [])
 
   const loadSnapshot = useCallback(
     (sessionId: string, showLoading = false) => {
@@ -821,21 +798,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     ],
   )
 
-  const dismissNotice = useCallback((id: string) => {
-    dispatchNotice({ type: "remove", id })
-  }, [])
-
-  const autoDismissNotice = getNextAutoDismissNotice(noticeState)
-  useEffect(() => {
-    if (autoDismissNotice === undefined) return
-    return runScoped(
-      after(`${NOTICE_AUTO_DISMISS_MS} millis`, () => {
-        dispatchNotice({ type: "remove", id: autoDismissNotice.id })
-      }),
-      { onSuccess: () => undefined },
-    )
-  }, [autoDismissNotice, runScoped])
-
   const extensionDialog = state.extensionUi.pendingInteraction as ExtensionDialog | null
   const contextUsage = snapshot?.runtime?.contextUsage ?? null
   const systemPrompt = snapshot?.runtime?.systemPrompt ?? null
@@ -879,9 +841,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       steering: [...state.queuedMessages.steering],
       followUp: [...state.queuedMessages.followUp],
     },
-    notices: noticeState.visible,
-    autoDismissNoticeId: autoDismissNotice?.id ?? null,
-    dismissNotice,
     extensionDialog,
     extensionStatuses,
     extensionWidgets,
