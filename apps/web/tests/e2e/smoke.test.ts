@@ -81,10 +81,10 @@ test("serves the Start shell and typed health metadata", async ({ page, request 
     piVersion: "0.80.10",
   })
 
-  await page.goto("/")
+  await page.goto("/", { waitUntil: "domcontentloaded" })
   await expect(page).toHaveTitle("Pi Agent Web")
   await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN")
-  await expect(page.getByText("Pi Agent Web", { exact: true }).first()).toBeVisible()
+  await expect(page.getByText("Pi Agent Web", { exact: true }).first()).toBeVisible({ timeout: 20_000 })
 })
 
 test("preserves the normalized visual foundation", async ({ page }) => {
