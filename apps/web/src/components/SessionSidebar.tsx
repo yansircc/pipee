@@ -811,8 +811,7 @@ export function SessionSidebar({
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.1A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.1A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.14.37.36.7.66.96.3.26.68.4 1.08.4H21v4h-.1A1.7 1.7 0 0 0 19.4 15Z" />
+                <path d="M4 7h10m4 0h2M4 17h2m4 0h10M14 4v6M6 14v6" />
               </svg>
             </button>
           </div>
@@ -836,8 +835,18 @@ export function SessionSidebar({
                     "PI"}
                 </span>
                 <span {...stylex.props(inlineStyles.projectIdentity)}>
-                  <strong>{(selectedProject ?? selectedCwd).split("/").filter(Boolean).at(-1)}</strong>
-                  <PathLabel text={displayCwd(selectedProject ?? selectedCwd, homeDir)} />
+                  <strong {...stylex.props(inlineStyles.projectTitle)}>
+                    {(selectedProject ?? selectedCwd).split("/").filter(Boolean).at(-1)}
+                  </strong>
+                  <PathLabel
+                    text={displayCwd(selectedProject ?? selectedCwd, homeDir)}
+                    style={{
+                      color: "var(--text-dim)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 11,
+                      lineHeight: 1.2,
+                    }}
+                  />
                 </span>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="m9 6 6 6-6 6" />
@@ -1119,18 +1128,19 @@ export function SessionSidebar({
                   <PathLabel
                     text={currentWt ? (currentWt.branch ?? displayCwd(currentWt.path, homeDir)) : "…"}
                     style={{
-                      flex: 1,
+                      flex: "0 1 auto",
                       fontFamily: "var(--font-mono)",
                       color: "var(--text)",
                     }}
                   />
-                  {currentWt?.isMain && <span {...stylex.props(inlineStyles.inline34)}>main</span>}
-                  {worktreeState.worktrees.length > 1 && (
-                    <span {...stylex.props(inlineStyles.inline35)}>{worktreeState.worktrees.length}</span>
+                  {currentWt?.isMain && (
+                    <span {...stylex.props(inlineStyles.inline34)}>
+                      {locale === "zh-CN" ? "主检出" : "Main checkout"}
+                    </span>
                   )}
                   <svg
-                    width="9"
-                    height="9"
+                    width="10"
+                    height="10"
                     viewBox="0 0 10 10"
                     fill="none"
                     stroke="currentColor"
@@ -1433,9 +1443,6 @@ export function SessionSidebar({
           </svg>
           <span>{t("Resource manager")}</span>
           <kbd {...stylex.props(inlineStyles.shortcutHint)}>⌘⇧E</kbd>
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6">
-            <path d="m3 2 3 3-3 3" />
-          </svg>
         </button>
       )}
     </div>
@@ -1472,7 +1479,7 @@ function SessionTreeItem({
           <div
             {...stylex.props(inlineStyles.inline70)}
             style={{
-              left: depth * 12 + 6,
+              left: depth * 17 - 5,
             }}
           />
         )}
@@ -1517,8 +1524,8 @@ function RunningSessionIndicator() {
   return (
     <span title={t("Agent running…")} aria-label={t("Agent running")} {...stylex.props(inlineStyles.inline71)}>
       <svg
-        width="14"
-        height="14"
+        width="7"
+        height="7"
         viewBox="0 0 24 24"
         fill="none"
         aria-hidden="true"
@@ -1544,8 +1551,8 @@ function UnreadSessionIndicator() {
   return (
     <span title={t("New activity")} aria-label={t("New session activity")} {...stylex.props(inlineStyles.inline73)}>
       <svg
-        width="14"
-        height="14"
+        width="7"
+        height="7"
         viewBox="0 0 14 14"
         fill="none"
         aria-hidden="true"
@@ -1559,6 +1566,9 @@ function UnreadSessionIndicator() {
       </svg>
     </span>
   )
+}
+function QuietSessionIndicator() {
+  return <span aria-hidden="true" {...stylex.props(inlineStyles.quietSessionIndicator)} />
 }
 function SessionItem({
   session,
@@ -1660,7 +1670,7 @@ function SessionItem({
   }, [])
 
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
-  const ITEM_HEIGHT = 54
+  const ITEM_HEIGHT = 58
   return (
     <div
       data-session-id={session.id}
@@ -1672,16 +1682,16 @@ function SessionItem({
       {...stylex.props(inlineStyles.inline75)}
       style={{
         height: ITEM_HEIGHT,
-        paddingLeft: depth > 0 ? depth * 12 + 14 : 14,
+        paddingLeft: depth > 0 ? depth * 17 + 9 : 9,
         cursor: confirmDelete || renaming ? "default" : "pointer",
         background: confirmDelete
           ? "rgba(239,68,68,0.06)"
           : isSelected
-            ? "var(--bg-selected)"
+            ? "var(--bg-hover)"
             : hovered
               ? "var(--bg-hover)"
               : "transparent",
-        borderLeft: "2px solid transparent",
+        color: isSelected || hovered ? "var(--text)" : "var(--text-muted)",
         opacity: deleting ? 0.5 : 1,
       }}
     >
@@ -1735,39 +1745,26 @@ function SessionItem({
       ) : (
         /* ── Normal view ── */
         <>
-          {/* Fork indicator for child sessions */}
-          {depth > 0 && (
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--text-dim)"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              {...stylex.props(inlineStyles.inline82)}
-            >
-              <line x1="6" y1="3" x2="6" y2="15" />
-              <circle cx="18" cy="6" r="3" />
-              <circle cx="6" cy="18" r="3" />
-              <path d="M18 9a9 9 0 0 1-9 9" />
-            </svg>
-          )}
           <div {...stylex.props(inlineStyles.inline83)}>
             <div
               {...stylex.props(inlineStyles.inline84)}
-              style={{
-                fontWeight: isSelected ? 500 : 400,
-              }}
               title={
                 isRunning ? `${title} · ${t("Agent running…")}` : isUnread ? `${title} · ${t("New activity")}` : title
               }
             >
-              {isRunning ? <RunningSessionIndicator /> : isUnread ? <UnreadSessionIndicator /> : null}
+              {isRunning ? (
+                <RunningSessionIndicator />
+              ) : isUnread ? (
+                <UnreadSessionIndicator />
+              ) : (
+                <QuietSessionIndicator />
+              )}
               <span {...stylex.props(inlineStyles.inline85)}>{title}</span>
             </div>
-            <div {...stylex.props(inlineStyles.inline86)}>
+            <div
+              {...stylex.props(inlineStyles.inline86)}
+              style={{ color: isSelected ? "var(--accent)" : "var(--text-dim)" }}
+            >
               <span title={session.modified}>{formatRelativeTime(session.modified, locale, currentTimeMillis)}</span>
               <span>{locale === "zh-CN" ? `${session.messageCount} 条消息` : `${session.messageCount} msgs`}</span>
               {session.worktreeBranch && (
@@ -1901,7 +1898,7 @@ const inlineStyles = stylex.create({
     padding: 0,
     cursor: "default",
     fontWeight: 700,
-    fontSize: 15,
+    fontSize: 13,
     letterSpacing: "-0.01em",
     fontFamily: "inherit",
     minWidth: "6ch",
@@ -1914,7 +1911,7 @@ const inlineStyles = stylex.create({
     overflow: "hidden",
   },
   inline4: {
-    padding: "0 10px 10px",
+    padding: "0 10px",
     flexShrink: 0,
   },
   inline5: {
@@ -1922,6 +1919,8 @@ const inlineStyles = stylex.create({
     alignItems: "center",
     justifyContent: "space-between",
     height: 58,
+    marginLeft: 6,
+    marginRight: 3,
   },
   brand: {
     alignItems: "center",
@@ -1930,9 +1929,9 @@ const inlineStyles = stylex.create({
   },
   brandMark: {
     alignItems: "center",
-    background: "var(--text)",
+    background: "#1b1d1a",
     borderRadius: 9,
-    color: "var(--bg-panel)",
+    color: "#f5f1e6",
     display: "flex",
     fontFamily: "Georgia, serif",
     fontSize: 20,
@@ -1966,22 +1965,26 @@ const inlineStyles = stylex.create({
     alignItems: "center",
     justifyContent: "center",
     cursor: "pointer",
-    width: 32,
-    height: 32,
-    borderRadius: 7,
+    width: 33,
+    height: 33,
+    borderRadius: 8,
+    backgroundColor: "transparent",
+    color: "var(--text-muted)",
     padding: 0,
     flexShrink: 0,
     transition: "background 0.3s, color 0.3s, border-color 0.3s",
   },
   inline9: {
     position: "relative",
+    marginTop: 2,
+    marginBottom: 8,
   },
   inline10: {
     background: "var(--bg-raised)",
     border: "1px solid var(--border)",
     gap: 9,
     height: 48,
-    width: "100%",
+    width: "calc(100% - 1px)",
     display: "flex",
     alignItems: "center",
     padding: "0 10px",
@@ -1994,12 +1997,12 @@ const inlineStyles = stylex.create({
   },
   projectMark: {
     alignItems: "center",
-    background: "var(--success)",
+    background: "var(--project-mark)",
     borderRadius: 7,
     color: "white",
     display: "flex",
     flexShrink: 0,
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: 800,
     height: 28,
     justifyContent: "center",
@@ -2010,6 +2013,10 @@ const inlineStyles = stylex.create({
     flex: 1,
     flexDirection: "column",
     minWidth: 0,
+  },
+  projectTitle: {
+    fontSize: 13,
+    lineHeight: 1.5,
   },
   inline11: {
     flex: 1,
@@ -2165,40 +2172,39 @@ const inlineStyles = stylex.create({
   },
   inline31: {
     position: "relative",
-    marginTop: 6,
+    marginTop: 0,
   },
   inline32: {
-    width: "100%",
-    height: 29,
+    width: "calc(100% - 1px)",
+    height: 35,
     boxSizing: "border-box",
     display: "flex",
     alignItems: "center",
-    gap: 6,
-    padding: "0 10px",
-    background: "var(--bg-hover)",
-    border: "1px solid var(--border)",
-    borderRadius: 7,
+    gap: 7,
+    padding: "0 9px",
+    background: "transparent",
+    border: "none",
+    borderRadius: 8,
     cursor: "pointer",
-    fontSize: 11,
+    fontSize: 12,
     lineHeight: 1.35,
     color: "var(--text-muted)",
     textAlign: "left",
+    ":hover": { backgroundColor: "var(--bg-hover)" },
   },
   inline33: {
     flexShrink: 0,
+    width: 13,
+    height: 13,
   },
   inline34: {
     flexShrink: 0,
     color: "var(--text-dim)",
-    fontSize: 10,
-  },
-  inline35: {
-    flexShrink: 0,
-    color: "var(--text-dim)",
-    fontSize: 10,
+    fontSize: 11,
   },
   inline36: {
     flexShrink: 0,
+    marginLeft: "auto",
   },
   inline37: {
     maxHeight: "min(40vh, 300px)",
@@ -2352,19 +2358,19 @@ const inlineStyles = stylex.create({
     overflowWrap: "anywhere",
   },
   inline56: {
-    width: "100%",
-    height: 29,
+    width: "calc(100% - 1px)",
+    height: 35,
     boxSizing: "border-box",
-    marginTop: 6,
+    marginTop: 0,
     display: "flex",
     alignItems: "center",
-    gap: 6,
-    padding: "0 10px",
-    border: "1px solid var(--border)",
-    borderRadius: 7,
-    background: "var(--bg-hover)",
+    gap: 7,
+    padding: "0 9px",
+    border: "none",
+    borderRadius: 8,
+    background: "transparent",
     color: "var(--text-dim)",
-    fontSize: 11,
+    fontSize: 12,
     lineHeight: 1.35,
     whiteSpace: "nowrap",
     textAlign: "left",
@@ -2389,14 +2395,16 @@ const inlineStyles = stylex.create({
     fontSize: 11,
     fontWeight: 750,
     letterSpacing: ".06em",
-    padding: "18px 16px 6px",
+    padding: "20px 15px 6px 17px",
+    minHeight: 44.5,
     textTransform: "uppercase",
   },
   sessionActions: {
     display: "flex",
     alignItems: "center",
     gap: 6,
-    padding: "0 10px",
+    padding: "0 11px 0 10px",
+    marginTop: 8,
     flexShrink: 0,
   },
   sessionAction: {
@@ -2405,9 +2413,9 @@ const inlineStyles = stylex.create({
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    border: "1px solid var(--border)",
-    borderRadius: 7,
+    gap: 7,
+    border: "none",
+    borderRadius: 8,
     background: "var(--text)",
     color: "var(--bg-panel)",
     fontSize: 12,
@@ -2415,30 +2423,31 @@ const inlineStyles = stylex.create({
     cursor: "pointer",
   },
   sessionActionIcon: {
-    width: 30,
+    width: 35,
     height: 35,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     border: "1px solid var(--border)",
-    borderRadius: 7,
+    borderRadius: 8,
     background: "var(--bg-raised)",
     color: "var(--text-muted)",
     cursor: "pointer",
   },
   explorerButton: {
-    width: "100%",
-    height: 44,
+    width: "calc(100% - 1px)",
+    height: 43,
     padding: "0 14px",
     display: "flex",
     alignItems: "center",
     gap: 8,
     border: "none",
-    borderTop: "1px solid var(--border)",
-    background: "var(--bg-panel)",
+    borderTop: "1px solid var(--border-soft)",
+    borderRadius: 0,
+    background: "transparent",
     color: "var(--text-muted)",
     fontSize: 12,
-    fontWeight: 600,
+    fontWeight: 400,
     cursor: "pointer",
     flexShrink: 0,
   },
@@ -2520,38 +2529,49 @@ const inlineStyles = stylex.create({
     pointerEvents: "none",
   },
   inline71: {
-    width: 14,
-    height: 14,
+    width: 7,
+    height: 7,
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
     color: "var(--accent)",
+    marginTop: 4,
   },
   inline72: {
     display: "block",
   },
   inline73: {
-    width: 14,
-    height: 14,
+    width: 7,
+    height: 7,
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
     color: "#0891b2",
+    marginTop: 4,
   },
   inline74: {
     display: "block",
   },
+  quietSessionIndicator: {
+    border: "1px solid var(--text-dim)",
+    borderRadius: "50%",
+    flexShrink: 0,
+    height: 7,
+    marginTop: 4,
+    width: 7,
+  },
   inline75: {
     display: "flex",
-    alignItems: "center",
-    paddingRight: 8,
+    alignItems: "flex-start",
+    paddingBlock: 9,
+    paddingRight: 9,
     transition: "background 0.1s",
-    gap: 6,
+    gap: 9,
     overflow: "hidden",
     borderRadius: 8,
-    marginBottom: 2,
+    marginBottom: 0,
   },
   inline76: {
     flex: 1,
@@ -2612,9 +2632,6 @@ const inlineStyles = stylex.create({
     color: "var(--text)",
     height: 30,
   },
-  inline82: {
-    flexShrink: 0,
-  },
   inline83: {
     flex: 1,
     minWidth: 0,
@@ -2622,11 +2639,12 @@ const inlineStyles = stylex.create({
   inline84: {
     display: "flex",
     alignItems: "center",
-    gap: 5,
+    gap: 9,
     minWidth: 0,
     fontSize: 13,
-    lineHeight: 1.4,
-    color: "var(--text)",
+    fontWeight: 570,
+    lineHeight: 1.5,
+    color: "inherit",
   },
   inline85: {
     overflow: "hidden",
@@ -2635,11 +2653,13 @@ const inlineStyles = stylex.create({
     minWidth: 0,
   },
   inline86: {
-    marginTop: 2,
+    marginTop: 4,
+    marginLeft: 16,
     display: "flex",
     gap: 8,
     color: "var(--text-dim)",
-    fontSize: 10,
+    fontSize: 11,
+    lineHeight: 1.5,
     minWidth: 0,
   },
   inline87: {
