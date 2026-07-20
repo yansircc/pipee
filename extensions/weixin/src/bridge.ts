@@ -1,4 +1,4 @@
-import { acquireCrossProcessLease } from "@pi-suite/host-runtime/cross-process-lease";
+import { acquireCrossProcessLease } from "@pipee/host-runtime/cross-process-lease";
 import {
   Config,
   Context,
@@ -34,7 +34,7 @@ import {
   QrCodeError,
   StateStoreError,
 } from "./errors.ts";
-import { DEFAULT_PI_WEB_BASE_URL, makePiGateway, type PiGateway } from "./gateway.ts";
+import { DEFAULT_PIPEE_BASE_URL, makePiGateway, type PiGateway } from "./gateway.ts";
 import { makeJsonHttpClient } from "./http.ts";
 import { makeIlinkClient, type LoginCallbacks, type WeixinTransport } from "./ilink.ts";
 import { IlinkMessageSchema, type IlinkImage, type UpdatesResponse } from "./ilink-protocol.ts";
@@ -461,8 +461,8 @@ export const BridgeLive = Layer.effect(
           : new BridgeConfigurationError({ reason: `无法获取微信状态 ownership：${error.path}` }),
       ),
     );
-    const piWebBaseUrl = yield* Config.string("PI_WEB_BASE_URL").pipe(
-      Config.withDefault(DEFAULT_PI_WEB_BASE_URL),
+    const piWebBaseUrl = yield* Config.string("PIPEE_BASE_URL").pipe(
+      Config.withDefault(DEFAULT_PIPEE_BASE_URL),
     );
     const serviceScope = yield* Scope.make("sequential");
     yield* Effect.addFinalizer(() => Scope.close(serviceScope, Exit.succeed(undefined)));

@@ -8,7 +8,7 @@ import {
   browserCompanionProbeRequest,
   browserCompanionMismatches,
   type BrowserCompanionProbe,
-} from "@pi-suite/companion-contracts/browser-companion";
+} from "@pipee/companion-contracts/browser-companion";
 
 export const ChromeExtensionExpectation = BrowserCompanionExpectation;
 export type ChromeExtensionExpectation = typeof ChromeExtensionExpectation.Type;

@@ -32,7 +32,7 @@ overrides:
   vitest: "catalog:"
 
 patchedDependencies:
-  "@tanstack/react-router@1.170.18": apps/web/patches/@tanstack__react-router@1.170.18.patch
+  "@tanstack/react-router@1.170.18": apps/pipee/patches/@tanstack__react-router@1.170.18.patch
 
 peerDependencyRules:
   allowedVersions:

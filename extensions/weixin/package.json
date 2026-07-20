@@ -1,22 +1,22 @@
 {
   "name": "@yansircc/pi-weixin",
   "version": "0.1.0",
-  "description": "Weixin iLink bridge for Pi sessions hosted by pi-web",
+  "description": "Weixin iLink bridge for Pi sessions hosted by pipee",
   "keywords": [
     "ilink",
     "pi-extension",
     "pi-package",
     "weixin"
   ],
-  "homepage": "https://github.com/yansircc/pi-suite/tree/main/extensions/weixin#readme",
+  "homepage": "https://github.com/yansircc/pipee/tree/main/extensions/weixin#readme",
   "bugs": {
-    "url": "https://github.com/yansircc/pi-suite/issues"
+    "url": "https://github.com/yansircc/pipee/issues"
   },
   "license": "MIT",
   "author": "yansircc",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yansircc/pi-suite.git",
+    "url": "git+https://github.com/yansircc/pipee.git",
     "directory": "extensions/weixin"
   },
   "files": [
@@ -47,9 +47,9 @@
     "@earendil-works/pi-coding-agent": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
-    "@pi-suite/companion-contracts": "workspace:*",
-    "@pi-suite/extension-kit": "workspace:*",
-    "@pi-suite/host-runtime": "workspace:*",
+    "@pipee/companion-contracts": "workspace:*",
+    "@pipee/extension-kit": "workspace:*",
+    "@pipee/host-runtime": "workspace:*",
     "@sinclair/typebox": "0.34.41",
     "@types/cross-spawn": "catalog:",
     "@types/node": "^25.0.0",

@@ -9,7 +9,7 @@ import type { JsonHttpClient } from "./http.ts";
 import type { ImageContent } from "./media.ts";
 import { PiPromptProgressEventSchema, type PiToolProgress } from "./schema.ts";
 
-export const DEFAULT_PI_WEB_BASE_URL = "http://localhost:30141";
+export const DEFAULT_PIPEE_BASE_URL = "http://localhost:30141";
 
 export interface PiGateway {
   readonly promptAndWait: <E>(
@@ -40,13 +40,13 @@ const requireLoopbackBaseUrl = (input: string): Effect.Effect<URL, BridgeConfigu
   Effect.gen(function* () {
     const url = yield* Effect.try({
       try: () => new URL(input),
-      catch: () => new BridgeConfigurationError({ reason: "PI_WEB_BASE_URL is not a valid URL" }),
+      catch: () => new BridgeConfigurationError({ reason: "PIPEE_BASE_URL is not a valid URL" }),
     });
     const loopback =
       url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
     if (url.protocol !== "http:" || !loopback) {
       return yield* new BridgeConfigurationError({
-        reason: "PI_WEB_BASE_URL must be an http loopback URL",
+        reason: "PIPEE_BASE_URL must be an http loopback URL",
       });
     }
     return url;

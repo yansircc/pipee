@@ -53,7 +53,7 @@ it.effect("rejects proactive send until an inbound context token exists", () =>
             ConfigProvider.fromUnknown({
               HOME: directory,
               PI_WEIXIN_STATE_PATH: statePath,
-              PI_WEB_BASE_URL: "http://127.0.0.1:30141",
+              PIPEE_BASE_URL: "http://127.0.0.1:30141",
             }),
           ),
         ),
@@ -76,7 +76,7 @@ it.effect("publishes the global default session and every successful change", ()
       const config = ConfigProvider.fromUnknown({
         HOME: directory,
         PI_WEIXIN_STATE_PATH: path.join(directory, "state.json"),
-        PI_WEB_BASE_URL: "http://127.0.0.1:30141",
+        PIPEE_BASE_URL: "http://127.0.0.1:30141",
       });
       const BridgeTestLive = BridgeLive.pipe(
         Layer.provide(Layer.merge(NodeServicesLayer, FetchHttpClient.layer)),
@@ -128,7 +128,7 @@ it.effect("keeps status subscribers alive after a state read failure", () =>
       const config = ConfigProvider.fromUnknown({
         HOME: directory,
         PI_WEIXIN_STATE_PATH: statePath,
-        PI_WEB_BASE_URL: "http://127.0.0.1:30141",
+        PIPEE_BASE_URL: "http://127.0.0.1:30141",
       });
       const BridgeTestLive = BridgeLive.pipe(
         Layer.provide(Layer.merge(NodeServicesLayer, FetchHttpClient.layer)),
@@ -185,7 +185,7 @@ it.effect("admits one process owner for a state path", () =>
       const config = ConfigProvider.fromUnknown({
         HOME: directory,
         PI_WEIXIN_STATE_PATH: path.join(directory, "state.json"),
-        PI_WEB_BASE_URL: "http://127.0.0.1:30141",
+        PIPEE_BASE_URL: "http://127.0.0.1:30141",
       });
       const makeLayer = () =>
         Layer.fresh(BridgeLive).pipe(
@@ -235,7 +235,7 @@ it.effect("admits one poller for an account across distinct state paths", () =>
               ConfigProvider.fromUnknown({
                 HOME: directory,
                 PI_WEIXIN_STATE_PATH: statePath,
-                PI_WEB_BASE_URL: "http://127.0.0.1:30141",
+                PIPEE_BASE_URL: "http://127.0.0.1:30141",
               }),
             ),
           ),

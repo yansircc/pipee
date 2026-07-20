@@ -1,5 +1,5 @@
 import { expect, it } from "@effect/vitest";
-import type { StructuredView } from "@pi-suite/companion-contracts/host-capabilities";
+import type { StructuredView } from "@pipee/companion-contracts/host-capabilities";
 import {
   publishSessionStatus,
   type WeixinStatusProjection,

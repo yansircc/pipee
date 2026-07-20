@@ -3,7 +3,7 @@ import {
   RUNTIME_RETENTION_CAPABILITY,
   WEB_SURFACE_RUNTIME_CAPABILITY,
   type RuntimeRetentionPort,
-} from "@pi-suite/companion-contracts/host-capabilities";
+} from "@pipee/companion-contracts/host-capabilities";
 import { Effect } from "effect";
 import {
   makeRuntimeRetentionSlot,
@@ -13,7 +13,7 @@ import {
   webSurface,
   WebSurfaceCapabilityUnavailable,
 } from "../src/index.js";
-import type { WebSurfaceRuntimePort } from "@pi-suite/companion-contracts/web-surface";
+import type { WebSurfaceRuntimePort } from "@pipee/companion-contracts/web-surface";
 
 it("returns undefined when the host does not provide Suite capabilities", () => {
   expect(structuredView({}, "alpha")).toBeUndefined();

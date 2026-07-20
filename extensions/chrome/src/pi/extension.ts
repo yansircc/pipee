@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { layer as nodeServicesLayer, type NodeServices } from "@effect/platform-node/NodeServices";
-import { structuredView, webSurface, type WebSurfaceSlot } from "@pi-suite/extension-kit";
+import { structuredView, webSurface, type WebSurfaceSlot } from "@pipee/extension-kit";
 import * as Effect from "effect/Effect";
 import * as Clock from "effect/Clock";
 import * as Exit from "effect/Exit";

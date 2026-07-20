@@ -31,15 +31,15 @@
     "web-debugging",
     "web-scraping"
   ],
-  "homepage": "https://github.com/yansircc/pi-suite/tree/main/extensions/chrome#readme",
+  "homepage": "https://github.com/yansircc/pipee/tree/main/extensions/chrome#readme",
   "bugs": {
-    "url": "https://github.com/yansircc/pi-suite/issues"
+    "url": "https://github.com/yansircc/pipee/issues"
   },
   "license": "MIT",
   "author": "yansircc",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yansircc/pi-suite.git",
+    "url": "git+https://github.com/yansircc/pipee.git",
     "directory": "extensions/chrome"
   },
   "files": [
@@ -74,8 +74,8 @@
     "@earendil-works/pi-coding-agent": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
-    "@pi-suite/companion-contracts": "workspace:*",
-    "@pi-suite/extension-kit": "workspace:*",
+    "@pipee/companion-contracts": "workspace:*",
+    "@pipee/extension-kit": "workspace:*",
     "@puppeteer/browsers": "3.0.6",
     "@types/chrome": "0.1.36",
     "@types/cross-spawn": "catalog:",

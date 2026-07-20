@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import {
   BrowserCompanionExpectation,
   BrowserCompanionProbe,
-} from "@pi-suite/companion-contracts/browser-companion";
+} from "@pipee/companion-contracts/browser-companion";
 
 export const WEB_SURFACE_CONTRACT = "pi-suite/web-surface@1" as const;
 export const WEB_SURFACE_RUNTIME_CONTRACT = "pi-suite/web-surface-runtime@1" as const;

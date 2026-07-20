@@ -1,8 +1,5 @@
-import { connectWebSurfaceBrowser } from "@pi-suite/companion-contracts/web-surface-browser";
-import type {
-  JsonValue,
-  WebSurfaceSessionContext,
-} from "@pi-suite/companion-contracts/web-surface";
+import { connectWebSurfaceBrowser } from "@pipee/companion-contracts/web-surface-browser";
+import type { JsonValue, WebSurfaceSessionContext } from "@pipee/companion-contracts/web-surface";
 
 type View = {
   sessionId: string;

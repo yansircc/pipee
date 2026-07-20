@@ -85,7 +85,7 @@ for (const entry of suiteConfig().packages.filter(({ id }) => projectedIds.inclu
     await extract({ file: archive, cwd: stagingDirectory });
     const packageDirectory = join(stagingDirectory, "package");
     const manifest = JSON.parse(readFileSync(join(packageDirectory, "package.json"), "utf8"));
-    for (const privatePackage of ["@pi-suite/companion-contracts", "@pi-suite/host-runtime"]) {
+    for (const privatePackage of ["@pipee/companion-contracts", "@pipee/host-runtime"]) {
       assert.equal(
         manifest.dependencies?.[privatePackage],
         undefined,
@@ -102,7 +102,7 @@ for (const entry of suiteConfig().packages.filter(({ id }) => projectedIds.inclu
           const source = readFileSync(path, "utf8");
           assert.doesNotMatch(
             source,
-            /(?:from\s*|import\s*\()\s*["']@pi-suite\/companion-contracts/,
+            /(?:from\s*|import\s*\()\s*["']@pipee\/companion-contracts/,
             `${entry.id} archive has a runtime import of the private contracts package`,
           );
         }

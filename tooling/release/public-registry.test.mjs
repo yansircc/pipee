@@ -3,7 +3,7 @@ import { it } from "node:test";
 import { waitForRegistrySet } from "./public-registry.mjs";
 
 const web = {
-  name: "@yansircc/pi-web",
+  name: "@yansircc/pipee",
   version: "0.2.0",
   integrity: "sha512-web",
 };
@@ -53,6 +53,6 @@ it("fails with every still-missing coordinate after the retry budget", async () 
       wait: async () => {},
       maxAttempts: 2,
     }),
-    /@yansircc\/pi-web@0\.2\.0, @yansircc\/pi-chrome@0\.2\.0/,
+    /@yansircc\/pipee@0\.2\.0, @yansircc\/pi-chrome@0\.2\.0/,
   );
 });

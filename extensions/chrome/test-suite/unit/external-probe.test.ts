@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { chromeExtensionProbeRequest } from "@pi-suite/companion-contracts/chrome";
+import { chromeExtensionProbeRequest } from "@pipee/companion-contracts/chrome";
 import { handleChromeExtensionProbe } from "../../src/browser/external-probe.js";
 
 describe("external Chrome extension probe", () => {

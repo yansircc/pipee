@@ -1,4 +1,4 @@
-import { acquireCrossProcessLease } from "@pi-suite/host-runtime/cross-process-lease";
+import { acquireCrossProcessLease } from "@pipee/host-runtime/cross-process-lease";
 import { Data, Effect, Exit, Ref, Schema, Scope, Semaphore } from "effect";
 import { FileSystem } from "effect/FileSystem";
 import { Path } from "effect/Path";

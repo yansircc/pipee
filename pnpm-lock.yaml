@@ -71,7 +71,7 @@ importers:
         specifier: 'catalog:'
         version: 0.2.4(@opentelemetry/api@1.9.1)(@types/node@25.0.0)(jiti@2.7.0)(typescript@7.0.2)(vite@8.1.4(@types/node@25.0.0)(jiti@2.7.0)(yaml@2.9.0))(yaml@2.9.0)
 
-  apps/web:
+  apps/pipee:
     dependencies:
       '@earendil-works/pi-ai':
         specifier: 0.80.10
@@ -98,10 +98,10 @@ importers:
       '@effect/vitest':
         specifier: 'catalog:'
         version: 4.0.0-beta.98(effect@4.0.0-beta.98)(vitest@4.1.10)
-      '@pi-suite/companion-contracts':
+      '@pipee/companion-contracts':
         specifier: workspace:*
         version: link:../../protocols/companion-contracts
-      '@pi-suite/host-runtime':
+      '@pipee/host-runtime':
         specifier: workspace:*
         version: link:../../packages/host-runtime
       '@playwright/test':
@@ -206,10 +206,10 @@ importers:
       '@effect/vitest':
         specifier: 'catalog:'
         version: 4.0.0-beta.98(effect@4.0.0-beta.98)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.4(@types/node@22.20.1)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)))
-      '@pi-suite/companion-contracts':
+      '@pipee/companion-contracts':
         specifier: workspace:*
         version: link:../../protocols/companion-contracts
-      '@pi-suite/extension-kit':
+      '@pipee/extension-kit':
         specifier: workspace:*
         version: link:../../packages/extension-kit
       '@puppeteer/browsers':
@@ -260,13 +260,13 @@ importers:
       '@effect/vitest':
         specifier: 'catalog:'
         version: 4.0.0-beta.98(effect@4.0.0-beta.98)(vitest@4.1.10)
-      '@pi-suite/companion-contracts':
+      '@pipee/companion-contracts':
         specifier: workspace:*
         version: link:../../protocols/companion-contracts
-      '@pi-suite/extension-kit':
+      '@pipee/extension-kit':
         specifier: workspace:*
         version: link:../../packages/extension-kit
-      '@pi-suite/host-runtime':
+      '@pipee/host-runtime':
         specifier: workspace:*
         version: link:../../packages/host-runtime
       '@sinclair/typebox':
@@ -311,13 +311,13 @@ importers:
       '@effect/vitest':
         specifier: 'catalog:'
         version: 4.0.0-beta.98(effect@4.0.0-beta.98)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@25.0.0)(@vitest/browser-preview@4.1.10)(vite@8.1.4(@types/node@25.0.0)(jiti@2.7.0)(yaml@2.9.0)))
-      '@pi-suite/companion-contracts':
+      '@pipee/companion-contracts':
         specifier: workspace:*
         version: link:../../protocols/companion-contracts
-      '@pi-suite/extension-kit':
+      '@pipee/extension-kit':
         specifier: workspace:*
         version: link:../../packages/extension-kit
-      '@pi-suite/host-runtime':
+      '@pipee/host-runtime':
         specifier: workspace:*
         version: link:../../packages/host-runtime
       '@sinclair/typebox':
@@ -356,7 +356,7 @@ importers:
 
   packages/extension-kit:
     dependencies:
-      '@pi-suite/companion-contracts':
+      '@pipee/companion-contracts':
         specifier: workspace:*
         version: link:../../protocols/companion-contracts
       effect:
@@ -378,7 +378,7 @@ importers:
 
   packages/host-runtime:
     dependencies:
-      '@pi-suite/companion-contracts':
+      '@pipee/companion-contracts':
         specifier: workspace:*
         version: link:../../protocols/companion-contracts
       effect:
@@ -1978,6 +1978,9 @@ packages:
   '@types/react-syntax-highlighter@15.5.13':
     resolution: {integrity: sha512-uLGJ87j6Sz8UaBAooU0T6lWJ0dBmjZgN1PZTrj05TNql2/XpC6+4HhMT5syIdFUUt+FASfCeLLv4kBygNU+8qA==}
 
+  '@types/react@19.2.17':
+    resolution: {integrity: sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw==}
+
   '@types/react@19.2.4':
     resolution: {integrity: sha512-tBFxBp9Nfyy5rsmefN+WXc1JeW/j2BpBHFdLZbEVfs9wn3E3NRFxwV0pJg8M1qQAexFpvz73hJXFofV0ZAu92A==}
 
@@ -2901,6 +2904,10 @@ packages:
 
   google-logging-utils@1.1.3:
     resolution: {integrity: sha512-eAmLkjDjAFCVXg7A1unxHsLf961m6y17QFqXqAXGj/gVkKFrEICfStRfwUlGNfeCEjNRa32JEWOUTlYXPyyKvA==}
+    engines: {node: '>=14'}
+
+  google-logging-utils@1.1.4:
+    resolution: {integrity: sha512-LXxE6ND+JHhDPYtPFt3oeWrjxFPrnRZCZ4At6lpbi1ZDSAN7bmGET9s53vvARbxT93p+xpeDUbc/nCR4C+7vcw==}
     engines: {node: '>=14'}
 
   graceful-fs@4.2.11:
@@ -5987,7 +5994,11 @@ snapshots:
 
   '@types/react-syntax-highlighter@15.5.13':
     dependencies:
-      '@types/react': 19.2.4
+      '@types/react': 19.2.17
+
+  '@types/react@19.2.17':
+    dependencies:
+      csstype: 3.2.3
 
   '@types/react@19.2.4':
     dependencies:
@@ -6787,7 +6798,7 @@ snapshots:
   gcp-metadata@8.1.2:
     dependencies:
       gaxios: 7.2.0
-      google-logging-utils: 1.1.3
+      google-logging-utils: 1.1.4
       json-bigint: 1.0.0
     transitivePeerDependencies:
       - supports-color
@@ -6820,6 +6831,8 @@ snapshots:
       - supports-color
 
   google-logging-utils@1.1.3: {}
+
+  google-logging-utils@1.1.4: {}
 
   graceful-fs@4.2.11: {}
 

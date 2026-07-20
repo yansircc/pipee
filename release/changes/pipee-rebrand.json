@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "changes": [
+    {
+      "package": "@yansircc/pipee",
+      "bump": "minor"
+    }
+  ]
+}

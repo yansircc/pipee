@@ -40,7 +40,7 @@ await Promise.all(
 const web = packages.find(({ id }) => id === "web");
 if (web) {
   run("node", [
-    "apps/web/scripts/test-package.mjs",
+    "apps/pipee/scripts/test-package.mjs",
     "--consumer",
     "npm",
     "--checks",
@@ -84,7 +84,7 @@ const verifyCombinedInstall = async (consumer) => {
       (() => {
         try {
           readFileSync(
-            join(directory, "node_modules", "@pi-suite", "companion-contracts", "package.json"),
+            join(directory, "node_modules", "@pipee", "companion-contracts", "package.json"),
           );
           return true;
         } catch {
@@ -100,4 +100,4 @@ const verifyCombinedInstall = async (consumer) => {
 };
 
 await Promise.all([verifyCombinedInstall("npm"), verifyCombinedInstall("pnpm")]);
-process.stdout.write("Verified raw Pi loading, pi-web runtime, and combined npm/pnpm consumers.\n");
+process.stdout.write("Verified raw Pi loading, pipee runtime, and combined npm/pnpm consumers.\n");

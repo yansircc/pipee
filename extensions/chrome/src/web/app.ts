@@ -1,14 +1,14 @@
-import { connectWebSurfaceBrowser } from "@pi-suite/companion-contracts/web-surface-browser";
+import { connectWebSurfaceBrowser } from "@pipee/companion-contracts/web-surface-browser";
 import type {
   JsonValue,
   WebSurfaceSessionContext,
-} from "@pi-suite/companion-contracts/web-surface";
+} from "@pipee/companion-contracts/web-surface";
 import {
   projectCompanionReadiness,
   type ChromeStatusProjection,
   type CompanionReadiness,
-} from "@pi-suite/companion-contracts/chrome";
-import type { BrowserCompanionProbe } from "@pi-suite/companion-contracts/browser-companion";
+} from "@pipee/companion-contracts/chrome";
+import type { BrowserCompanionProbe } from "@pipee/companion-contracts/browser-companion";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";

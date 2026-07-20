@@ -1,0 +1,97 @@
+{
+  "name": "@yansircc/pipee",
+  "version": "0.3.2",
+  "description": "Web UI for the pi coding agent",
+  "type": "module",
+  "homepage": "https://github.com/yansircc/pipee/tree/main/apps/pipee#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yansircc/pipee.git",
+    "directory": "apps/pipee"
+  },
+  "bugs": {
+    "url": "https://github.com/yansircc/pipee/issues"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "packageManager": "pnpm@11.13.1",
+  "bin": {
+    "pipee": "bin/pipee.js"
+  },
+  "files": [
+    "bin",
+    ".output",
+    "!.output/server/node_modules",
+    "public",
+    "package.json"
+  ],
+  "scripts": {
+    "dev": "vp dev --port 30141",
+    "build": "vp build",
+    "start": "node .output/server/index.mjs",
+    "typecheck": "vp run ci:typecheck",
+    "lint": "vp lint",
+    "format": "vp fmt",
+    "test": "vp test",
+    "test:e2e": "playwright install --with-deps chromium && pnpm run test:e2e:run",
+    "test:e2e:run": "node scripts/start-e2e.mjs",
+    "test:package": "node scripts/test-package-local.mjs",
+    "release:archive-check": "node scripts/test-package.mjs --consumer npm --checks structure,install,bin,cli,health,page,browser,sse,cleanup,port-release",
+    "release:platform-check:macos": "node scripts/test-package.mjs --consumer pnpm --checks install,bin,health,cleanup,port-release",
+    "release:platform-check:windows": "node scripts/test-package.mjs --consumer npm --checks install,bin,health,cleanup,port-release",
+    "effect:scan": "vp run ci:effect",
+    "verify": "pnpm run check",
+    "check": "vp run ci:verify",
+    "check:ui-governance": "node scripts/check-ui-governance.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "catalog:",
+    "@earendil-works/pi-coding-agent": "catalog:",
+    "@stylexjs/stylex": "0.19.0",
+    "@tanstack/react-hotkeys": "0.10.0",
+    "fflate": "0.8.2"
+  },
+  "devDependencies": {
+    "@effect/platform-browser": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@pipee/companion-contracts": "workspace:*",
+    "@pipee/host-runtime": "workspace:*",
+    "@playwright/test": "1.61.1",
+    "@stylexjs/unplugin": "0.19.0",
+    "@tanstack/react-router": "1.170.18",
+    "@tanstack/react-start": "1.168.28",
+    "@types/node": "25.0.0",
+    "@types/react": "19.2.4",
+    "@types/react-dom": "19.2.3",
+    "@types/react-syntax-highlighter": "15.5.13",
+    "@vitejs/plugin-react": "6.0.3",
+    "@yansircc/effect-scan": "catalog:",
+    "cross-spawn": "7.0.6",
+    "effect": "catalog:",
+    "katex": "0.16.47",
+    "mammoth": "1.12.0",
+    "mermaid": "11.14.0",
+    "nitro": "3.0.260610-beta",
+    "react": "19.2.4",
+    "react-aria-components": "1.19.0",
+    "react-dom": "19.2.4",
+    "react-markdown": "10.1.0",
+    "react-syntax-highlighter": "16.1.1",
+    "rehype-katex": "7.0.1",
+    "rehype-raw": "7.0.0",
+    "rehype-sanitize": "6.0.0",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0",
+    "tar": "7.5.20",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  }
+}

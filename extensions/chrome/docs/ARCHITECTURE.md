@@ -5,7 +5,7 @@ The product invariant is:
 ```text
 Complex intent -> Agent -> typed Chrome tool -> exact wire operation -> exact profile -> exact tab
 Finite Web intent -> Web Surface action -> existing typed Chrome tool -> exact tab
-Runtime state -> read-only projection -> Pi Web Surface and Chrome popup
+Runtime state -> read-only projection -> Pipee Surface and Chrome popup
 ```
 
 There is no generic user-operated Chrome command or authorization control plane. The only setup
@@ -60,7 +60,7 @@ extensionDirectory: string
 errorMessage?: string
 ```
 
-The popup renders this projection without mutation controls. Pi Web additionally derives the exact
+The popup renders this projection without mutation controls. Pipee additionally derives the exact
 session-owned tab list and bounded receipts through the existing operation algebra. Its finite
 controls never introduce a parallel Chrome operation descriptor map.
 
