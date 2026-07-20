@@ -31,17 +31,17 @@ const styles = stylex.create({
     cursor: "pointer",
     display: "inline-flex",
     flexShrink: 0,
-    height: 22,
+    height: 16,
     outline: "none",
     padding: 3,
     transition: "background-color 0.15s",
-    width: 40,
+    width: 28,
     ":focus-visible": {
-      boxShadow: "0 0 0 2px color-mix(in srgb, var(--accent) 42%, transparent)",
+      boxShadow: "0 0 0 2px color-mix(in srgb, var(--success) 42%, transparent)",
     },
   },
   trackSelected: {
-    backgroundColor: "var(--accent)",
+    backgroundColor: "var(--success)",
   },
   loading: {
     cursor: "wait",
@@ -52,12 +52,12 @@ const styles = stylex.create({
     borderRadius: "50%",
     boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
     display: "block",
-    height: 16,
+    height: 10,
     transform: "translateX(0)",
     transition: "transform 0.15s",
-    width: 16,
+    width: 10,
   },
   thumbSelected: {
-    transform: "translateX(18px)",
+    transform: "translateX(12px)",
   },
 })
