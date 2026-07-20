@@ -28,12 +28,12 @@ export function ApplicationSettingsPopover({ onClose }: { readonly onClose: () =
   return (
     <div ref={popoverRef} role="dialog" aria-label={t("Settings")} {...stylex.props(styles.popover)}>
       <header {...stylex.props(styles.header)}>
-        <strong>{t("Application settings")}</strong>
-        <small>{t("Application preferences only")}</small>
+        <strong {...stylex.props(styles.title)}>{t("Application settings")}</strong>
+        <small {...stylex.props(styles.subtitle)}>{t("Application preferences only")}</small>
       </header>
       <div {...stylex.props(styles.body)}>
         <div {...stylex.props(styles.row)}>
-          <strong>{t("Theme")}</strong>
+          <span>{t("Theme")}</span>
           <button
             type="button"
             {...stylex.props(styles.action)}
@@ -46,7 +46,7 @@ export function ApplicationSettingsPopover({ onClose }: { readonly onClose: () =
           </button>
         </div>
         <div {...stylex.props(styles.row)}>
-          <strong>{t("Language")}</strong>
+          <span>{t("Language")}</span>
           <button
             type="button"
             {...stylex.props(styles.action)}
@@ -56,7 +56,7 @@ export function ApplicationSettingsPopover({ onClose }: { readonly onClose: () =
           </button>
         </div>
         <div {...stylex.props(styles.row)}>
-          <strong>{t("Sound")}</strong>
+          <span>{t("Sound")}</span>
           <SettingsToggle
             enabled={preferences.soundEnabled}
             label={t("Completion sound")}
@@ -69,16 +69,22 @@ export function ApplicationSettingsPopover({ onClose }: { readonly onClose: () =
   )
 }
 
+const reveal = stylex.keyframes({
+  from: { opacity: 0, transform: "translateY(-3px)" },
+  to: { opacity: 1, transform: "translateY(0)" },
+})
+
 const styles = stylex.create({
   popover: {
+    animationDuration: "140ms",
+    animationName: reveal,
+    animationTimingFunction: "ease-out",
     backgroundColor: "var(--bg-raised)",
     border: "1px solid var(--border)",
     borderRadius: 11,
     boxShadow: "var(--shadow-surface)",
-    display: "grid",
-    gridTemplateRows: "52px auto",
     left: { default: 32, "@media (max-width: 760px)": 10 },
-    overflow: "hidden",
+    padding: 9,
     position: "fixed",
     top: 52,
     width: { default: 250, "@media (max-width: 760px)": "calc(min(310px, 88vw) - 20px)" },
@@ -87,17 +93,20 @@ const styles = stylex.create({
   header: {
     borderBottom: "1px solid var(--border-soft)",
     display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    paddingInline: 14,
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    padding: "5px 6px 9px",
   },
-  body: { display: "flex", flexDirection: "column", gap: 0, overflow: "auto", padding: 8 },
+  title: { fontSize: 13 },
+  subtitle: { color: "var(--text-dim)", fontSize: 11 },
+  body: { display: "flex", flexDirection: "column" },
   row: {
     alignItems: "center",
     borderRadius: 7,
     display: "flex",
+    fontSize: 12,
     justifyContent: "space-between",
-    minHeight: 40,
+    minHeight: 38,
     paddingInline: 7,
     ":hover": { backgroundColor: "var(--bg-hover)" },
   },
@@ -105,10 +114,11 @@ const styles = stylex.create({
     backgroundColor: "transparent",
     border: "none",
     borderRadius: 7,
-    color: "var(--text)",
+    color: "var(--text-dim)",
     cursor: "pointer",
     fontSize: 12,
+    fontWeight: 500,
     padding: "5px 0",
-    ":hover": { backgroundColor: "var(--bg-selected)" },
+    ":hover": { color: "var(--text)" },
   },
 })

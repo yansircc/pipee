@@ -297,6 +297,12 @@ test("dismisses application settings outside the popover", async ({ page }) => {
   await opener.click()
   const settings = page.getByRole("dialog", { name: "设置" })
   await expect(settings).toBeVisible()
+  const geometry = await settings.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    return { height: rect.height, width: rect.width }
+  })
+  expect(geometry.width).toBe(250)
+  expect(geometry.height).toBeLessThanOrEqual(170)
   await page.locator("main").click({ position: { x: 10, y: 100 } })
   await expect(settings).toBeHidden()
   await expect(opener).toHaveAttribute("aria-expanded", "false")
@@ -345,6 +351,12 @@ test("exposes shared settings toggles as keyboard switches", async ({ page }) =>
   const toggle = page.getByRole("switch").first()
   await expect(toggle).toBeVisible()
   await expect(toggle).toHaveAttribute("aria-label", /.+/)
+  const toggleGeometry = await toggle.evaluate((element) => {
+    const rect = element.closest("label")!.getBoundingClientRect()
+    return { height: rect.height, width: rect.width }
+  })
+  expect(toggleGeometry.width).toBe(28)
+  expect(toggleGeometry.height).toBe(16)
   const selected = await toggle.isChecked()
   await toggle.focus()
   await page.keyboard.press("Space")
