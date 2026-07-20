@@ -31,8 +31,6 @@ import { useDragDrop } from "@/hooks/useDragDrop"
 import { useIsMobile } from "@/hooks/useIsMobile"
 import { useI18n } from "@/lib/i18n"
 import { getWeixinStatusProjection, sameWeixinStatusProjection } from "@/lib/extension-status"
-import { NOTICE_AUTO_DISMISS_MS, type NoticeItem, type NoticeType } from "@/lib/notices"
-import { copyText } from "@/lib/clipboard"
 import { runBrowser } from "@/browser/api-client"
 import { BrowserPlatform } from "@/browser/browser-platform"
 import { CompanionRendererRegistry } from "@/features/companions/renderer-registry"
@@ -281,9 +279,6 @@ export function ChatWindow({
     slashCommands,
     slashCommandsLoading,
     queuedMessages,
-    notices,
-    autoDismissNoticeId,
-    dismissNotice,
     extensionDialog,
     extensionStatuses,
     extensionWidgets,
@@ -587,35 +582,12 @@ export function ChatWindow({
                 </span>
               </div>
             </div>
-            <NoticeShelf
-              notices={notices}
-              autoDismissNoticeId={autoDismissNoticeId}
-              onDismiss={dismissNotice}
-              align="right"
-            />
             {chatInputElement}
           </div>
         </div>
       ) : (
         <>
           <div {...stylex.props(styles.conversation)}>
-            <div
-              {...stylex.props(inlineStyles.inline18)}
-              style={{
-                right: isMobile ? 0 : CHAT_MINIMAP_WIDTH,
-                padding: `0 ${CHAT_COLUMN_PADDING}px`,
-              }}
-            >
-              <div {...stylex.props(inlineStyles.inline19)}>
-                <NoticeShelf
-                  notices={notices}
-                  autoDismissNoticeId={autoDismissNoticeId}
-                  onDismiss={dismissNotice}
-                  floating
-                  align="right"
-                />
-              </div>
-            </div>
             <div ref={scrollContainerRef} data-testid="chat-scroll-container" {...stylex.props(styles.scroller)}>
               <div
                 style={{
@@ -1169,193 +1141,6 @@ function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }) {
     </div>
   )
 }
-const NOTICE_VISUALS: Record<
-  NoticeType,
-  {
-    label: string
-    mark: string
-    color: string
-  }
-> = {
-  info: {
-    label: "Notice",
-    mark: "i",
-    color: "var(--accent)",
-  },
-  success: {
-    label: "Success",
-    mark: "✓",
-    color: "#16a34a",
-  },
-  warning: {
-    label: "Warning",
-    mark: "!",
-    color: "#d97706",
-  },
-  error: {
-    label: "Error",
-    mark: "×",
-    color: "#dc2626",
-  },
-}
-function NoticeShelf({
-  notices,
-  autoDismissNoticeId,
-  onDismiss,
-  floating = false,
-  align = "left",
-}: {
-  notices: NoticeItem[]
-  autoDismissNoticeId: string | null
-  onDismiss: (id: string) => void
-  floating?: boolean
-  align?: "left" | "right"
-}) {
-  const { t } = useI18n()
-  const [copiedNoticeId, setCopiedNoticeId] = useState<string | null>(null)
-  const copyNotice = useCallback((notice: NoticeItem) => {
-    runBrowser(
-      copyText(notice.message).pipe(
-        Effect.tap(() => Effect.sync(() => setCopiedNoticeId(notice.id))),
-        Effect.andThen(Effect.sleep("1400 millis")),
-        Effect.tap(() => Effect.sync(() => setCopiedNoticeId((current) => (current === notice.id ? null : current)))),
-      ),
-      {
-        onSuccess: () => undefined,
-      },
-    )
-  }, [])
-  if (notices.length === 0) return null
-  return (
-    <div
-      aria-live="polite"
-      {...stylex.props(inlineStyles.inline37)}
-      style={{
-        alignItems: align === "right" ? "flex-end" : "stretch",
-        marginBottom: floating ? 0 : 10,
-      }}
-    >
-      {notices.map((notice) => {
-        const visual = NOTICE_VISUALS[notice.type]
-        const copied = copiedNoticeId === notice.id
-        return (
-          <section
-            key={notice.id}
-            className={`${stylex.props(inlineStyles.inline38).className} notice-shelf-item`}
-            role={notice.type === "error" || notice.type === "warning" ? "alert" : "status"}
-            style={{
-              border: `1px solid color-mix(in srgb, ${visual.color} 22%, var(--border))`,
-              background: `color-mix(in srgb, var(--bg) 96%, ${visual.color})`,
-              boxShadow: floating
-                ? "0 16px 44px -22px rgba(15,23,42,0.38), 0 3px 10px rgba(15,23,42,0.08)"
-                : "0 10px 32px -22px rgba(15,23,42,0.30), 0 2px 8px rgba(15,23,42,0.06)",
-              animation: notice.exiting
-                ? "notice-shelf-out 0.18s ease-in forwards"
-                : "notice-shelf-in 0.18s ease-out both",
-            }}
-          >
-            <span
-              aria-hidden="true"
-              {...stylex.props(inlineStyles.inline39)}
-              style={{
-                background: `color-mix(in srgb, ${visual.color} 13%, transparent)`,
-                color: visual.color,
-              }}
-            >
-              {visual.mark}
-            </span>
-
-            <div {...stylex.props(inlineStyles.inline40)}>
-              <div {...stylex.props(inlineStyles.inline41)}>
-                <span {...stylex.props(inlineStyles.inline42)}>{t(visual.label)}</span>
-                {notice.source === "extension" && (
-                  <span {...stylex.props(inlineStyles.inline43)}>{t("Extension")}</span>
-                )}
-              </div>
-              <div {...stylex.props(inlineStyles.inline44)}>{notice.message}</div>
-            </div>
-
-            <div {...stylex.props(inlineStyles.inline45)}>
-              <button
-                type="button"
-                className={`${stylex.props(inlineStyles.inline46).className} notice-shelf-action`}
-                onClick={() => copyNotice(notice)}
-                aria-label={t(copied ? "Copied" : "Copy")}
-                title={t(copied ? "Copied" : "Copy")}
-                style={{
-                  background: copied ? "var(--bg-selected)" : "transparent",
-                  color: copied ? visual.color : "var(--text-dim)",
-                }}
-              >
-                {copied ? (
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                ) : (
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <rect x="9" y="9" width="11" height="11" rx="2" />
-                    <path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" />
-                  </svg>
-                )}
-              </button>
-              <button
-                type="button"
-                className={`${stylex.props(inlineStyles.inline47).className} notice-shelf-action`}
-                onClick={() => onDismiss(notice.id)}
-                aria-label={t("Dismiss")}
-                title={t("Dismiss")}
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  aria-hidden="true"
-                >
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              </button>
-            </div>
-
-            {notice.id === autoDismissNoticeId && (
-              <span
-                className="notice-shelf-timer"
-                aria-hidden="true"
-                style={{
-                  background: visual.color,
-                  animationDuration: `${NOTICE_AUTO_DISMISS_MS}ms`,
-                }}
-              />
-            )}
-          </section>
-        )
-      })}
-    </div>
-  )
-}
 type ExtensionDialogRequest = ExtensionInteraction
 function ExtensionDialog({
   request,
@@ -1615,17 +1400,6 @@ const inlineStyles = stylex.create({
   inline17: {
     color: "var(--text)",
   },
-  inline18: {
-    position: "absolute",
-    top: 12,
-    left: 0,
-    zIndex: 40,
-    pointerEvents: "none",
-  },
-  inline19: {
-    maxWidth: 850,
-    margin: "0 auto",
-  },
   inline20: {
     maxWidth: 850,
     margin: "0 auto",
@@ -1740,99 +1514,6 @@ const inlineStyles = stylex.create({
     width: "min(100%, 384px)",
     height: "auto",
     imageRendering: "pixelated",
-  },
-  inline37: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-    pointerEvents: "none",
-    width: "100%",
-  },
-  inline38: {
-    position: "relative",
-    display: "grid",
-    gridTemplateColumns: "28px minmax(0, 1fr) auto",
-    alignItems: "start",
-    gap: 11,
-    width: "min(440px, 100%)",
-    overflow: "hidden",
-    borderRadius: 13,
-    color: "var(--text)",
-    fontSize: 13,
-    lineHeight: 1.55,
-    transformOrigin: "top center",
-    padding: "12px 11px 11px",
-    pointerEvents: "auto",
-  },
-  inline39: {
-    display: "grid",
-    placeItems: "center",
-    width: 28,
-    height: 28,
-    borderRadius: "50%",
-    fontSize: 15,
-    fontWeight: 750,
-    lineHeight: 1,
-  },
-  inline40: {
-    minWidth: 0,
-  },
-  inline41: {
-    display: "flex",
-    alignItems: "center",
-    gap: 7,
-    minHeight: 22,
-    marginBottom: 3,
-  },
-  inline42: {
-    fontSize: 12,
-    fontWeight: 700,
-    letterSpacing: "0.01em",
-  },
-  inline43: {
-    padding: "1px 6px",
-    borderRadius: 999,
-    background: "var(--bg-panel)",
-    color: "var(--text-dim)",
-    fontSize: 10,
-    fontWeight: 650,
-    letterSpacing: "0.02em",
-  },
-  inline44: {
-    maxHeight: 260,
-    overflowY: "auto",
-    paddingRight: 4,
-    color: "var(--text-muted)",
-    whiteSpace: "pre-wrap",
-    overflowWrap: "anywhere",
-    userSelect: "text",
-  },
-  inline45: {
-    display: "flex",
-    alignItems: "center",
-    gap: 2,
-  },
-  inline46: {
-    display: "grid",
-    placeItems: "center",
-    width: 28,
-    height: 28,
-    padding: 0,
-    border: "none",
-    borderRadius: 8,
-    cursor: "pointer",
-  },
-  inline47: {
-    display: "grid",
-    placeItems: "center",
-    width: 28,
-    height: 28,
-    padding: 0,
-    border: "none",
-    borderRadius: 8,
-    background: "transparent",
-    color: "var(--text-dim)",
-    cursor: "pointer",
   },
   inline48: {
     position: "absolute",

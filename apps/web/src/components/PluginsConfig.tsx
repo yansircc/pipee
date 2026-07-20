@@ -11,8 +11,17 @@ import type { ChromeExtensionHealth } from "@/lib/chrome-extension-installation"
 import { PI_COMPANION_PACKAGE_NAMES } from "@/lib/plugin-package-settings"
 import { SettingsToggle as Toggle } from "@/ui/interaction/SettingsToggle"
 import { SettingsWorkspace } from "@/ui/interaction/SettingsWorkspace"
+import { useToast } from "@/ui/feedback/Toast"
 type PluginScope = PluginPackageInfo["scope"]
 type PluginAction = "install" | "remove" | "update" | "disable" | "enable"
+const PLUGIN_ACTION_MESSAGES: Record<PluginAction, string> = {
+  disable: "Package disabled.",
+  enable: "Package enabled.",
+  install: "Package installed.",
+  remove: "Package removed.",
+  update: "Package updated.",
+}
+const pluginActionMessage = (action: PluginAction): string => PLUGIN_ACTION_MESSAGES[action]
 const clonePlugins = (value: PluginsResponse): PluginsResponse => {
   const response = value as {
     readonly packages: ReadonlyArray<
@@ -357,7 +366,6 @@ function PackageDetail({
   cwd,
   busyKey,
   actionError,
-  actionMessage,
   sessionId,
   onAction,
   onReloadSession,
@@ -368,7 +376,6 @@ function PackageDetail({
   cwd: string | null
   busyKey: string | null
   actionError: string | null
-  actionMessage: string | null
   sessionId: string | null
   onAction: (action: PluginAction, pkg: PluginPackageInfo) => void
   onReloadSession: () => void
@@ -530,7 +537,6 @@ function PackageDetail({
         <ResourceList pkg={pkg} />
       </div>
 
-      {actionMessage && <div {...stylex.props(inlineStyles.inline62)}>{actionMessage}</div>}
       {actionError && <div {...stylex.props(inlineStyles.inline63)}>{actionError}</div>}
     </div>
   )
@@ -561,6 +567,7 @@ export function PluginsConfig({
   projectCwds?: ReadonlyArray<string>
 }) {
   const { t, locale } = useI18n()
+  const { push: pushToast } = useToast()
   const isMobile = useIsMobile()
   const [data, setData] = useState<PluginsResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -572,7 +579,6 @@ export function PluginsConfig({
   const [installProjectCwd, setInstallProjectCwd] = useState<string | null>(projectCwds[0] ?? null)
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [actionMessage, setActionMessage] = useState<string | null>(null)
   const [pageQuery, setPageQuery] = useState("")
   const packages = useMemo(() => data?.packages ?? [], [data?.packages])
   const selectedPackage = packages.find((pkg) => packageKey(pkg) === selected) ?? null
@@ -630,7 +636,6 @@ export function PluginsConfig({
       const key = packageKey(pkg)
       setBusyKey(`${action}:${key}`)
       setActionError(null)
-      setActionMessage(null)
       const actionCwd = presentation === "page" ? (pkg.ownerCwd ?? null) : cwd
       runApi(
         withApi((api) =>
@@ -651,7 +656,7 @@ export function PluginsConfig({
           onSuccess: (response) => {
             if (presentation === "page") {
               setBusyKey(null)
-              setActionMessage(action === "remove" ? "Package removed." : `Package ${action}d.`)
+              pushToast({ message: t(pluginActionMessage(action)), type: "success" })
               loadPlugins()
               onReloaded?.()
               return
@@ -661,16 +666,8 @@ export function PluginsConfig({
             if (action === "remove") {
               setSelected(next.packages[0] ? packageKey(next.packages[0]) : null)
               if (next.packages.length === 0) setAddMode(true)
-              setActionMessage("Package removed.")
-            } else {
-              const messages: Record<Exclude<PluginAction, "remove">, string> = {
-                install: "Package installed.",
-                update: "Package updated.",
-                disable: "Package disabled.",
-                enable: "Package enabled.",
-              }
-              setActionMessage(messages[action])
             }
+            pushToast({ message: t(pluginActionMessage(action)), type: "success" })
             setBusyKey(null)
             onReloaded?.()
           },
@@ -681,7 +678,7 @@ export function PluginsConfig({
         },
       )
     },
-    [cwd, loadPlugins, onReloaded, presentation],
+    [cwd, loadPlugins, onReloaded, presentation, pushToast, t],
   )
   const installPlugin = useCallback(() => {
     const source = installSource.trim()
@@ -689,7 +686,6 @@ export function PluginsConfig({
     const key = `${installScope}\0${source}`
     setBusyKey(`install:${key}`)
     setActionError(null)
-    setActionMessage(null)
     const installCwd = installScope === "project" ? installProjectCwd : presentation === "page" ? null : cwd
     if (installScope === "project" && installCwd === null) return
     runApi(
@@ -712,7 +708,7 @@ export function PluginsConfig({
           if (presentation === "page") {
             setAddMode(false)
             setInstallSource("")
-            setActionMessage("Package installed.")
+            pushToast({ message: t("Package installed."), type: "success" })
             setBusyKey(null)
             loadPlugins()
             onReloaded?.()
@@ -724,7 +720,7 @@ export function PluginsConfig({
           setSelected(installed ? packageKey(installed) : key)
           setAddMode(false)
           setInstallSource("")
-          setActionMessage("Package installed.")
+          pushToast({ message: t("Package installed."), type: "success" })
           setBusyKey(null)
           onReloaded?.()
         },
@@ -734,12 +730,11 @@ export function PluginsConfig({
         },
       },
     )
-  }, [cwd, installProjectCwd, installScope, installSource, loadPlugins, onReloaded, presentation])
+  }, [cwd, installProjectCwd, installScope, installSource, loadPlugins, onReloaded, presentation, pushToast, t])
   const reloadSession = useCallback(() => {
     if (!sessionId) return
     setBusyKey("reload")
     setActionError(null)
-    setActionMessage(null)
     runApi(
       withApi((api) =>
         api.sessionActions.reload({
@@ -753,7 +748,7 @@ export function PluginsConfig({
         onSuccess: () => {
           onReloaded?.()
           loadPlugins()
-          setActionMessage("Session reloaded.")
+          pushToast({ message: t("Session reloaded."), type: "success" })
           setBusyKey(null)
         },
         onFailure: (failure) => {
@@ -762,7 +757,7 @@ export function PluginsConfig({
         },
       },
     )
-  }, [loadPlugins, onReloaded, sessionId])
+  }, [loadPlugins, onReloaded, pushToast, sessionId, t])
   const addBusy = busyKey?.startsWith("install:") ?? false
   const hasUpdate = (pkg: PluginPackageInfo) =>
     pkg.version !== undefined && pkg.configuredVersion !== undefined && pkg.version !== pkg.configuredVersion
@@ -911,7 +906,6 @@ export function PluginsConfig({
             <span>安装与启用状态来自 plugin overview</span>
             <span>独立 UI 来自当前 session runtime</span>
           </footer>
-          {actionMessage && <div {...stylex.props(inlineStyles.inline62)}>{actionMessage}</div>}
           {actionError && <div {...stylex.props(inlineStyles.inline63)}>{actionError}</div>}
         </main>
         {addMode && (
@@ -986,7 +980,6 @@ export function PluginsConfig({
                           setSelected(key)
                           setAddMode(false)
                           setActionError(null)
-                          setActionMessage(null)
                         }}
                         {...stylex.props(inlineStyles.inline79)}
                         style={{
@@ -1032,7 +1025,6 @@ export function PluginsConfig({
               onClick={() => {
                 setAddMode(true)
                 setActionError(null)
-                setActionMessage(null)
               }}
               {...stylex.props(inlineStyles.inline86)}
               style={{
@@ -1083,7 +1075,6 @@ export function PluginsConfig({
               cwd={cwd}
               busyKey={busyKey}
               actionError={actionError}
-              actionMessage={actionMessage}
               sessionId={sessionId}
               onAction={runAction}
               onReloadSession={reloadSession}
