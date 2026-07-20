@@ -50,7 +50,14 @@ it("keeps promotion privileged, trusted, and free of candidate execution", () =>
   const privileged = promotion.match(/promote-and-publish:[\s\S]*?\n  public-acceptance:/)?.[0] ?? "";
   assert.match(privileged, /contents: write/);
   assert.match(privileged, /id-token: write/);
-  assert.match(privileged, /ref: \$\{\{ github\.event\.workflow_run\.head_sha \|\| github\.sha \}\}/);
+  assert.match(
+    privileged,
+    /if: github\.event_name == 'workflow_run'[\s\S]*ref: \$\{\{ github\.event\.workflow_run\.head_sha \}\}/,
+  );
+  assert.match(
+    privileged,
+    /if: github\.event_name == 'workflow_dispatch'[\s\S]*ref: \$\{\{ github\.sha \}\}/,
+  );
   assert.match(promotion, /workflow_dispatch:[\s\S]*candidate_run_id:[\s\S]*release_sha:[\s\S]*trusted_main:/);
   assert.match(privileged, /Release Candidate\\tworkflow_dispatch\\tsuccess/);
   assert.match(
@@ -79,9 +86,9 @@ it("keeps public propagation separate from irreversible publication", () => {
 
 it("reconstructs the release artifact root for every downstream consumer", () => {
   const downloads = [...(candidate + promotion).matchAll(
-    /- uses: actions\/download-artifact@v7\n([\s\S]*?)(?=\n      - )/g,
+    /- (?:if: [^\n]+\n        )?uses: actions\/download-artifact@v7\n([\s\S]*?)(?=\n      - )/g,
   )];
-  assert.equal(downloads.length, 4);
+  assert.equal(downloads.length, 5);
   for (const [, options] of downloads) {
     assert.match(options, /\n          path: release(?:\n|$)/);
     assert.doesNotMatch(options, /\n          path: \.(?:\n|$)/);
