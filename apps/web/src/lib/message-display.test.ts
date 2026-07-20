@@ -1,7 +1,12 @@
 import assert from "node:assert/strict"
 import { test } from "vite-plus/test"
 import type { AgentMessage, AssistantContentBlock, AssistantMessage } from "@/api/contract"
-import { getDisplayableAssistantBlocks, splitFinalAssistantBlocks, summarizeTurnUsage } from "./message-display"
+import {
+  getDisplayableAssistantBlocks,
+  partitionAssistantBlocks,
+  segmentAssistantBlocks,
+  summarizeTurnUsage,
+} from "./message-display"
 
 function assistant(content: AssistantContentBlock[]): AssistantMessage {
   return {
@@ -12,7 +17,7 @@ function assistant(content: AssistantContentBlock[]): AssistantMessage {
   }
 }
 
-test("splits trailing final answer blocks from process blocks", () => {
+test("partitions public assistant events from process blocks", () => {
   const message = assistant([
     { type: "thinking", thinking: "work through it" },
     { type: "toolCall", toolCallId: "call-1", toolName: "bash", input: {} },
@@ -20,10 +25,10 @@ test("splits trailing final answer blocks from process blocks", () => {
     { type: "image", source: { type: "url", url: "https://example.com/final.png" } },
   ])
 
-  const result = splitFinalAssistantBlocks(message, { isStreaming: false })
+  const result = partitionAssistantBlocks(message, { isStreaming: false })
 
   assert.deepEqual(
-    result.answerBlocks.map((block) => block.type),
+    result.eventBlocks.map((block) => block.type),
     ["text", "image"],
   )
   assert.deepEqual(
@@ -32,40 +37,58 @@ test("splits trailing final answer blocks from process blocks", () => {
   )
 })
 
-test("keeps pre-tool text in process blocks", () => {
+test("keeps pre-tool text as a conversation event", () => {
   const message = assistant([
     { type: "text", text: "I will inspect the repo first." },
     { type: "toolCall", toolCallId: "call-1", toolName: "bash", input: {} },
     { type: "text", text: "Final answer" },
   ])
 
-  const result = splitFinalAssistantBlocks(message, { isStreaming: false })
+  const result = partitionAssistantBlocks(message, { isStreaming: false })
 
   assert.deepEqual(
-    result.answerBlocks.map((block) => block.type),
-    ["text"],
+    result.eventBlocks.map((block) => block.type),
+    ["text", "text"],
   )
-  assert.deepEqual(result.answerBlocks[0], { type: "text", text: "Final answer" })
+  assert.deepEqual(result.eventBlocks[0], { type: "text", text: "I will inspect the repo first." })
   assert.deepEqual(
     result.processBlocks.map((block) => block.type),
-    ["text", "toolCall"],
+    ["toolCall"],
   )
 })
 
-test("does not expose text before a trailing tool call as final answer", () => {
+test("keeps assistant speech public even when a tool call follows it", () => {
   const message = assistant([
     { type: "thinking", thinking: "work through it" },
     { type: "text", text: "I need to call a tool." },
     { type: "toolCall", toolCallId: "call-1", toolName: "bash", input: {} },
   ])
 
-  const result = splitFinalAssistantBlocks(message, { isStreaming: false })
+  const result = partitionAssistantBlocks(message, { isStreaming: false })
 
-  assert.deepEqual(result.answerBlocks, [])
+  assert.deepEqual(result.eventBlocks, [{ type: "text", text: "I need to call a tool." }])
   assert.deepEqual(
     result.processBlocks.map((block) => block.type),
-    ["thinking", "text", "toolCall"],
+    ["thinking", "toolCall"],
   )
+})
+
+test("segments assistant blocks without changing their event and process order", () => {
+  const message = assistant([
+    { type: "thinking", thinking: "first" },
+    { type: "text", text: "visible one" },
+    { type: "toolCall", toolCallId: "call-1", toolName: "read", input: { path: "one.ts" } },
+    { type: "text", text: "visible two" },
+    { type: "thinking", thinking: "last" },
+  ])
+
+  assert.deepEqual(segmentAssistantBlocks(message), [
+    { kind: "process", blocks: [message.content[0]] },
+    { kind: "event", blocks: [message.content[1]] },
+    { kind: "process", blocks: [message.content[2]] },
+    { kind: "event", blocks: [message.content[3]] },
+    { kind: "process", blocks: [message.content[4]] },
+  ])
 })
 
 test("drops empty thinking blocks after completion", () => {
@@ -79,9 +102,9 @@ test("drops empty thinking blocks after completion", () => {
     ["text"],
   )
 
-  const result = splitFinalAssistantBlocks(message, { isStreaming: false })
+  const result = partitionAssistantBlocks(message, { isStreaming: false })
   assert.deepEqual(
-    result.answerBlocks.map((block) => block.type),
+    result.eventBlocks.map((block) => block.type),
     ["text"],
   )
   assert.deepEqual(result.processBlocks, [])
@@ -93,10 +116,10 @@ test("keeps empty thinking while streaming", () => {
     { type: "text", text: "Partial answer" },
   ])
 
-  const result = splitFinalAssistantBlocks(message, { isStreaming: true })
+  const result = partitionAssistantBlocks(message, { isStreaming: true })
 
   assert.deepEqual(
-    result.answerBlocks.map((block) => block.type),
+    result.eventBlocks.map((block) => block.type),
     ["text"],
   )
   assert.deepEqual(
@@ -157,6 +180,7 @@ test("sums every assistant call within one user turn", () => {
   ]
 
   assert.deepEqual(summarizeTurnUsage(messages, 0, 4), {
+    models: [{ provider: "test", model: "test-model" }],
     modelCalls: 2,
     input: 150,
     output: 50,

@@ -119,6 +119,87 @@ test("preserves the normalized visual foundation", async ({ page }) => {
   expect(contract.topbarHeight).toBe("58px")
 })
 
+test("projects assistant speech as conversation events and keeps execution details separate", async ({ page }) => {
+  await page.goto("/?session=00000000-0000-4000-8000-000000000005")
+
+  const firstEvent = page.getByText("I will inspect the workspace first.", { exact: true })
+  const finalEvent = page.getByText("The workspace read succeeded; I am preparing the result.", { exact: true })
+  const readActivity = page.getByRole("button", { name: "读取了文件" })
+  const thinkingActivities = page.getByRole("button", { name: "思考", exact: true })
+  await expect(firstEvent).toBeVisible()
+  await expect(readActivity).toBeVisible()
+  await expect(thinkingActivities).toHaveCount(2)
+  await expect(thinkingActivities.first()).toBeVisible()
+  await expect(finalEvent).toBeVisible()
+  await expect(readActivity.locator("..")).not.toContainText("I will inspect the workspace first.")
+  await expect(thinkingActivities.last().locator("..")).not.toContainText(
+    "The workspace read succeeded; I am preparing the result.",
+  )
+  await expect(readActivity.locator("..")).toContainText("read")
+
+  const order = await page.evaluate(() => {
+    const byText = (selector: string, text: string) =>
+      [...document.querySelectorAll<HTMLElement>(selector)].find((element) => element.textContent?.trim() === text)
+    const first = byText("p", "I will inspect the workspace first.")
+    const read = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "读取了文件",
+    )
+    const thinking = [...document.querySelectorAll<HTMLButtonElement>("button")].filter(
+      (button) => button.textContent?.trim() === "思考",
+    )
+    const final = byText("p", "The workspace read succeeded; I am preparing the result.")
+    if (!first || !read || thinking.length !== 2 || !final) throw new Error("turn projection is incomplete")
+    return {
+      thinkingBeforeFirst: Boolean(thinking[0]?.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING),
+      firstBeforeRead: Boolean(first.compareDocumentPosition(read) & Node.DOCUMENT_POSITION_FOLLOWING),
+      readBeforeThinking: Boolean(read.compareDocumentPosition(thinking[1]!) & Node.DOCUMENT_POSITION_FOLLOWING),
+      thinkingBeforeFinal: Boolean(thinking[1]?.compareDocumentPosition(final) & Node.DOCUMENT_POSITION_FOLLOWING),
+    }
+  })
+  expect(order).toEqual({
+    thinkingBeforeFirst: true,
+    firstBeforeRead: true,
+    readBeforeThinking: true,
+    thinkingBeforeFinal: true,
+  })
+  await expect(page.getByText("Pi", { exact: true })).toHaveCount(0)
+  await expect(page.getByText("fixture-model", { exact: true }).first()).toBeVisible()
+
+  const userMessage = await page.evaluate(() => {
+    const bubble = document.querySelector<HTMLElement>(".markdown-user-message")?.parentElement
+    if (!bubble) throw new Error("user message inventory is incomplete")
+    return {
+      avatarCount: [...document.querySelectorAll<HTMLElement>("span")].filter((element) => element.textContent === "你")
+        .length,
+      rightGap: Math.abs(bubble.parentElement!.getBoundingClientRect().right - bubble.getBoundingClientRect().right),
+    }
+  })
+  expect(userMessage).toEqual({ avatarCount: 0, rightGap: 0 })
+})
+
+test("opens the session branch catalog and switches by leaf", async ({ page }) => {
+  await page.goto("/?session=00000000-0000-4000-8000-000000000001")
+
+  const trigger = page.getByRole("button", { name: "分支", exact: true })
+  await expect(trigger).toContainText("2 个分支")
+  await trigger.click()
+
+  const menu = page.getByRole("menu", { name: "会话分支" })
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole("menuitem")).toHaveCount(2)
+  await expect(menu.getByRole("menuitem", { name: /当前分支/ })).toHaveAttribute("aria-current", "true")
+
+  await menu.getByRole("menuitem", { name: /alternate fixture branch/ }).click()
+  await expect(menu).toBeHidden()
+  await expect(page.getByText("alternate fixture branch", { exact: true })).toBeVisible()
+  await expect(page.getByText("seed reply", { exact: true })).toHaveCount(0)
+
+  await trigger.click()
+  await expect(menu).toBeVisible()
+  await page.mouse.click(600, 300)
+  await expect(menu).toBeHidden()
+})
+
 test("opens a lightweight two-pane Finder with one highlighted file preview", async ({ page }) => {
   const admittedCwds: string[] = []
   page.on("request", (request) => {

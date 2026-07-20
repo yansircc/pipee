@@ -183,7 +183,7 @@ export function AppShell() {
     )
   }, [activeTopPanel, isMobile])
   useEffect(() => {
-    if (activeTopPanel !== "session") return
+    if (activeTopPanel === null) return
     const close = (event: MouseEvent) => {
       if (!topBarRef.current?.contains(event.target as Node)) setActiveTopPanel(null)
     }
@@ -628,7 +628,6 @@ export function AppShell() {
                   onLeafChange={handleBranchLeafChange}
                   inline
                   compact={isMobile}
-                  containerRef={topBarRef}
                   open={activeTopPanel === "branches"}
                   onToggle={() => toggleTopPanel("branches")}
                   hasSession
