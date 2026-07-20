@@ -93,6 +93,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24.11.0
+          package-manager-cache: false
       - name: Require npm Trusted Publishing support
         shell: bash
         run: |

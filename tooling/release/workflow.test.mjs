@@ -54,7 +54,10 @@ it("keeps promotion privileged, trusted, and free of candidate execution", () =>
   assert.match(privileged, /ref: \$\{\{ github\.event\.workflow_run\.head_sha \|\| github\.sha \}\}/);
   assert.match(promotion, /workflow_dispatch:[\s\S]*candidate_run_id:[\s\S]*release_sha:[\s\S]*trusted_main:/);
   assert.match(privileged, /Release Candidate\\tworkflow_dispatch\\tsuccess/);
-  assert.match(privileged, /actions\/setup-node@v5[\s\S]*node-version: 24\.11\.0[\s\S]*npm --version/);
+  assert.match(
+    privileged,
+    /actions\/setup-node@v5[\s\S]*node-version: 24\.11\.0[\s\S]*package-manager-cache: false[\s\S]*npm --version/,
+  );
   assert.doesNotMatch(privileged, /pnpm install|npm install|ref: \$\{\{ steps\.artifact\.outputs\.release_sha \}\}/);
   assert.match(privileged, /promote-candidate\.mjs verify/);
   assert.match(privileged, /sha256:\[0-9a-f\]\{64\}/);
