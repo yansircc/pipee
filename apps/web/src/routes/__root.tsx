@@ -6,6 +6,7 @@ import { I18nProvider } from "@/lib/i18n"
 import { BrowserPreferencesProvider } from "@/browser/preferences-react"
 import appCss from "@/styles/app.css?url"
 import { ApplicationFrame } from "@/components/ApplicationFrame"
+import { ToastProvider } from "@/ui/feedback/Toast"
 
 export const Route = createRootRoute({
   head: () => ({
@@ -30,7 +31,9 @@ function Root() {
     <RootDocument>
       <BrowserPreferencesProvider>
         <I18nProvider>
-          <ApplicationFrame />
+          <ToastProvider>
+            <ApplicationFrame />
+          </ToastProvider>
         </I18nProvider>
       </BrowserPreferencesProvider>
     </RootDocument>

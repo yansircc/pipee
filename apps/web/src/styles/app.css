@@ -33,6 +33,7 @@
   --layer-drawer: 600;
   --layer-workbench: 700;
   --layer-modal: 1000;
+  --layer-toast: 1100;
   --layer-tooltip: 1200;
 }
 

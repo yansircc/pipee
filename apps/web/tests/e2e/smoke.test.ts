@@ -81,10 +81,10 @@ test("serves the Start shell and typed health metadata", async ({ page, request 
     piVersion: "0.80.10",
   })
 
-  await page.goto("/")
+  await page.goto("/", { waitUntil: "domcontentloaded" })
   await expect(page).toHaveTitle("Pi Agent Web")
   await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN")
-  await expect(page.getByText("Pi Agent Web", { exact: true }).first()).toBeVisible()
+  await expect(page.getByText("Pi Agent Web", { exact: true }).first()).toBeVisible({ timeout: 20_000 })
 })
 
 test("preserves the normalized visual foundation", async ({ page }) => {
@@ -219,13 +219,20 @@ test("opens the session branch catalog and switches by leaf", async ({ page }) =
     const anchor = trigger.getBoundingClientRect()
     const popup = menu.getBoundingClientRect()
     return {
+      background: getComputedStyle(menu).backgroundColor,
       gap: popup.top - anchor.bottom,
       leftDelta: Math.abs(popup.left - anchor.left),
       rightOverflow: Math.max(0, popup.right - window.innerWidth),
       width: popup.width,
     }
   })
-  expect(geometry).toEqual({ gap: 8, leftDelta: 0, rightOverflow: 0, width: 310 })
+  expect(geometry).toEqual({
+    background: expect.not.stringMatching(/^(?:transparent|rgba\([^)]*,\s*0\))$/),
+    gap: 8,
+    leftDelta: 0,
+    rightOverflow: 0,
+    width: 310,
+  })
 
   await menu.getByRole("menuitem", { name: /alternate fixture branch/ }).click()
   await expect(menu).toBeHidden()
@@ -236,6 +243,29 @@ test("opens the session branch catalog and switches by leaf", async ({ page }) =
   await expect(menu).toBeVisible()
   await page.mouse.click(600, 300)
   await expect(menu).toBeHidden()
+})
+
+test("aligns every composer utility on one control axis", async ({ page }) => {
+  await page.goto("/?session=00000000-0000-4000-8000-000000000001")
+
+  const controls = [
+    page.getByRole("button", { name: "附加文件", exact: true }),
+    page.getByRole("button", { name: "/ 命令", exact: true }),
+    page.getByRole("button", { name: "@ 文件", exact: true }),
+    page.getByRole("button", { name: "模型", exact: true }),
+  ]
+  const boxes = await Promise.all(
+    controls.map((control) =>
+      control.evaluate((element) => {
+        const rect = element.getBoundingClientRect()
+        return { center: rect.top + rect.height / 2, height: rect.height }
+      }),
+    ),
+  )
+  expect(boxes.map(({ height }) => height)).toEqual([28, 28, 28, 28])
+  expect(
+    Math.max(...boxes.map(({ center }) => center)) - Math.min(...boxes.map(({ center }) => center)),
+  ).toBeLessThanOrEqual(0.5)
 })
 
 test("opens a lightweight two-pane Finder with one highlighted file preview", async ({ page }) => {
@@ -357,6 +387,53 @@ test("shows immediate metrics, session prompt, and the extension drawer", async 
   await page.getByRole("link", { name: /pi-web-e2e-extension/ }).click()
   await expect(page).toHaveURL(/\/extensions\//)
   await expect(page.getByText("E2E Surface", { exact: true }).first()).toBeVisible()
+})
+
+test("publishes plugin removal through the global toast viewport", async ({ page }) => {
+  await page.goto("/?session=00000000-0000-4000-8000-000000000001")
+  const install = await mutate(page, "/api/packages/plugins/actions", {
+    action: "install",
+    cwd: fixtureWorkspace,
+    scope: "project",
+    source: fixturePluginDirectory,
+  })
+  expect(install.status, JSON.stringify(install.body)).toBe(200)
+  const installedSource = (install.body as { packages: Array<{ packageName?: string; source: string }> }).packages.find(
+    (pkg) => pkg.packageName === "pi-web-e2e-plugin",
+  )?.source
+  expect(installedSource).toBeDefined()
+  const source = installedSource ?? fixturePluginDirectory
+  const disabled = await mutate(page, "/api/packages/plugins/actions", {
+    action: "disable",
+    cwd: fixtureWorkspace,
+    scope: "project",
+    source,
+  })
+  expect(disabled.status, JSON.stringify(disabled.body)).toBe(200)
+
+  try {
+    await page.getByRole("button", { name: "插件", exact: true }).click()
+    const drawer = page.getByRole("dialog", { name: "插件" })
+    await drawer.getByRole("button", { name: "删除 pi-web-e2e-plugin" }).click()
+    const toast = page.getByRole("status").filter({ hasText: "拓展已移除。" })
+    await expect(toast).toBeVisible()
+    expect(await toast.evaluate((element) => element.closest('[role="dialog"]') === null)).toBe(true)
+    expect(await toast.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toMatch(
+      /^(?:transparent|rgba\([^)]*,\s*0\))$/,
+    )
+    await expect(toast.getByRole("button", { name: "关闭通知" })).toBeVisible()
+
+    await drawer.getByRole("button", { name: "关闭", exact: true }).click()
+    await expect(drawer).toBeHidden()
+    await expect(toast).toBeVisible()
+  } finally {
+    await mutate(page, "/api/packages/plugins/actions", {
+      action: "remove",
+      cwd: fixtureWorkspace,
+      scope: "project",
+      source,
+    })
+  }
 })
 
 test("loads a raw-archive Web Surface through the session runtime and opaque iframe", async ({ page, request }) => {

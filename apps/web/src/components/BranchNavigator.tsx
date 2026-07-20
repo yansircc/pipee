@@ -305,7 +305,7 @@ const inlineStyles = stylex.create({
   },
   branchDot: {
     background: "#16a34a",
-    border: "2px solid var(--bg-elevated)",
+    border: "2px solid var(--bg-raised)",
     borderRadius: "50%",
     boxShadow: "0 0 0 1px #16a34a",
     height: 8,
@@ -372,7 +372,7 @@ const inlineStyles = stylex.create({
     animationDuration: "130ms",
     animationName: reveal,
     animationTimingFunction: "ease",
-    background: "var(--bg-elevated)",
+    background: "var(--bg-raised)",
     border: "1px solid var(--border)",
     borderRadius: 11,
     boxShadow: "var(--shadow-lg)",

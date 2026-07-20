@@ -1627,6 +1627,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
               onClick={() => fileInputRef.current?.click()}
               disabled={isStreaming}
               title={t("Attach file")}
+              aria-label={t("Attach file")}
               {...stylex.props(inlineStyles.inline58)}
               style={{
                 color: hasAttachments ? "var(--accent)" : "var(--text-muted)",
@@ -2736,7 +2737,7 @@ const inlineStyles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 5,
-    height: 27,
+    height: 28,
     overflow: "hidden",
     background: "transparent",
     border: "1px solid var(--border-soft)",
@@ -2781,13 +2782,17 @@ const inlineStyles = stylex.create({
     width: "100%",
   },
   emptyModelButton: {
+    alignItems: "center",
     backgroundColor: "var(--bg-hover)",
     border: "1px solid var(--border-soft)",
     borderRadius: 8,
     color: "var(--accent)",
     cursor: "pointer",
+    display: "flex",
     fontSize: 11,
-    height: 32,
+    height: 28,
+    justifyContent: "center",
+    lineHeight: 1,
     paddingInline: 10,
   },
   inline63: {
@@ -3036,6 +3041,7 @@ const inlineStyles = stylex.create({
     paddingInline: 5,
   },
   promptToken: {
+    alignItems: "center",
     background: "transparent",
     border: "1px solid var(--border-soft)",
     borderRadius: 7,
@@ -3043,7 +3049,9 @@ const inlineStyles = stylex.create({
     cursor: "pointer",
     display: { default: "flex", "@media (max-width: 760px)": "none" },
     fontSize: 11,
-    height: 27,
+    height: 28,
+    justifyContent: "center",
+    lineHeight: 1,
     padding: "0 7px",
     whiteSpace: "nowrap",
     ":hover": { color: "var(--text)", background: "var(--bg-selected)" },

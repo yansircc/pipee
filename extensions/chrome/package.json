@@ -1,6 +1,6 @@
 {
   "name": "@yansircc/pi-chrome",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Let Pi use your existing signed-in Chrome profile through Agent-first tools.",
   "keywords": [
     "agent",

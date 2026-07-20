@@ -12,6 +12,7 @@ import {
   type ExtensionCatalogState,
   type ResolvedWebSurfaceCatalog,
 } from "@/lib/web-surface-catalog-group"
+import { useToast } from "@/ui/feedback/Toast"
 
 export const readWebSurfaceCatalogs = Effect.gen(function* () {
   const index = yield* withApi((api) => api.sessions.list({}))
@@ -43,7 +44,7 @@ export function ExtensionShell({ surfaceId }: { readonly surfaceId?: string }) {
     state: "connecting",
   })
   const [loadEpoch, setLoadEpoch] = useState(0)
-  const [notice, setNotice] = useState<string | null>(null)
+  const { push: pushToast } = useToast()
   const [confirmation, setConfirmation] = useState<{
     title: string
     message: string
@@ -80,11 +81,6 @@ export function ExtensionShell({ surfaceId }: { readonly surfaceId?: string }) {
       ),
     [refresh],
   )
-  useEffect(() => {
-    if (notice === null) return
-    return runBrowser(Effect.sleep("3 seconds"), { onSuccess: () => setNotice(null) })
-  }, [notice])
-
   const selected = useMemo(
     () => catalog?.groups.find((group) => group.item.surfaceId === surfaceId) ?? null,
     [catalog, surfaceId],
@@ -97,7 +93,7 @@ export function ExtensionShell({ surfaceId }: { readonly surfaceId?: string }) {
     return runBrowser(
       connectWebSurface(iframe, selected.bindings, sessions, {
         state: (state, message) => setFrameState({ state, ...(message === undefined ? {} : { message }) }),
-        notify: (message) => setNotice(message),
+        notify: (message) => pushToast({ message, source: "extension", type: "info" }),
         confirm: (title, message) => new Promise<boolean>((resolve) => setConfirmation({ title, message, resolve })),
         navigate: (path) => {
           const target = new URL(path, globalThis.location.origin)
@@ -121,7 +117,7 @@ export function ExtensionShell({ surfaceId }: { readonly surfaceId?: string }) {
           setFrameState({ state: "failed", message: failure instanceof Error ? failure.message : String(failure) }),
       },
     )
-  }, [loadEpoch, navigate, selected, sessions])
+  }, [loadEpoch, navigate, pushToast, selected, sessions])
 
   return (
     <section {...stylex.props(styles.shell)}>
@@ -166,7 +162,6 @@ export function ExtensionShell({ surfaceId }: { readonly surfaceId?: string }) {
           )}
         </div>
         {error && <div {...stylex.props(styles.error)}>{error}</div>}
-        {notice && <div {...stylex.props(styles.notice)}>{notice}</div>}
       </div>
       {confirmation && (
         <div {...stylex.props(styles.overlay)}>
@@ -272,18 +267,6 @@ const styles = stylex.create({
     right: 16,
   },
   error: { bottom: 16, color: "#ef4444", fontSize: 12, left: 16, position: "absolute" },
-  notice: {
-    backgroundColor: "var(--bg-panel)",
-    border: "1px solid var(--border)",
-    borderRadius: 8,
-    boxShadow: "0 8px 30px rgba(0,0,0,.12)",
-    fontSize: 12,
-    paddingBlock: 8,
-    paddingInline: 12,
-    position: "absolute",
-    right: 16,
-    top: 16,
-  },
   overlay: {
     alignItems: "center",
     backgroundColor: "rgba(0,0,0,.4)",
