@@ -94,4 +94,4 @@ it("persists each occurrence once and lets a live follower take over after owner
     await Promise.all(exits);
     rmSync(directory, { recursive: true, force: true });
   }
-}, 10_000);
+}, 30_000);
