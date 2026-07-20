@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex"
-import { useEffect, useState, useRef, useCallback } from "react"
+import { useEffect, useState, useRef, useCallback, type ReactNode } from "react"
 import { Effect } from "effect"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism"
@@ -13,6 +13,7 @@ import { useI18n } from "@/lib/i18n"
 import { copyText } from "@/lib/clipboard"
 import { withApi, apiUrls, runApi, runApiStream, runBrowser, type Cancel } from "@/browser/api-client"
 interface Props {
+  actions?: ReactNode
   filePath: string
   cwd?: string
   sourceSessionId?: string | null
@@ -324,7 +325,7 @@ function DiffView({ oldContent, newContent }: { oldContent: string; newContent: 
     </div>
   )
 }
-function ImageViewer({ filePath, cwd, sourceSessionId }: Props) {
+function ImageViewer({ actions, filePath, cwd, sourceSessionId }: Props) {
   const { t } = useI18n()
   const [bust, setBust] = useState(0)
   const [size, setSize] = useState<number | null>(null)
@@ -377,6 +378,7 @@ function ImageViewer({ filePath, cwd, sourceSessionId }: Props) {
           />
           {watching ? "live" : "static"}
         </span>
+        {actions}
         <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
       </div>
       <div {...stylex.props(inlineStyles.inline15)}>
@@ -409,7 +411,7 @@ function formatDuration(seconds: number): string {
   const secs = totalSeconds % 60
   return `${mins}:${String(secs).padStart(2, "0")}`
 }
-function AudioViewer({ filePath, cwd, sourceSessionId }: Props) {
+function AudioViewer({ actions, filePath, cwd, sourceSessionId }: Props) {
   const { t } = useI18n()
   const [bust, setBust] = useState(0)
   const [size, setSize] = useState<number | null>(null)
@@ -456,6 +458,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId }: Props) {
           />
           {watching ? "live" : "static"}
         </span>
+        {actions}
         <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
       </div>
       <div {...stylex.props(inlineStyles.inline24)}>
@@ -475,7 +478,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId }: Props) {
     </div>
   )
 }
-function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
+function DocumentViewer({ actions, filePath, cwd, sourceSessionId }: Props) {
   const { t } = useI18n()
   const [bust, setBust] = useState(0)
   const [size, setSize] = useState<number | null>(null)
@@ -562,6 +565,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
         </span>
         <span {...stylex.props(inlineStyles.inline31)}>{ext === "docx" ? "docx preview" : "pdf"}</span>
         {size != null && <span>{formatSize(size)}</span>}
+        {actions}
         <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
         <span
           title={t(watching ? "Live sync active" : "Not watching")}
@@ -605,19 +609,19 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
     </div>
   )
 }
-export function FileViewer({ filePath, cwd, sourceSessionId }: Props) {
+export function FileViewer({ actions, filePath, cwd, sourceSessionId }: Props) {
   if (isImagePath(filePath)) {
-    return <ImageViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />
+    return <ImageViewer actions={actions} filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />
   }
   if (isAudioPath(filePath)) {
-    return <AudioViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />
+    return <AudioViewer actions={actions} filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />
   }
   if (isDocumentPreviewPath(filePath)) {
-    return <DocumentViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />
+    return <DocumentViewer actions={actions} filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />
   }
-  return <TextFileViewer filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />
+  return <TextFileViewer actions={actions} filePath={filePath} cwd={cwd} sourceSessionId={sourceSessionId} />
 }
-function TextFileViewer({ filePath, cwd, sourceSessionId }: Props) {
+function TextFileViewer({ actions, filePath, cwd, sourceSessionId }: Props) {
   const { t } = useI18n()
   const { isDark } = useTheme()
   const [data, setData] = useState<FileData | null>(null)
@@ -820,6 +824,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId }: Props) {
             </button>
           </div>
         )}
+        {actions}
         <button
           type="button"
           title={t("Copy")}
@@ -888,17 +893,20 @@ function TextFileViewer({ filePath, cwd, sourceSessionId }: Props) {
 }
 const inlineStyles = stylex.create({
   inline1: {
-    display: "flex",
     alignItems: "center",
-    justifyContent: "center",
-    height: 20,
-    padding: "0 5px",
-    background: "var(--bg-panel)",
+    background: {
+      default: "var(--bg-hover)",
+      ":hover": "var(--bg-selected)",
+    },
     border: "1px solid var(--border)",
-    borderRadius: 4,
+    borderRadius: 6,
     color: "var(--text-muted)",
     cursor: "pointer",
+    display: "flex",
     flexShrink: 0,
+    height: 24,
+    justifyContent: "center",
+    padding: "0 7px",
     textDecoration: "none",
   },
   inline2: {
@@ -959,7 +967,8 @@ const inlineStyles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 12,
-    padding: "4px 16px",
+    minHeight: 38,
+    padding: "0 11px",
     borderBottom: "1px solid var(--border)",
     fontSize: 11,
     color: "var(--text-dim)",
@@ -1016,7 +1025,8 @@ const inlineStyles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 12,
-    padding: "4px 16px",
+    minHeight: 38,
+    padding: "0 11px",
     borderBottom: "1px solid var(--border)",
     fontSize: 11,
     color: "var(--text-dim)",
@@ -1070,7 +1080,8 @@ const inlineStyles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: 12,
-    padding: "4px 16px",
+    minHeight: 38,
+    padding: "0 11px",
     borderBottom: "1px solid var(--border)",
     fontSize: 11,
     color: "var(--text-dim)",
@@ -1144,7 +1155,8 @@ const inlineStyles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: { default: 12, "@media (max-width: 520px)": 6 },
-    padding: { default: "4px 16px", "@media (max-width: 520px)": "4px 8px" },
+    minHeight: 38,
+    padding: { default: "0 11px", "@media (max-width: 520px)": "0 8px" },
     borderBottom: "1px solid var(--border)",
     fontSize: 11,
     color: "var(--text-dim)",
@@ -1254,7 +1266,7 @@ const inlineStyles = stylex.create({
     background: "var(--bg)",
   },
   inline58: {
-    padding: "24px 32px",
+    padding: { default: "24px 32px", "@media (max-width: 520px)": "18px 16px" },
     maxWidth: 800,
   },
   inline59: {

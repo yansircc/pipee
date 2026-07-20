@@ -5,7 +5,7 @@ import { getFileIcon, FolderIcon } from "./FileIcons"
 import { getRelativeFilePath, joinFilePath, normalizeFilePathSlashes } from "@/lib/file-paths"
 import { useI18n } from "@/lib/i18n"
 import { writePathDrag } from "@/lib/drop-paths"
-import { withApi, apiUrls, runApi, type Cancel } from "@/browser/api-client"
+import { withApi, runApi, type Cancel } from "@/browser/api-client"
 interface FileNode {
   name: string
   fullPath: string
@@ -17,8 +17,8 @@ interface FileNode {
 interface Props {
   cwd: string
   onOpenFile: (filePath: string, fileName: string) => void
-  refreshKey?: number
   onAtMention?: (relativePath: string, isDir: boolean) => void
+  refreshKey?: number
   selectedFilePath?: string | null
   query?: string
 }
@@ -179,7 +179,7 @@ function TreeNode({
         {...stylex.props(inlineStyles.inline1)}
         style={{
           paddingLeft: 8 + depth * 14,
-          background: selected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
+          background: selected ? "var(--bg-selected)" : "transparent",
           color: selected ? "var(--text)" : undefined,
         }}
       >
@@ -221,61 +221,18 @@ function TreeNode({
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4" />
           </svg>
         )}
-        {onAtMention && hovered && (
+        {node.isDir && onAtMention && hovered && (
           <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onAtMention(getRelativeFilePath(node.fullPath, cwd), node.isDir)
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              onAtMention(getRelativeFilePath(node.fullPath, cwd), true)
             }}
             title={t("Insert path into chat")}
             {...stylex.props(inlineStyles.inline6)}
-            style={{
-              right: !node.isDir ? 28 : 4,
-            }}
           >
-            <svg
-              width="11"
-              height="11"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="4" />
-              <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
-            </svg>
-            {t("mention")}
+            @
           </button>
-        )}
-        {hovered && !node.isDir && (
-          <a
-            href={apiUrls.workspace.downloadFile({
-              query: {
-                path: node.fullPath,
-              },
-            })}
-            download
-            onClick={(e) => e.stopPropagation()}
-            title={t("Download file")}
-            {...stylex.props(inlineStyles.inline7)}
-          >
-            <svg
-              width="11"
-              height="11"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-          </a>
         )}
       </div>
       {node.isDir && open && (
@@ -309,7 +266,7 @@ function TreeNode({
     </div>
   )
 }
-export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention, selectedFilePath, query = "" }: Props) {
+export function FileExplorer({ cwd, onOpenFile, onAtMention, refreshKey, selectedFilePath, query = "" }: Props) {
   const { t } = useI18n()
   const [roots, setRoots] = useState<FileNode[]>([])
   const [loading, setLoading] = useState(true)
@@ -378,15 +335,20 @@ export function FileExplorer({ cwd, onOpenFile, refreshKey, onAtMention, selecte
 }
 const inlineStyles = stylex.create({
   inline1: {
-    position: "relative",
-    display: "flex",
     alignItems: "center",
-    gap: 4,
-    paddingRight: 8,
-    height: 24,
+    borderRadius: 6,
+    color: "var(--text-muted)",
     cursor: "pointer",
-    borderRadius: 4,
+    display: "flex",
+    gap: 4,
+    height: 29,
+    paddingRight: 7,
+    position: "relative",
     userSelect: "none",
+    ":hover": {
+      background: "var(--bg-hover)",
+      color: "var(--text)",
+    },
   },
   inline2: {
     flexShrink: 0,
@@ -403,51 +365,26 @@ const inlineStyles = stylex.create({
   },
   inline5: {
     fontSize: 12,
-    color: "var(--text)",
+    color: "inherit",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     flex: 1,
   },
   inline6: {
-    position: "absolute",
-    top: "50%",
-    transform: "translateY(-50%)",
-    display: "flex",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    padding: "0 8px",
-    height: 20,
     background: "var(--bg-panel)",
     border: "1px solid var(--border)",
-    borderRadius: 4,
+    borderRadius: 5,
     color: "var(--accent)",
     cursor: "pointer",
-    fontSize: 11,
-    fontWeight: 600,
-    whiteSpace: "nowrap",
-  },
-  inline7: {
-    position: "absolute",
-    right: 4,
-    top: "50%",
-    transform: "translateY(-50%)",
     display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    padding: "0 5px",
-    height: 20,
-    background: "var(--bg-panel)",
-    border: "1px solid var(--border)",
-    borderRadius: 4,
-    color: "var(--text-muted)",
-    cursor: "pointer",
+    flexShrink: 0,
     fontSize: 11,
-    fontWeight: 600,
-    whiteSpace: "nowrap",
-    textDecoration: "none",
+    height: 20,
+    justifyContent: "center",
+    marginLeft: "auto",
+    padding: "0 6px",
   },
   inline8: {
     fontSize: 11,
@@ -467,7 +404,7 @@ const inlineStyles = stylex.create({
     color: "#f87171",
   },
   inline11: {
-    padding: "2px 4px",
+    padding: "9px 7px",
   },
   inline12: {
     padding: "8px 12px",

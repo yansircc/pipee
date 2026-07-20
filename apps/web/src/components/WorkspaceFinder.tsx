@@ -4,6 +4,7 @@ import { FileExplorer } from "./FileExplorer"
 import { FileViewer } from "@/browser/code-split"
 import { useIsMobile } from "@/hooks/useIsMobile"
 import { useI18n } from "@/lib/i18n"
+import { getRelativeFilePath } from "@/lib/file-paths"
 import { SettingsWorkspace } from "@/ui/interaction/SettingsWorkspace"
 
 interface SelectedFile {
@@ -35,7 +36,7 @@ export function WorkspaceFinder({
   return (
     <SettingsWorkspace
       closeLabel={t("Close")}
-      context={<code {...stylex.props(styles.cwd)}>{cwd}</code>}
+      context={isMobile ? undefined : <code {...stylex.props(styles.cwd)}>{cwd}</code>}
       height={isMobile ? "100dvh" : "min(720px, 82dvh)"}
       onClose={onClose}
       title={t("Resource manager")}
@@ -69,8 +70,8 @@ export function WorkspaceFinder({
             <FileExplorer
               cwd={cwd}
               onOpenFile={onOpenFile}
-              refreshKey={refreshKey}
               onAtMention={onAtMention}
+              refreshKey={refreshKey}
               query={query}
               selectedFilePath={selectedFile?.filePath ?? null}
             />
@@ -79,10 +80,39 @@ export function WorkspaceFinder({
         <div {...stylex.props(styles.viewer)}>
           {selectedFile ? (
             <Suspense fallback={null}>
-              <FileViewer filePath={selectedFile.filePath} cwd={cwd} sourceSessionId={selectedFile.sourceSessionId} />
+              <FileViewer
+                actions={
+                  <button
+                    type="button"
+                    onClick={() => onAtMention(getRelativeFilePath(selectedFile.filePath, cwd), false)}
+                    {...stylex.props(styles.mentionAction)}
+                  >
+                    @ {t("mention")}
+                  </button>
+                }
+                filePath={selectedFile.filePath}
+                cwd={cwd}
+                sourceSessionId={selectedFile.sourceSessionId}
+              />
             </Suspense>
           ) : (
-            <div {...stylex.props(styles.empty)}>{t("Select a file to preview")}</div>
+            <div {...stylex.props(styles.empty)}>
+              <svg
+                aria-hidden="true"
+                width="28"
+                height="28"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+              </svg>
+              <span>{t("Select a file to preview")}</span>
+            </div>
           )}
         </div>
       </div>
@@ -139,10 +169,29 @@ const styles = stylex.create({
   viewer: { height: "100%", minHeight: 0, minWidth: 0, overflow: "hidden" },
   empty: {
     alignItems: "center",
+    background: "var(--bg-raised)",
     color: "var(--text-dim)",
     display: "flex",
+    flexDirection: "column",
     fontSize: 12,
+    gap: 9,
     height: "100%",
     justifyContent: "center",
+  },
+  mentionAction: {
+    alignItems: "center",
+    background: {
+      default: "var(--bg-hover)",
+      ":hover": "var(--bg-selected)",
+    },
+    border: "1px solid var(--border-soft)",
+    borderRadius: 6,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    display: "flex",
+    flexShrink: 0,
+    fontSize: 11,
+    height: 24,
+    padding: "0 7px",
   },
 })
