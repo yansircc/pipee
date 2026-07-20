@@ -50,6 +50,17 @@ it.effect("lets followers mutate session state but rejects durable mutations", (
   withDirectory((directory) =>
     Effect.gen(function* () {
       const owner = yield* makeLoopRepository(directory, DEFAULT_CONFIG);
+      expect(yield* owner.projectAccess).toBe("inactive");
+      yield* owner.add(
+        createLoop({
+          _tag: "Once",
+          id: "owned-project-once",
+          prompt: "owned project",
+          retention: "project",
+          createdAt: 1,
+          dueAt: 10,
+        }),
+      );
       const follower = yield* makeLoopRepository(directory, DEFAULT_CONFIG);
       expect(yield* owner.projectAccess).toBe("owner");
       expect(yield* follower.projectAccess).toBe("follower");
@@ -79,6 +90,88 @@ it.effect("lets followers mutate session state but rejects durable mutations", (
       if (exit._tag === "Failure") {
         expect(Cause.squash(exit.cause)).toBeInstanceOf(LeaseUnavailable);
       }
+    }),
+  ),
+);
+
+it.effect("does not lease an empty project and releases ownership with the last project loop", () =>
+  withDirectory((directory) =>
+    Effect.gen(function* () {
+      const first = yield* makeLoopRepository(directory, DEFAULT_CONFIG);
+      const second = yield* makeLoopRepository(directory, DEFAULT_CONFIG);
+      expect(yield* first.projectAccess).toBe("inactive");
+      expect(yield* second.projectAccess).toBe("inactive");
+
+      const firstLoop = createLoop({
+        _tag: "Once",
+        id: "first-project-loop",
+        prompt: "first project",
+        retention: "project",
+        createdAt: 1,
+        dueAt: 10,
+      });
+      yield* first.add(firstLoop);
+      expect(yield* first.projectAccess).toBe("owner");
+      yield* first.remove(firstLoop.id);
+      expect(yield* first.projectAccess).toBe("inactive");
+
+      yield* second.add(
+        createLoop({
+          _tag: "Once",
+          id: "second-project-loop",
+          prompt: "second project",
+          retention: "project",
+          createdAt: 2,
+          dueAt: 20,
+        }),
+      );
+      expect(yield* second.projectAccess).toBe("owner");
+    }),
+  ),
+);
+
+it.effect("releases empty ownership when the first project mutation fails", () =>
+  withDirectory((directory) =>
+    Effect.gen(function* () {
+      const repository = yield* makeLoopRepository(directory, { ...DEFAULT_CONFIG, maxLoops: 1 });
+      yield* repository.add(
+        createLoop({
+          _tag: "Once",
+          id: "session-capacity",
+          prompt: "session loop",
+          retention: "session",
+          createdAt: 1,
+          dueAt: 10,
+        }),
+      );
+
+      const failure = yield* repository
+        .add(
+          createLoop({
+            _tag: "Once",
+            id: "project-over-capacity",
+            prompt: "project loop",
+            retention: "project",
+            createdAt: 2,
+            dueAt: 20,
+          }),
+        )
+        .pipe(Effect.flip);
+      expect(failure._tag).toBe("CapacityExceeded");
+      expect(yield* repository.projectAccess).toBe("inactive");
+
+      const successor = yield* makeLoopRepository(directory, DEFAULT_CONFIG);
+      yield* successor.add(
+        createLoop({
+          _tag: "Once",
+          id: "successor-project-loop",
+          prompt: "successor",
+          retention: "project",
+          createdAt: 3,
+          dueAt: 30,
+        }),
+      );
+      expect(yield* successor.projectAccess).toBe("owner");
     }),
   ),
 );

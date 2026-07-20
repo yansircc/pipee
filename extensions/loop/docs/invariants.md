@@ -8,3 +8,4 @@
 6. Only the durable lease owner may mutate project-retained loops.
 7. Pi prompt delivery occurs only after a successful claim.
 8. Cron, manual wakeup, and one-shot behavior share the same claim transition.
+9. A repository holds the project lease if and only if it currently owns at least one project-retained loop.

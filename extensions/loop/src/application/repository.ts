@@ -43,7 +43,7 @@ export type MutationError =
   | LoopStateConflict;
 
 export type LoopRepository = {
-  readonly projectAccess: Effect.Effect<"owner" | "follower">;
+  readonly projectAccess: Effect.Effect<"inactive" | "owner" | "follower">;
   readonly add: (loop: Loop) => Effect.Effect<void, MutationError>;
   readonly list: Effect.Effect<ReadonlyArray<Loop>>;
   readonly get: (id: LoopId) => Effect.Effect<Loop, LoopNotFound>;
@@ -84,8 +84,13 @@ const decodeDurableFile = (encoded: string, filePath: string) =>
   );
 
 type RepositoryState =
+  | { readonly _tag: "Inactive"; readonly loops: ReadonlyMap<LoopId, Loop> }
   | { readonly _tag: "Follower"; readonly loops: ReadonlyMap<LoopId, Loop> }
-  | { readonly _tag: "Owner"; readonly loops: ReadonlyMap<LoopId, Loop> };
+  | {
+      readonly _tag: "Owner";
+      readonly loops: ReadonlyMap<LoopId, Loop>;
+      readonly ownershipScope: Scope.Closeable;
+    };
 
 export const makeLoopRepository = (
   cwd: string,
@@ -127,7 +132,7 @@ export const makeLoopRepository = (
       }
       loaded.set(loop.id, loop);
     }
-    const state = yield* Ref.make<RepositoryState>({ _tag: "Follower", loops: loaded });
+    const state = yield* Ref.make<RepositoryState>({ _tag: "Inactive", loops: loaded });
 
     const attemptProjectOwnership = Effect.gen(function* () {
       const current = yield* Ref.get(state);
@@ -146,7 +151,14 @@ export const makeLoopRepository = (
         ),
         Effect.onError((cause) => Scope.close(ownershipScope, Exit.failCause(cause))),
       );
-      if (!acquired) return false;
+      if (!acquired) {
+        const durable = yield* readDurable;
+        yield* Ref.set(state, {
+          _tag: durable.size > 0 ? "Follower" : "Inactive",
+          loops: current.loops,
+        });
+        return false;
+      }
       const durable = yield* readDurable.pipe(
         Effect.onError((cause) => Scope.close(ownershipScope, Exit.failCause(cause))),
       );
@@ -161,18 +173,24 @@ export const makeLoopRepository = (
         }
         merged.set(loop.id, loop);
       }
-      yield* Ref.set(state, { _tag: "Owner", loops: merged });
+      yield* Ref.set(state, { _tag: "Owner", loops: merged, ownershipScope });
       return true;
     });
 
-    yield* mutationLock.withPermits(1)(attemptProjectOwnership);
+    const initialDurable = yield* readDurable;
+    if (initialDurable.size > 0) {
+      yield* mutationLock.withPermits(1)(attemptProjectOwnership);
+    }
 
     const stateForId = (id: LoopId) =>
       Effect.gen(function* () {
         let current = yield* Ref.get(state);
-        if (!current.loops.has(id) && current._tag === "Follower") {
-          yield* attemptProjectOwnership;
-          current = yield* Ref.get(state);
+        if (!current.loops.has(id) && current._tag !== "Owner") {
+          const durable = yield* readDurable;
+          if (durable.has(id)) {
+            yield* attemptProjectOwnership;
+            current = yield* Ref.get(state);
+          }
         }
         return current;
       });
@@ -208,14 +226,39 @@ export const makeLoopRepository = (
               message: "Another Pi session owns project-retained loops",
             });
           }
+          if (current._tag === "Inactive") {
+            return yield* new RepositoryFailure({
+              operation: "lease",
+              message: "Project mutation requires an owned lease",
+            });
+          }
           yield* persist(next);
         } else if (sessionPersistence) {
           yield* sessionPersistence.persist(
             [...next.values()].filter((loop) => loop.retention === "session"),
           );
         }
-        if (current.loops !== next) yield* Ref.set(state, { ...current, loops: next });
+        if (current.loops === next) return;
+        const hasProjectLoops = [...next.values()].some((loop) => loop.retention === "project");
+        if (current._tag === "Owner" && !hasProjectLoops) {
+          yield* Scope.close(current.ownershipScope, Exit.succeed(undefined));
+          yield* Ref.set(state, { _tag: "Inactive", loops: next });
+        } else {
+          yield* Ref.set(state, { ...current, loops: next });
+        }
       });
+
+    const releaseEmptyOwnership = Effect.gen(function* () {
+      const current = yield* Ref.get(state);
+      if (
+        current._tag !== "Owner" ||
+        [...current.loops.values()].some((loop) => loop.retention === "project")
+      ) {
+        return;
+      }
+      yield* Scope.close(current.ownershipScope, Exit.succeed(undefined));
+      yield* Ref.set(state, { _tag: "Inactive", loops: current.loops });
+    });
 
     const add = (loop: Loop) =>
       mutationLock.withPermits(1)(
@@ -235,7 +278,7 @@ export const makeLoopRepository = (
           const next = new Map(current.loops);
           next.set(loop.id, loop);
           yield* commit(current, next, loop.retention);
-        }),
+        }).pipe(Effect.onError(() => releaseEmptyOwnership)),
       );
 
     const get = (id: LoopId) =>
@@ -372,7 +415,19 @@ export const makeLoopRepository = (
         .withPermits(1)(
           Effect.gen(function* () {
             if (gate === "closed") return [];
-            if (retention === "project" && !(yield* attemptProjectOwnership)) return [];
+            if (retention === "project") {
+              const current = yield* Ref.get(state);
+              if (current._tag !== "Owner") {
+                const durable = yield* readDurable;
+                if (durable.size === 0) {
+                  if (current._tag !== "Inactive") {
+                    yield* Ref.set(state, { _tag: "Inactive", loops: current.loops });
+                  }
+                  return [];
+                }
+                if (!(yield* attemptProjectOwnership)) return [];
+              }
+            }
             const current = yield* Ref.get(state);
             const next = new Map(current.loops);
             const occurrences: Array<Occurrence> = [];
@@ -404,7 +459,7 @@ export const makeLoopRepository = (
 
     return {
       projectAccess: Ref.get(state).pipe(
-        Effect.map((current) => (current._tag === "Owner" ? "owner" : "follower")),
+        Effect.map((current) => current._tag.toLowerCase() as "inactive" | "owner" | "follower"),
       ),
       add,
       list: Ref.get(state).pipe(Effect.map((current) => [...current.loops.values()])),

@@ -4,7 +4,8 @@ Delivery is **at-most-once after claim**. Durable state advances before Pi recei
 If persistence fails, memory does not advance and no occurrence is returned. If Pi delivery fails
 after persistence, that occurrence is lost and the error is surfaced; the runtime does not retry.
 
-The project file has one live writer selected by an `O_EXCL` PID lease. Followers may run
+The project file has one live writer selected by a scoped SQLite write lease. Empty projects do not
+acquire that lease, and removing the final project-retained loop releases it immediately. Followers may run
 session-retained loops but durable mutations fail with `LeaseUnavailable`. Network filesystems,
 container PID namespaces, external live editing, and distributed scheduling are outside the
 contract.
