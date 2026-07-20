@@ -4,6 +4,20 @@ on:
   workflow_run:
     workflows: [Release Candidate]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful Release Candidate workflow run to resume
+        required: true
+        type: string
+      release_sha:
+        description: Exact release commit recorded by the candidate artifact
+        required: true
+        type: string
+      trusted_main:
+        description: Main SHA that the candidate workflow originally trusted
+        required: true
+        type: string
 
 concurrency:
   group: pi-suite-release-promotion
@@ -14,7 +28,9 @@ permissions:
 
 jobs:
   promote-and-publish:
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: npm-release
@@ -24,28 +40,42 @@ jobs:
       id-token: write
     outputs:
       artifact: ${{ steps.artifact.outputs.name }}
+      candidate_run_id: ${{ steps.artifact.outputs.candidate_run_id }}
       release_sha: ${{ steps.artifact.outputs.release_sha }}
-      trusted_main: ${{ github.event.workflow_run.head_sha }}
+      trusted_main: ${{ steps.artifact.outputs.trusted_main }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
       - id: artifact
         shell: bash
         env:
+          EXPECTED_RELEASE_SHA: ${{ inputs.release_sha }}
           GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ID: ${{ github.event.workflow_run.id || inputs.candidate_run_id }}
+          TRUSTED_MAIN: ${{ github.event.workflow_run.head_sha || inputs.trusted_main }}
         run: |
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$TRUSTED_MAIN" =~ ^[0-9a-f]{40}$ ]]
+          if [[ -n "$EXPECTED_RELEASE_SHA" ]]; then
+            [[ "$EXPECTED_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+            test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.name + "\t" + .event + "\t" + .conclusion')" = $'Release Candidate\tworkflow_dispatch\tsuccess'
+          fi
           rows="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '[.artifacts[] | select(.expired == false and (.name | startswith("suite-candidates-")))] | unique_by(.id) | .[] | [.name, .digest] | @tsv')"
           test "$(printf '%s\n' "$rows" | sed '/^$/d' | wc -l | tr -d ' ')" = "1"
           IFS=$'\t' read -r name digest <<< "$rows"
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           release_sha="${name#suite-candidates-}"
           [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]]
+          if [[ -n "$EXPECTED_RELEASE_SHA" ]]; then
+            test "$release_sha" = "$EXPECTED_RELEASE_SHA"
+          fi
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "candidate_run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
           echo "release_sha=$release_sha" >> "$GITHUB_OUTPUT"
+          echo "trusted_main=$TRUSTED_MAIN" >> "$GITHUB_OUTPUT"
           if ! git fetch origin "refs/heads/release-candidates/$release_sha:refs/remotes/origin/release-candidates/$release_sha"; then
             git fetch origin main:refs/remotes/origin/main
             test "$(git rev-parse refs/remotes/origin/main)" = "$release_sha"
@@ -54,21 +84,24 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           github-token: ${{ github.token }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ steps.artifact.outputs.candidate_run_id }}
           name: ${{ steps.artifact.outputs.name }}
           path: release
       - id: verify
-        run: node tooling/release/promote-candidate.mjs verify release "${{ steps.artifact.outputs.release_sha }}" "${{ github.event.workflow_run.head_sha }}"
-      - run: node tooling/release/promote-candidate.mjs promote release "${{ steps.artifact.outputs.release_sha }}" "${{ github.event.workflow_run.head_sha }}"
+        run: node tooling/release/promote-candidate.mjs verify release "${{ steps.artifact.outputs.release_sha }}" "${{ steps.artifact.outputs.trusted_main }}"
+      - run: node tooling/release/promote-candidate.mjs promote release "${{ steps.artifact.outputs.release_sha }}" "${{ steps.artifact.outputs.trusted_main }}"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24.11.0
       - name: Require npm Trusted Publishing support
         shell: bash
         run: |
           npm --version
           node -e "const {execFileSync}=require('node:child_process');const [major,minor]=execFileSync('npm',['--version'],{encoding:'utf8'}).trim().split('.').map(Number);if(major<11||(major===11&&minor<5))throw new Error('npm 11.5.1 or newer is required for OIDC')"
-      - run: node tooling/release/promote-candidate.mjs persist release "${{ steps.artifact.outputs.release_sha }}" "${{ github.event.workflow_run.head_sha }}"
+      - run: node tooling/release/promote-candidate.mjs persist release "${{ steps.artifact.outputs.release_sha }}" "${{ steps.artifact.outputs.trusted_main }}"
         env:
           GH_TOKEN: ${{ github.token }}
-      - run: node tooling/release/promote-candidate.mjs publish release "${{ steps.artifact.outputs.release_sha }}" "${{ github.event.workflow_run.head_sha }}"
+      - run: node tooling/release/promote-candidate.mjs publish release "${{ steps.artifact.outputs.release_sha }}" "${{ steps.artifact.outputs.trusted_main }}"
 
   public-acceptance:
     needs: promote-and-publish
@@ -92,7 +125,7 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           github-token: ${{ github.token }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ needs.promote-and-publish.outputs.candidate_run_id }}
           name: ${{ needs.promote-and-publish.outputs.artifact }}
           path: release
       - run: pnpm verify:registry

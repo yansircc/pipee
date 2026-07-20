@@ -13,6 +13,10 @@ const git = (args) => execFileSync("git", args, { encoding: "utf8" }).trim();
 const run = (program, args, options = {}) =>
   execFileSync(program, args, { encoding: "utf8", stdio: options.inherit ? "inherit" : undefined });
 const readGitJson = (commit, path) => JSON.parse(git(["show", `${commit}:${path}`]));
+const isAncestor = (ancestor, descendant) =>
+  spawnSync("git", ["merge-base", "--is-ancestor", ancestor, descendant], {
+    stdio: "ignore",
+  }).status === 0;
 const sha512 = (path) =>
   `sha512-${createHash("sha512").update(readFileSync(path)).digest("base64")}`;
 
@@ -20,9 +24,10 @@ const verify = () => {
   assert.match(releaseSha ?? "", /^[0-9a-f]{40}$/, "promotion requires a release SHA");
   assert.match(trustedMain ?? "", /^[0-9a-f]{40}$/, "promotion requires its trusted main SHA");
   const currentMain = git(["rev-parse", "refs/remotes/origin/main"]);
+  const resumedAfterPromotion = currentMain !== releaseSha && isAncestor(releaseSha, currentMain);
   assert.ok(
-    currentMain === trustedMain || currentMain === releaseSha,
-    "main moved to a different release after candidate workflow dispatch",
+    currentMain === trustedMain || currentMain === releaseSha || resumedAfterPromotion,
+    "main moved outside the candidate release lineage after candidate workflow dispatch",
   );
   const parents = git(["show", "-s", "--format=%P", releaseSha]).split(/\s+/);
   const record = parseReleaseRecord(git(["show", "-s", "--format=%B", releaseSha]));
@@ -50,6 +55,18 @@ const verify = () => {
   const manifestVersions = Object.fromEntries(
     [...entries].map(([id, entry]) => [id, readGitJson(releaseSha, `${entry.path}/package.json`).version]),
   );
+  if (resumedAfterPromotion) {
+    assert.deepEqual(
+      Object.fromEntries(
+        [...entries].map(([id, entry]) => [
+          id,
+          readGitJson(currentMain, `${entry.path}/package.json`).version,
+        ]),
+      ),
+      manifestVersions,
+      "main contains a later public package release and cannot resume this candidate",
+    );
+  }
   assertReleaseRecordCommit({
     record,
     parents,
@@ -124,7 +141,7 @@ const verify = () => {
     assert.equal(packed[0].version, artifact.version, `${projected.id} packed version drifted`);
     assert.equal(packed[0].integrity, artifact.integrity, `${projected.id} npm integrity drifted`);
   }
-  return { candidate, record };
+  return { candidate, currentMain, record };
 };
 
 const writeOutputs = ({ candidate, record }) => {
@@ -145,7 +162,11 @@ if (command === "verify") {
   writeOutputs(result);
   process.stdout.write(`Verified privileged boundary for ${releaseSha}.\n`);
 } else if (command === "promote") {
-  const { candidate, record } = verify();
+  const { candidate, currentMain, record } = verify();
+  if (currentMain !== record.base) {
+    process.stdout.write(`Exact release ${releaseSha} is already promoted on main.\n`);
+    process.exit(0);
+  }
   const refs = [
     `${releaseSha}:refs/heads/main`,
     `${releaseSha}:refs/tags/${record.tag}`,

@@ -51,7 +51,10 @@ it("keeps promotion privileged, trusted, and free of candidate execution", () =>
   const privileged = promotion.match(/promote-and-publish:[\s\S]*?\n  public-acceptance:/)?.[0] ?? "";
   assert.match(privileged, /contents: write/);
   assert.match(privileged, /id-token: write/);
-  assert.match(privileged, /ref: \$\{\{ github\.event\.workflow_run\.head_sha \}\}/);
+  assert.match(privileged, /ref: \$\{\{ github\.event\.workflow_run\.head_sha \|\| github\.sha \}\}/);
+  assert.match(promotion, /workflow_dispatch:[\s\S]*candidate_run_id:[\s\S]*release_sha:[\s\S]*trusted_main:/);
+  assert.match(privileged, /Release Candidate\\tworkflow_dispatch\\tsuccess/);
+  assert.match(privileged, /actions\/setup-node@v5[\s\S]*node-version: 24\.11\.0[\s\S]*npm --version/);
   assert.doesNotMatch(privileged, /pnpm install|npm install|ref: \$\{\{ steps\.artifact\.outputs\.release_sha \}\}/);
   assert.match(privileged, /promote-candidate\.mjs verify/);
   assert.match(privileged, /sha256:\[0-9a-f\]\{64\}/);
@@ -60,6 +63,8 @@ it("keeps promotion privileged, trusted, and free of candidate execution", () =>
   assert.match(privileged, /promote-candidate\.mjs publish/);
   assert.match(promoter, /--ignore-scripts/);
   assert.match(promoter, /git", \["push", "--atomic"/);
+  assert.match(promoter, /main contains a later public package release and cannot resume this candidate/);
+  assert.match(promoter, /is already promoted on main/);
   assert.doesNotMatch(promoter, /import .*\.\/lib\.mjs|cross-spawn/);
   assert.match(promoter, /"pack", archive, "--dry-run", "--json", "--ignore-scripts"/);
 });
