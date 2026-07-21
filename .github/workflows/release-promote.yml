@@ -128,7 +128,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ needs.promote-and-publish.outputs.trusted_main }}
+          ref: ${{ needs.promote-and-publish.outputs.release_sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@v5
