@@ -28,6 +28,7 @@ import type {
 import {
   Context,
   Cause,
+  Clock,
   Crypto,
   Deferred,
   Effect,
@@ -832,6 +833,7 @@ const makeRuntime = (
     >()
     const runtimeFibers = yield* FiberSet.make()
     const runFork = yield* FiberSet.runtime(runtimeFibers)()
+    const clock = yield* Clock.Clock
 
     const publish = (event: typeof RunScopedEvent.Type | typeof SessionScopedEvent.Type) => {
       PubSub.publishUnsafe(events, RuntimeEnvelope.make({ identity, event }))
@@ -903,6 +905,7 @@ const makeRuntime = (
       )
 
     let messageEventSequence = 0
+    let assistantStreamStartedAt: number | null = null
     const unsubscribe = inner.subscribe((raw) => {
       if (typeof raw !== "object" || raw === null) return
       const event = raw as Record<string, unknown>
@@ -911,14 +914,16 @@ const makeRuntime = (
       publishForRun((runId) => {
         switch (type) {
           case "agent_start":
+            assistantStreamStartedAt = null
             return RunScopedEvent.make({ _tag: "RunStarted", runId })
           case "agent_end":
+            assistantStreamStartedAt = null
             return RunScopedEvent.make({ _tag: "RunFinished", runId })
           case "message_start": {
             const message = Schema.decodeUnknownOption(AgentMessage)(normalizePiMessage(event.message))
-            return Option.isSome(message)
-              ? RunScopedEvent.make({ _tag: "MessageStarted", runId, message: message.value })
-              : null
+            if (Option.isNone(message)) return null
+            if (message.value.role === "assistant") assistantStreamStartedAt = clock.currentTimeMillisUnsafe()
+            return RunScopedEvent.make({ _tag: "MessageStarted", runId, message: message.value })
           }
           case "message_update": {
             const message = Schema.decodeUnknownOption(AgentMessage)(normalizePiMessage(event.message))
@@ -928,14 +933,21 @@ const makeRuntime = (
           }
           case "message_end": {
             const message = Schema.decodeUnknownOption(AgentMessage)(normalizePiMessage(event.message))
-            return Option.isSome(message)
-              ? RunScopedEvent.make({
-                  _tag: "MessageFinished",
-                  eventId: `${runId}:message:${messageEventSequence++}`,
-                  runId,
-                  message: message.value,
-                })
-              : null
+            if (Option.isNone(message)) return null
+            const completedMessage =
+              message.value.role === "assistant" && assistantStreamStartedAt !== null
+                ? {
+                    ...message.value,
+                    generationDurationMs: Math.max(1, clock.currentTimeMillisUnsafe() - assistantStreamStartedAt),
+                  }
+                : message.value
+            if (message.value.role === "assistant") assistantStreamStartedAt = null
+            return RunScopedEvent.make({
+              _tag: "MessageFinished",
+              eventId: `${runId}:message:${messageEventSequence++}`,
+              runId,
+              message: completedMessage,
+            })
           }
           case "tool_execution_start":
             return RunScopedEvent.make({

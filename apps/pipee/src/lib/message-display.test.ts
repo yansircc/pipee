@@ -153,6 +153,7 @@ test("sums every assistant call within one user turn", () => {
         cacheWrite: 10,
         cost: { input: 0.05, output: 0.05, cacheRead: 0.1, cacheWrite: 0.05, total: 0.25 },
       },
+      generationDurationMs: 1_000,
     },
     { role: "toolResult", toolCallId: "call-1", content: [], timestamp: 5_000 },
     {
@@ -165,6 +166,7 @@ test("sums every assistant call within one user turn", () => {
         cacheWrite: 0,
         cost: { input: 0.05, output: 0.3, cacheRead: 0.4, cacheWrite: 0, total: 0.75 },
       },
+      generationDurationMs: 2_000,
     },
     { role: "user", content: "Next turn" },
     {
@@ -191,7 +193,27 @@ test("sums every assistant call within one user turn", () => {
     lastCallCost: 0.75,
     durationMs: 6_250,
     lastCallDurationMs: 2_250,
+    outputTokensPerSecond: 50 / 3,
   })
+})
+
+test("does not invent output throughput without a measured stream duration", () => {
+  const messages: AgentMessage[] = [
+    { role: "user", content: "Hello", timestamp: 1_000 },
+    {
+      ...assistant([{ type: "text", text: "Hello" }]),
+      timestamp: 2_000,
+      usage: {
+        input: 10,
+        output: 5,
+        cacheRead: 0,
+        cacheWrite: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+    },
+  ]
+
+  assert.equal(summarizeTurnUsage(messages, 0, messages.length)?.outputTokensPerSecond, null)
 })
 
 test("does not invent turn usage when no assistant call has usage", () => {

@@ -178,6 +178,7 @@ export const AssistantMessage = Schema.Struct({
   stopReason: Schema.optionalKey(Schema.String),
   errorMessage: Schema.optionalKey(Schema.String),
   timestamp: Schema.optionalKey(Schema.Number),
+  generationDurationMs: Schema.optionalKey(Schema.Finite.check(Schema.isGreaterThan(0))),
   usage: Schema.optionalKey(Usage),
 })
 export type AssistantMessage = typeof AssistantMessage.Type
