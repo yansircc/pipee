@@ -4,10 +4,10 @@ import { installCommands } from "../data/product";
 <div class="install-box" data-install-box>
   <div class="install-tabs" role="tablist" aria-label="包管理器">
     {Object.entries(installCommands).map(([manager, command], index) => (
-      <button type="button" role="tab" aria-selected={index === 0 ? "true" : "false"} data-command={command}>{manager}{manager === "pnpm" && " · 推荐"}</button>
+      <button type="button" role="tab" aria-selected={index === 0 ? "true" : "false"} data-command={command}>{manager}</button>
     ))}
   </div>
-  <button class="install-command" type="button" data-copy><code>{installCommands.pnpm}</code><span>复制</span></button>
+  <button class="install-command" type="button" data-copy><code>{installCommands.npm}</code><span>复制</span></button>
 </div>
 <script>
   document.querySelectorAll<HTMLElement>("[data-install-box]").forEach((box) => {

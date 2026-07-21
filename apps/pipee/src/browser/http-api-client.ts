@@ -1,19 +1,19 @@
 import { Context, Effect, Layer } from "effect"
 import { FetchHttpClient } from "effect/unstable/http"
 import { HttpApiClient } from "effect/unstable/httpapi"
-import { PiWebApi } from "@/api/contract"
+import { PipeeApi } from "@/api/contract"
 
-type Client = HttpApiClient.ForApi<typeof PiWebApi>
+type Client = HttpApiClient.ForApi<typeof PipeeApi>
 
-export class PiWebHttpClient extends Context.Service<PiWebHttpClient, Client>()("pipee/browser/PiWebHttpClient") {}
+export class PipeeHttpClient extends Context.Service<PipeeHttpClient, Client>()("pipee/browser/PipeeHttpClient") {}
 
-export const PiWebHttpClientLive = Layer.effect(
-  PiWebHttpClient,
-  HttpApiClient.make(PiWebApi).pipe(Effect.provide(FetchHttpClient.layer)),
+export const PipeeHttpClientLive = Layer.effect(
+  PipeeHttpClient,
+  HttpApiClient.make(PipeeApi).pipe(Effect.provide(FetchHttpClient.layer)),
 )
 
 export const withApi = <A, E, R>(
   use: (client: Client) => Effect.Effect<A, E, R>,
-): Effect.Effect<A, E, PiWebHttpClient | R> => PiWebHttpClient.pipe(Effect.flatMap(use))
+): Effect.Effect<A, E, PipeeHttpClient | R> => PipeeHttpClient.pipe(Effect.flatMap(use))
 
-export const apiUrls = HttpApiClient.urlBuilder(PiWebApi)
+export const apiUrls = HttpApiClient.urlBuilder(PipeeApi)

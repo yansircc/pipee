@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { it } from "node:test";
@@ -12,7 +20,7 @@ const git = (cwd, ...args) => run(cwd, "git", args);
 const writeJson = (path, value) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 
 const fixture = () => {
-  const root = mkdtempSync(join(tmpdir(), "pi-suite-materialize-test-"));
+  const root = mkdtempSync(join(tmpdir(), "pipee-materialize-test-"));
   const remote = `${root}-remote.git`;
   git(tmpdir(), "init", "--bare", remote);
   git(root, "init", "--initial-branch=main");
@@ -34,9 +42,9 @@ const fixture = () => {
   ]) {
     cpSync(join(projectRoot, "tooling", "release", file), join(root, "tooling", "release", file));
   }
-  writeJson(join(root, "release", "suite.config.json"), {
+  writeJson(join(root, "release", "pipee.config.json"), {
     schemaVersion: 1,
-    packages: [{ id: "web", name: "@yansircc/pipee", path: "apps/pipee" }],
+    packages: [{ id: "pipee", name: "@yansircc/pipee", path: "apps/pipee" }],
   });
   writeJson(join(root, "apps", "pipee", "package.json"), {
     name: "@yansircc/pipee",
@@ -48,7 +56,7 @@ const fixture = () => {
   git(root, "push", "-u", "origin", "main");
   const base = git(root, "rev-parse", "HEAD");
   writeFileSync(join(root, "feature.txt"), "candidate\n");
-  writeJson(join(root, "release", "changes", "web.json"), {
+  writeJson(join(root, "release", "changes", "pipee.json"), {
     schemaVersion: 1,
     changes: [{ package: "@yansircc/pipee", bump: "minor" }],
   });
@@ -67,12 +75,15 @@ it("materializes one witnessed merge commit without changing the development bra
     assert.equal(result.source, value.source);
     assert.equal(git(value.root, "rev-parse", "HEAD"), value.source);
     assert.equal(git(value.root, "status", "--porcelain"), "");
-    assert.equal(git(value.root, "show", "-s", "--format=%P", result.release), `${value.base} ${value.source}`);
+    assert.equal(
+      git(value.root, "show", "-s", "--format=%P", result.release),
+      `${value.base} ${value.source}`,
+    );
     assert.equal(
       JSON.parse(git(value.root, "show", `${result.release}:apps/pipee/package.json`)).version,
       "1.3.0",
     );
-    assert.throws(() => git(value.root, "show", `${result.release}:release/changes/web.json`));
+    assert.throws(() => git(value.root, "show", `${result.release}:release/changes/pipee.json`));
     assert.equal(git(value.root, "show", `${result.release}:feature.txt`), "candidate");
     assert.equal(git(value.root, "rev-parse", result.ref), result.release);
     assert.equal(
@@ -99,7 +110,8 @@ it("rejects development-owned public version drift", () => {
     git(value.root, "add", "-A");
     git(value.root, "commit", "-m", "feat: drift version");
     assert.throws(
-      () => run(value.root, process.execPath, ["tooling/release/materialize-release-candidate.mjs"]),
+      () =>
+        run(value.root, process.execPath, ["tooling/release/materialize-release-candidate.mjs"]),
       /version is release-owned/,
     );
   } finally {

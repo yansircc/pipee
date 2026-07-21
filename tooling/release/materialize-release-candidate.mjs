@@ -16,7 +16,8 @@ const git = (args, options = {}) =>
     stdio: options.inherit ? "inherit" : ["ignore", "pipe", "pipe"],
   }).trim();
 const writeJson = (path, value) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
-const suiteConfig = () => JSON.parse(readFileSync(resolve(root, "release/suite.config.json"), "utf8"));
+const pipeeConfig = () =>
+  JSON.parse(readFileSync(resolve(root, "release/pipee.config.json"), "utf8"));
 
 assert.equal(git(["status", "--porcelain"]), "", "release candidate requires a clean worktree");
 const source = git(["rev-parse", "HEAD"]);
@@ -26,7 +27,7 @@ git(["merge-base", "--is-ancestor", base, source]);
 
 const plan = readReleasePlan();
 assert.ok(plan.packages.length > 0, "release candidate requires at least one release changeset");
-const config = suiteConfig();
+const config = pipeeConfig();
 for (const entry of config.packages) {
   const path = `${entry.path}/package.json`;
   let baseManifest;
@@ -42,7 +43,7 @@ for (const entry of config.packages) {
     `${entry.id} version is release-owned and changed in development source`,
   );
 }
-const temporary = mkdtempSync(join(tmpdir(), "pi-suite-release-candidate-"));
+const temporary = mkdtempSync(join(tmpdir(), "pipee-release-candidate-"));
 try {
   git(["worktree", "add", "--detach", temporary, source]);
   const packages = plan.packages.map((entry) => {

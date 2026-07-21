@@ -36,7 +36,7 @@
 - Added a compact Action Graph that joins Accessibility Tree and DOM interaction evidence through
   the existing live element registry. Snapshot verbs map to atomic tools, and stale refs remain
   fail-closed instead of falling back to role/name matching.
-- Added same-profile `pi-web` routing: the page obtains an opaque, one-run offer from the Chrome
+- Added same-profile `pipee` routing: the page obtains an opaque, one-run offer from the Chrome
   extension in its own profile, Pi stages that exact connector, and tool admission consumes it only
   for the corresponding settled agent run.
 - Generalized connector ownership to the union of one durable Terminal binding and bounded,

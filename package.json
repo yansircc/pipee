@@ -13,6 +13,7 @@
   "type": "module",
   "scripts": {
     "prepare": "effect-tsgo patch --typescript-package typescript",
+    "check:brand": "node tooling/release/verify-brand.mjs",
     "check:workspace": "node tooling/release/verify-workspace.mjs",
     "test:release": "node --test tooling/release/*.test.mjs",
     "release:build-candidates": "node tooling/release/build-candidates.mjs",
@@ -22,7 +23,7 @@
     "verify:chrome-candidate": "node tooling/release/verify-chrome-candidate.mjs",
     "verify:registry": "node tooling/release/verify-registry.mjs",
     "verify:packages": "pnpm -r --if-present run verify",
-    "verify": "pnpm run check:workspace && pnpm run test:release && pnpm run verify:packages",
+    "verify": "pnpm run check:brand && pnpm run check:workspace && pnpm run test:release && pnpm run verify:packages",
     "release:materialize": "node tooling/release/materialize-release-candidate.mjs",
     "release:submit": "node tooling/release/submit-release-candidate.mjs"
   },

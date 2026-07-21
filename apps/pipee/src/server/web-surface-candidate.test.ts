@@ -15,7 +15,7 @@ const fixture = async () => {
     JSON.stringify({
       name: "@fixture/surface",
       pi: { extensions: "./dist/pi/extension.js" },
-      piSuite: { web: { contract: "pi-suite/web-surface@1", document: "./dist/web/index.html", title: "Fixture" } },
+      pipee: { web: { contract: "pipee/web-surface@2", document: "./dist/web/index.html", title: "Fixture" } },
     }),
   )
   await writeFile(path.join(root, "dist/pi/extension.js"), "export default () => {}\n")
@@ -27,10 +27,10 @@ const fixture = async () => {
 const addBrowserCompanion = async (root: string) => {
   const packagePath = path.join(root, "package.json")
   const pkg = JSON.parse(await readFile(packagePath, "utf8")) as {
-    piSuite: Record<string, unknown>
+    pipee: Record<string, unknown>
   }
-  pkg.piSuite.browserCompanion = {
-    contract: "pi-suite/browser-companion@1",
+  pkg.pipee.browserCompanion = {
+    contract: "pipee/browser-companion@2",
     directory: "./dist/browser-extension",
     evidence: "./dist/browser-extension/evidence.json",
   }
@@ -80,6 +80,31 @@ describe("web surface candidate", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   )
 
+  it.effect("does not admit a retired manifest namespace", () =>
+    Effect.gen(function* () {
+      const root = yield* Effect.promise(fixture)
+      const packagePath = path.join(root, "package.json")
+      const pkg = yield* Effect.promise(() => readFile(packagePath, "utf8").then(JSON.parse))
+      const retiredKey = ["pi", "Su", "ite"].join("")
+      pkg[retiredKey] = pkg.pipee
+      delete pkg.pipee
+      yield* Effect.promise(() => writeFile(packagePath, JSON.stringify(pkg)))
+      expect(yield* readWebSurfaceCandidate(root)).toBeNull()
+    }).pipe(Effect.provide(NodeServices.layer)),
+  )
+
+  it.effect("rejects a retired surface contract under the Pipee namespace", () =>
+    Effect.gen(function* () {
+      const root = yield* Effect.promise(fixture)
+      const packagePath = path.join(root, "package.json")
+      const pkg = yield* Effect.promise(() => readFile(packagePath, "utf8").then(JSON.parse))
+      pkg.pipee.web.contract = `${["pi", "suite"].join("-")}/web-surface@1`
+      yield* Effect.promise(() => writeFile(packagePath, JSON.stringify(pkg)))
+      const failure = yield* readWebSurfaceCandidate(root).pipe(Effect.flip)
+      expect(failure.message).toContain("pipee/web-surface@2")
+    }).pipe(Effect.provide(NodeServices.layer)),
+  )
+
   it.effect("binds browser companion evidence and bytes into the candidate", () =>
     Effect.gen(function* () {
       const root = yield* Effect.promise(fixture)
@@ -101,8 +126,8 @@ describe("web surface candidate", () => {
       const root = yield* Effect.promise(fixture)
       const packagePath = path.join(root, "package.json")
       const pkg = yield* Effect.promise(() => readFile(packagePath, "utf8").then(JSON.parse))
-      pkg.piSuite.browserCompanion = {
-        contract: "pi-suite/browser-companion@1",
+      pkg.pipee.browserCompanion = {
+        contract: "pipee/browser-companion@2",
         directory: "./dist/browser-extension",
         evidence: "./dist/web/evidence.json",
       }

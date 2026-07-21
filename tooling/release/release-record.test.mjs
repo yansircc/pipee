@@ -10,7 +10,7 @@ Release-Source: ${source}
 
 Release-Base: ${base}
 
-Release-Package: web 0.2.0 minor
+Release-Package: pipee 0.2.0 minor
 
 Release-Package: chrome 0.2.0 minor`;
 
@@ -22,7 +22,7 @@ describe("independent package release record", () => {
       base,
       tag: "release-abcdef123456",
       packages: [
-        { id: "web", version: "0.2.0", bump: "minor" },
+        { id: "pipee", version: "0.2.0", bump: "minor" },
         { id: "chrome", version: "0.2.0", bump: "minor" },
       ],
     });
@@ -30,9 +30,9 @@ describe("independent package release record", () => {
       assertReleaseRecordCommit({
         record,
         parents: [base, source],
-        manifestVersions: { web: "0.2.0", loop: "0.5.7", chrome: "0.2.0" },
-        sourceManifestVersions: { web: "0.1.9", loop: "0.5.7", chrome: "0.1.9" },
-        packageIds: ["web", "loop", "chrome"],
+        manifestVersions: { pipee: "0.2.0", loop: "0.5.7", chrome: "0.2.0" },
+        sourceManifestVersions: { pipee: "0.1.9", loop: "0.5.7", chrome: "0.1.9" },
+        packageIds: ["pipee", "loop", "chrome"],
       }),
       record,
     );
@@ -41,7 +41,7 @@ describe("independent package release record", () => {
   it("does not classify ordinary source commits or changesets as release records", () => {
     assert.equal(parseReleaseRecord("feat: add runtime"), undefined);
     assert.equal(
-      parseReleaseRecord("feat: add runtime\n\nRelease-Package: web 0.2.0 minor"),
+      parseReleaseRecord("feat: add runtime\n\nRelease-Package: pipee 0.2.0 minor"),
       undefined,
     );
   });
@@ -56,7 +56,8 @@ describe("independent package release record", () => {
       /does not match its source/,
     );
     assert.throws(
-      () => parseReleaseRecord(message.replace("Release-Package: chrome", "Release-Package: web")),
+      () =>
+        parseReleaseRecord(message.replace("Release-Package: chrome", "Release-Package: pipee")),
       /repeats/,
     );
     const record = parseReleaseRecord(message);
@@ -65,9 +66,9 @@ describe("independent package release record", () => {
         assertReleaseRecordCommit({
           record,
           parents: [base],
-          manifestVersions: { web: "0.2.0", chrome: "0.2.0" },
-          sourceManifestVersions: { web: "0.1.9", chrome: "0.1.9" },
-          packageIds: ["web", "chrome"],
+          manifestVersions: { pipee: "0.2.0", chrome: "0.2.0" },
+          sourceManifestVersions: { pipee: "0.1.9", chrome: "0.1.9" },
+          packageIds: ["pipee", "chrome"],
         }),
       /parents must be/,
     );
@@ -76,11 +77,11 @@ describe("independent package release record", () => {
         assertReleaseRecordCommit({
           record,
           parents: [base, source],
-          manifestVersions: { web: "0.1.9", chrome: "0.2.0" },
-          sourceManifestVersions: { web: "0.1.9", chrome: "0.1.9" },
-          packageIds: ["web", "chrome"],
+          manifestVersions: { pipee: "0.1.9", chrome: "0.2.0" },
+          sourceManifestVersions: { pipee: "0.1.9", chrome: "0.1.9" },
+          packageIds: ["pipee", "chrome"],
         }),
-      /web manifest/,
+      /pipee manifest/,
     );
   });
 });

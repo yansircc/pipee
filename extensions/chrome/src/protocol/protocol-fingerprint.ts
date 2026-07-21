@@ -1,5 +1,6 @@
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import { BROWSER_COMPANION_CONTRACT } from "@pipee/companion-contracts/browser-companion";
 import bridge from "./bridge.json" with { type: "json" };
 import connectorAuthentication from "./connector-auth.json" with { type: "json" };
 import { authenticationMessageProtocolContract } from "./bridge-authentication.js";
@@ -208,6 +209,7 @@ export const canonicalProtocolContract: Effect.Effect<string, ProtocolFingerprin
       operationResults: operationResultProtocolContract,
       evaluationValues: EVALUATION_VALUE_CONTRACT,
       authenticationMessages: authenticationMessageProtocolContract,
+      browserCompanion: BROWSER_COMPANION_CONTRACT,
       bridge,
       connectorAuthentication,
     }),

@@ -9,7 +9,7 @@ import {
   NotFound,
   OperationFailed,
   PayloadTooLarge,
-  PiWebApi,
+  PipeeApi,
   RequestSchemaErrors,
   SameOrigin,
   UnsupportedPlatform,
@@ -174,7 +174,7 @@ const RequestSchemaErrorsLive = HttpApiMiddleware.layerSchemaErrorTransform(Requ
   ),
 )
 
-const MetaLive = HttpApiBuilder.group(PiWebApi, "meta", (handlers) =>
+const MetaLive = HttpApiBuilder.group(PipeeApi, "meta", (handlers) =>
   handlers
     .handle("health", () =>
       Effect.succeed({
@@ -186,7 +186,7 @@ const MetaLive = HttpApiBuilder.group(PiWebApi, "meta", (handlers) =>
     .handle("version", () => Effect.succeed({ appVersion: __APP_VERSION__, piVersion: __PI_VERSION__ })),
 )
 
-const SessionsLive = HttpApiBuilder.group(PiWebApi, "sessions", (handlers) =>
+const SessionsLive = HttpApiBuilder.group(PipeeApi, "sessions", (handlers) =>
   Effect.gen(function* () {
     const repository = yield* SessionRepository
     const registry = yield* SessionRuntimeRegistry
@@ -366,7 +366,7 @@ const SessionsLive = HttpApiBuilder.group(PiWebApi, "sessions", (handlers) =>
   }),
 )
 
-const SessionActionsLive = HttpApiBuilder.group(PiWebApi, "sessionActions", (handlers) =>
+const SessionActionsLive = HttpApiBuilder.group(PipeeApi, "sessionActions", (handlers) =>
   Effect.gen(function* () {
     const repository = yield* SessionRepository
     const registry = yield* SessionRuntimeRegistry
@@ -553,7 +553,7 @@ const SessionActionsLive = HttpApiBuilder.group(PiWebApi, "sessionActions", (han
   }),
 )
 
-const WorkspaceLive = HttpApiBuilder.group(PiWebApi, "workspace", (handlers) =>
+const WorkspaceLive = HttpApiBuilder.group(PipeeApi, "workspace", (handlers) =>
   Effect.gen(function* () {
     const io = yield* WorkspaceIo
     const workspace = yield* WorkspaceService
@@ -614,7 +614,7 @@ const WorkspaceLive = HttpApiBuilder.group(PiWebApi, "workspace", (handlers) =>
   }),
 )
 
-const ModelsLive = HttpApiBuilder.group(PiWebApi, "models", (handlers) =>
+const ModelsLive = HttpApiBuilder.group(PipeeApi, "models", (handlers) =>
   Effect.gen(function* () {
     const adapter = yield* PiAgentAdapter
     const workspace = yield* WorkspaceIo
@@ -634,7 +634,7 @@ const ModelsLive = HttpApiBuilder.group(PiWebApi, "models", (handlers) =>
   }),
 )
 
-const AuthLive = HttpApiBuilder.group(PiWebApi, "auth", (handlers) =>
+const AuthLive = HttpApiBuilder.group(PipeeApi, "auth", (handlers) =>
   Effect.gen(function* () {
     const adapter = yield* PiAgentAdapter
     return handlers
@@ -660,7 +660,7 @@ const AuthLive = HttpApiBuilder.group(PiWebApi, "auth", (handlers) =>
   }),
 )
 
-const PackagesLive = HttpApiBuilder.group(PiWebApi, "packages", (handlers) =>
+const PackagesLive = HttpApiBuilder.group(PipeeApi, "packages", (handlers) =>
   Effect.gen(function* () {
     const adapter = yield* PiAgentAdapter
     const registry = yield* SessionRuntimeRegistry
@@ -879,7 +879,7 @@ const PackagesLive = HttpApiBuilder.group(PiWebApi, "packages", (handlers) =>
   }),
 )
 
-const WebSurfacesLive = HttpApiBuilder.group(PiWebApi, "webSurfaces", (handlers) =>
+const WebSurfacesLive = HttpApiBuilder.group(PipeeApi, "webSurfaces", (handlers) =>
   Effect.gen(function* () {
     const catalog = yield* WebSurfaceCatalog
     const registry = yield* SessionRuntimeRegistry
@@ -961,7 +961,7 @@ const HandlersLive = Layer.mergeAll(
   WebSurfacesLive,
 ).pipe(Layer.provide(Layer.mergeAll(ServicesLive, SameOriginLive, RequestSchemaErrorsLive)))
 
-const ApiLive = HttpApiBuilder.layer(PiWebApi).pipe(Layer.provide(HandlersLive), Layer.provide(FoundationLive))
+const ApiLive = HttpApiBuilder.layer(PipeeApi).pipe(Layer.provide(HandlersLive), Layer.provide(FoundationLive))
 
 const registerHttpRoutes = HttpRouter.use
 const WebSurfaceAssetRoutesLive = registerHttpRoutes((router) =>

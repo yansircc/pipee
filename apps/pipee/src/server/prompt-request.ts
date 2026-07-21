@@ -6,10 +6,10 @@ export interface PromptInput {
   readonly images?: ReadonlyArray<{ readonly type: "image"; readonly data: string; readonly mimeType: string }>
 }
 
-export const PROMPT_REQUEST_ENTRY_TYPE = "pi-web.prompt-request"
+export const PROMPT_REQUEST_ENTRY_TYPE = "pipee.prompt-request"
 
 export const PromptRequestStarted = Schema.Struct({
-  version: Schema.Literal(1),
+  version: Schema.Literal(2),
   state: Schema.Literal("Started"),
   requestId: Schema.String,
   inputDigest: Schema.String,
@@ -17,7 +17,7 @@ export const PromptRequestStarted = Schema.Struct({
 })
 
 export const PromptRequestCompleted = Schema.Struct({
-  version: Schema.Literal(1),
+  version: Schema.Literal(2),
   state: Schema.Literal("Completed"),
   startedEntryId: Schema.String,
   text: Schema.String,

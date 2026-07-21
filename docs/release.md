@@ -1,4 +1,4 @@
-# Suite release
+# Pipee release
 
 The release control plane has one supported transition:
 

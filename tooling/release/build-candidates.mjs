@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { root, run, sha512Integrity, suiteConfig } from "./lib.mjs";
+import { root, run, sha512Integrity, pipeeConfig } from "./lib.mjs";
 import { assertReleaseRecordCommit, parseReleaseRecord } from "./release-record.mjs";
 
 const development = process.argv.includes("--development");
@@ -32,12 +32,14 @@ if (releaseSha) {
   assert.match(releaseSha, /^[0-9a-f]{40}$/, "release SHA must be a full commit SHA");
   assert.equal(headSha, releaseSha, "candidate must remain on its release commit");
   assert.deepEqual(dirtyFiles, [], "release candidate worktree must remain clean");
-  record = parseReleaseRecord(run("git", ["show", "-s", "--format=%B", releaseSha], { capture: true }));
+  record = parseReleaseRecord(
+    run("git", ["show", "-s", "--format=%B", releaseSha], { capture: true }),
+  );
   assert.ok(record, "release candidate commit has no release record");
   const parents = run("git", ["show", "-s", "--format=%P", releaseSha], { capture: true })
     .trim()
     .split(/\s+/);
-  const config = suiteConfig();
+  const config = pipeeConfig();
   const manifests = Object.fromEntries(
     config.packages.map((entry) => [
       entry.id,
@@ -51,7 +53,9 @@ if (releaseSha) {
     sourceManifestVersions: Object.fromEntries(
       config.packages.map((entry) => [
         entry.id,
-        JSON.parse(run("git", ["show", `${record.source}:${entry.path}/package.json`], { capture: true })).version,
+        JSON.parse(
+          run("git", ["show", `${record.source}:${entry.path}/package.json`], { capture: true }),
+        ).version,
       ]),
     ),
     packageIds: config.packages.map(({ id }) => id),
@@ -77,7 +81,7 @@ if (releaseSha) {
 } else if ((!headSha || dirtyFiles.length > 0) && !development) {
   throw new Error("release candidates require a clean committed worktree");
 } else {
-  selectedEntries = suiteConfig().packages;
+  selectedEntries = pipeeConfig().packages;
 }
 const sourceSha = record?.source ?? headSha;
 

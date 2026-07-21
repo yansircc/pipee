@@ -35,7 +35,8 @@
     "verify": "pnpm run repo:verify && pnpm run pi:verify",
     "repo:verify": "vp run ci:verify",
     "pi:web-build": "node ../../tooling/pi-extension/build-web.mjs .",
-    "pi:build": "pnpm run pi:web-build && node ../../tooling/pi-extension/build.mjs .",
+    "pi:assets-build": "pnpm run pi:web-build",
+    "pi:build": "pnpm run pi:assets-build && node ../../tooling/pi-extension/build.mjs .",
     "pi:bundle-check": "node ../../tooling/pi-extension/verify-distribution.mjs . bundle",
     "pi:distribution-check": "node ../../tooling/pi-extension/verify-distribution.mjs . package",
     "pi:verify": "pnpm run pi:build && pnpm run pi:bundle-check",
@@ -83,9 +84,9 @@
       "./dist/pi/extension.js"
     ]
   },
-  "piSuite": {
+  "pipee": {
     "web": {
-      "contract": "pi-suite/web-surface@1",
+      "contract": "pipee/web-surface@2",
       "document": "./dist/web/index.html",
       "title": "微信桥接"
     }

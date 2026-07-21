@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { HttpApi } from "effect/unstable/httpapi"
 import { expect, test } from "@effect/vitest"
-import { Conflict, OperationFailed, PiWebApi, PromptProgressEvent, RuntimeEnvelope } from "./contract"
+import { Conflict, OperationFailed, PipeeApi, PromptProgressEvent, RuntimeEnvelope } from "./contract"
 import { toPublicError } from "./server"
 import { PiAdapterError, PiPromptIdempotencyError } from "@/server/pi-adapter-errors"
 
@@ -16,7 +16,7 @@ interface EndpointFact {
 
 const endpointFacts = (): ReadonlyArray<EndpointFact> => {
   const facts: Array<EndpointFact> = []
-  HttpApi.reflect(PiWebApi, {
+  HttpApi.reflect(PipeeApi, {
     onGroup: () => undefined,
     onEndpoint: ({ group, endpoint, errors, middleware }) => {
       facts.push({

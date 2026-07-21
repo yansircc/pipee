@@ -64,4 +64,4 @@ export const acquireCrossProcessLease = (
     );
 
     return yield* Effect.acquireRelease(acquire, release).pipe(Effect.map(() => ({ path })));
-  }).pipe(Effect.withSpan("pi_suite.lease.acquire"));
+  }).pipe(Effect.withSpan("pipee.lease.acquire"));

@@ -13,7 +13,7 @@ if (!artifact) {
   process.stdout.write("Chrome is not in this release set; exact-candidate smoke skipped.\n");
   process.exit(0);
 }
-const temporary = mkdtempSync(join(tmpdir(), "pi-suite-chrome-candidate-"));
+const temporary = mkdtempSync(join(tmpdir(), "pipee-chrome-candidate-"));
 try {
   await extract({
     file: resolve(root, "release", "candidates", artifact.archive),

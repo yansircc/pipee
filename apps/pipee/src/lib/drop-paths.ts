@@ -1,7 +1,7 @@
 import { Option, Schema } from "effect"
 
-export const PIPEE_PATH_MIME = "application/x-pi-web-path"
-export const PIPEE_DIRECTORY_MIME = "application/x-pi-web-directory"
+export const PIPEE_PATH_MIME = "application/x-pipee-path"
+export const PIPEE_DIRECTORY_MIME = "application/x-pipee-directory"
 
 export interface DroppedPath {
   path: string

@@ -5,7 +5,7 @@ import { decodeBrowserPreferences } from "./preferences"
 it.effect("decodes the current browser preferences document", () =>
   Effect.gen(function* () {
     const encoded = JSON.stringify({
-      version: 1,
+      version: 2,
       locale: "zh-CN",
       theme: "dark",
       soundEnabled: true,
@@ -13,6 +13,6 @@ it.effect("decodes the current browser preferences document", () =>
       unreadSessionIds: [],
     })
     const preferences = yield* decodeBrowserPreferences(encoded)
-    expect(preferences).toMatchObject({ version: 1, locale: "zh-CN", theme: "dark" })
+    expect(preferences).toMatchObject({ version: 2, locale: "zh-CN", theme: "dark" })
   }),
 )

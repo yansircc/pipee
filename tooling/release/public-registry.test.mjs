@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { it } from "node:test";
 import { waitForRegistrySet } from "./public-registry.mjs";
 
-const web = {
+const pipee = {
   name: "@yansircc/pipee",
   version: "0.2.0",
-  integrity: "sha512-web",
+  integrity: "sha512-pipee",
 };
 
 it("retries missing registry versions until the exact archive is visible", async () => {
@@ -13,10 +13,10 @@ it("retries missing registry versions until the exact archive is visible", async
   let waits = 0;
 
   await waitForRegistrySet({
-    artifacts: [web],
+    artifacts: [pipee],
     lookup: () => {
       lookups += 1;
-      return lookups < 3 ? { _tag: "Missing" } : { _tag: "Present", integrity: web.integrity };
+      return lookups < 3 ? { _tag: "Missing" } : { _tag: "Present", integrity: pipee.integrity };
     },
     wait: async () => {
       waits += 1;
@@ -32,7 +32,7 @@ it("fails immediately when a public version has different bytes", async () => {
 
   await assert.rejects(
     waitForRegistrySet({
-      artifacts: [web],
+      artifacts: [pipee],
       lookup: () => ({ _tag: "Present", integrity: "sha512-different" }),
       wait: async () => {
         waits += 1;
@@ -44,11 +44,11 @@ it("fails immediately when a public version has different bytes", async () => {
 });
 
 it("fails with every still-missing coordinate after the retry budget", async () => {
-  const chrome = { ...web, name: "@yansircc/pi-chrome" };
+  const chrome = { ...pipee, name: "@yansircc/pi-chrome" };
 
   await assert.rejects(
     waitForRegistrySet({
-      artifacts: [web, chrome],
+      artifacts: [pipee, chrome],
       lookup: () => ({ _tag: "Missing" }),
       wait: async () => {},
       maxAttempts: 2,

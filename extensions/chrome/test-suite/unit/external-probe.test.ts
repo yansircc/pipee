@@ -12,8 +12,8 @@ describe("external Chrome extension probe", () => {
     expect(
       handleChromeExtensionProbe(chromeExtensionProbeRequest, runtime, "f".repeat(64)),
     ).toEqual({
-      kind: "pi-suite/browser-companion-probe",
-      version: 1,
+      kind: "pipee/browser-companion-probe",
+      version: 2,
       extension: {
         extensionId: runtime.id,
         displayVersion: "0.3.0",
@@ -24,5 +24,22 @@ describe("external Chrome extension probe", () => {
 
   it("ignores unrelated external messages", () => {
     expect(handleChromeExtensionProbe({ kind: "other" }, runtime, "f".repeat(64))).toBeUndefined();
+  });
+
+  it("rejects the retired companion probe identity", () => {
+    const retiredKind = `${["pi", "suite"].join("-")}/browser-companion-probe`;
+    expect(
+      handleChromeExtensionProbe({ kind: retiredKind, version: 1 }, runtime, "f".repeat(64)),
+    ).toBeUndefined();
+  });
+
+  it("rejects the previous Pipee probe version", () => {
+    expect(
+      handleChromeExtensionProbe(
+        { ...chromeExtensionProbeRequest, version: 1 },
+        runtime,
+        "f".repeat(64),
+      ),
+    ).toBeUndefined();
   });
 });

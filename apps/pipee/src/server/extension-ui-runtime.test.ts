@@ -83,12 +83,9 @@ it.effect("keeps structured views and retention on independent owner-bound ports
       () => new Error("unavailable"),
       new Map(),
     )
-    const structured = runtime.uiContext.getPiSuiteCapability<StructuredViewPort>("alpha", STRUCTURED_VIEW_CAPABILITY)!
-    const retention = runtime.uiContext.getPiSuiteCapability<RuntimeRetentionPort>(
-      "alpha",
-      RUNTIME_RETENTION_CAPABILITY,
-    )!
-    const media = runtime.uiContext.getPiSuiteCapability<MediaViewPort>("alpha", MEDIA_VIEW_CAPABILITY)!
+    const structured = runtime.uiContext.getPipeeCapability<StructuredViewPort>("alpha", STRUCTURED_VIEW_CAPABILITY)!
+    const retention = runtime.uiContext.getPipeeCapability<RuntimeRetentionPort>("alpha", RUNTIME_RETENTION_CAPABILITY)!
+    const media = runtime.uiContext.getPipeeCapability<MediaViewPort>("alpha", MEDIA_VIEW_CAPABILITY)!
 
     structured.replace("status", { kind: "alpha/status", version: 1, ready: true })
     expect(runtime.projection().statuses[0]).toMatchObject({

@@ -10,8 +10,8 @@ export const product = {
 };
 
 export const installCommands = {
-  pnpm: `pnpm add -g ${product.packageName}`,
   npm: `npm install -g ${product.packageName}`,
+  pnpm: `pnpm add -g ${product.packageName}`,
   bun: `bun add -g ${product.packageName}`,
 } as const;
 

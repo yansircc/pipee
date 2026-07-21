@@ -81,7 +81,7 @@ it.effect("gates the real Pi callback path until the agent becomes idle", () =>
         ui: {
           notify: () => undefined,
           setStatus: () => undefined,
-          getPiSuiteCapability: (ownerId: string, id: string) =>
+          getPipeeCapability: (ownerId: string, id: string) =>
             capabilities.providers.get(id)?.forExtension(ownerId),
         },
         sessionManager: {

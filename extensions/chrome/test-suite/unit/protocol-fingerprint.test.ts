@@ -211,6 +211,21 @@ it.effect("changes the fingerprint when any authentication message leaf changes"
   }),
 );
 
+it.effect("binds the Pipee companion identity into the connector fingerprint", () =>
+  Effect.gen(function* () {
+    const canonical = yield* canonicalProtocolContract;
+    const contract = JSON.parse(canonical) as { readonly browserCompanion: string };
+    const changed = {
+      ...contract,
+      browserCompanion: `${contract.browserCompanion}-retired`,
+    };
+
+    expect(yield* fingerprintProtocolContract(changed)).not.toBe(
+      yield* fingerprintProtocolContract(contract),
+    );
+  }),
+);
+
 it.effect("versions evaluation projector algorithm changes explicitly", () =>
   Effect.gen(function* () {
     const canonical = yield* canonicalProtocolContract;

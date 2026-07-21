@@ -4,7 +4,7 @@ import InstallBox from "../components/InstallBox.astro";
 import { product } from "../data/product";
 ---
 <BaseLayout title="文档 — Pipee" description="安装并使用 Pipee，开发 Pi Extension。"><div class="page"><section class="content-hero pad"><span class="eyebrow">Documentation</span><div><h1>安装、启动，然后继续使用 Pi。</h1><p>Pipee 是本地 Web UI。这里先完成产品安装，再分别说明 Pi Extension 与可选 Web Surface。</p></div></section><div class="docs-layout pad"><aside><div><span>开始</span><a href="#install">安装 Pipee</a><a href="#run">启动与连接</a></div><div><span>开发</span><a href="#model">概念边界</a><a href="#first">第一个 Extension</a><a href="#surface">Web Surface</a></div><div><span>更多</span><a href="/trust">信任边界</a><a href="/developers">开发者入口</a></div></aside><article>
-  <section id="install"><span class="chapter">01 / INSTALL</span><h2>全局安装 Pipee</h2><p>推荐使用 pnpm 全局安装。安装一次后，可以在任意项目目录启动。</p><InstallBox/><div class="note"><strong>安装边界</strong><p><code>{product.packageName}</code> 只安装 Web UI，不会迁移或复制你的 Pi Session。</p></div></section>
+  <section id="install"><span class="chapter">01 / INSTALL</span><h2>全局安装 Pipee</h2><p>使用 npm、pnpm 或 bun 全局安装。安装一次后，可以在任意项目目录启动。</p><InstallBox/><div class="note"><strong>安装边界</strong><p><code>{product.packageName}</code> 只安装 Web UI，不会迁移或复制你的 Pi Session。</p></div></section>
   <section id="run"><span class="chapter">02 / RUN</span><h2>启动本地 Web UI</h2><p>进入希望工作的项目目录，运行：</p><div class="code-block"><header><span>Terminal</span><button type="button" data-copy={product.cli}>复制</button></header><pre>{product.cli}</pre></div><p>Pipee 启动本地服务，并连接当前机器上的 Pi 工作环境。</p></section>
   <section id="model"><span class="chapter">03 / MODEL</span><h2>三个概念，不混用</h2><div class="concepts"><div><strong>Pi</strong><span>Agent runtime</span><p>拥有 Session、模型、上下文和 Extension API。</p></div><div><strong>Pi Extension</strong><span>Runtime capability</span><p>拥有工具、事件、状态、服务和生命周期。</p></div><div><strong>Pipee</strong><span>Web UI</span><p>呈现 Pi，并承载 Extension 声明的可选界面。</p></div></div></section>
   <section id="first"><span class="chapter">04 / FIRST EXTENSION</span><h2>创建 Pi Extension</h2><p>Extension 首先必须作为 Pi 运行时能力独立成立。</p><div class="code-block"><header><span>src/extension.ts</span><span>Pi Extension</span></header><pre><span class="syntax">export default function</span> (pi: ExtensionAPI) &#123;
@@ -15,9 +15,9 @@ import { product } from "../data/product";
     async execute() &#123; /* ... */ &#125;
   &#125;)
 &#125;</pre></div></section>
-  <section id="surface"><span class="chapter">05 / OPTIONAL WEB SURFACE</span><h2>需要页面时，再接入 Pipee</h2><p>Web Surface 是同一 Extension package 的可选资源。核心行为不能依赖 Pipee 才成立。</p><div class="code-block"><header><span>package.json</span><span>Optional</span></header><pre><span class="string">"piSuite"</span>: &#123;
+  <section id="surface"><span class="chapter">05 / OPTIONAL WEB SURFACE</span><h2>需要页面时，再接入 Pipee</h2><p>Web Surface 是同一 Extension package 的可选资源。核心行为不能依赖 Pipee 才成立。</p><div class="code-block"><header><span>package.json</span><span>Optional</span></header><pre><span class="string">"pipee"</span>: &#123;
   <span class="string">"web"</span>: &#123;
-    <span class="string">"contract"</span>: <span class="string">"pi-suite/web-surface@1"</span>,
+    <span class="string">"contract"</span>: <span class="string">"pipee/web-surface@2"</span>,
     <span class="string">"document"</span>: <span class="string">"./dist/web/index.html"</span>
   &#125;
 &#125;</pre></div><a class="button dark end-link" href="/developers">继续阅读开发指南 <span>→</span></a></section>

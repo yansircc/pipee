@@ -13,7 +13,7 @@ const withLeasePath = <A, E, R>(
   use: (path: string) => Effect.Effect<A, E, R>,
 ): Effect.Effect<A, E, R> =>
   Effect.acquireUseRelease(
-    Effect.sync(() => mkdtempSync(join(tmpdir(), "pi-suite-lease-"))),
+    Effect.sync(() => mkdtempSync(join(tmpdir(), "pipee-lease-"))),
     (directory) => use(join(directory, "owner.lease.sqlite")),
     (directory) => Effect.sync(() => rmSync(directory, { recursive: true, force: true })),
   );

@@ -35,9 +35,9 @@ const verify = () => {
   assert.equal(record.base, trustedMain, "release candidate was built from another main");
   git(["merge-base", "--is-ancestor", record.base, record.source]);
 
-  const config = readGitJson(releaseSha, "release/suite.config.json");
-  assert.equal(config.schemaVersion, 1, "release suite config schema is unsupported");
-  assert.ok(Array.isArray(config.packages), "release suite config has no packages");
+  const config = readGitJson(releaseSha, "release/pipee.config.json");
+  assert.equal(config.schemaVersion, 1, "Pipee release config schema is unsupported");
+  assert.ok(Array.isArray(config.packages), "Pipee release config has no packages");
   const entries = new Map();
   const packageNames = new Set();
   const packagePaths = new Set();
@@ -53,7 +53,10 @@ const verify = () => {
     packagePaths.add(entry.path);
   }
   const manifestVersions = Object.fromEntries(
-    [...entries].map(([id, entry]) => [id, readGitJson(releaseSha, `${entry.path}/package.json`).version]),
+    [...entries].map(([id, entry]) => [
+      id,
+      readGitJson(releaseSha, `${entry.path}/package.json`).version,
+    ]),
   );
   if (resumedAfterPromotion) {
     assert.deepEqual(
@@ -123,7 +126,11 @@ const verify = () => {
       `${entry.name.split("/").at(-1)}-v${projected.toVersion}`,
       `${projected.id} package tag drifted`,
     );
-    assert.equal(basename(artifact.archive), artifact.archive, "candidate archive name is not flat");
+    assert.equal(
+      basename(artifact.archive),
+      artifact.archive,
+      "candidate archive name is not flat",
+    );
     assert.match(artifact.archive, /^[a-z0-9][a-z0-9._-]*\.tgz$/, "invalid candidate archive name");
     assert.equal(archiveNames.has(artifact.archive), false, "candidate repeats an archive name");
     archiveNames.add(artifact.archive);
@@ -134,7 +141,11 @@ const verify = () => {
       ["pack", archive, "--dry-run", "--json", "--ignore-scripts"],
       { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
-    assert.equal(inspection.status, 0, `cannot inspect ${projected.id} archive: ${inspection.stderr}`);
+    assert.equal(
+      inspection.status,
+      0,
+      `cannot inspect ${projected.id} archive: ${inspection.stderr}`,
+    );
     const packed = JSON.parse(inspection.stdout);
     assert.equal(packed.length, 1, `${projected.id} archive inspection is ambiguous`);
     assert.equal(packed[0].name, artifact.name, `${projected.id} packed name drifted`);
@@ -170,9 +181,7 @@ if (command === "verify") {
   const refs = [
     `${releaseSha}:refs/heads/main`,
     `${releaseSha}:refs/tags/${record.tag}`,
-    ...candidate.projection.packages.map(
-      ({ tag }) => `${releaseSha}:refs/tags/${tag}`,
-    ),
+    ...candidate.projection.packages.map(({ tag }) => `${releaseSha}:refs/tags/${tag}`),
   ];
   run("git", ["push", "--atomic", "origin", ...refs], { inherit: true });
   process.stdout.write(`Promoted exact release commit ${releaseSha}.\n`);
@@ -186,16 +195,41 @@ if (command === "verify") {
   ];
   const existing = spawnSync("gh", ["release", "view", record.tag], { encoding: "utf8" });
   if (existing.status !== 0) {
-    run("gh", ["release", "create", record.tag, "--verify-tag", "--title", record.tag, "--notes", `Exact Pipee candidate for ${releaseSha}`], { inherit: true });
+    run(
+      "gh",
+      [
+        "release",
+        "create",
+        record.tag,
+        "--verify-tag",
+        "--title",
+        record.tag,
+        "--notes",
+        `Exact Pipee candidate for ${releaseSha}`,
+      ],
+      { inherit: true },
+    );
   }
   for (const asset of assets) {
     const name = basename(asset);
-    const listed = run("gh", ["release", "view", record.tag, "--json", "assets", "--jq", ".assets[].name"]);
+    const listed = run("gh", [
+      "release",
+      "view",
+      record.tag,
+      "--json",
+      "assets",
+      "--jq",
+      ".assets[].name",
+    ]);
     if (listed.split(/\r?\n/).includes(name)) {
-      const temporary = mkdtempSync(join(tmpdir(), "pi-suite-persisted-"));
+      const temporary = mkdtempSync(join(tmpdir(), "pipee-persisted-"));
       try {
         run("gh", ["release", "download", record.tag, "--pattern", name, "--dir", temporary]);
-        assert.deepEqual(readFileSync(join(temporary, name)), readFileSync(asset), `${name} persisted bytes drifted`);
+        assert.deepEqual(
+          readFileSync(join(temporary, name)),
+          readFileSync(asset),
+          `${name} persisted bytes drifted`,
+        );
       } finally {
         rmSync(temporary, { recursive: true, force: true });
       }
@@ -209,23 +243,33 @@ if (command === "verify") {
   for (const projected of candidate.projection.packages) {
     const artifact = candidate.artifacts[projected.id];
     const lookup = classifyRegistryLookup(
-      spawnSync("npm", ["view", `${artifact.name}@${artifact.version}`, "dist.integrity", "--json"], {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      }),
+      spawnSync(
+        "npm",
+        ["view", `${artifact.name}@${artifact.version}`, "dist.integrity", "--json"],
+        {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      ),
     );
     if (publicationDecision(lookup, artifact.integrity)._tag === "Publish") {
-      run("npm", [
-        "publish",
-        resolve(releaseRoot, "candidates", artifact.archive),
-        "--access",
-        "public",
-        "--provenance",
-        "--ignore-scripts",
-      ], { inherit: true });
+      run(
+        "npm",
+        [
+          "publish",
+          resolve(releaseRoot, "candidates", artifact.archive),
+          "--access",
+          "public",
+          "--provenance",
+          "--ignore-scripts",
+        ],
+        { inherit: true },
+      );
     }
   }
   process.stdout.write(`Published or exactly reused ${releaseSha}.\n`);
 } else {
-  throw new Error("usage: promote-candidate.mjs verify|promote|persist|publish <release-root> <release-sha> <trusted-main>");
+  throw new Error(
+    "usage: promote-candidate.mjs verify|promote|persist|publish <release-root> <release-sha> <trusted-main>",
+  );
 }

@@ -2,14 +2,14 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { root, run, runAsync, suiteConfig } from "./lib.mjs";
+import { root, run, runAsync, pipeeConfig } from "./lib.mjs";
 
 run("node", ["tooling/release/verify-candidates.mjs"]);
 
 const candidate = JSON.parse(readFileSync(resolve(root, "release/candidate.json"), "utf8"));
 assert.equal(candidate.releasable, true, "consumer verification requires a releasable candidate");
 
-const packages = suiteConfig().packages.flatMap((entry) => {
+const packages = pipeeConfig().packages.flatMap((entry) => {
   const artifact = candidate.artifacts[entry.id];
   if (!artifact) return [];
   return [
@@ -24,7 +24,7 @@ assert.ok(packages.length > 0, "consumer verification requires at least one pack
 
 await Promise.all(
   packages
-    .filter(({ id }) => id !== "web")
+    .filter(({ id }) => id !== "pipee")
     .map((entry) =>
       runAsync("pnpm", [
         "--filter",
@@ -37,20 +37,20 @@ await Promise.all(
     ),
 );
 
-const web = packages.find(({ id }) => id === "web");
-if (web) {
+const pipee = packages.find(({ id }) => id === "pipee");
+if (pipee) {
   run("node", [
     "apps/pipee/scripts/test-package.mjs",
     "--consumer",
     "npm",
     "--checks",
     "structure,install,bin,cli,health,page,browser,sse,cleanup,port-release",
-    web.archive,
+    pipee.archive,
   ]);
 }
 
 const verifyCombinedInstall = async (consumer) => {
-  const directory = mkdtempSync(join(tmpdir(), `pi-suite-${consumer}-consumer-`));
+  const directory = mkdtempSync(join(tmpdir(), `pipee-${consumer}-consumer-`));
   try {
     if (consumer === "npm") {
       await runAsync("npm", ["init", "-y"], { cwd: directory });

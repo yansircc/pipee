@@ -15,7 +15,7 @@ import {
 } from "../src/index.js";
 import type { WebSurfaceRuntimePort } from "@pipee/companion-contracts/web-surface";
 
-it("returns undefined when the host does not provide Suite capabilities", () => {
+it("returns undefined when the host does not provide Pipee capabilities", () => {
   expect(structuredView({}, "alpha")).toBeUndefined();
 });
 
@@ -30,7 +30,7 @@ it.effect("releases the current runtime claim when its Effect scope closes", () 
       },
     };
     const host: HostCapabilityCarrier = {
-      getPiSuiteCapability: <T>(_ownerId: string, id: string) =>
+      getPipeeCapability: <T>(_ownerId: string, id: string) =>
         (id === RUNTIME_RETENTION_CAPABILITY ? port : undefined) as T | undefined,
     };
 
@@ -64,7 +64,7 @@ it.effect("fails closed without a web surface port and releases the registration
       }),
     };
     const host: HostCapabilityCarrier = {
-      getPiSuiteCapability: <T>(_ownerId: string, id: string) =>
+      getPipeeCapability: <T>(_ownerId: string, id: string) =>
         (id === WEB_SURFACE_RUNTIME_CAPABILITY ? port : undefined) as T | undefined,
     };
     yield* Effect.scoped(webSurface(host, "alpha", () => ({ _tag: "Accepted", payload: null })));

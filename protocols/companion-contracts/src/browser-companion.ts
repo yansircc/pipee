@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-export const BROWSER_COMPANION_CONTRACT = "pi-suite/browser-companion@1" as const;
+export const BROWSER_COMPANION_CONTRACT = "pipee/browser-companion@2" as const;
 
 export const BrowserCompanionManifest = Schema.Struct({
   contract: Schema.Literal(BROWSER_COMPANION_CONTRACT),
@@ -16,19 +16,19 @@ export const BrowserCompanionExpectation = Schema.Struct({
 });
 export type BrowserCompanionExpectation = typeof BrowserCompanionExpectation.Type;
 
-export const BROWSER_COMPANION_PROBE_KIND = "pi-suite/browser-companion-probe" as const;
+export const BROWSER_COMPANION_PROBE_KIND = "pipee/browser-companion-probe" as const;
 export const BrowserCompanionProbeRequest = Schema.Struct({
   kind: Schema.Literal(BROWSER_COMPANION_PROBE_KIND),
-  version: Schema.Literal(1),
+  version: Schema.Literal(2),
 });
 export type BrowserCompanionProbeRequest = typeof BrowserCompanionProbeRequest.Type;
 export const browserCompanionProbeRequest: BrowserCompanionProbeRequest = {
   kind: BROWSER_COMPANION_PROBE_KIND,
-  version: 1,
+  version: 2,
 };
 export const BrowserCompanionProbeResponse = Schema.Struct({
   kind: Schema.Literal(BROWSER_COMPANION_PROBE_KIND),
-  version: Schema.Literal(1),
+  version: Schema.Literal(2),
   extension: BrowserCompanionExpectation,
 });
 export type BrowserCompanionProbeResponse = typeof BrowserCompanionProbeResponse.Type;
@@ -67,20 +67,20 @@ export const BrowserCompanionProbe = Schema.Union([
 ]);
 export type BrowserCompanionProbe = typeof BrowserCompanionProbe.Type;
 
-export const BROWSER_COMPANION_WAKE_KIND = "pi-suite/browser-companion-wake" as const;
+export const BROWSER_COMPANION_WAKE_KIND = "pipee/browser-companion-wake" as const;
 export const BrowserCompanionWakeRequest = Schema.Struct({
   kind: Schema.Literal(BROWSER_COMPANION_WAKE_KIND),
-  version: Schema.Literal(1),
+  version: Schema.Literal(2),
 });
 export type BrowserCompanionWakeRequest = typeof BrowserCompanionWakeRequest.Type;
 export const browserCompanionWakeRequest: BrowserCompanionWakeRequest = {
   kind: BROWSER_COMPANION_WAKE_KIND,
-  version: 1,
+  version: 2,
 };
 
 export const BrowserCompanionWakeResponse = Schema.Struct({
   kind: Schema.Literal(BROWSER_COMPANION_WAKE_KIND),
-  version: Schema.Literal(1),
+  version: Schema.Literal(2),
   accepted: Schema.Boolean,
 });
 export type BrowserCompanionWakeResponse = typeof BrowserCompanionWakeResponse.Type;
