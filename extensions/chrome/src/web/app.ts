@@ -88,10 +88,10 @@ function renderLive(activity: SessionActivity) {
   );
 }
 
-function renderInstall() {
+function renderInstall(canDownload: boolean) {
   root.insertAdjacentHTML(
     "beforeend",
-    `<div class="overlay"><section class="install-modal"><header><div><h2>安装 Chrome Companion</h2><p>安装页会自动检测并完成安全连接。</p></div><button data-action="close-install" aria-label="关闭">×</button></header><div class="install-steps"><div class="install-step"><b>1</b><div><strong>下载并解压扩展 ZIP</strong><p>ZIP 来自当前 pi-chrome package 的精确 candidate。</p></div><button class="primary" data-action="download">下载 ZIP</button></div><div class="install-step"><b>2</b><div><strong>进入 Chrome 扩展程序页面</strong><p>复制 <code>chrome://extensions</code> 到地址栏，并开启“开发者模式”。</p></div><button data-action="copy-extensions-url">复制地址</button></div><div class="install-step"><b>3</b><div><strong>加载已解压的扩展程序</strong><p>选择刚才解压的目录；回到这里后会自动连接，无需刷新。</p></div></div></div></section></div>`,
+    `<div class="overlay"><section class="install-modal"><header><div><h2>安装 Chrome Companion</h2><p>安装页会自动检测并完成安全连接。</p></div><button data-action="close-install" aria-label="关闭">×</button></header><div class="install-steps"><div class="install-step"><b>1</b><div><strong>下载并解压扩展 ZIP</strong><p>${canDownload ? "ZIP 来自当前 pi-chrome package 的精确 candidate。" : "当前 package 未声明可下载的 Chrome Companion，请重新安装或更新 pi-chrome。"}</p></div>${canDownload ? '<button class="primary" data-action="download">下载 ZIP</button>' : ""}</div><div class="install-step"><b>2</b><div><strong>进入 Chrome 扩展程序页面</strong><p>复制 <code>chrome://extensions</code> 到地址栏，并开启“开发者模式”。</p></div><button data-action="copy-extensions-url">复制地址</button></div><div class="install-step"><b>3</b><div><strong>加载已解压的扩展程序</strong><p>选择刚才解压的目录；回到这里后会自动连接，无需刷新。</p></div></div></div></section></div>`,
   );
 }
 
@@ -181,7 +181,7 @@ function render() {
   }</details></main>`;
   const live = liveSessionId ? views.get(liveSessionId) : undefined;
   if (live) renderLive(live);
-  if (installOpen) renderInstall();
+  if (installOpen) renderInstall(currentReadiness._tag !== "PackageMissing");
 }
 
 void connectWebSurfaceBrowser({
@@ -241,7 +241,9 @@ void connectWebSurfaceBrowser({
       return;
     }
     if (action === "download") {
-      void client.downloadCompanion();
+      void client.downloadCompanion().then((accepted) => {
+        if (!accepted) client.notify("当前 package 未提供可下载的 Chrome Companion", "error");
+      });
       return;
     }
     if (action === "copy-extensions-url") {
