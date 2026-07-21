@@ -72,8 +72,10 @@ import {
   RuntimeSnapshot,
   SessionEntry,
   SessionStats,
+  DiscoveredSkillsResponse,
   SkillFileContent,
   SkillFileEntry,
+  SkillMutation,
   SkillsResponse,
   SlashCommand,
   ToolEntry,
@@ -81,6 +83,8 @@ import {
   type PluginsResponse as PluginsResponseValue,
   type PluginUpdatesResponse as PluginUpdatesResponseValue,
   type RuntimeEnvelope as RuntimeEnvelopeValue,
+  type SkillMutation as SkillMutationValue,
+  type WritableSkillInfo,
 } from "@/api/contract"
 import { appendLiveBashOutput } from "@/lib/bash-command"
 import {
@@ -297,8 +301,8 @@ export class PiAgentAdapter extends Context.Service<
       baseDir: string,
       relativePath: string,
     ) => Effect.Effect<typeof SkillFileContent.Type, PiAdapterError>
-    readonly toggleSkill: (filePath: string, disabled: boolean) => Effect.Effect<void, PiAdapterError>
-    readonly deleteSkill: (baseDir: string) => Effect.Effect<void, PiAdapterError>
+    readonly toggleSkill: (skill: WritableSkillInfo, disabled: boolean) => Effect.Effect<void, PiAdapterError>
+    readonly deleteSkill: (skill: WritableSkillInfo) => Effect.Effect<void, PiAdapterError>
   }
 >()("pipee/server/PiAgentAdapter") {}
 
@@ -935,9 +939,15 @@ const makeRuntime = (
           }
           case "message_update": {
             const message = Schema.decodeUnknownOption(AgentMessage)(normalizePiMessage(event.message))
-            return Option.isSome(message)
-              ? RunScopedEvent.make({ _tag: "MessageUpdated", runId, message: message.value })
-              : null
+            if (Option.isNone(message)) return null
+            const streamingMessage =
+              message.value.role === "assistant" && assistantStreamStartedAt !== null
+                ? {
+                    ...message.value,
+                    generationDurationMs: Math.max(1, clock.currentTimeMillisUnsafe() - assistantStreamStartedAt),
+                  }
+                : message.value
+            return RunScopedEvent.make({ _tag: "MessageUpdated", runId, message: streamingMessage })
           }
           case "message_end": {
             const message = Schema.decodeUnknownOption(AgentMessage)(normalizePiMessage(event.message))
@@ -2171,7 +2181,31 @@ const adapterLive = Effect.gen(function* () {
     Effect.gen(function* () {
       const loader = new DefaultResourceLoader({ cwd, agentDir: getAgentDir() })
       yield* Effect.tryPromise({ try: () => loader.reload(), catch: adapterError("skills.reload") })
-      return yield* decode(SkillsResponse, "skills.response", loader.getSkills())
+      const discovered = yield* decode(DiscoveredSkillsResponse, "skills.discovery", loader.getSkills())
+      const mutationFor = (skill: (typeof discovered.skills)[number]): Effect.Effect<SkillMutationValue> => {
+        if (skill.sourceInfo.source !== "auto") {
+          return Effect.succeed(SkillMutation.make({ _tag: "ReadOnly", reason: "package-owned" }))
+        }
+        return Effect.all({ canonicalPath: fs.realPath(skill.filePath), info: fs.stat(skill.filePath) }).pipe(
+          Effect.map(({ canonicalPath, info }) =>
+            canonicalPath !== path.resolve(skill.filePath)
+              ? SkillMutation.make({ _tag: "ReadOnly", reason: "generated-projection" })
+              : (Number(info.mode) & 0o222) === 0
+                ? SkillMutation.make({ _tag: "ReadOnly", reason: "filesystem-read-only" })
+                : SkillMutation.make({ _tag: "DirectWrite" }),
+          ),
+          Effect.orElseSucceed(() => SkillMutation.make({ _tag: "ReadOnly", reason: "unavailable" })),
+        )
+      }
+      const projected = yield* Effect.forEach(
+        discovered.skills,
+        (skill) => mutationFor(skill).pipe(Effect.map((mutation) => ({ ...skill, mutation }))),
+        { concurrency: 8 },
+      )
+      return yield* decode(SkillsResponse, "skills.response", {
+        skills: projected,
+        diagnostics: discovered.diagnostics,
+      })
     })
 
   const canonicalSkillMember = (baseDir: string, relativePath: string) =>
@@ -2226,9 +2260,9 @@ const adapterLive = Effect.gen(function* () {
       return SkillFileContent.make({ path: member.relative, content, size: Number(info.size) })
     })
 
-  const toggleSkill = (filePath: string, disabled: boolean) =>
+  const toggleSkill = (skill: WritableSkillInfo, disabled: boolean) =>
     Effect.gen(function* () {
-      const content = yield* fs.readFileString(filePath).pipe(Effect.mapError(adapterError("skills.read")))
+      const content = yield* fs.readFileString(skill.filePath).pipe(Effect.mapError(adapterError("skills.read")))
       const key = "disable-model-invocation"
       const parsed = yield* Effect.try({
         try: () => parseFrontmatter<Record<string, unknown>>(content),
@@ -2243,12 +2277,12 @@ const adapterLive = Effect.gen(function* () {
         updated = content.replace(new RegExp(`^${key}\\s*:.*\\r?\\n`, "m"), "")
       }
       if (updated !== content) {
-        yield* fs.writeFileString(filePath, updated).pipe(Effect.mapError(adapterError("skills.write")))
+        yield* fs.writeFileString(skill.filePath, updated).pipe(Effect.mapError(adapterError("skills.write")))
       }
     })
 
-  const deleteSkill = (baseDir: string) =>
-    fs.remove(baseDir, { recursive: true }).pipe(Effect.mapError(adapterError("skills.delete")))
+  const deleteSkill = (skill: WritableSkillInfo) =>
+    fs.remove(skill.baseDir, { recursive: true }).pipe(Effect.mapError(adapterError("skills.delete")))
 
   return PiAgentAdapter.of({
     listSessions: Effect.tryPromise({

@@ -13,6 +13,7 @@ import {
   RequestSchemaErrors,
   SameOrigin,
   UnsupportedPlatform,
+  isWritableSkillInfo,
   type PluginsResponse,
   type PromptProgressEvent,
 } from "./contract"
@@ -833,7 +834,10 @@ const PackagesLive = HttpApiBuilder.group(PipeeApi, "packages", (handlers) =>
           if (skill === undefined) {
             return yield* new Forbidden({ message: "Skill is not owned by the selected workspace" })
           }
-          yield* expose(adapter.toggleSkill(skill.filePath, payload.disableModelInvocation))
+          if (!isWritableSkillInfo(skill)) {
+            return yield* new Forbidden({ message: "Skill is read-only and must be changed through its owner" })
+          }
+          yield* expose(adapter.toggleSkill(skill, payload.disableModelInvocation))
           return ok
         }),
       )
@@ -844,6 +848,9 @@ const PackagesLive = HttpApiBuilder.group(PipeeApi, "packages", (handlers) =>
           const skill = projection.skills.find((candidate) => candidate.filePath === payload.filePath)
           if (skill === undefined) {
             return yield* new Forbidden({ message: "Skill is not owned by the selected workspace" })
+          }
+          if (!isWritableSkillInfo(skill)) {
+            return yield* new Forbidden({ message: "Skill is read-only and must be removed through its owner" })
           }
           const scope = skill.sourceInfo.scope
           if (scope !== "user" && scope !== "project") {
@@ -857,7 +864,7 @@ const PackagesLive = HttpApiBuilder.group(PipeeApi, "packages", (handlers) =>
           ) {
             return yield* new Forbidden({ message: "Skill projection has an invalid ownership boundary" })
           }
-          yield* expose(adapter.deleteSkill(skill.baseDir))
+          yield* expose(adapter.deleteSkill(skill))
           return ok
         }),
       )

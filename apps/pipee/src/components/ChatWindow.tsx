@@ -17,12 +17,13 @@ import type {
   WeixinStatusProjection,
 } from "@/api/contract"
 import {
+  measureStreamingOutputThroughput,
   partitionAssistantBlocks,
   segmentAssistantBlocks,
   summarizeTurnUsage,
   type TurnUsage,
 } from "@/lib/message-display"
-import { MessageView, ProcessMessageView, TurnUsageSummary } from "./MessageView"
+import { MessageView, ProcessMessageView, StreamingThroughputBadge, TurnUsageSummary } from "./MessageView"
 import { ChatInput, type ChatInputHandle } from "./ChatInput"
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap"
 import { useAgentSession, type AgentPhase } from "@/hooks/useAgentSession"
@@ -575,7 +576,7 @@ export function ChatWindow({
               </div>
               <div {...stylex.props(inlineStyles.inline13)}>
                 <span {...stylex.props(inlineStyles.inline14)}>
-                  web <span {...stylex.props(inlineStyles.inline15)}>v{__APP_VERSION__}</span>
+                  pipee <span {...stylex.props(inlineStyles.inline15)}>v{__APP_VERSION__}</span>
                 </span>
                 <span {...stylex.props(inlineStyles.inline16)}>
                   pi <span {...stylex.props(inlineStyles.inline17)}>v{__PI_VERSION__}</span>
@@ -883,18 +884,25 @@ export function ChatWindow({
                         })
                       }
                       const footerUsage = isLiveTail ? liveTurnUsage : turnUsage
-                      if (footerUsage) {
-                        const turnTimestamp = messages
-                          .slice(userIdx + 1, endIdx)
-                          .findLast((message) => message.role === "assistant")?.timestamp
+                      const streamingThroughput = streamingAssistant
+                        ? measureStreamingOutputThroughput(streamingAssistant)
+                        : null
+                      const turnTimestamp = messages
+                        .slice(userIdx + 1, endIdx)
+                        .findLast((message) => message.role === "assistant")?.timestamp
+                      if (streamingThroughput || footerUsage) {
                         turnSegments.push(
-                          <TurnUsageSummary
-                            key={`turn-usage-${userIdx}`}
-                            modelNames={modelNames}
-                            usage={footerUsage}
-                            ongoing={isLiveTail}
-                            timestamp={turnTimestamp}
-                          />,
+                          <div key={`turn-metrics-${userIdx}`} {...stylex.props(inlineStyles.turnMetrics)}>
+                            {streamingAssistant && <StreamingThroughputBadge message={streamingAssistant} />}
+                            {footerUsage && (
+                              <TurnUsageSummary
+                                modelNames={modelNames}
+                                usage={footerUsage}
+                                ongoing={isLiveTail}
+                                timestamp={turnTimestamp}
+                              />
+                            )}
+                          </div>,
                         )
                       }
                       if (turnSegments.length > 0) {
@@ -910,13 +918,18 @@ export function ChatWindow({
                   })()}
 
                   {streamState.isStreaming && streamState.streamingMessage && liveUserIndex < 0 && (
-                    <MessageView
-                      message={streamState.streamingMessage as AgentMessage}
-                      isStreaming
-                      modelNames={modelNames}
-                      cwd={messageCwd}
-                      onOpenFile={onOpenFile}
-                    />
+                    <>
+                      <MessageView
+                        message={streamState.streamingMessage as AgentMessage}
+                        isStreaming
+                        modelNames={modelNames}
+                        cwd={messageCwd}
+                        onOpenFile={onOpenFile}
+                      />
+                      {streamState.streamingMessage.role === "assistant" && (
+                        <StreamingThroughputBadge message={streamState.streamingMessage as AssistantMessage} />
+                      )}
+                    </>
                   )}
 
                   {activeBashExecution && (
@@ -1267,6 +1280,12 @@ const inlineStyles = stylex.create({
     flexDirection: "column",
     gap: 20,
     marginBottom: 25,
+  },
+  turnMetrics: {
+    alignItems: "center",
+    display: "flex",
+    gap: 8,
+    minHeight: 18,
   },
   activityGroup: {
     color: "var(--text-muted)",

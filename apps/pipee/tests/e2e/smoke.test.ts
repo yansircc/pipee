@@ -1402,8 +1402,18 @@ test("loads model, auth, plugin, and skill projections without mutating user sta
   expect(projections.apiKeys).toMatchObject({ status: 200, body: { providers: expect.any(Array) } })
   expect(projections.plugins.status).toBe(200)
   expect(projections.skills.status).toBe(200)
+  expect(projections.skills.body.skills).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ name: "e2e-skill", mutation: { _tag: "DirectWrite" } }),
+      expect.objectContaining({
+        name: "read-only-skill",
+        mutation: { _tag: "ReadOnly", reason: "filesystem-read-only" },
+      }),
+    ]),
+  )
 
   const skillFile = resolve(fixtureWorkspace, ".agents", "skills", "e2e-skill", "SKILL.md")
+  const readOnlySkillFile = resolve(fixtureWorkspace, ".agents", "skills", "read-only-skill", "SKILL.md")
   const skillBrowse = await page.evaluate(
     async ({ cwd, skillPath }) => {
       const query = new URLSearchParams({ cwd, skillPath })
@@ -1461,6 +1471,25 @@ test("loads model, auth, plugin, and skill projections without mutating user sta
   expect(skillRoundTrip).toMatchObject({ disabledStatus: 200, enabledStatus: 200 })
   expect(skillRoundTrip.disabled).toContain("disable-model-invocation: true")
   expect(skillRoundTrip.enabled).not.toContain("disable-model-invocation")
+  const readOnlySkillMutation = await page.evaluate(
+    async ({ cwd, filePath }) => {
+      const before = await fetch(`/api/workspace/files/read?path=${encodeURIComponent(filePath)}`).then((response) =>
+        response.json(),
+      )
+      const response = await fetch("/api/packages/skills", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cwd, filePath, disableModelInvocation: true }),
+      })
+      const after = await fetch(`/api/workspace/files/read?path=${encodeURIComponent(filePath)}`).then((result) =>
+        result.json(),
+      )
+      return { status: response.status, before: before.content, after: after.content }
+    },
+    { cwd: fixtureWorkspace, filePath: readOnlySkillFile },
+  )
+  expect(readOnlySkillMutation.status).toBe(403)
+  expect(readOnlySkillMutation.after).toBe(readOnlySkillMutation.before)
   const deletedSkill = await mutate(
     page,
     "/api/packages/skills",

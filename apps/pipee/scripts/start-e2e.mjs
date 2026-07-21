@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { mkdir, readdir, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdir, readdir, rm, writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 import process from "node:process"
@@ -92,6 +92,14 @@ await writeFile(
 )
 await mkdir(join(fixtureSkillDirectory, "references"), { recursive: true })
 await writeFile(join(fixtureSkillDirectory, "references", "guide.md"), "# Guide\n\nSkill-owned reference.\n")
+const readOnlySkillDirectory = join(workspace, ".agents", "skills", "read-only-skill")
+const readOnlySkillFile = join(readOnlySkillDirectory, "SKILL.md")
+await mkdir(readOnlySkillDirectory, { recursive: true })
+await writeFile(
+  readOnlySkillFile,
+  "---\nname: read-only-skill\ndescription: immutable projection fixture\n---\n\n# Read-only skill\n",
+)
+await chmod(readOnlySkillFile, 0o444)
 const fixturePluginDirectory = join(fixtureRoot, "e2e-plugin")
 const fixtureExtensionSource = join(fixtureRoot, "e2e-extension-source")
 const fixtureExtensionArchiveDirectory = join(fixtureRoot, "e2e-extension-archive")

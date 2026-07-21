@@ -731,7 +731,7 @@ export const SkillSearchResult = Schema.Struct({
   url: Schema.String,
 })
 export type SkillSearchResult = typeof SkillSearchResult.Type
-export const SkillInfo = Schema.Struct({
+const SkillInfoFields = {
   name: Schema.String,
   description: Schema.String,
   filePath: Schema.String,
@@ -741,11 +741,30 @@ export const SkillInfo = Schema.Struct({
     source: Schema.optionalKey(Schema.String),
     scope: Schema.optionalKey(Schema.String),
   }),
+}
+export const DiscoveredSkillInfo = Schema.Struct(SkillInfoFields)
+export const DirectWriteSkillMutation = Schema.TaggedStruct("DirectWrite", {})
+export const ReadOnlySkillMutation = Schema.TaggedStruct("ReadOnly", {
+  reason: Schema.Literals(["package-owned", "generated-projection", "filesystem-read-only", "unavailable"]),
 })
+export const SkillMutation = Schema.Union([DirectWriteSkillMutation, ReadOnlySkillMutation])
+export type SkillMutation = typeof SkillMutation.Type
+export const SkillInfo = Schema.Union([
+  Schema.Struct({ ...SkillInfoFields, mutation: DirectWriteSkillMutation }),
+  Schema.Struct({ ...SkillInfoFields, mutation: ReadOnlySkillMutation }),
+])
+export type SkillInfo = typeof SkillInfo.Type
+export type WritableSkillInfo = Extract<SkillInfo, { readonly mutation: { readonly _tag: "DirectWrite" } }>
+export const isWritableSkillInfo = (skill: SkillInfo): skill is WritableSkillInfo =>
+  skill.mutation._tag === "DirectWrite"
 export const SkillDiagnostic = Schema.Struct({
   type: Schema.Literals(["warning", "error"]),
   message: Schema.String,
   path: Schema.optionalKey(Schema.String),
+})
+export const DiscoveredSkillsResponse = Schema.Struct({
+  skills: Schema.Array(DiscoveredSkillInfo),
+  diagnostics: Schema.Array(SkillDiagnostic),
 })
 export const SkillsResponse = Schema.Struct({
   skills: Schema.Array(SkillInfo),

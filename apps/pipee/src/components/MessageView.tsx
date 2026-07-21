@@ -5,7 +5,7 @@ import { MarkdownBody } from "./MarkdownBody"
 import { copyText } from "@/lib/clipboard"
 import { parseCompactionSummary } from "@/lib/compaction-summary"
 import { elapsedDuration, formatDuration } from "@/lib/duration"
-import { isEmptyThinkingBlock, type TurnUsage } from "@/lib/message-display"
+import { isEmptyThinkingBlock, measureStreamingOutputThroughput, type TurnUsage } from "@/lib/message-display"
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch"
 import { useI18n } from "@/lib/i18n"
 import { withApi, runApi, runBrowser } from "@/browser/api-client"
@@ -1636,6 +1636,36 @@ export function TurnUsageSummary({
     </details>
   )
 }
+
+export function StreamingThroughputBadge({ message }: { message: AssistantMessage }) {
+  const { t } = useI18n()
+  const throughput = measureStreamingOutputThroughput(message)
+  if (throughput === null) return null
+  const background =
+    throughput.tokensPerSecond >= 50
+      ? "#53b3cb"
+      : throughput.tokensPerSecond >= 30
+        ? "#9bc53d"
+        : throughput.tokensPerSecond >= 15
+          ? "#f9c22e"
+          : "#e01a4f"
+  const title = throughput.estimated
+    ? t("Estimated token speed while streaming")
+    : t("Measured token speed while streaming")
+  return (
+    <span
+      data-testid="streaming-throughput"
+      title={title}
+      aria-label={`${title}: ${throughput.tokensPerSecond.toFixed(1)} tok/s`}
+      {...stylex.props(inlineStyles.streamingThroughput)}
+      style={{ background }}
+    >
+      {throughput.estimated ? "≈" : ""}
+      {throughput.tokensPerSecond.toFixed(1)} tok/s
+    </span>
+  )
+}
+
 function formatUsage(
   usage: {
     input: number
@@ -2212,6 +2242,16 @@ const inlineStyles = stylex.create({
     position: "relative",
     fontVariantNumeric: "tabular-nums",
     width: "100%",
+  },
+  streamingThroughput: {
+    alignSelf: "flex-start",
+    borderRadius: 4,
+    color: "#fff",
+    fontSize: 11,
+    fontVariantNumeric: "tabular-nums",
+    fontWeight: 500,
+    lineHeight: "16px",
+    padding: "1px 6px",
   },
   inline85: {
     display: "flex",

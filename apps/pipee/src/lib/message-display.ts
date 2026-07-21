@@ -25,6 +25,33 @@ export interface AssistantDisplaySegment {
   readonly blocks: ReadonlyArray<AssistantContentBlock>
 }
 
+export interface StreamingOutputThroughput {
+  readonly tokens: number
+  readonly tokensPerSecond: number
+  readonly estimated: boolean
+}
+
+export function measureStreamingOutputThroughput(message: AssistantMessage): StreamingOutputThroughput | null {
+  const durationMs = message.generationDurationMs
+  if (durationMs === undefined || durationMs < 500) return null
+
+  const measuredTokens = message.usage?.output ?? 0
+  let outputCharacters = 0
+  for (const block of message.content ?? []) {
+    if (block.type === "text") outputCharacters += block.text.length
+    else if (block.type === "thinking") outputCharacters += block.thinking.length
+    else if (block.type === "toolCall") outputCharacters += JSON.stringify(block.input).length
+  }
+  const estimated = measuredTokens <= 0
+  const tokens = estimated ? Math.round(outputCharacters / 4) : measuredTokens
+  if (tokens <= 0) return null
+  return {
+    tokens,
+    tokensPerSecond: (tokens * 1_000) / durationMs,
+    estimated,
+  }
+}
+
 export function summarizeTurnUsage(messages: AgentMessage[], userIndex: number, endIndex: number): TurnUsage | null {
   const usage: TurnUsage = {
     models: [],

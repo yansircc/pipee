@@ -3,6 +3,7 @@ import { test } from "vite-plus/test"
 import type { AgentMessage, AssistantContentBlock, AssistantMessage } from "@/api/contract"
 import {
   getDisplayableAssistantBlocks,
+  measureStreamingOutputThroughput,
   partitionAssistantBlocks,
   segmentAssistantBlocks,
   summarizeTurnUsage,
@@ -16,6 +17,41 @@ function assistant(content: AssistantContentBlock[]): AssistantMessage {
     content,
   }
 }
+
+test("projects honest live throughput from the current stream measurement", () => {
+  assert.deepEqual(
+    measureStreamingOutputThroughput({
+      ...assistant([{ type: "text", text: "a".repeat(80) }]),
+      generationDurationMs: 1_000,
+    }),
+    { tokens: 20, tokensPerSecond: 20, estimated: true },
+  )
+
+  assert.deepEqual(
+    measureStreamingOutputThroughput({
+      ...assistant([{ type: "text", text: "provider measured output" }]),
+      generationDurationMs: 2_000,
+      usage: {
+        input: 10,
+        output: 50,
+        cacheRead: 0,
+        cacheWrite: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+    }),
+    { tokens: 50, tokensPerSecond: 25, estimated: false },
+  )
+})
+
+test("does not project live throughput before a meaningful measured interval", () => {
+  assert.equal(
+    measureStreamingOutputThroughput({
+      ...assistant([{ type: "text", text: "a".repeat(80) }]),
+      generationDurationMs: 499,
+    }),
+    null,
+  )
+})
 
 test("partitions public assistant events from process blocks", () => {
   const message = assistant([

@@ -16,6 +16,9 @@ interface Skill {
   filePath: string
   baseDir: string
   disableModelInvocation: boolean
+  mutation:
+    | { _tag: "DirectWrite" }
+    | { _tag: "ReadOnly"; reason: "package-owned" | "generated-projection" | "filesystem-read-only" | "unavailable" }
   sourceInfo: {
     source?: string
     scope?: string
@@ -482,20 +485,26 @@ export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => voi
         selectedSkill ? (
           <>
             <span {...stylex.props(inlineStyles.skillSourcePill)}>{t(sourceLabel(selectedSkill))}</span>
-            <span {...stylex.props(inlineStyles.modelInvocationAction)}>
-              <span {...stylex.props(inlineStyles.modelInvocationLabel)}>{t("Model invocation")}</span>
-              <Toggle
-                enabled={!selectedSkill.disableModelInvocation}
-                label={t(
-                  selectedSkill.disableModelInvocation
-                    ? "Hidden from model prompt — click to enable"
-                    : "Visible in model prompt — click to disable",
-                )}
-                loading={toggling.has(selectedSkill.filePath)}
-                onToggle={() => toggle(selectedSkill)}
-              />
-            </span>
-            {sourceLabel(selectedSkill) !== "path" && (
+            {selectedSkill.mutation._tag === "DirectWrite" ? (
+              <span {...stylex.props(inlineStyles.modelInvocationAction)}>
+                <span {...stylex.props(inlineStyles.modelInvocationLabel)}>{t("Model invocation")}</span>
+                <Toggle
+                  enabled={!selectedSkill.disableModelInvocation}
+                  label={t(
+                    selectedSkill.disableModelInvocation
+                      ? "Hidden from model prompt — click to enable"
+                      : "Visible in model prompt — click to disable",
+                  )}
+                  loading={toggling.has(selectedSkill.filePath)}
+                  onToggle={() => toggle(selectedSkill)}
+                />
+              </span>
+            ) : (
+              <span title={t("Change this skill through its owner")} {...stylex.props(inlineStyles.skillSourcePill)}>
+                {t("Read-only")}
+              </span>
+            )}
+            {selectedSkill.mutation._tag === "DirectWrite" && sourceLabel(selectedSkill) !== "path" && (
               <button
                 type="button"
                 disabled={deleting === selectedSkill.filePath}
