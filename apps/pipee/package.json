@@ -1,6 +1,6 @@
 {
   "name": "@yansircc/pipee",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Web UI for the pi coding agent",
   "type": "module",
   "homepage": "https://github.com/yansircc/pipee/tree/main/apps/pipee#readme",
