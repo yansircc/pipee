@@ -2,8 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   projectCompanionReadiness,
   type ChromeStatusProjection,
-} from "@pi-suite/companion-contracts/chrome";
-import type { BrowserCompanionExpectation } from "@pi-suite/companion-contracts/browser-companion";
+} from "@pipee/companion-contracts/chrome";
+import type { BrowserCompanionExpectation } from "@pipee/companion-contracts/browser-companion";
 
 const expected: BrowserCompanionExpectation = {
   extensionId: "abcdefghijklmnopabcdefghijklmnop",

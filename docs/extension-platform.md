@@ -1,6 +1,6 @@
 # Extension platform
 
-Pi Suite extends the published Pi Extension API without modifying Pi itself.
+Pipee extends the published Pi Extension API without modifying Pi itself.
 
 ## Tool ownership
 
@@ -19,7 +19,7 @@ machine.
 
 ## Optional host capabilities
 
-Pi Web owns the `ExtensionUIContext` object supplied to lifecycle callbacks. It exposes one
+Pipee owns the `ExtensionUIContext` object supplied to lifecycle callbacks. It exposes one
 Suite-specific capability lookup on that object while leaving the published Pi API unchanged. The
 lookup binds an Extension package identity to one versioned port:
 
@@ -30,8 +30,8 @@ pi-suite/runtime-retention@1
 pi-suite/web-surface-runtime@1
 ```
 
-`@pi-suite/companion-contracts` owns the method and port identifiers plus their wire-safe schemas.
-`@pi-suite/host-runtime` owns keyed projection and retention mechanisms. `@pi-suite/extension-kit`
+`@pipee/companion-contracts` owns the method and port identifiers plus their wire-safe schemas.
+`@pipee/host-runtime` owns keyed projection and retention mechanisms. `@pipee/extension-kit`
 only performs typed lookup and Scope integration; it stores no domain state.
 
 Ports remain independent:
@@ -68,7 +68,7 @@ Pi settings remain installed/enabled truth. The package archive owns the runtime
 `packageName × candidateHash × sessionId × RuntimeIdentity`. `candidateHash` is derived from sorted
 `package.json`, Pi runtime entries, and `dist/web/**`; it is never writable state.
 
-The `/extensions` route is not owned by a selected Session. Pi Web derives one read-only catalog from the
+The `/extensions` route is not owned by a selected Session. Pipee derives one read-only catalog from the
 real package resolution of existing Session workspaces. Selecting a package connects its iframe to the
 already-running compatible Session controllers; if none is running, the most recently active compatible
 Session is used as the single activation anchor. No Agent Session is created by this route.
@@ -80,7 +80,7 @@ rows carry that owner cwd back to the existing package mutation endpoint; the UI
 Session as a hidden settings context. With no Sessions, global install, update, enable, disable, and removal
 remain available while project scope is unavailable until a Project exists.
 
-Pi Web serves admitted assets through `/extension-assets/...` and runs them in
+Pipee serves admitted assets through `/extension-assets/...` and runs them in
 `<iframe sandbox="allow-scripts">`. The iframe receives a transferred `MessagePort`; it is never imported into
 the host realm and has no mount/dispose protocol. One browser port multiplexes read-only projections from the
 connected Session runtimes. Each projection carries its Session context, and every action names one owner

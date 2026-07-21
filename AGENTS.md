@@ -1,8 +1,8 @@
-# Pi Suite development contract
+# Pipee development contract
 
 ## Ownership
 
-- This repository is the only source writer for Pi Web, Loop, Weixin, Chrome, and their shared contracts.
+- This repository is the only source writer for Pipee, Loop, Weixin, Chrome, and their shared contracts.
 - Pi SDK session files own agent truth. Companion contracts own cross-package wire schemas. Domain state machines remain in their extension.
 - Shared runtime code may own mechanisms such as scoped cross-process leases; it must not own Loop, Weixin, or Chrome policy.
 - Do not add compatibility routes, state migrations, aliases, or synchronization back to the former leaf repositories.

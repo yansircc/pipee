@@ -1,4 +1,4 @@
-import type { JsonValue } from "@pi-suite/companion-contracts/web-surface";
+import type { JsonValue } from "@pipee/companion-contracts/web-surface";
 import { Schema } from "effect";
 import type { Loop } from "../domain/model.js";
 import { projectLoops } from "./status.js";

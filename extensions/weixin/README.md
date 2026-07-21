@@ -1,6 +1,6 @@
 # pi-weixin
 
-Agent-first Weixin bridge tools for Pi. One Weixin account is connected globally to Pi Web. An
+Agent-first Weixin bridge tools for Pi. One Weixin account is connected globally to Pipee. An
 unquoted message enters the configured default Pi session; quoting a Pi-originated Weixin message
 routes back to the exact session that sent it.
 
@@ -19,7 +19,7 @@ missing or expired, it shows the QR widget and waits for the scan. Existing cred
 without a prompt.
 
 Proactive send becomes ready after the connected user has sent at least one inbound message, which
-provides the iLink context token. Pi Web renders one global-account Weixin Web Surface from the multiplexed
+provides the iLink context token. Pipee renders one global-account Weixin Web Surface from the multiplexed
 Bridge projections. Scan/re-scan, pause/resume, logout, default-session selection, and test send are finite
 typed actions against the single Bridge owner. Default-session selection names the exact existing Session;
 it does not create a second account or routing owner.

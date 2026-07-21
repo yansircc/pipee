@@ -1,7 +1,7 @@
 node_modules/
 **/node_modules/
 **/dist/
-apps/web/.output/
+apps/pipee/.output/
 **/.effect-scan/
 release/candidates/
 release/candidate.json

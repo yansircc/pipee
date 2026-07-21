@@ -1,14 +1,14 @@
 {
-  "name": "@yansircc/pi-suite-workspace",
+  "name": "@pipee/workspace",
   "version": "0.0.0",
   "private": true,
-  "homepage": "https://github.com/yansircc/pi-suite#readme",
+  "homepage": "https://github.com/yansircc/pipee#readme",
   "bugs": {
-    "url": "https://github.com/yansircc/pi-suite/issues"
+    "url": "https://github.com/yansircc/pipee/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yansircc/pi-suite.git"
+    "url": "git+https://github.com/yansircc/pipee.git"
   },
   "type": "module",
   "scripts": {

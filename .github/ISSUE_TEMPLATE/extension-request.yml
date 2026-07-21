@@ -1,0 +1,37 @@
+name: Extension request
+description: Describe a capability you want Pi to gain
+title: "[Extension request]: "
+labels: ["extension-request"]
+body:
+  - type: markdown
+    attributes:
+      value: Describe the outcome first. You do not need to design the Extension.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What should Pi be able to accomplish?
+      placeholder: I want Pi to...
+    validations:
+      required: true
+  - type: textarea
+    id: services
+    attributes:
+      label: Services and data involved
+      description: Name the applications, APIs, files, or accounts this capability would access.
+    validations:
+      required: true
+  - type: textarea
+    id: gap
+    attributes:
+      label: Current gap
+      description: Why are existing Pi capabilities insufficient?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Completion evidence
+      description: What observable result would prove this request is satisfied?
+    validations:
+      required: true

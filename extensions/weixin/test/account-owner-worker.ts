@@ -14,7 +14,7 @@ const live = BridgeLive.pipe(
       ConfigProvider.fromUnknown({
         HOME: home,
         PI_WEIXIN_STATE_PATH: statePath,
-        PI_WEB_BASE_URL: "http://127.0.0.1:9",
+        PIPEE_BASE_URL: "http://127.0.0.1:9",
       }),
     ),
   ),

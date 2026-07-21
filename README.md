@@ -1,10 +1,11 @@
-# Pi Suite
+# Pipee
 
-Pi Suite is the source and compatibility release repository for Pi Agent Web and its companion extensions.
+Pipee is the source and compatibility release repository for Pipee and its companion extensions.
 
 ## Workspaces
 
-- `apps/web` — TanStack Start web host for Pi sessions.
+- `apps/pipee` — TanStack Start web host for Pi sessions.
+- `apps/site` — Astro static product site deployed as Cloudflare Worker assets.
 - `extensions/loop` — durable scheduled and dynamic session automation.
 - `extensions/weixin` — Weixin iLink bridge bound to existing Pi sessions.
 - `extensions/chrome` — Pi Chrome bridge plus its matching browser extension.

@@ -186,7 +186,7 @@ if (command === "verify") {
   ];
   const existing = spawnSync("gh", ["release", "view", record.tag], { encoding: "utf8" });
   if (existing.status !== 0) {
-    run("gh", ["release", "create", record.tag, "--verify-tag", "--title", record.tag, "--notes", `Exact Pi Suite candidate for ${releaseSha}`], { inherit: true });
+    run("gh", ["release", "create", record.tag, "--verify-tag", "--title", record.tag, "--notes", `Exact Pipee candidate for ${releaseSha}`], { inherit: true });
   }
   for (const asset of assets) {
     const name = basename(asset);

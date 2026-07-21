@@ -12,8 +12,8 @@ import {
   webSurface,
   type RuntimeRetentionSlot,
   type WebSurfaceSlot,
-} from "@pi-suite/extension-kit";
-import type { StructuredViewPort } from "@pi-suite/companion-contracts/host-capabilities";
+} from "@pipee/extension-kit";
+import type { StructuredViewPort } from "@pipee/companion-contracts/host-capabilities";
 import packageJson from "../../package.json" with { type: "json" };
 import { loadLoopConfig } from "../application/config.js";
 import { makeLoopOperations, type LoopOperations } from "../application/operations.js";

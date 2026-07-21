@@ -4,7 +4,7 @@ import { releasePlanFromDocuments } from "./release-plan.mjs";
 
 const config = {
   packages: [
-    { id: "web", name: "@fixture/web", path: "apps/web" },
+    { id: "web", name: "@fixture/web", path: "apps/pipee" },
     { id: "loop", name: "@fixture/loop", path: "extensions/loop" },
   ],
 };

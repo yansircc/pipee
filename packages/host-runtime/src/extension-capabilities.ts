@@ -11,7 +11,7 @@ import {
   type RuntimeRetentionPort,
   type StructuredView as StructuredViewValue,
   type StructuredViewPort,
-} from "@pi-suite/companion-contracts/host-capabilities";
+} from "@pipee/companion-contracts/host-capabilities";
 import {
   WebSurfaceActionOutcome,
   JsonValue as JsonValueSchema,
@@ -22,7 +22,7 @@ import {
   type WebSurfaceRegistration,
   type WebSurfaceRuntimeHandle,
   type WebSurfaceRuntimePort,
-} from "@pi-suite/companion-contracts/web-surface";
+} from "@pipee/companion-contracts/web-surface";
 import { Data, Effect, Schema } from "effect";
 
 export class WebSurfaceRegistrationError extends Data.TaggedError("WebSurfaceRegistrationError")<{

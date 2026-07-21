@@ -8,13 +8,13 @@ import {
   type RuntimeRetentionClaim,
   type RuntimeRetentionPort,
   type StructuredViewPort,
-} from "@pi-suite/companion-contracts/host-capabilities";
+} from "@pipee/companion-contracts/host-capabilities";
 import {
   type JsonValue,
   type WebSurfaceDispatch,
   type WebSurfaceRuntimeHandle,
   type WebSurfaceRuntimePort,
-} from "@pi-suite/companion-contracts/web-surface";
+} from "@pipee/companion-contracts/web-surface";
 import { Data, Effect, Scope } from "effect";
 
 interface HostCapabilityLookup {

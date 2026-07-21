@@ -26,7 +26,7 @@ const makeCandidate = () => {
   symlinkSync(join(projectRoot, "node_modules"), join(root, "node_modules"), "dir");
   mkdirSync(join(root, "tooling", "release"), { recursive: true });
   mkdirSync(join(root, "release", "changes"), { recursive: true });
-  mkdirSync(join(root, "apps", "web"), { recursive: true });
+  mkdirSync(join(root, "apps", "pipee"), { recursive: true });
   for (const file of [
     "lib.mjs",
     "materialize-release-candidate.mjs",
@@ -40,24 +40,24 @@ const makeCandidate = () => {
   }
   writeJson(join(root, "release", "suite.config.json"), {
     schemaVersion: 1,
-    packages: [{ id: "web", name: "@yansircc/pi-web", path: "apps/web" }],
+    packages: [{ id: "web", name: "@yansircc/pipee", path: "apps/pipee" }],
   });
-  writeJson(join(root, "apps", "web", "package.json"), {
-    name: "@yansircc/pi-web",
+  writeJson(join(root, "apps", "pipee", "package.json"), {
+    name: "@yansircc/pipee",
     version: "1.2.3",
     type: "module",
     files: ["index.js"],
   });
-  writeFileSync(join(root, "apps", "web", "index.js"), "export const value = 1;\n");
+  writeFileSync(join(root, "apps", "pipee", "index.js"), "export const value = 1;\n");
   writeFileSync(join(root, ".gitignore"), "node_modules/\nrelease/candidate.json\nrelease/candidates/\n");
   git(root, "add", "-A");
   git(root, "commit", "-m", "chore: base");
   git(root, "push", "-u", "origin", "main");
   const base = git(root, "rev-parse", "HEAD");
-  writeFileSync(join(root, "apps", "web", "index.js"), "export const value = 2;\n");
+  writeFileSync(join(root, "apps", "pipee", "index.js"), "export const value = 2;\n");
   writeJson(join(root, "release", "changes", "web.json"), {
     schemaVersion: 1,
-    changes: [{ package: "@yansircc/pi-web", bump: "minor" }],
+    changes: [{ package: "@yansircc/pipee", bump: "minor" }],
   });
   git(root, "add", "-A");
   git(root, "commit", "-m", "feat: candidate");
@@ -67,8 +67,8 @@ const makeCandidate = () => {
   );
 
   const packageRoot = mkdtempSync(join(tmpdir(), "pi-suite-promoter-package-"));
-  writeFileSync(join(packageRoot, "package.json"), git(root, "show", `${materialized.release}:apps/web/package.json`));
-  writeFileSync(join(packageRoot, "index.js"), git(root, "show", `${materialized.release}:apps/web/index.js`));
+  writeFileSync(join(packageRoot, "package.json"), git(root, "show", `${materialized.release}:apps/pipee/package.json`));
+  writeFileSync(join(packageRoot, "index.js"), git(root, "show", `${materialized.release}:apps/pipee/index.js`));
   mkdirSync(join(root, "release", "candidates"), { recursive: true });
   const archiveName = basename(
     run(packageRoot, "npm", ["pack", "--pack-destination", join(root, "release", "candidates")]),
@@ -88,17 +88,17 @@ const makeCandidate = () => {
       packages: [
         {
           id: "web",
-          name: "@yansircc/pi-web",
+          name: "@yansircc/pipee",
           bump: "minor",
           fromVersion: "1.2.3",
           toVersion: "1.3.0",
-          tag: "pi-web-v1.3.0",
+          tag: "pipee-v1.3.0",
         },
       ],
     },
     artifacts: {
       web: {
-        name: "@yansircc/pi-web",
+        name: "@yansircc/pipee",
         version: "1.3.0",
         archive: archiveName,
         integrity: integrity(archive),
@@ -168,7 +168,7 @@ it("resumes an already-promoted candidate only before a later public release", (
     assert.match(verify(), /Verified privileged boundary/);
     assert.match(promote(), /already promoted on main/);
 
-    const manifestPath = join(value.root, "apps", "web", "package.json");
+    const manifestPath = join(value.root, "apps", "pipee", "package.json");
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     manifest.version = "1.4.0";
     writeJson(manifestPath, manifest);

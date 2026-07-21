@@ -7,7 +7,7 @@ import { Type } from "@sinclair/typebox";
 import { Effect, Exit, Schema, Scope, Stream } from "effect";
 import QRCode from "qrcode";
 import packageJson from "../package.json" with { type: "json" };
-import type { MediaViewPort } from "@pi-suite/companion-contracts/host-capabilities";
+import type { MediaViewPort } from "@pipee/companion-contracts/host-capabilities";
 import {
   makeRuntimeRetentionSlot,
   mediaView,
@@ -15,7 +15,7 @@ import {
   webSurface,
   type RuntimeRetentionSlot,
   type WebSurfaceSlot,
-} from "@pi-suite/extension-kit";
+} from "@pipee/extension-kit";
 import { Bridge, type BridgeStatus } from "../src/bridge.ts";
 import { BridgeConfigurationError, QrCodeError } from "../src/errors.ts";
 import type { LoginEvent } from "../src/ilink.ts";
@@ -122,7 +122,7 @@ const login = (ctx: ExtensionContext, projectLogin?: (projection: WeixinLoginPro
             : Effect.gen(function* () {
                 if (!image) {
                   return yield* new BridgeConfigurationError({
-                    reason: "当前宿主不支持图片 Widget，请更新 pi-web",
+                    reason: "当前宿主不支持图片 Widget，请更新 pipee",
                   });
                 }
                 const dataUrl = yield* Effect.tryPromise({

@@ -25,8 +25,8 @@ assert.equal(
 );
 
 const names = new Set();
-const suiteRepository = "git+https://github.com/yansircc/pi-suite.git";
-const suiteIssues = "https://github.com/yansircc/pi-suite/issues";
+const suiteRepository = "git+https://github.com/yansircc/pipee.git";
+const suiteIssues = "https://github.com/yansircc/pipee/issues";
 for (const entry of config.packages) {
   const directory = resolve(root, entry.path);
   const manifest = JSON.parse(readFileSync(join(directory, "package.json"), "utf8"));
@@ -46,7 +46,7 @@ for (const entry of config.packages) {
   assert.equal(manifest.bugs?.url, suiteIssues, `${entry.id} package bugs URL drifted`);
   assert.equal(
     manifest.homepage,
-    `https://github.com/yansircc/pi-suite/tree/main/${entry.path}#readme`,
+    `https://github.com/yansircc/pipee/tree/main/${entry.path}#readme`,
     `${entry.id} package homepage drifted`,
   );
   assert.equal(
@@ -84,7 +84,7 @@ for (const entry of config.packages) {
     }
   }
   assert.equal(
-    manifest.devDependencies?.["@pi-suite/companion-contracts"],
+    manifest.devDependencies?.["@pipee/companion-contracts"],
     "workspace:*",
     `${entry.id} must compile against the shared contracts`,
   );
@@ -164,7 +164,7 @@ for (const file of ["build.mjs", "distribution-contract.mjs", "verify-distributi
 }
 const sourceFiles = [];
 const pending = [
-  resolve(root, "apps/web/src"),
+  resolve(root, "apps/pipee/src"),
   resolve(root, "extensions"),
   resolve(root, "protocols"),
 ];
