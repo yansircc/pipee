@@ -1,7 +1,15 @@
 import { expect, test, vi } from "vite-plus/test"
+import { it } from "@effect/vitest"
+import { Effect, Schema } from "effect"
 import { RunId, SessionEntry } from "@/api/contract"
 import { matchExtensionInteractionResponse } from "./extension-ui-runtime"
-import { findAgentSessionModel, normalizeAgentSessionName, normalizePiMessage } from "./pi-agent-adapter"
+import {
+  findAgentSessionModel,
+  normalizeAgentSessionName,
+  normalizePiMessage,
+  normalizeSessionStats,
+} from "./pi-agent-adapter"
+import { decodeOnExecution } from "./pi-adapter-errors"
 import { canonicalPromptInput, decidePromptRequest, projectPromptRequestReceipts } from "./prompt-request"
 
 test("normalizes Pi flat images and tool calls into the canonical API shape", () => {
@@ -52,6 +60,39 @@ test("resolves session models through the runtime-owned model catalog", () => {
   expect(findAgentSessionModel({ modelRuntime: { getModel } }, model.provider, model.id)).toBe(model)
   expect(findAgentSessionModel({ modelRuntime: { getModel } }, model.provider, "missing")).toBeUndefined()
   expect(getModel).toHaveBeenCalledTimes(2)
+})
+
+it.effect("reads and decodes live runtime state only when the Effect executes", () =>
+  Effect.gen(function* () {
+    let value = 0
+    const operation = decodeOnExecution(Schema.Struct({ value: Schema.Finite }), "runtime.fixture", () => ({
+      value: ++value,
+    }))
+
+    expect(value).toBe(0)
+    expect(yield* operation).toEqual({ value: 1 })
+    expect(yield* operation).toEqual({ value: 2 })
+  }),
+)
+
+test("normalizes unavailable Pi stats fields at the adapter boundary", () => {
+  expect(
+    normalizeSessionStats(
+      {
+        sessionFile: undefined,
+        sessionId: "session-1",
+        contextUsage: undefined,
+        totalMessages: 0,
+      },
+      undefined,
+    ),
+  ).toEqual({ sessionId: "session-1", totalMessages: 0 })
+
+  expect(normalizeSessionStats({ sessionId: "session-1", totalMessages: 1 }, "Named session")).toEqual({
+    sessionId: "session-1",
+    sessionName: "Named session",
+    totalMessages: 1,
+  })
 })
 
 const runId = RunId.make("run-1")

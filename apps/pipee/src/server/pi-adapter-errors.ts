@@ -21,3 +21,6 @@ export const decode = <S extends Schema.Top>(schema: S, operation: string, value
   Schema.decodeUnknownEffect(schema)(value).pipe(
     Effect.mapError((cause) => new PiAdapterError({ operation, message: String(cause) })),
   )
+
+export const decodeOnExecution = <S extends Schema.Top>(schema: S, operation: string, read: () => unknown) =>
+  Effect.suspend(() => decode(schema, operation, read()))

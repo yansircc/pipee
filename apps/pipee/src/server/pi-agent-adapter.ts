@@ -104,7 +104,7 @@ import {
 import { makeSessionOperationSlot, PiOperationBusyError, type OperationKind } from "./session-operation-slot"
 import { makeExtensionUiRuntime, PiInteractionConflictError, PiInteractionResponseError } from "./extension-ui-runtime"
 import { makeCompanionController } from "./companion-controller"
-import { adapterError, decode, PiAdapterError, PiPromptIdempotencyError } from "./pi-adapter-errors"
+import { adapterError, decode, decodeOnExecution, PiAdapterError, PiPromptIdempotencyError } from "./pi-adapter-errors"
 import {
   assertUniqueWebSurfaceCandidates,
   findWebSurfaceCandidateForExtension,
@@ -428,6 +428,14 @@ export const findAgentSessionModel = (
   provider: string,
   modelId: string,
 ): ModelLike | undefined => session.modelRuntime.getModel(provider, modelId)
+
+export const normalizeSessionStats = (value: unknown, sessionName: string | undefined): unknown => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return value
+  const normalized = Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(([, entry]) => entry !== undefined),
+  )
+  return sessionName === undefined ? normalized : { ...normalized, sessionName }
+}
 
 class PlainTextTheme extends Theme {
   constructor() {
@@ -1396,14 +1404,13 @@ const makeRuntime = (
         ),
       abortCompaction: Effect.sync(() => inner.abortCompaction()),
       setSessionName: (name) => Effect.sync(() => inner.setSessionName(name)),
-      stats: decode(SessionStats, "runtime.stats", {
-        ...(inner.getSessionStats() as Record<string, unknown>),
-        sessionName: inner.sessionManager.getSessionName() || undefined,
-      }),
+      stats: decodeOnExecution(SessionStats, "runtime.stats", () =>
+        normalizeSessionStats(inner.getSessionStats(), inner.sessionManager.getSessionName() || undefined),
+      ),
       lastAssistantText: Effect.sync(() => inner.getLastAssistantText() ?? ""),
       setAutoCompaction: (enabled) => Effect.sync(() => inner.setAutoCompactionEnabled(enabled)),
       setAutoRetry: (enabled) => Effect.sync(() => inner.setAutoRetryEnabled(enabled)),
-      clearQueue: decode(QueuedMessages, "runtime.clearQueue", inner.clearQueue()),
+      clearQueue: decodeOnExecution(QueuedMessages, "runtime.clearQueue", () => inner.clearQueue()),
       tools: Effect.sync(() => {
         const active = new Set(inner.getActiveToolNames())
         return inner.getAllTools().map((tool) => ToolEntry.make({ ...tool, active: active.has(tool.name) }))
