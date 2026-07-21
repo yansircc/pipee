@@ -27,7 +27,7 @@ export const ChatDraft = Schema.Struct({
 })
 
 export const BrowserPreferencesState = Schema.Struct({
-  version: Schema.Literal(1),
+  version: Schema.Literal(2),
   locale: Locale,
   theme: Theme,
   soundEnabled: Schema.Boolean,
@@ -37,10 +37,10 @@ export const BrowserPreferencesState = Schema.Struct({
 
 export type BrowserPreferencesState = typeof BrowserPreferencesState.Type
 
-const STORAGE_KEY = "pi-web:preferences:v1"
+const STORAGE_KEY = "pipee:preferences:v2"
 
 export const defaultBrowserPreferences: BrowserPreferencesState = BrowserPreferencesState.make({
-  version: 1,
+  version: 2,
   locale: "zh-CN",
   theme: "light",
   soundEnabled: true,

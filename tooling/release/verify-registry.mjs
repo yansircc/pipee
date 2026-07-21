@@ -4,14 +4,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout } from "node:timers/promises";
-import { root, run, suiteConfig } from "./lib.mjs";
+import { root, run, pipeeConfig } from "./lib.mjs";
 import { waitForRegistrySet } from "./public-registry.mjs";
 import { classifyRegistryLookup } from "./registry-state.mjs";
 
 const candidate = JSON.parse(readFileSync(resolve(root, "release/candidate.json"), "utf8"));
 assert.equal(candidate.releasable, true, "public acceptance requires a releasable candidate");
 
-const packages = suiteConfig().packages.flatMap((entry) => {
+const packages = pipeeConfig().packages.flatMap((entry) => {
   const artifact = candidate.artifacts[entry.id];
   if (!artifact) return [];
   return [
@@ -41,7 +41,7 @@ await waitForRegistrySet({
 });
 
 const verifyConsumer = (consumer) => {
-  const directory = mkdtempSync(join(tmpdir(), `pi-suite-public-${consumer}-`));
+  const directory = mkdtempSync(join(tmpdir(), `pipee-public-${consumer}-`));
   try {
     writeFileSync(join(directory, "package.json"), '{"private":true}\n');
     if (consumer === "npm") {
@@ -72,13 +72,11 @@ const verifyConsumer = (consumer) => {
       );
     }
     assert.equal(
-      existsSync(
-        join(directory, "node_modules", "@pipee", "companion-contracts", "package.json"),
-      ),
+      existsSync(join(directory, "node_modules", "@pipee", "companion-contracts", "package.json")),
       false,
       `${consumer} installed the private contracts package`,
     );
-    if (packages.some(({ id }) => id === "web")) {
+    if (packages.some(({ id }) => id === "pipee")) {
       const bin = process.platform === "win32" ? "pipee.cmd" : "pipee";
       assert.equal(
         existsSync(join(directory, "node_modules", ".bin", bin)),

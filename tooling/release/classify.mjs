@@ -18,7 +18,7 @@ const record = parseReleaseRecord(git(["show", "-s", "--format=%B", commit]));
 
 if (record !== undefined) {
   const parents = git(["show", "-s", "--format=%P", commit]).split(/\s+/).filter(Boolean);
-  const packages = JSON.parse(git(["show", `${commit}:release/suite.config.json`])).packages;
+  const packages = JSON.parse(git(["show", `${commit}:release/pipee.config.json`])).packages;
   const packageManifestPaths = Object.fromEntries(
     packages.map(({ id, path }) => [id, `${path}/package.json`]),
   );

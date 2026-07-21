@@ -6,7 +6,7 @@ import {
   type WebSurfaceHostMessage,
   type WebSurfaceSessionContext,
 } from "@pipee/companion-contracts/web-surface"
-import { PiWebHttpClient, withApi } from "./http-api-client"
+import { PipeeHttpClient, withApi } from "./http-api-client"
 import { advanceWebSurfaceSessionChannel, type WebSurfaceSessionChannelState } from "./web-surface-channel-state"
 import { BrowserPlatform } from "./browser-platform"
 import { probeBrowserCompanion, wakeBrowserCompanion } from "@/lib/browser-companion-installation"
@@ -35,7 +35,7 @@ export const connectWebSurface = (
 ) =>
   Effect.gen(function* () {
     callbacks.state("connecting")
-    const client = yield* PiWebHttpClient
+    const client = yield* PipeeHttpClient
     const browser = yield* BrowserPlatform
     const channel = new MessageChannel()
     const port = channel.port1
@@ -165,7 +165,7 @@ export const connectWebSurface = (
             payload: { requestId: message.requestId, payload: message.payload },
           }),
         ).pipe(
-          Effect.provideService(PiWebHttpClient, client),
+          Effect.provideService(PipeeHttpClient, client),
           Effect.tap((outcome) =>
             Effect.sync(() => post({ _tag: "action-result", requestId: message.requestId, outcome })),
           ),
@@ -182,11 +182,9 @@ export const connectWebSurface = (
       )
     }
     port.start()
-    iframe.contentWindow?.postMessage(
-      { type: "pi-suite-web-surface-port", contract: WEB_SURFACE_CHANNEL_CONTRACT },
-      "*",
-      [channel.port2],
-    )
+    iframe.contentWindow?.postMessage({ type: "pipee-web-surface-port", contract: WEB_SURFACE_CHANNEL_CONTRACT }, "*", [
+      channel.port2,
+    ])
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         post({ _tag: "closed", reason: "browser-scope-closed" })
@@ -208,7 +206,7 @@ export const connectWebSurface = (
         FiberSet.run(
           fibers,
           withApi((api) => api.sessions.events({ params: { id: binding.session.sessionId } })).pipe(
-            Effect.provideService(PiWebHttpClient, client),
+            Effect.provideService(PipeeHttpClient, client),
             Effect.flatMap((events) =>
               events.pipe(
                 Stream.runForEach((envelope) => {

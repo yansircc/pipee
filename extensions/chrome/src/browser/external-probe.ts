@@ -17,7 +17,7 @@ export const handleChromeExtensionProbe = (
   isChromeExtensionProbeRequest(message)
     ? {
         kind: CHROME_EXTENSION_PROBE_KIND,
-        version: 1,
+        version: 2,
         extension: {
           extensionId: runtime.id,
           displayVersion: runtime.getManifest().version,

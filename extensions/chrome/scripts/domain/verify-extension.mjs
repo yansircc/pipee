@@ -13,7 +13,7 @@ const evidence = JSON.parse(
   await readFile(resolve(packageRoot, "dist", "browser-extension", "evidence.json"), "utf8"),
 );
 assert.equal(typeof manifest.version, "string", "archive package version must be a string");
-assert.equal(manifest.piSuite.web.contract, "pi-suite/web-surface@1");
+assert.equal(manifest.pipee.web.contract, "pipee/web-surface@2");
 assert.match(webDocument, /<script[^>]+type="module"/);
 
 await validateExtensionDirectory(resolve(packageRoot, "dist", "browser-extension"), {

@@ -28,13 +28,16 @@ it("requires verification and a real connector smoke before publishing", () => {
   expect(packageJson.files.filter((path) => path === "src" || path.startsWith("src/"))).toEqual([]);
   expect(packageJson).not.toHaveProperty("dependencies");
   expect(packageJson.pi.extensions).toEqual(["./dist/pi/extension.js"]);
-  expect(packageJson.piSuite.web).toEqual({
-    contract: "pi-suite/web-surface@1",
+  expect(packageJson.pipee.web).toEqual({
+    contract: "pipee/web-surface@2",
     document: "./dist/web/index.html",
     title: "Chrome 自动化",
   });
   expect(packageJson.scripts.verify).toBe("pnpm run repo:verify && pnpm run pi:verify");
-  expect(packageJson.scripts["pi:assets-build"]).toBe("node scripts/build.ts");
+  expect(packageJson.scripts["pi:browser-build"]).toBe("node scripts/build.ts");
+  expect(packageJson.scripts["pi:assets-build"]).toBe(
+    "pnpm run pi:browser-build && pnpm run pi:web-build",
+  );
   expect(packageJson.scripts["release:check"]).toBe("node scripts/release-check.ts");
   expect(packageJson.scripts["release:archive-check"]).toBe(
     "node ../../tooling/pi-extension/verify-distribution.mjs . archive",

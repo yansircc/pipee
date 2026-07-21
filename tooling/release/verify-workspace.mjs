@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { root, readJson, suiteConfig } from "./lib.mjs";
+import { root, readJson, pipeeConfig } from "./lib.mjs";
 import { requiredPiRuntimePackages, verifyPiReleaseTrain } from "./pi-release-train.mjs";
 
-const config = suiteConfig();
+const config = pipeeConfig();
 const rootManifest = readJson("package.json");
 assert.equal(config.schemaVersion, 1);
+assert.deepEqual(
+  config.packages.map(({ id }) => id),
+  ["pipee", "loop", "weixin", "chrome"],
+  "Pipee release package identities drifted",
+);
 assert.equal(rootManifest.version, "0.0.0", "private workspace root must not own a public version");
 assert.equal(
   rootManifest.devDependencies?.typescript,
@@ -25,8 +30,8 @@ assert.equal(
 );
 
 const names = new Set();
-const suiteRepository = "git+https://github.com/yansircc/pipee.git";
-const suiteIssues = "https://github.com/yansircc/pipee/issues";
+const pipeeRepository = "git+https://github.com/yansircc/pipee.git";
+const pipeeIssues = "https://github.com/yansircc/pipee/issues";
 for (const entry of config.packages) {
   const directory = resolve(root, entry.path);
   const manifest = JSON.parse(readFileSync(join(directory, "package.json"), "utf8"));
@@ -40,10 +45,10 @@ for (const entry of config.packages) {
   names.add(entry.name);
   assert.deepEqual(
     manifest.repository,
-    { type: "git", url: suiteRepository, directory: entry.path },
-    `${entry.id} package metadata does not point at its Suite directory`,
+    { type: "git", url: pipeeRepository, directory: entry.path },
+    `${entry.id} package metadata does not point at its Pipee directory`,
   );
-  assert.equal(manifest.bugs?.url, suiteIssues, `${entry.id} package bugs URL drifted`);
+  assert.equal(manifest.bugs?.url, pipeeIssues, `${entry.id} package bugs URL drifted`);
   assert.equal(
     manifest.homepage,
     `https://github.com/yansircc/pipee/tree/main/${entry.path}#readme`,
@@ -133,7 +138,7 @@ const schemaOwners = [
   ["pi-loop/status", "protocols/companion-contracts/src/loop.ts"],
 ];
 
-for (const entry of config.packages.filter(({ id }) => id !== "web")) {
+for (const entry of config.packages.filter(({ id }) => id !== "pipee")) {
   const directory = resolve(root, entry.path);
   assert.equal(
     existsSync(join(directory, "scripts/pi-extension/config.mjs")),
@@ -205,5 +210,5 @@ for (const forbidden of [
   );
 }
 process.stdout.write(
-  `Verified ${config.packages.length} Suite packages, ${schemaOwners.length} shared contracts, and Pi release train ${piReleaseVersion}.\n`,
+  `Verified ${config.packages.length} Pipee packages, ${schemaOwners.length} shared contracts, and Pi release train ${piReleaseVersion}.\n`,
 );

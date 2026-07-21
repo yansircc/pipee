@@ -278,7 +278,7 @@ chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) =>
           Effect.sync(() =>
             sendResponse({
               kind: BROWSER_COMPANION_WAKE_KIND,
-              version: 1,
+              version: 2,
               accepted: true,
             }),
           ),

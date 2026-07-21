@@ -59,9 +59,9 @@ const started = {
   id: "request-entry",
   parentId: "previous-entry",
   type: "custom" as const,
-  customType: "pi-web.prompt-request",
+  customType: "pipee.prompt-request",
   data: {
-    version: 1 as const,
+    version: 2 as const,
     state: "Started" as const,
     requestId: "message-42",
     inputDigest: "digest-1",
@@ -87,9 +87,9 @@ test("derives prompt request recovery from the append-only session ledger", () =
           id: "completed-entry",
           parentId: "assistant-entry",
           type: "custom",
-          customType: "pi-web.prompt-request",
+          customType: "pipee.prompt-request",
           data: {
-            version: 1,
+            version: 2,
             state: "Completed",
             startedEntryId: "request-entry",
             text: "done",

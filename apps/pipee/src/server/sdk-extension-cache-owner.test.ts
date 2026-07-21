@@ -92,7 +92,7 @@ describe("SdkExtensionCacheOwner", () => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem
         const path = yield* Path.Path
-        const root = yield* fs.makeTempDirectoryScoped({ prefix: "pi-web-extension-cache-" })
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "pipee-extension-cache-" })
         const agentDir = path.join(root, "agent")
         const extensionPath = path.join(root, "extension.ts")
         yield* fs.makeDirectory(agentDir, { recursive: true })

@@ -101,8 +101,8 @@ const fixture = () => {
     },
     ui: {
       setStatus: () => undefined,
-      getPiSuiteCapability: (_ownerId: string, id: string) =>
-        id === "pi-suite/web-surface-runtime@1"
+      getPipeeCapability: (_ownerId: string, id: string) =>
+        id === "pipee/web-surface-runtime@2"
           ? {
               register: () => ({
                 replace: () => undefined,

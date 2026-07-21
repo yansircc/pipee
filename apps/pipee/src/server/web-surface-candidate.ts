@@ -143,17 +143,15 @@ export const readWebSurfaceCandidate = (inputRoot: string) =>
     if (typeof raw !== "object" || raw === null)
       return yield* new WebSurfaceCandidateError({ message: "Invalid package.json" })
     const pkg = raw as Record<string, unknown>
-    const piSuite = pkg.piSuite
-    const web = typeof piSuite === "object" && piSuite !== null ? (piSuite as Record<string, unknown>).web : undefined
+    const pipee = pkg.pipee
+    const web = typeof pipee === "object" && pipee !== null ? (pipee as Record<string, unknown>).web : undefined
     if (web === undefined) return null
     const manifest = yield* Effect.try({
       try: () => decodeManifest(web),
       catch: (error) => new WebSurfaceCandidateError({ message: String(error) }),
     })
     const companionValue =
-      typeof piSuite === "object" && piSuite !== null
-        ? (piSuite as Record<string, unknown>).browserCompanion
-        : undefined
+      typeof pipee === "object" && pipee !== null ? (pipee as Record<string, unknown>).browserCompanion : undefined
     const companionManifest =
       companionValue === undefined
         ? undefined
@@ -169,14 +167,14 @@ export const readWebSurfaceCandidate = (inputRoot: string) =>
     const extensions = extensionEntries(
       typeof pi === "object" && pi !== null ? (pi as Record<string, unknown>).extensions : undefined,
     ).map((value, index) => normalizedRelative(value, `pi.extensions[${index}]`))
-    const document = normalizedRelative(manifest.document, "piSuite.web.document")
+    const document = normalizedRelative(manifest.document, "pipee.web.document")
     if (!document.startsWith("dist/web/"))
       return yield* new WebSurfaceCandidateError({ message: "Web document must be inside dist/web" })
     let browserCompanion: WebSurfaceCandidate["browserCompanion"]
     let companionFiles: ReadonlyArray<string> = []
     if (companionManifest !== undefined) {
-      const directory = normalizedRelative(companionManifest.directory, "piSuite.browserCompanion.directory")
-      const evidence = normalizedRelative(companionManifest.evidence, "piSuite.browserCompanion.evidence")
+      const directory = normalizedRelative(companionManifest.directory, "pipee.browserCompanion.directory")
+      const evidence = normalizedRelative(companionManifest.evidence, "pipee.browserCompanion.evidence")
       if (!evidence.startsWith(`${directory}/`)) {
         return yield* new WebSurfaceCandidateError({
           message: "Browser companion evidence must be inside its directory",

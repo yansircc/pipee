@@ -57,11 +57,11 @@ jobs:
           node-version: 24.11.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Install web candidate browser
+      - name: Install pipee candidate browser
         shell: bash
         run: |
-          web_path="$(node -p "JSON.parse(require('fs').readFileSync('release/suite.config.json')).packages.find((entry) => entry.id === 'web').path")"
-          pnpm --dir "$web_path" exec playwright install --with-deps chromium
+          pipee_path="$(node -p "JSON.parse(require('fs').readFileSync('release/pipee.config.json')).packages.find((entry) => entry.id === 'pipee').path")"
+          pnpm --dir "$pipee_path" exec playwright install --with-deps chromium
       - run: pnpm verify
 
   candidate:
@@ -85,11 +85,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: node tooling/release/candidate-pipeline.mjs build "${{ needs.identity.outputs.release_sha }}"
       - run: pnpm verify:candidates
-      - name: Install web candidate browser
+      - name: Install pipee candidate browser
         shell: bash
         run: |
-          web_path="$(node -p "JSON.parse(require('fs').readFileSync('release/suite.config.json')).packages.find((entry) => entry.id === 'web').path")"
-          pnpm --dir "$web_path" exec playwright install --with-deps chromium
+          pipee_path="$(node -p "JSON.parse(require('fs').readFileSync('release/pipee.config.json')).packages.find((entry) => entry.id === 'pipee').path")"
+          pnpm --dir "$pipee_path" exec playwright install --with-deps chromium
       - run: pnpm verify:consumers
       - id: artifact
         shell: bash

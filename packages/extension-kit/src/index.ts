@@ -1,6 +1,6 @@
 import {
   MEDIA_VIEW_CAPABILITY,
-  PI_SUITE_CAPABILITY_METHOD,
+  PIPEE_CAPABILITY_METHOD,
   RUNTIME_RETENTION_CAPABILITY,
   STRUCTURED_VIEW_CAPABILITY,
   WEB_SURFACE_RUNTIME_CAPABILITY,
@@ -18,16 +18,13 @@ import {
 import { Data, Effect, Scope } from "effect";
 
 interface HostCapabilityLookup {
-  readonly [PI_SUITE_CAPABILITY_METHOD]?: <T = unknown>(
-    ownerId: string,
-    id: string,
-  ) => T | undefined;
+  readonly [PIPEE_CAPABILITY_METHOD]?: <T = unknown>(ownerId: string, id: string) => T | undefined;
 }
 
 export type HostCapabilityCarrier = unknown;
 
 const capability = <T>(host: HostCapabilityCarrier, ownerId: string, id: string): T | undefined =>
-  (host as HostCapabilityLookup | undefined)?.[PI_SUITE_CAPABILITY_METHOD]?.<T>(ownerId, id);
+  (host as HostCapabilityLookup | undefined)?.[PIPEE_CAPABILITY_METHOD]?.<T>(ownerId, id);
 
 export const structuredView = (
   host: HostCapabilityCarrier,

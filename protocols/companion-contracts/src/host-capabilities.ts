@@ -1,10 +1,10 @@
 import { Schema } from "effect";
 
-export const PI_SUITE_CAPABILITY_METHOD = "getPiSuiteCapability" as const;
-export const STRUCTURED_VIEW_CAPABILITY = "pi-suite/structured-view@1" as const;
-export const MEDIA_VIEW_CAPABILITY = "pi-suite/media-view@1" as const;
-export const RUNTIME_RETENTION_CAPABILITY = "pi-suite/runtime-retention@1" as const;
-export const WEB_SURFACE_RUNTIME_CAPABILITY = "pi-suite/web-surface-runtime@1" as const;
+export const PIPEE_CAPABILITY_METHOD = "getPipeeCapability" as const;
+export const STRUCTURED_VIEW_CAPABILITY = "pipee/structured-view@2" as const;
+export const MEDIA_VIEW_CAPABILITY = "pipee/media-view@2" as const;
+export const RUNTIME_RETENTION_CAPABILITY = "pipee/runtime-retention@2" as const;
+export const WEB_SURFACE_RUNTIME_CAPABILITY = "pipee/web-surface-runtime@2" as const;
 
 export const StructuredViewDiscriminator = Schema.Struct({
   kind: Schema.NonEmptyString,

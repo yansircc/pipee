@@ -42,7 +42,7 @@ export const connectWebSurfaceBrowser = (
         typeof event.data !== "object" ||
         event.data === null ||
         !("type" in event.data) ||
-        event.data.type !== "pi-suite-web-surface-port" ||
+        event.data.type !== "pipee-web-surface-port" ||
         !("contract" in event.data) ||
         event.data.contract !== WEB_SURFACE_CHANNEL_CONTRACT ||
         event.ports.length !== 1

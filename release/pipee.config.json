@@ -10,7 +10,7 @@
   },
   "packages": [
     {
-      "id": "web",
+      "id": "pipee",
       "name": "@yansircc/pipee",
       "path": "apps/pipee",
       "prepareScript": "build",

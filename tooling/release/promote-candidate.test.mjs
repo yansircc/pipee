@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { it } from "node:test";
@@ -15,7 +23,7 @@ const integrity = (path) =>
   `sha512-${createHash("sha512").update(readFileSync(path)).digest("base64")}`;
 
 const makeCandidate = () => {
-  const root = mkdtempSync(join(tmpdir(), "pi-suite-promoter-test-"));
+  const root = mkdtempSync(join(tmpdir(), "pipee-promoter-test-"));
   const remote = `${root}-remote.git`;
   git(tmpdir(), "init", "--bare", remote);
   git(root, "init", "--initial-branch=main");
@@ -38,9 +46,9 @@ const makeCandidate = () => {
   ]) {
     cpSync(join(projectRoot, "tooling", "release", file), join(root, "tooling", "release", file));
   }
-  writeJson(join(root, "release", "suite.config.json"), {
+  writeJson(join(root, "release", "pipee.config.json"), {
     schemaVersion: 1,
-    packages: [{ id: "web", name: "@yansircc/pipee", path: "apps/pipee" }],
+    packages: [{ id: "pipee", name: "@yansircc/pipee", path: "apps/pipee" }],
   });
   writeJson(join(root, "apps", "pipee", "package.json"), {
     name: "@yansircc/pipee",
@@ -49,13 +57,16 @@ const makeCandidate = () => {
     files: ["index.js"],
   });
   writeFileSync(join(root, "apps", "pipee", "index.js"), "export const value = 1;\n");
-  writeFileSync(join(root, ".gitignore"), "node_modules/\nrelease/candidate.json\nrelease/candidates/\n");
+  writeFileSync(
+    join(root, ".gitignore"),
+    "node_modules/\nrelease/candidate.json\nrelease/candidates/\n",
+  );
   git(root, "add", "-A");
   git(root, "commit", "-m", "chore: base");
   git(root, "push", "-u", "origin", "main");
   const base = git(root, "rev-parse", "HEAD");
   writeFileSync(join(root, "apps", "pipee", "index.js"), "export const value = 2;\n");
-  writeJson(join(root, "release", "changes", "web.json"), {
+  writeJson(join(root, "release", "changes", "pipee.json"), {
     schemaVersion: 1,
     changes: [{ package: "@yansircc/pipee", bump: "minor" }],
   });
@@ -66,9 +77,15 @@ const makeCandidate = () => {
     run(root, process.execPath, ["tooling/release/materialize-release-candidate.mjs"]),
   );
 
-  const packageRoot = mkdtempSync(join(tmpdir(), "pi-suite-promoter-package-"));
-  writeFileSync(join(packageRoot, "package.json"), git(root, "show", `${materialized.release}:apps/pipee/package.json`));
-  writeFileSync(join(packageRoot, "index.js"), git(root, "show", `${materialized.release}:apps/pipee/index.js`));
+  const packageRoot = mkdtempSync(join(tmpdir(), "pipee-promoter-package-"));
+  writeFileSync(
+    join(packageRoot, "package.json"),
+    git(root, "show", `${materialized.release}:apps/pipee/package.json`),
+  );
+  writeFileSync(
+    join(packageRoot, "index.js"),
+    git(root, "show", `${materialized.release}:apps/pipee/index.js`),
+  );
   mkdirSync(join(root, "release", "candidates"), { recursive: true });
   const archiveName = basename(
     run(packageRoot, "npm", ["pack", "--pack-destination", join(root, "release", "candidates")]),
@@ -87,7 +104,7 @@ const makeCandidate = () => {
       releaseTag: `release-${source.slice(0, 12)}`,
       packages: [
         {
-          id: "web",
+          id: "pipee",
           name: "@yansircc/pipee",
           bump: "minor",
           fromVersion: "1.2.3",
@@ -97,7 +114,7 @@ const makeCandidate = () => {
       ],
     },
     artifacts: {
-      web: {
+      pipee: {
         name: "@yansircc/pipee",
         version: "1.3.0",
         archive: archiveName,

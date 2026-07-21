@@ -30,10 +30,10 @@ const context = {
   ui: {
     notify: () => undefined,
     setStatus: () => undefined,
-    getPiSuiteCapability: (_ownerId, id) =>
-      id === "pi-suite/runtime-retention@1"
+    getPipeeCapability: (_ownerId, id) =>
+      id === "pipee/runtime-retention@2"
         ? { acquire: () => ({ release: () => undefined }) }
-        : id === "pi-suite/web-surface-runtime@1"
+        : id === "pipee/web-surface-runtime@2"
           ? {
               register: (registration) => {
                 surfaceRegistration = registration;

@@ -4,7 +4,7 @@ import { releasePlanFromDocuments } from "./release-plan.mjs";
 
 const config = {
   packages: [
-    { id: "web", name: "@fixture/web", path: "apps/pipee" },
+    { id: "pipee", name: "@fixture/pipee", path: "apps/pipee" },
     { id: "loop", name: "@fixture/loop", path: "extensions/loop" },
   ],
 };
@@ -13,8 +13,8 @@ const document = (file, changes) => ({ file, value: { schemaVersion: 1, changes 
 describe("public package release set", () => {
   it("selects only declared packages and collapses repeated bumps upward", () => {
     const plan = releasePlanFromDocuments(config, [
-      document("release/changes/a.json", [{ package: "@fixture/web", bump: "patch" }]),
-      document("release/changes/b.json", [{ package: "@fixture/web", bump: "minor" }]),
+      document("release/changes/a.json", [{ package: "@fixture/pipee", bump: "patch" }]),
+      document("release/changes/b.json", [{ package: "@fixture/pipee", bump: "minor" }]),
     ]);
     assert.deepEqual(plan.files, ["release/changes/a.json", "release/changes/b.json"]);
     assert.deepEqual(plan.packages, [{ ...config.packages[0], bump: "minor" }]);
@@ -32,7 +32,7 @@ describe("public package release set", () => {
     assert.throws(
       () =>
         releasePlanFromDocuments(config, [
-          document("release/changes/x.json", [{ package: "@fixture/web", bump: "feature" }]),
+          document("release/changes/x.json", [{ package: "@fixture/pipee", bump: "feature" }]),
         ]),
       /invalid bump/,
     );

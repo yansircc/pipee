@@ -9,7 +9,7 @@ describe("package update facts", () => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem
         const path = yield* Path.Path
-        const root = yield* fs.makeTempDirectoryScoped({ prefix: "pi-web-update-check-" })
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "pipee-update-check-" })
         const agentDir = path.join(root, "agent")
         const npmFixture = path.join(root, "npm-fixture.mjs")
         yield* fs.writeFileString(

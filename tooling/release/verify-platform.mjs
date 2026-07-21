@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { root, run, suiteConfig } from "./lib.mjs";
+import { root, run, pipeeConfig } from "./lib.mjs";
 
 run("node", ["tooling/release/verify-candidates.mjs"]);
 const candidate = JSON.parse(readFileSync(resolve(root, "release/candidate.json"), "utf8"));
 assert.equal(candidate.releasable, true, "platform witnesses require a releasable candidate");
-for (const entry of suiteConfig().packages) {
+for (const entry of pipeeConfig().packages) {
   const artifact = candidate.artifacts[entry.id];
   if (!artifact) continue;
   const script = entry.platformChecks?.[process.platform] ?? entry.platformChecks?.default;

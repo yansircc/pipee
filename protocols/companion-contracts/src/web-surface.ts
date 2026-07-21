@@ -4,9 +4,9 @@ import {
   BrowserCompanionProbe,
 } from "@pipee/companion-contracts/browser-companion";
 
-export const WEB_SURFACE_CONTRACT = "pi-suite/web-surface@1" as const;
-export const WEB_SURFACE_RUNTIME_CONTRACT = "pi-suite/web-surface-runtime@1" as const;
-export const WEB_SURFACE_CHANNEL_CONTRACT = "pi-suite/web-surface-channel@1" as const;
+export const WEB_SURFACE_CONTRACT = "pipee/web-surface@2" as const;
+export const WEB_SURFACE_RUNTIME_CONTRACT = "pipee/web-surface-runtime@2" as const;
+export const WEB_SURFACE_CHANNEL_CONTRACT = "pipee/web-surface-channel@2" as const;
 
 export const JsonValue: Schema.Codec<JsonValue> = Schema.Union([
   Schema.String,

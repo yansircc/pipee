@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { root, suiteConfig } from "./lib.mjs";
+import { root, pipeeConfig } from "./lib.mjs";
 
 const bumps = new Set(["major", "minor", "patch"]);
 const bumpRank = new Map([
@@ -66,7 +66,7 @@ export const readReleasePlan = () => {
         .sort()
         .map((file) => `${releaseChangesDirectory}/${file}`)
     : [];
-  return releasePlanFromDocuments(suiteConfig(), files.map(readChange));
+  return releasePlanFromDocuments(pipeeConfig(), files.map(readChange));
 };
 
 export const assertReleasePlan = (plan) => {

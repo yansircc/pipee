@@ -1349,7 +1349,7 @@ const WebSurfacesApi = HttpApiGroup.make("webSurfaces")
     ),
   )
 
-export const PiWebApi = HttpApi.make("PiWebApi")
+export const PipeeApi = HttpApi.make("PipeeApi")
   .add(MetaApi, SessionsApi, SessionActionsApi, WorkspaceApi, ModelsApi, AuthApi, PackagesApi, WebSurfacesApi)
   .middleware(SameOrigin)
   .middleware(RequestSchemaErrors)

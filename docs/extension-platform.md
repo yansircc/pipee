@@ -9,7 +9,7 @@ RegisteredTools = PiBuiltins ∪ ⋃ ExtensionRegisteredTools
 ActiveTools(branch) = PiOwnedSelection(branch)
 ```
 
-An Extension registers its complete typed tool surface with `pi.registerTool()`. Suite Extensions
+An Extension registers its complete typed tool surface with `pi.registerTool()`. Pipee Extensions
 must not call `getActiveTools()` or `setActiveTools()`. Pi remains the only owner of active-tool
 selection, so one Extension cannot overwrite another Extension's contribution.
 
@@ -20,14 +20,14 @@ machine.
 ## Optional host capabilities
 
 Pipee owns the `ExtensionUIContext` object supplied to lifecycle callbacks. It exposes one
-Suite-specific capability lookup on that object while leaving the published Pi API unchanged. The
+Pipee-specific capability lookup on that object while leaving the published Pi API unchanged. The
 lookup binds an Extension package identity to one versioned port:
 
 ```text
-pi-suite/structured-view@1
-pi-suite/media-view@1
-pi-suite/runtime-retention@1
-pi-suite/web-surface-runtime@1
+pipee/structured-view@2
+pipee/media-view@2
+pipee/runtime-retention@2
+pipee/web-surface-runtime@2
 ```
 
 `@pipee/companion-contracts` owns the method and port identifiers plus their wire-safe schemas.
@@ -43,7 +43,7 @@ Ports remain independent:
 - when the capability lookup or a requested port is absent, the Extension keeps its domain behavior
   and publishes no substitute status or lease.
 
-Package identity is declared by each trusted Suite Extension's `package.json`. This is namespacing,
+Package identity is declared by each trusted Pipee Extension's `package.json`. This is namespacing,
 not a security boundary. Supporting untrusted Extensions would require process isolation rather than
 additional branches in these helpers.
 
@@ -53,9 +53,9 @@ A package may declare one browser document without changing Pi:
 
 ```json
 {
-  "piSuite": {
+  "pipee": {
     "web": {
-      "contract": "pi-suite/web-surface@1",
+      "contract": "pipee/web-surface@2",
       "document": "./dist/web/index.html",
       "title": "Example"
     }

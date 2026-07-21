@@ -128,7 +128,7 @@ await writeFile(
       type: "module",
       files: ["dist"],
       pi: { extensions: ["./dist/pi/extension.js"] },
-      piSuite: { web: { contract: "pi-suite/web-surface@1", document: "./dist/web/index.html", title: "E2E Surface" } },
+      pipee: { web: { contract: "pipee/web-surface@2", document: "./dist/web/index.html", title: "E2E Surface" } },
     },
     null,
     2,
@@ -139,7 +139,7 @@ await writeFile(
   `export default function e2eExtension(pi) {
   let surface
   pi.on("session_start", (_event, context) => {
-    surface = context.ui.getPiSuiteCapability("pipee-e2e-extension", "pi-suite/web-surface-runtime@1").register({
+    surface = context.ui.getPipeeCapability("pipee-e2e-extension", "pipee/web-surface-runtime@2").register({
       dispatch: async (request) => ({ _tag: "Accepted", payload: Number(request.payload) + 1 }),
     })
     surface.replace({ answer: 41 })
@@ -212,7 +212,7 @@ const result = document.querySelector("#result")
 const isolation = document.querySelector("#isolation")
 try { void parent.document.body; isolation.textContent = "parent access failed" } catch { isolation.textContent = "parent access blocked" }
 addEventListener("message", (event) => {
-  if (event.data?.type !== "pi-suite-web-surface-port") return
+  if (event.data?.type !== "pipee-web-surface-port") return
   const port = event.ports[0]
   port.onmessage = ({ data }) => {
     if (data?._tag === "init") {
@@ -222,7 +222,7 @@ addEventListener("message", (event) => {
     if (data?._tag === "action-result") result.textContent = String(data.outcome?.payload ?? data.outcome?.reason ?? "failed")
   }
   port.start()
-  port.postMessage({ _tag: "ready", contract: "pi-suite/web-surface-channel@1" })
+  port.postMessage({ _tag: "ready", contract: "pipee/web-surface-channel@2" })
   setTimeout(() => { throw new Error("intentional e2e surface failure") }, 250)
 })
 `,

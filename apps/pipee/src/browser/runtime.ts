@@ -2,7 +2,7 @@ import { Cause, Effect, Layer } from "effect"
 import { BrowserRuntime } from "@effect/platform-browser"
 import { Atom, AtomRegistry } from "effect/unstable/reactivity"
 import { BrowserPlatform, BrowserPlatformLive } from "./browser-platform"
-import { PiWebHttpClient, PiWebHttpClientLive } from "./http-api-client"
+import { PipeeHttpClient, PipeeHttpClientLive } from "./http-api-client"
 import { BrowserPreferences, BrowserPreferencesLive } from "./preferences"
 
 export interface RuntimeCallbacks<A> {
@@ -10,10 +10,10 @@ export interface RuntimeCallbacks<A> {
   readonly onFailure?: (error: unknown) => void
 }
 
-export type BrowserServices = BrowserPlatform | BrowserPreferences | PiWebHttpClient
+export type BrowserServices = BrowserPlatform | BrowserPreferences | PipeeHttpClient
 export type Cancel = () => void
 
-const BrowserLive = Layer.mergeAll(BrowserPlatformLive, BrowserPreferencesLive, PiWebHttpClientLive)
+const BrowserLive = Layer.mergeAll(BrowserPlatformLive, BrowserPreferencesLive, PipeeHttpClientLive)
 
 const registry = AtomRegistry.make()
 const runtime = Atom.runtime(BrowserLive)

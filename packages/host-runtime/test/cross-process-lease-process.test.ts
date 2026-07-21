@@ -67,7 +67,7 @@ const exited = (child: ChildProcess): Promise<void> =>
   new Promise((resolve) => child.once("exit", () => resolve()));
 
 it("releases the lease when an owner process is terminated", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "pi-suite-lease-process-"));
+  const directory = mkdtempSync(join(tmpdir(), "pipee-lease-process-"));
   const path = join(directory, "owner.lease.sqlite");
   const owner = start(path, "hold");
   try {
@@ -90,7 +90,7 @@ it("releases the lease when an owner process is terminated", async () => {
 }, 10_000);
 
 it("admits exactly one owner across eight independent processes", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "pi-suite-lease-eight-processes-"));
+  const directory = mkdtempSync(join(tmpdir(), "pipee-lease-eight-processes-"));
   const path = join(directory, "contended.lease.sqlite");
   const contenders = Array.from({ length: 8 }, () => startContender(path));
   try {

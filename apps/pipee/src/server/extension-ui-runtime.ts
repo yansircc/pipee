@@ -10,7 +10,7 @@ import {
 import { extensionStructuredStatusOrUndefined } from "@/lib/extension-status"
 import { decodeExtensionImageWidget } from "@/lib/extension-widget"
 import { capabilitySlotKey, makeExtensionHostCapabilities } from "@pipee/host-runtime/extension-capabilities"
-import { PI_SUITE_CAPABILITY_METHOD } from "@pipee/companion-contracts/host-capabilities"
+import { PIPEE_CAPABILITY_METHOD } from "@pipee/companion-contracts/host-capabilities"
 import type { CandidateHash, WebSurfaceActionRequest } from "@pipee/companion-contracts/web-surface"
 import { Cause, Context, Crypto, Data, Deferred, Effect, Exit, FiberSet, Option, Semaphore } from "effect"
 
@@ -332,7 +332,7 @@ export const makeExtensionUiRuntime = (
       setTheme: () => ({ success: false, error: "Theme switching is not supported in pipee" }),
       getToolsExpanded: () => false,
       setToolsExpanded: () => undefined,
-      [PI_SUITE_CAPABILITY_METHOD]: <T>(ownerId: string, id: string): T | undefined =>
+      [PIPEE_CAPABILITY_METHOD]: <T>(ownerId: string, id: string): T | undefined =>
         extensionCapabilities.providers.get(id)?.forExtension(ownerId) as T | undefined,
     }
 

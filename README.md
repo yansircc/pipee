@@ -12,7 +12,7 @@ Pipee is the source and compatibility release repository for Pipee and its compa
 - `extensions/weixin` — Weixin iLink bridge bound to existing Pi sessions.
 - `extensions/chrome` — Pi Chrome bridge plus its matching browser extension.
 - `packages/host-runtime` — scoped host mechanisms shared by extensions, including keyed UI/media projections and runtime retention.
-- `packages/extension-kit` — stateless helpers for optional Suite host capabilities and Effect Scope ownership.
+- `packages/extension-kit` — stateless helpers for optional Pipee host capabilities and Effect Scope ownership.
 - `protocols/companion-contracts` — schemas shared across the host/extension boundary.
 
 See [Extension platform](./docs/extension-platform.md) for the ownership and lifecycle contract used

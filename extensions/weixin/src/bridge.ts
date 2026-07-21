@@ -461,7 +461,7 @@ export const BridgeLive = Layer.effect(
           : new BridgeConfigurationError({ reason: `无法获取微信状态 ownership：${error.path}` }),
       ),
     );
-    const piWebBaseUrl = yield* Config.string("PIPEE_BASE_URL").pipe(
+    const pipeeBaseUrl = yield* Config.string("PIPEE_BASE_URL").pipe(
       Config.withDefault(DEFAULT_PIPEE_BASE_URL),
     );
     const serviceScope = yield* Scope.make("sequential");
@@ -472,7 +472,7 @@ export const BridgeLive = Layer.effect(
     const routes = store.routes;
     const transport = makeIlinkClient(makeJsonHttpClient(httpClient));
     const messenger = makeRoutedMessenger(transport, routes);
-    const gateway = yield* makePiGateway(makeJsonHttpClient(httpClient), piWebBaseUrl);
+    const gateway = yield* makePiGateway(makeJsonHttpClient(httpClient), pipeeBaseUrl);
     const bridgeFiber = yield* Ref.make(Option.none<Fiber.Fiber<void, never>>());
     const loginFiber = yield* Ref.make(
       Option.none<{

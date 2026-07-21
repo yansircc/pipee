@@ -1183,7 +1183,7 @@ const makeRuntime = (
                     const startedEntryId = yield* Effect.try({
                       try: () =>
                         inner.sessionManager.appendCustomEntry(PROMPT_REQUEST_ENTRY_TYPE, {
-                          version: 1,
+                          version: 2,
                           state: "Started",
                           requestId,
                           inputDigest: digest,
@@ -1242,7 +1242,7 @@ const makeRuntime = (
                 yield* Effect.try({
                   try: () =>
                     inner.sessionManager.appendCustomEntry(PROMPT_REQUEST_ENTRY_TYPE, {
-                      version: 1,
+                      version: 2,
                       state: "Completed",
                       startedEntryId: decision.startedEntryId,
                       text: result.text,
