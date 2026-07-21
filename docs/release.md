@@ -21,7 +21,7 @@ The four public packages version independently. Add one or more JSON documents u
 {
   "schemaVersion": 1,
   "changes": [
-    { "package": "@yansircc/pi-web", "bump": "minor" },
+    { "package": "@yansircc/pipee", "bump": "minor" },
     { "package": "@yansircc/pi-chrome", "bump": "patch" }
   ]
 }

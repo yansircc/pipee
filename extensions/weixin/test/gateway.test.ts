@@ -1,14 +1,14 @@
 import { expect, it } from "@effect/vitest";
 import { Effect, Exit, Stream } from "effect";
 import { HttpRequestError } from "../src/errors.ts";
-import { DEFAULT_PI_WEB_BASE_URL, makePiGateway } from "../src/gateway.ts";
+import { DEFAULT_PIPEE_BASE_URL, makePiGateway } from "../src/gateway.ts";
 import type { JsonHttpClient, JsonHttpRequest } from "../src/http.ts";
 
 it("uses the address-family-neutral loopback hostname by default", () => {
-  expect(DEFAULT_PI_WEB_BASE_URL).toBe("http://localhost:30141");
+  expect(DEFAULT_PIPEE_BASE_URL).toBe("http://localhost:30141");
 });
 
-it.effect("gateway submits a blocking prompt to the loopback pi-web host", () =>
+it.effect("gateway submits a blocking prompt to the loopback pipee host", () =>
   Effect.gen(function* () {
     let captured: JsonHttpRequest | undefined;
     const http: JsonHttpClient = {
@@ -69,7 +69,7 @@ it.effect("gateway rejects non-loopback hosts", () =>
   }),
 );
 
-it.effect("gateway preserves pi-web idempotency conflicts as a typed terminal outcome", () =>
+it.effect("gateway preserves pipee idempotency conflicts as a typed terminal outcome", () =>
   Effect.gen(function* () {
     const gateway = yield* makePiGateway(
       {

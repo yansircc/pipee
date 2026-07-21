@@ -1,0 +1,10 @@
+---
+import type { extensions } from "../data/product";
+interface Props { extension: (typeof extensions)[number] }
+const { extension } = Astro.props;
+---
+<a class="extension-card" href={`/extensions/${extension.slug}/`}>
+  <div class="extension-identity"><span class="extension-mark" style={`--accent:${extension.color}`}>{extension.mark}</span><div><h3>{extension.name}</h3><code>{extension.packageName}</code></div></div>
+  <p>{extension.summary}</p>
+  <div class="extension-meta">{extension.recommended && <span class="badge">✓ 官方推荐</span>}<span>{extension.category}</span><span aria-hidden="true">→</span></div>
+</a>

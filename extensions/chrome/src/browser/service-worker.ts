@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Schedule from "effect/Schedule";
-import { classifyChromeConnectorCompatibility } from "@pi-suite/companion-contracts/chrome";
+import { classifyChromeConnectorCompatibility } from "@pipee/companion-contracts/chrome";
 import { messageOf } from "../core/errors.js";
 import { decodePollResponseJson } from "../protocol/codec.js";
 import { encodeJsonTransport } from "../protocol/json-transport.js";
@@ -47,7 +47,7 @@ import { handleChromeExtensionProbe } from "./external-probe.js";
 import {
   BROWSER_COMPANION_WAKE_KIND,
   isBrowserCompanionWakeRequest,
-} from "@pi-suite/companion-contracts/browser-companion";
+} from "@pipee/companion-contracts/browser-companion";
 
 const KEEPALIVE_ALARM = "pi-chrome-runtime";
 const connectorIdentity = ConnectorIdentityOwner.makeUnsafe();

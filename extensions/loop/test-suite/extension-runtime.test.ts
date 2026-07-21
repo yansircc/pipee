@@ -10,7 +10,7 @@ import { FileSystem } from "effect/FileSystem";
 import {
   capabilitySlotKey,
   makeExtensionHostCapabilities,
-} from "@pi-suite/host-runtime/extension-capabilities";
+} from "@pipee/host-runtime/extension-capabilities";
 import { setTimeout as delay } from "node:timers/promises";
 import piLoop from "../src/pi/extension.js";
 

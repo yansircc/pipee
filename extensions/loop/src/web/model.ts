@@ -1,4 +1,4 @@
-import type { WebSurfaceSessionContext } from "@pi-suite/companion-contracts/web-surface";
+import type { WebSurfaceSessionContext } from "@pipee/companion-contracts/web-surface";
 
 export type LoopWebProjectionItem = {
   id: string;

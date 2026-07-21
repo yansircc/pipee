@@ -17,7 +17,7 @@ Session-retained loops disappear with their owning Pi session. Project-retained 
 are leased by one live Pi process. Dynamic loops are session-retained because their next wakeup is
 part of the active agent conversation.
 
-Pi Web renders a cross-Session Loop Web Surface by multiplexing the same Runtime projections. The
+Pipee renders a cross-Session Loop Web Surface by multiplexing the same Runtime projections. The
 package-owned browser document deduplicates Project-retained loops by their real owner while keeping
 Session-retained loops distinct. Creation and other open-ended intent stay in Chat. The finite `run now`,
 pause/resume, edit, and delete controls dispatch to the exact owning Runtime; retention remains read-only.

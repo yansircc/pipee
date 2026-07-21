@@ -11,7 +11,7 @@ Session-owned tabs. It does not recreate navigation, click, fill, snapshot, or s
 pi install npm:@yansircc/pi-chrome
 ```
 
-Download the package-provided browser-extension ZIP from Pi Web, open `chrome://extensions`, enable
+Download the package-provided browser-extension ZIP from Pipee, open `chrome://extensions`, enable
 Developer mode, and drag the ZIP directly onto the page. If the current Chrome build or enterprise policy
 rejects ZIP installation, extract it and use **Load unpacked** as the fallback. The popup is read-only. Once
 loaded, the extension connects to the local Pi bridge automatically.
@@ -20,7 +20,7 @@ Ask Pi to use Chrome normally. All 25 typed atomic tools and `chrome_status` are
 the Extension never reads or rewrites Pi's active-tool selection.
 
 `chrome_status` reports one of `ready`, `waiting-for-extension`, `offline`, or `error`, plus the
-extension directory when setup is incomplete. The Chrome popup stays read-only. Pi Web combines
+extension directory when setup is incomplete. The Chrome popup stays read-only. Pipee combines
 that status with Session-owned activity, evidence, and idle-tab projections. Its only mutations are
 terminating the owning Session's current Chrome tool and closing one explicitly selected idle tab
 after confirmation; it never mirrors the DOM or falls back to Chrome's active tab.

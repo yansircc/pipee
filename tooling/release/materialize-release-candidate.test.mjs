@@ -23,7 +23,7 @@ const fixture = () => {
   symlinkSync(join(projectRoot, "node_modules"), join(root, "node_modules"), "dir");
   mkdirSync(join(root, "tooling", "release"), { recursive: true });
   mkdirSync(join(root, "release", "changes"), { recursive: true });
-  mkdirSync(join(root, "apps", "web"), { recursive: true });
+  mkdirSync(join(root, "apps", "pipee"), { recursive: true });
   for (const file of [
     "lib.mjs",
     "classify.mjs",
@@ -36,10 +36,10 @@ const fixture = () => {
   }
   writeJson(join(root, "release", "suite.config.json"), {
     schemaVersion: 1,
-    packages: [{ id: "web", name: "@yansircc/pi-web", path: "apps/web" }],
+    packages: [{ id: "web", name: "@yansircc/pipee", path: "apps/pipee" }],
   });
-  writeJson(join(root, "apps", "web", "package.json"), {
-    name: "@yansircc/pi-web",
+  writeJson(join(root, "apps", "pipee", "package.json"), {
+    name: "@yansircc/pipee",
     version: "1.2.3",
   });
   writeFileSync(join(root, ".gitignore"), "node_modules/\n");
@@ -50,7 +50,7 @@ const fixture = () => {
   writeFileSync(join(root, "feature.txt"), "candidate\n");
   writeJson(join(root, "release", "changes", "web.json"), {
     schemaVersion: 1,
-    changes: [{ package: "@yansircc/pi-web", bump: "minor" }],
+    changes: [{ package: "@yansircc/pipee", bump: "minor" }],
   });
   git(root, "add", "-A");
   git(root, "commit", "-m", "feat: candidate");
@@ -69,7 +69,7 @@ it("materializes one witnessed merge commit without changing the development bra
     assert.equal(git(value.root, "status", "--porcelain"), "");
     assert.equal(git(value.root, "show", "-s", "--format=%P", result.release), `${value.base} ${value.source}`);
     assert.equal(
-      JSON.parse(git(value.root, "show", `${result.release}:apps/web/package.json`)).version,
+      JSON.parse(git(value.root, "show", `${result.release}:apps/pipee/package.json`)).version,
       "1.3.0",
     );
     assert.throws(() => git(value.root, "show", `${result.release}:release/changes/web.json`));
@@ -92,8 +92,8 @@ it("materializes one witnessed merge commit without changing the development bra
 it("rejects development-owned public version drift", () => {
   const value = fixture();
   try {
-    writeJson(join(value.root, "apps", "web", "package.json"), {
-      name: "@yansircc/pi-web",
+    writeJson(join(value.root, "apps", "pipee", "package.json"), {
+      name: "@yansircc/pipee",
       version: "9.0.0",
     });
     git(value.root, "add", "-A");

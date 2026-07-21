@@ -1,4 +1,4 @@
-import type { JsonValue } from "@pi-suite/companion-contracts/web-surface";
+import type { JsonValue } from "@pipee/companion-contracts/web-surface";
 import { Schema } from "effect";
 import type { ChromeStatusProjection } from "./status-projection.js";
 

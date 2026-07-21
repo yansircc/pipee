@@ -73,17 +73,17 @@ const verifyConsumer = (consumer) => {
     }
     assert.equal(
       existsSync(
-        join(directory, "node_modules", "@pi-suite", "companion-contracts", "package.json"),
+        join(directory, "node_modules", "@pipee", "companion-contracts", "package.json"),
       ),
       false,
       `${consumer} installed the private contracts package`,
     );
     if (packages.some(({ id }) => id === "web")) {
-      const bin = process.platform === "win32" ? "pi-web.cmd" : "pi-web";
+      const bin = process.platform === "win32" ? "pipee.cmd" : "pipee";
       assert.equal(
         existsSync(join(directory, "node_modules", ".bin", bin)),
         true,
-        `${consumer} is missing pi-web bin`,
+        `${consumer} is missing pipee bin`,
       );
     }
   } finally {

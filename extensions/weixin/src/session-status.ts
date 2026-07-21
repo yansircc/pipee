@@ -1,5 +1,5 @@
-import type { WeixinStatusProjection } from "@pi-suite/companion-contracts/weixin";
-import type { StructuredViewPort } from "@pi-suite/companion-contracts/host-capabilities";
+import type { WeixinStatusProjection } from "@pipee/companion-contracts/weixin";
+import type { StructuredViewPort } from "@pipee/companion-contracts/host-capabilities";
 import type { BridgeStatus } from "./bridge.ts";
 
 export type { WeixinStatusProjection };

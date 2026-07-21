@@ -2,7 +2,7 @@ import {
   CHROME_EXTENSION_PROBE_KIND,
   isChromeExtensionProbeRequest,
   type ChromeExtensionProbeResponse,
-} from "@pi-suite/companion-contracts/chrome";
+} from "@pipee/companion-contracts/chrome";
 
 export interface ChromeExtensionProbeRuntime {
   readonly id: string;

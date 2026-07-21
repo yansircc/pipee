@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import type { WebSurfaceSessionContext } from "@pi-suite/companion-contracts/web-surface";
+import type { WebSurfaceSessionContext } from "@pipee/companion-contracts/web-surface";
 import { aggregateOwnedLoops, type LoopWebProjection } from "../src/web/model.js";
 
 const session = (

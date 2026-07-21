@@ -1,5 +1,5 @@
 {
-  "name": "@pi-suite/host-runtime",
+  "name": "@pipee/host-runtime",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -15,7 +15,7 @@
     "verify": "vp run ci:verify"
   },
   "dependencies": {
-    "@pi-suite/companion-contracts": "workspace:*",
+    "@pipee/companion-contracts": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

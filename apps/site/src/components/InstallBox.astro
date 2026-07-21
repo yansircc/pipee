@@ -1,0 +1,28 @@
+---
+import { installCommands } from "../data/product";
+---
+<div class="install-box" data-install-box>
+  <div class="install-tabs" role="tablist" aria-label="包管理器">
+    {Object.entries(installCommands).map(([manager, command], index) => (
+      <button type="button" role="tab" aria-selected={index === 0 ? "true" : "false"} data-command={command}>{manager}{manager === "pnpm" && " · 推荐"}</button>
+    ))}
+  </div>
+  <button class="install-command" type="button" data-copy><code>{installCommands.pnpm}</code><span>复制</span></button>
+</div>
+<script>
+  document.querySelectorAll<HTMLElement>("[data-install-box]").forEach((box) => {
+    const tabs = [...box.querySelectorAll<HTMLButtonElement>("[data-command]")];
+    const copy = box.querySelector<HTMLButtonElement>("[data-copy]");
+    const code = copy?.querySelector("code");
+    const label = copy?.querySelector("span");
+    tabs.forEach((tab) => tab.addEventListener("click", () => {
+      tabs.forEach((item) => item.setAttribute("aria-selected", String(item === tab)));
+      if (code) code.textContent = tab.dataset.command ?? "";
+    }));
+    copy?.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(code?.textContent ?? "");
+      if (label) label.textContent = "已复制 ✓";
+      window.setTimeout(() => { if (label) label.textContent = "复制"; }, 1400);
+    });
+  });
+</script>

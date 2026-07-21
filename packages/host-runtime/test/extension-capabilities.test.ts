@@ -3,12 +3,12 @@ import {
   RUNTIME_RETENTION_CAPABILITY,
   WEB_SURFACE_RUNTIME_CAPABILITY,
   type RuntimeRetentionPort,
-} from "@pi-suite/companion-contracts/host-capabilities";
+} from "@pipee/companion-contracts/host-capabilities";
 import type {
   CandidateHash,
   WebSurfaceProjection,
   WebSurfaceRuntimePort,
-} from "@pi-suite/companion-contracts/web-surface";
+} from "@pipee/companion-contracts/web-surface";
 import { Effect, Fiber } from "effect";
 import { makeExtensionHostCapabilities } from "../src/extension-capabilities.js";
 
