@@ -345,6 +345,7 @@ processSession.appendMessage({
   },
   stopReason: "toolUse",
   timestamp: 1_700_000_010_100,
+  generationDurationMs: 1_000,
 })
 processSession.appendMessage({
   role: "toolResult",
@@ -373,6 +374,7 @@ processSession.appendMessage({
   },
   stopReason: "stop",
   timestamp: 1_700_000_010_300,
+  generationDurationMs: 500,
 })
 const failedSession = SessionManager.create(workspace, undefined, {
   id: "00000000-0000-4000-8000-000000000002",

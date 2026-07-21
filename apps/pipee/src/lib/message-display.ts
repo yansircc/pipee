@@ -17,6 +17,7 @@ export interface TurnUsage {
   lastCallCost: number | null
   durationMs: number | null
   lastCallDurationMs: number | null
+  outputTokensPerSecond: number | null
 }
 
 export interface AssistantDisplaySegment {
@@ -37,8 +38,11 @@ export function summarizeTurnUsage(messages: AgentMessage[], userIndex: number, 
     lastCallCost: null,
     durationMs: null,
     lastCallDurationMs: null,
+    outputTokensPerSecond: null,
   }
   let usageRecords = 0
+  let measuredOutputTokens = 0
+  let generationDurationMs = 0
   const models = new Map<string, { provider: string; model: string }>()
   const turnStartedAt = messages[userIndex]?.timestamp
   let previousTimestamp = turnStartedAt
@@ -64,6 +68,10 @@ export function summarizeTurnUsage(messages: AgentMessage[], userIndex: number, 
         usage.cacheRead += message.usage.cacheRead ?? 0
         usage.cacheWrite += message.usage.cacheWrite ?? 0
         usage.cost += message.usage.cost?.total ?? 0
+        if (message.generationDurationMs !== undefined && message.generationDurationMs > 0) {
+          measuredOutputTokens += message.usage.output ?? 0
+          generationDurationMs += message.generationDurationMs
+        }
       }
     }
     if (message?.timestamp !== undefined) previousTimestamp = message.timestamp
@@ -73,6 +81,8 @@ export function summarizeTurnUsage(messages: AgentMessage[], userIndex: number, 
   usage.models = [...models.values()]
   usage.totalTokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite
   usage.durationMs = elapsedDuration(turnStartedAt, turnEndedAt)
+  usage.outputTokensPerSecond =
+    generationDurationMs > 0 && measuredOutputTokens > 0 ? (measuredOutputTokens * 1_000) / generationDurationMs : null
   return usage
 }
 

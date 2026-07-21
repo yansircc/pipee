@@ -1584,6 +1584,9 @@ export function TurnUsageSummary({
     ...(usage.lastCallDurationMs !== null
       ? [[t("Last call duration"), formatDuration(usage.lastCallDurationMs)] as [string, string]]
       : []),
+    ...(usage.outputTokensPerSecond !== null
+      ? [[t("Output speed"), `${usage.outputTokensPerSecond.toFixed(1)} tok/s`] as [string, string]]
+      : []),
   ]
   return (
     <details {...stylex.props(inlineStyles.inline84)}>
@@ -1601,6 +1604,12 @@ export function TurnUsageSummary({
           <>
             <span>·</span>
             <span>{formatDuration(usage.durationMs)}</span>
+          </>
+        )}
+        {usage.outputTokensPerSecond !== null && (
+          <>
+            <span>·</span>
+            <span>{usage.outputTokensPerSecond.toFixed(1)} tok/s</span>
           </>
         )}
         {!ongoing && (
