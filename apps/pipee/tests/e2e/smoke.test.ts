@@ -527,6 +527,15 @@ test("governs settings focus, dismissal, and restoration", async ({ page }) => {
   if (!opensConfigDirectly) await page.getByRole("button", { name: "管理模型", exact: true }).click()
   await expect(dialog).toBeVisible()
 
+  await dialog.getByRole("button", { name: "+ 添加提供商", exact: true }).click()
+  const providerPicker = page.getByPlaceholder("搜索提供商…")
+  await expect(providerPicker).toBeVisible()
+  await expect(dialog.getByPlaceholder("搜索提供商…")).toHaveCount(1)
+  await page.getByRole("button", { name: /兼容 OpenAI \/ Anthropic/ }).click()
+  await expect(providerPicker).toBeHidden()
+  await expect(dialog.getByText("提供商", { exact: true })).toBeVisible()
+  await expect(dialog).toBeVisible()
+
   for (let index = 0; index < 12; index += 1) {
     await page.keyboard.press(index === 0 ? "Shift+Tab" : "Tab")
     await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true)
