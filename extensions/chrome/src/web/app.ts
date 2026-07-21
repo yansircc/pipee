@@ -1,8 +1,5 @@
 import { connectWebSurfaceBrowser } from "@pipee/companion-contracts/web-surface-browser";
-import type {
-  JsonValue,
-  WebSurfaceSessionContext,
-} from "@pipee/companion-contracts/web-surface";
+import type { JsonValue, WebSurfaceSessionContext } from "@pipee/companion-contracts/web-surface";
 import {
   projectCompanionReadiness,
   type ChromeStatusProjection,
