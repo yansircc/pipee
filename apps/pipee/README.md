@@ -4,6 +4,8 @@ Browser UI for the [Pi coding agent](https://github.com/badlogic/pi-mono). It re
 
 [中文说明](./README.zh-CN.md)
 
+![Pipee session workspace](./docs/screenshot2.png)
+
 ## Features
 
 - Browse, rename, delete, export, fork, and navigate Pi `.jsonl` sessions.

@@ -1,5 +1,7 @@
 # Pipee
 
+![Pipee 会话工作区](./docs/screenshot2.png)
+
 [Pi coding agent](https://github.com/badlogic/pi-mono) 的浏览器界面。它直接读取 Pi 已有的 `~/.pi/agent` 状态，并在 Web 进程内运行 `AgentSession`；没有额外数据库或常驻 daemon。
 
 [English](./README.md)

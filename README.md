@@ -2,6 +2,8 @@
 
 Pipee is the source and compatibility release repository for Pipee and its companion extensions.
 
+![Pipee session workspace](./apps/pipee/docs/screenshot2.png)
+
 ## Workspaces
 
 - `apps/pipee` — TanStack Start web host for Pi sessions.
