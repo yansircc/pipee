@@ -2390,27 +2390,27 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
             <span>{t(savedOk ? "Saved" : saving ? "Saving…" : "Save")}</span>
           </button>
         </div>
+        {pickerOpen && (
+          <AddProviderPicker
+            oauthProviders={oauthProviders}
+            apiKeyProviders={apiKeyProviders}
+            onSelectOAuth={(id) =>
+              setSelection({
+                type: "oauth",
+                providerId: id,
+              })
+            }
+            onSelectApiKey={(id) =>
+              setSelection({
+                type: "apikey",
+                providerId: id,
+              })
+            }
+            onAddCustom={addCustomProvider}
+            onClose={() => setPickerOpen(false)}
+          />
+        )}
       </SettingsWorkspace>
-      {pickerOpen && (
-        <AddProviderPicker
-          oauthProviders={oauthProviders}
-          apiKeyProviders={apiKeyProviders}
-          onSelectOAuth={(id) =>
-            setSelection({
-              type: "oauth",
-              providerId: id,
-            })
-          }
-          onSelectApiKey={(id) =>
-            setSelection({
-              type: "apikey",
-              providerId: id,
-            })
-          }
-          onAddCustom={addCustomProvider}
-          onClose={() => setPickerOpen(false)}
-        />
-      )}
     </>
   )
 }
