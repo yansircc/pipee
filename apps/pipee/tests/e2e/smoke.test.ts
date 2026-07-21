@@ -154,6 +154,7 @@ test("projects assistant speech as conversation events and keeps execution detai
   await expect(thinkingActivities).toHaveCount(2)
   await expect(thinkingActivities.first()).toBeVisible()
   await expect(finalEvent).toBeVisible()
+  await expect(page.locator("summary").getByText("6.7 tok/s", { exact: true })).toBeVisible()
   await expect(readActivity.locator("..")).not.toContainText("I will inspect the workspace first.")
   await expect(thinkingActivities.last().locator("..")).not.toContainText(
     "The workspace read succeeded; I am preparing the result.",

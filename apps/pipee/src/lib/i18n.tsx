@@ -29,6 +29,7 @@ const zhCN: Record<string, string> = {
   Total: "总计",
   Input: "输入",
   Output: "输出",
+  "Output speed": "输出速度",
   "Cache Read": "缓存读取",
   "Cache Write": "缓存写入",
   "Session total": "会话累计",
