@@ -33,7 +33,7 @@ Then commit the development source and submit it:
 pnpm release:submit
 ```
 
-Submission performs no dependency installation, build, test, browser operation, or container execution. It requires a clean committed source descended from the current `origin/main`, rejects development-owned public version changes, creates `R` in a temporary worktree, pushes `release-candidates/<R>`, and dispatches `release-candidate.yml` from trusted `main`.
+Submission performs no dependency installation, build, test, browser operation, or container execution. It requires a clean committed source equal to or descended from the current `origin/main`, rejects development-owned public version changes, creates `R` in a temporary worktree, pushes `release-candidates/<R>`, and dispatches `release-candidate.yml` from trusted `main`. Releasing already-merged changes therefore does not require an empty staging commit.
 
 The candidate workflow has read-only repository permissions. It runs root `pnpm verify`, builds the selected archives once on Linux, runs candidate and consumer acceptance, provisions Chrome for the connector and exact extension smoke, and fans the same archives out to macOS and Windows. The Actions artifact and witness expire after 14 days; an expired candidate must be materialized and witnessed again.
 

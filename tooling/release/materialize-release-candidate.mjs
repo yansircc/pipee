@@ -22,7 +22,6 @@ const pipeeConfig = () =>
 assert.equal(git(["status", "--porcelain"]), "", "release candidate requires a clean worktree");
 const source = git(["rev-parse", "HEAD"]);
 const base = git(["rev-parse", "refs/remotes/origin/main"]);
-assert.notEqual(source, base, "release candidate source must advance origin/main");
 git(["merge-base", "--is-ancestor", base, source]);
 
 const plan = readReleasePlan();

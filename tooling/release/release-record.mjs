@@ -40,7 +40,6 @@ export const parseReleaseRecord = (message) => {
   if (new Set(packages.map(({ id }) => id)).size !== packages.length) {
     throw new Error("release record repeats a package");
   }
-  if (base === source) throw new Error("release source must advance its base");
   return { source, base, tag: `release-${subjectMatch[1]}`, packages };
 };
 

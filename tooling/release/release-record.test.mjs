@@ -46,6 +46,18 @@ describe("independent package release record", () => {
     );
   });
 
+  it("allows the trusted main commit to be its own release source", () => {
+    const same = "c".repeat(40);
+    const record = parseReleaseRecord(
+      message
+        .replace("release-abcdef123456", "release-cccccccccccc")
+        .replaceAll(source, same)
+        .replace(base, same),
+    );
+    assert.equal(record.source, same);
+    assert.equal(record.base, same);
+  });
+
   it("rejects forged, partial, duplicate, and mismatched records", () => {
     assert.throws(
       () => parseReleaseRecord(`feat: forged\n\nRelease-Source: ${source}`),

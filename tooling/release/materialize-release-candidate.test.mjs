@@ -116,3 +116,19 @@ it("rejects development-owned public version drift", () => {
     rmSync(value.remote, { recursive: true, force: true });
   }
 });
+
+it("materializes the current main without requiring an empty source commit", () => {
+  const value = fixture();
+  try {
+    git(value.root, "push", "origin", "main");
+    const result = JSON.parse(
+      run(value.root, process.execPath, ["tooling/release/materialize-release-candidate.mjs"]),
+    );
+    assert.equal(result.base, value.source);
+    assert.equal(result.source, value.source);
+    assert.equal(git(value.root, "show", "-s", "--format=%P", result.release), value.source);
+  } finally {
+    rmSync(value.root, { recursive: true, force: true });
+    rmSync(value.remote, { recursive: true, force: true });
+  }
+});
