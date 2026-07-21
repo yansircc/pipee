@@ -6,6 +6,7 @@ import { root, run } from "./lib.mjs";
 
 const candidate = readFileSync(resolve(root, ".github/workflows/release-candidate.yml"), "utf8");
 const promotion = readFileSync(resolve(root, ".github/workflows/release-promote.yml"), "utf8");
+const site = readFileSync(resolve(root, ".github/workflows/site.yml"), "utf8");
 const promoter = readFileSync(resolve(root, "tooling/release/promote-candidate.mjs"), "utf8");
 const submitter = readFileSync(resolve(root, "tooling/release/submit-release-candidate.mjs"), "utf8");
 const materializer = readFileSync(
@@ -81,7 +82,20 @@ it("keeps promotion privileged, trusted, and free of candidate execution", () =>
 it("keeps public propagation separate from irreversible publication", () => {
   const publicAcceptance = promotion.match(/public-acceptance:[\s\S]*$/)?.[0] ?? "";
   assert.match(publicAcceptance, /pnpm verify:registry/);
+  assert.match(publicAcceptance, /ref: \$\{\{ needs\.promote-and-publish\.outputs\.release_sha \}\}/);
+  assert.doesNotMatch(publicAcceptance, /ref: \$\{\{ needs\.promote-and-publish\.outputs\.trusted_main \}\}/);
   assert.doesNotMatch(publicAcceptance, /id-token: write|contents: write|npm publish/);
+});
+
+it("allows the promoted main site to be deployed explicitly", () => {
+  assert.match(site, /workflow_dispatch:/);
+  const deploy = site.match(/\n  deploy:[\s\S]*$/)?.[0] ?? "";
+  assert.match(
+    deploy,
+    /github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'/,
+  );
+  assert.match(deploy, /environment: site-production/);
+  assert.match(deploy, /node tooling\/site\/verify-public-package\.mjs/);
 });
 
 it("reconstructs the release artifact root for every downstream consumer", () => {
