@@ -45,7 +45,7 @@ The npm Trusted Publisher coordinates for every public package are:
 
 ```text
 GitHub owner: yansircc
-Repository:   pi-suite
+Repository:   pipee
 Workflow:     release-promote.yml
 Environment:  npm-release
 ```
