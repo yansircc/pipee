@@ -156,7 +156,8 @@ it("has one release entry and no compatibility release path", () => {
     );
   }
   assert.doesNotMatch(candidate + promotion, /queue: max|NODE_AUTH_TOKEN|NPM_TOKEN|_authToken/);
-  assert.match(materializer, /"commit-tree"[\s\S]*"-p", base, "-p", source/);
+  assert.match(materializer, /"commit-tree"[\s\S]*"-p", source/);
+  assert.doesNotMatch(materializer, /"commit-tree"[\s\S]*"-p", base/);
   assert.match(submitter, /typeof output === "string" \? output\.trim\(\) : ""/);
   assert.match(submitter, /git", \["fetch", "origin", "main"\]/);
   assert.match(

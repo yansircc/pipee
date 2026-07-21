@@ -4,7 +4,7 @@ The release control plane has one supported transition:
 
 ```text
 development source S + tracked changesets
-→ deterministic release merge commit R
+→ deterministic linear release commit R
 → explicit release-candidate ref
 → GitHub Actions quality + one Linux archive set
 → consumer + Chrome + macOS + Windows witnesses of R and those bytes
@@ -13,7 +13,7 @@ development source S + tracked changesets
 → registry integrity and fresh public consumers
 ```
 
-`R` has `origin/main` as its first parent and `S` as its second parent. Its tree contains the development source plus only the selected version bumps and deletion of the consumed changesets. No content commit is created after witnessing.
+`R` has `S` as its only parent, while its signed record names the exact `origin/main` base. Its tree contains the development source plus only the selected version bumps and deletion of the consumed changesets. Promotion therefore advances `base → S → R` without creating a merge, and no content commit is created after witnessing.
 
 The four public packages version independently. Add one or more JSON documents under `release/changes/`:
 

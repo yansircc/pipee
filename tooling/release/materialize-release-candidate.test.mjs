@@ -65,7 +65,7 @@ const fixture = () => {
   return { root, remote, base, source: git(root, "rev-parse", "HEAD") };
 };
 
-it("materializes one witnessed merge commit without changing the development branch", () => {
+it("materializes one witnessed linear release commit without changing the development branch", () => {
   const value = fixture();
   try {
     const result = JSON.parse(
@@ -75,10 +75,7 @@ it("materializes one witnessed merge commit without changing the development bra
     assert.equal(result.source, value.source);
     assert.equal(git(value.root, "rev-parse", "HEAD"), value.source);
     assert.equal(git(value.root, "status", "--porcelain"), "");
-    assert.equal(
-      git(value.root, "show", "-s", "--format=%P", result.release),
-      `${value.base} ${value.source}`,
-    );
+    assert.equal(git(value.root, "show", "-s", "--format=%P", result.release), value.source);
     assert.equal(
       JSON.parse(git(value.root, "show", `${result.release}:apps/pipee/package.json`)).version,
       "1.3.0",

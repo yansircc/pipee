@@ -53,8 +53,8 @@ export const assertReleaseRecordCommit = ({
   packageManifestPaths,
   changedFiles,
 }) => {
-  if (parents.length !== 2 || parents[0] !== record.base || parents[1] !== record.source) {
-    throw new Error("release commit parents must be its base and development source");
+  if (parents.length !== 1 || parents[0] !== record.source) {
+    throw new Error("release commit parent must be its development source");
   }
   const known = new Set(packageIds);
   for (const entry of record.packages) {

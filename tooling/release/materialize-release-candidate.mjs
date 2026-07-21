@@ -76,7 +76,7 @@ try {
   const messagePath = resolve(temporary, ".git-release-message");
   writeFileSync(messagePath, `${message}\n`);
   const releaseDate = git(["show", "-s", "--format=%cI", source]);
-  const release = git(["commit-tree", tree, "-p", base, "-p", source, "-F", messagePath], {
+  const release = git(["commit-tree", tree, "-p", source, "-F", messagePath], {
     cwd: temporary,
     env: {
       GIT_AUTHOR_NAME: "github-actions[bot]",

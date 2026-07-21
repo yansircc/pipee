@@ -29,7 +29,7 @@ describe("independent package release record", () => {
     assert.deepEqual(
       assertReleaseRecordCommit({
         record,
-        parents: [base, source],
+        parents: [source],
         manifestVersions: { pipee: "0.2.0", loop: "0.5.7", chrome: "0.2.0" },
         sourceManifestVersions: { pipee: "0.1.9", loop: "0.5.7", chrome: "0.1.9" },
         packageIds: ["pipee", "loop", "chrome"],
@@ -70,13 +70,24 @@ describe("independent package release record", () => {
           sourceManifestVersions: { pipee: "0.1.9", chrome: "0.1.9" },
           packageIds: ["pipee", "chrome"],
         }),
-      /parents must be/,
+      /parent must be/,
     );
     assert.throws(
       () =>
         assertReleaseRecordCommit({
           record,
           parents: [base, source],
+          manifestVersions: { pipee: "0.2.0", chrome: "0.2.0" },
+          sourceManifestVersions: { pipee: "0.1.9", chrome: "0.1.9" },
+          packageIds: ["pipee", "chrome"],
+        }),
+      /parent must be/,
+    );
+    assert.throws(
+      () =>
+        assertReleaseRecordCommit({
+          record,
+          parents: [source],
           manifestVersions: { pipee: "0.1.9", chrome: "0.2.0" },
           sourceManifestVersions: { pipee: "0.1.9", chrome: "0.1.9" },
           packageIds: ["pipee", "chrome"],
