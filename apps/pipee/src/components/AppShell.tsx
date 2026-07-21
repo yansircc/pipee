@@ -13,7 +13,13 @@ import { BranchNavigator } from "./BranchNavigator"
 import { useIsMobile } from "@/hooks/useIsMobile"
 import { getFileName } from "@/lib/file-paths"
 import { buildAtMentionText } from "@/lib/file-fuzzy"
-import type { SessionBranchNode, SessionInfo, SessionStats, WeixinStatusProjection } from "@/api/contract"
+import type {
+  PipeeUpdateStatus,
+  SessionBranchNode,
+  SessionInfo,
+  SessionStats,
+  WeixinStatusProjection,
+} from "@/api/contract"
 import { ChatInput, type ChatInputHandle } from "./ChatInput"
 import { useI18n } from "@/lib/i18n"
 import { withApi, apiUrls, runApi, runBrowser } from "@/browser/api-client"
@@ -22,7 +28,16 @@ import { ModelsConfig, SkillsConfig } from "@/browser/code-split"
 import { sessionController } from "@/features/session/session-controller"
 import { DEFAULT_TOOL_PRESET, getToolNamesForPreset } from "@/lib/tool-presets"
 import type { ExtensionCatalogState } from "@/lib/web-surface-catalog-group"
-import { useApplicationHotkeys } from "@/ui/interaction/Hotkeys"
+import { ApplicationHotkeys } from "@/ui/interaction/Hotkeys"
+import { CommandPalette } from "./CommandPalette"
+import {
+  applicationAriaHotkey,
+  formatApplicationHotkey,
+  runApplicationCommand,
+  type ApplicationCommand,
+  type ApplicationCommandId,
+  type ApplicationCommandRegistry,
+} from "@/ui/interaction/ApplicationCommands"
 type SelectedFinderFile = {
   readonly filePath: string
   readonly sourceSessionId?: string | null
@@ -61,7 +76,16 @@ export function AppShell() {
   const [skillsCount, setSkillsCount] = useState(0)
   const [activeExtensionCount, setActiveExtensionCount] = useState(0)
   const [extensionCatalog, setExtensionCatalog] = useState<ExtensionCatalogState | null>(null)
+  const [pipeeUpdateStatus, setPipeeUpdateStatus] = useState<PipeeUpdateStatus | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [activityState, setActivityState] = useState({ busy: false, blockingDialog: false })
+  const [cancelActivityEpoch, setCancelActivityEpoch] = useState(0)
+  const [isMac, setIsMac] = useState(false)
+  useEffect(() => {
+    const platform = globalThis.navigator?.platform ?? globalThis.navigator?.userAgent ?? ""
+    setIsMac(/Mac|iPhone|iPad|iPod/i.test(platform))
+  }, [])
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false)
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
   // is visible on load. Runs once the breakpoint resolves after hydration.
@@ -71,6 +95,16 @@ export function AppShell() {
   useEffect(() => {
     setMobileSidebarReady(true)
   }, [])
+  useEffect(
+    () =>
+      runApi(
+        withApi((api) => api.meta.updateStatus({})),
+        {
+          onSuccess: setPipeeUpdateStatus,
+        },
+      ),
+    [],
+  )
   const chatInputRef = useRef<ChatInputHandle | null>(null)
   const topBarRef = useRef<HTMLDivElement>(null)
 
@@ -196,30 +230,6 @@ export function AppShell() {
     setActiveTopPanel(null)
     setSettingsSurface(surface)
   }, [])
-  useApplicationHotkeys(
-    [
-      {
-        hotkey: "Mod+Shift+E",
-        callback: openFinder,
-        options: { enabled: managementCwd !== null, preventDefault: true },
-      },
-      {
-        hotkey: "Escape",
-        callback: () => {
-          if (settingsSurface !== null) setSettingsSurface(null)
-          else if (resourceManagerOpen) setResourceManagerOpen(false)
-          else if (activeTopPanel !== null) setActiveTopPanel(null)
-          else if (isMobile && sidebarOpen) setSidebarOpen(false)
-        },
-        options: {
-          enabled:
-            settingsSurface !== null || resourceManagerOpen || activeTopPanel !== null || (isMobile && sidebarOpen),
-          preventDefault: true,
-        },
-      },
-    ],
-    { eventType: "keydown" },
-  )
   useEffect(() => {
     setSelectedFinderFile(null)
   }, [managementCwd])
@@ -368,6 +378,115 @@ export function AppShell() {
     },
     [acceptCreatedSession, creatingSessionCwd, isMobile, navigate],
   )
+  const cancelAction = useMemo(
+    () =>
+      [
+        { active: commandPaletteOpen, execute: () => setCommandPaletteOpen(false) },
+        { active: settingsSurface !== null, execute: () => setSettingsSurface(null) },
+        { active: resourceManagerOpen, execute: () => setResourceManagerOpen(false) },
+        { active: activeTopPanel !== null, execute: () => setActiveTopPanel(null) },
+        { active: isMobile && sidebarOpen, execute: () => setSidebarOpen(false) },
+        { active: activityState.busy, execute: () => setCancelActivityEpoch((epoch) => epoch + 1) },
+      ].find((candidate) => candidate.active)?.execute,
+    [
+      activeTopPanel,
+      activityState.busy,
+      commandPaletteOpen,
+      isMobile,
+      resourceManagerOpen,
+      settingsSurface,
+      sidebarOpen,
+    ],
+  )
+  const applicationCommands = useMemo<ReadonlyArray<ApplicationCommand>>(
+    () => [
+      {
+        id: "session.new",
+        label: tr("New session"),
+        hotkey: "Mod+Shift+O",
+        enabled: managementCwd !== null && creatingSessionCwd === null,
+        disabledReason: managementCwd === null ? tr("Select a project first") : tr("Session creation is in progress"),
+        execute: () => {
+          if (managementCwd !== null) handleNewSession(managementCwd)
+        },
+      },
+      {
+        id: "composer.focus",
+        label: tr("Focus composer"),
+        hotkey: "Shift+Escape",
+        enabled:
+          selectedSession !== null &&
+          !activityState.blockingDialog &&
+          !commandPaletteOpen &&
+          settingsSurface === null &&
+          !resourceManagerOpen,
+        disabledReason: selectedSession === null ? tr("Open a session first") : tr("Close the active dialog first"),
+        execute: () => chatInputRef.current?.focus(),
+      },
+      {
+        id: "app.cancel",
+        label: activityState.busy ? tr("Stop agent") : tr("Close active surface"),
+        hotkey: "Escape",
+        enabled: cancelAction !== undefined,
+        disabledReason: tr("Nothing to cancel"),
+        execute: () => cancelAction?.(),
+      },
+      {
+        id: "commandPalette.open",
+        label: tr("Commands"),
+        hotkey: "Mod+K",
+        enabled: true,
+        execute: () => setCommandPaletteOpen(true),
+      },
+      {
+        id: "sidebar.toggle",
+        label: tr(sidebarOpen ? "Hide sidebar" : "Show sidebar"),
+        hotkey: "Mod+B",
+        enabled: true,
+        execute: handleSidebarToggle,
+      },
+      {
+        id: "settings.toggle",
+        label: tr("Settings"),
+        hotkey: "Mod+,",
+        enabled: true,
+        execute: () =>
+          settingsSurface?.kind === "general" ? setSettingsSurface(null) : openSettingsSurface({ kind: "general" }),
+      },
+      {
+        id: "workspace.resources.open",
+        label: tr("Resource manager"),
+        hotkey: "Mod+Shift+E",
+        enabled: managementCwd !== null,
+        disabledReason: tr("Select a project first"),
+        execute: openFinder,
+      },
+    ],
+    [
+      activityState,
+      cancelAction,
+      commandPaletteOpen,
+      creatingSessionCwd,
+      handleNewSession,
+      handleSidebarToggle,
+      managementCwd,
+      openFinder,
+      openSettingsSurface,
+      resourceManagerOpen,
+      selectedSession,
+      settingsSurface,
+      sidebarOpen,
+      tr,
+    ],
+  )
+  const commandRegistry = useMemo<ApplicationCommandRegistry>(
+    () => new Map(applicationCommands.map((command) => [command.id, command])),
+    [applicationCommands],
+  )
+  const command = useCallback(
+    (id: ApplicationCommandId): ApplicationCommand => commandRegistry.get(id)!,
+    [commandRegistry],
+  )
   useEffect(
     () =>
       runApi(
@@ -496,7 +615,6 @@ export function AppShell() {
     <SessionSidebar
       selectedSessionId={selectedSession?.id ?? null}
       onSelectSession={handleSelectSession}
-      onNewSession={handleNewSession}
       newSessionPending={creatingSessionCwd !== null}
       initialSessionId={initialSessionId}
       onInitialRestoreDone={handleInitialRestoreDone}
@@ -504,15 +622,18 @@ export function AppShell() {
       onSessionDeleted={handleSessionDeleted}
       selectedCwd={selectedSession?.cwd ?? creatingSessionCwd ?? null}
       onCwdChange={handleCwdChange}
-      onOpenExplorer={openFinder}
-      onOpenSettings={() =>
-        settingsSurface?.kind === "general" ? setSettingsSurface(null) : openSettingsSurface({ kind: "general" })
-      }
+      onOpenExplorer={() => runApplicationCommand(command("workspace.resources.open"))}
+      onOpenSettings={() => runApplicationCommand(command("settings.toggle"))}
+      onNewSession={() => runApplicationCommand(command("session.new"))}
+      commandRegistry={commandRegistry}
+      isMac={isMac}
       settingsOpen={settingsSurface?.kind === "general"}
+      pipeeUpdateStatus={pipeeUpdateStatus}
     />
   )
   return (
     <>
+      <ApplicationHotkeys key={isMac ? "mac" : "non-mac"} commands={applicationCommands} isMac={isMac} />
       <style>{`
       @keyframes session-info-pop {
         from {
@@ -581,9 +702,10 @@ export function AppShell() {
           <div ref={topBarRef} {...stylex.props(inlineStyles.inline9)}>
             <div {...stylex.props(inlineStyles.topbarTitleArea)}>
               <button
-                onClick={handleSidebarToggle}
-                title={tr(sidebarOpen ? "Hide sidebar" : "Show sidebar")}
+                onClick={() => runApplicationCommand(command("sidebar.toggle"))}
+                title={`${command("sidebar.toggle").label} · ${formatApplicationHotkey(command("sidebar.toggle").hotkey!, isMac)}`}
                 aria-label={tr(sidebarOpen ? "Hide sidebar" : "Show sidebar")}
+                aria-keyshortcuts={applicationAriaHotkey(command("sidebar.toggle").hotkey!, isMac)}
                 {...stylex.props(inlineStyles.inline10)}
               >
                 <svg
@@ -620,6 +742,17 @@ export function AppShell() {
               )}
             </div>
             <div {...stylex.props(inlineStyles.topbarActions)}>
+              <button
+                type="button"
+                onClick={() => runApplicationCommand(command("commandPalette.open"))}
+                title={`${command("commandPalette.open").label} · ${formatApplicationHotkey(command("commandPalette.open").hotkey!, isMac)}`}
+                aria-label={command("commandPalette.open").label}
+                aria-keyshortcuts={applicationAriaHotkey(command("commandPalette.open").hotkey!, isMac)}
+                {...stylex.props(inlineStyles.commandButton)}
+              >
+                <span>{command("commandPalette.open").label}</span>
+                <kbd>{formatApplicationHotkey(command("commandPalette.open").hotkey!, isMac)}</kbd>
+              </button>
               {showChat && (
                 <button
                   onClick={handleExportSession}
@@ -709,6 +842,11 @@ export function AppShell() {
                 onOpenModels={() => openSettingsSurface({ kind: "models" })}
                 onOpenSkills={() => openSettingsSurface({ kind: "skills" })}
                 skillsCount={skillsCount}
+                cancelActivityEpoch={cancelActivityEpoch}
+                onActivityStateChange={setActivityState}
+                onCancelActivity={() => runApplicationCommand(command("app.cancel"))}
+                cancelShortcut={formatApplicationHotkey(command("app.cancel").hotkey!, isMac)}
+                focusComposerAriaKeyshortcuts={applicationAriaHotkey(command("composer.focus").hotkey!, isMac)}
               />
             ) : creatingSessionCwd !== null ? (
               <div {...stylex.props(styles.pendingSession)}>
@@ -803,6 +941,13 @@ export function AppShell() {
         )}
         {settingsSurface?.kind === "general" && <ApplicationSettingsPopover onClose={() => setSettingsSurface(null)} />}
       </Suspense>
+      {commandPaletteOpen && (
+        <CommandPalette
+          commands={applicationCommands}
+          isMac={isMac}
+          onClose={() => runApplicationCommand(command("app.cancel"))}
+        />
+      )}
     </>
   )
 }
@@ -961,6 +1106,20 @@ const inlineStyles = stylex.create({
     display: "flex",
     gap: 7,
     flexShrink: 0,
+  },
+  commandButton: {
+    alignItems: "center",
+    background: "transparent",
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    display: "flex",
+    fontSize: 11,
+    gap: 7,
+    height: 30,
+    padding: "0 9px",
+    ":hover": { background: "var(--bg-hover)", color: "var(--text)" },
   },
   topbarIconButton: {
     alignItems: "center",

@@ -9,18 +9,25 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react"
+import { createPortal } from "react-dom"
 import { DateTime, Duration, Effect, Option } from "effect"
-import type { SessionInfo } from "@/api/contract"
+import type { PipeeUpdateStatus, SessionInfo } from "@/api/contract"
 import { useI18n, type Locale } from "@/lib/i18n"
 import { withApi, runApi, runBrowser, type Cancel } from "@/browser/api-client"
 import { useBrowserPreferences } from "@/browser/preferences-react"
 import { after, observeCurrentTime } from "@/browser/timing"
 import { BrowserPlatform } from "@/browser/browser-platform"
 import { observeRunningSessions } from "@/features/session/session-controller"
+import { copyText } from "@/lib/clipboard"
+import {
+  applicationAriaHotkey,
+  formatApplicationHotkey,
+  type ApplicationCommandRegistry,
+} from "@/ui/interaction/ApplicationCommands"
 interface Props {
   selectedSessionId: string | null
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void
-  onNewSession?: (cwd: string) => void
+  onNewSession?: () => void
   newSessionPending?: boolean
   initialSessionId?: string | null
   onInitialRestoreDone?: () => void
@@ -31,6 +38,9 @@ interface Props {
   onOpenExplorer?: () => void
   onOpenSettings?: () => void
   settingsOpen?: boolean
+  pipeeUpdateStatus?: PipeeUpdateStatus | null
+  commandRegistry: ApplicationCommandRegistry
+  isMac: boolean
 }
 interface WorktreeEntry {
   path: string
@@ -263,13 +273,26 @@ function useScramble(target: string, running: boolean): string {
   }, [target, running])
   return display
 }
-function PiAgentTitle() {
+const UPDATE_COMMANDS = {
+  npm: "npm install -g @yansircc/pipee@latest",
+  pnpm: "pnpm add -g @yansircc/pipee@latest",
+  bun: "bun add -g @yansircc/pipee@latest",
+} as const
+
+function PiAgentTitle({ updateStatus }: { updateStatus?: PipeeUpdateStatus | null }) {
+  const { t } = useI18n()
   const [showVersion, setShowVersion] = useState(false)
   const [scrambling, setScrambling] = useState(false)
+  const [updateOpen, setUpdateOpen] = useState(false)
+  const [packageManager, setPackageManager] = useState<keyof typeof UPDATE_COMMANDS>("npm")
+  const [copied, setCopied] = useState(false)
   const scrambleDelayRef = useRef<Cancel | null>(null)
   const revertDelayRef = useRef<Cancel | null>(null)
+  const updateTriggerRef = useRef<HTMLButtonElement>(null)
+  const updateCardRef = useRef<HTMLDivElement>(null)
   const target = showVersion ? `${__APP_VERSION__}p${__PI_VERSION__}` : "Pipee"
   const display = useScramble(target, scrambling)
+  const available = updateStatus?._tag === "UpdateAvailable" ? updateStatus : null
   const triggerScramble = useCallback((toVersion: boolean) => {
     setShowVersion(toVersion)
     setScrambling(true)
@@ -301,6 +324,30 @@ function PiAgentTitle() {
     },
     [],
   )
+  useEffect(() => {
+    if (!updateOpen) return
+    const close = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (updateCardRef.current?.contains(target) || updateTriggerRef.current?.contains(target)) return
+      setUpdateOpen(false)
+    }
+    return runBrowser(BrowserPlatform.pipe(Effect.flatMap((browser) => browser.onDocumentMouseDown(close))), {
+      onSuccess: () => undefined,
+    })
+  }, [updateOpen])
+  useEffect(() => {
+    if (available === null) setUpdateOpen(false)
+  }, [available])
+  const copyCommand = useCallback(() => {
+    runBrowser(
+      copyText(UPDATE_COMMANDS[packageManager]).pipe(
+        Effect.tap(() => Effect.sync(() => setCopied(true))),
+        Effect.andThen(Effect.sleep("1400 millis")),
+        Effect.tap(() => Effect.sync(() => setCopied(false))),
+      ),
+      { onSuccess: () => undefined },
+    )
+  }, [packageManager])
   return (
     <div {...stylex.props(inlineStyles.brand)}>
       <span {...stylex.props(inlineStyles.brandMark)}>π</span>
@@ -311,6 +358,72 @@ function PiAgentTitle() {
       >
         {display}
       </button>
+      {available && (
+        <button
+          ref={updateTriggerRef}
+          type="button"
+          aria-label={t("Pipee update available")}
+          aria-expanded={updateOpen}
+          title={`${t("Pipee update available")}: ${available.latestVersion}`}
+          onClick={() => setUpdateOpen((open) => !open)}
+          {...stylex.props(inlineStyles.updateIndicator)}
+        >
+          <span aria-hidden="true">↑</span>
+        </button>
+      )}
+      {available &&
+        updateOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={updateCardRef}
+            role="dialog"
+            aria-label={t("Update Pipee")}
+            {...stylex.props(inlineStyles.updateCard)}
+          >
+            <div {...stylex.props(inlineStyles.updateHeader)}>
+              <div>
+                <strong {...stylex.props(inlineStyles.updateTitle)}>{t("Update Pipee")}</strong>
+                <div {...stylex.props(inlineStyles.updateVersion)}>
+                  v{available.currentVersion} → v{available.latestVersion}
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label={t("Close")}
+                onClick={() => setUpdateOpen(false)}
+                {...stylex.props(inlineStyles.updateClose)}
+              >
+                ×
+              </button>
+            </div>
+            <div role="tablist" aria-label={t("Package manager")} {...stylex.props(inlineStyles.updateTabs)}>
+              {(Object.keys(UPDATE_COMMANDS) as Array<keyof typeof UPDATE_COMMANDS>).map((manager) => (
+                <button
+                  key={manager}
+                  type="button"
+                  role="tab"
+                  aria-selected={packageManager === manager}
+                  onClick={() => {
+                    setPackageManager(manager)
+                    setCopied(false)
+                  }}
+                  {...stylex.props(
+                    inlineStyles.updateTab,
+                    packageManager === manager && inlineStyles.updateTabSelected,
+                  )}
+                >
+                  {manager}
+                </button>
+              ))}
+            </div>
+            <code {...stylex.props(inlineStyles.updateCommand)}>{UPDATE_COMMANDS[packageManager]}</code>
+            <button type="button" onClick={copyCommand} {...stylex.props(inlineStyles.updateCopy)}>
+              {t(copied ? "Copied" : "Copy command")}
+            </button>
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }
@@ -328,6 +441,9 @@ export function SessionSidebar({
   onOpenExplorer,
   onOpenSettings,
   settingsOpen,
+  pipeeUpdateStatus,
+  commandRegistry,
+  isMac,
 }: Props) {
   const { t, locale } = useI18n()
   const { preferences, updatePreferences } = useBrowserPreferences()
@@ -748,9 +864,11 @@ export function SessionSidebar({
     [onSelectSession],
   )
   const handleNewSession = useCallback(() => {
-    if (!selectedCwd || newSessionPending) return
-    onNewSession?.(selectedCwd)
-  }, [newSessionPending, selectedCwd, onNewSession])
+    onNewSession?.()
+  }, [onNewSession])
+  const newSessionCommand = commandRegistry.get("session.new")
+  const settingsCommand = commandRegistry.get("settings.toggle")
+  const resourcesCommand = commandRegistry.get("workspace.resources.open")
   const recentProjects = getRecentProjects(allSessions)
   const showProjectFilter = recentProjects.length > 8
   const visibleProjects = projectFilter.trim()
@@ -791,14 +909,17 @@ export function SessionSidebar({
       {/* Header */}
       <div {...stylex.props(inlineStyles.inline4)}>
         <div {...stylex.props(inlineStyles.inline5)}>
-          <PiAgentTitle />
+          <PiAgentTitle updateStatus={pipeeUpdateStatus} />
           <div {...stylex.props(inlineStyles.inline6)}>
             <button
               onClick={onOpenSettings}
               aria-expanded={settingsOpen}
               data-settings-trigger
-              title={t("Settings")}
+              title={`${t("Settings")} · ${settingsCommand?.hotkey ? formatApplicationHotkey(settingsCommand.hotkey, isMac) : ""}`}
               aria-label={t("Settings")}
+              aria-keyshortcuts={
+                settingsCommand?.hotkey ? applicationAriaHotkey(settingsCommand.hotkey, isMac) : undefined
+              }
               {...stylex.props(inlineStyles.inline8)}
             >
               <svg
@@ -1385,14 +1506,23 @@ export function SessionSidebar({
         <button
           type="button"
           onClick={handleNewSession}
-          disabled={!selectedCwd || newSessionPending}
-          title={t("New session")}
+          disabled={newSessionCommand?.enabled !== true}
+          aria-label={t(newSessionPending ? "Creating…" : "New session")}
+          title={`${t("New session")} · ${newSessionCommand?.hotkey ? formatApplicationHotkey(newSessionCommand.hotkey, isMac) : ""}`}
+          aria-keyshortcuts={
+            newSessionCommand?.hotkey ? applicationAriaHotkey(newSessionCommand.hotkey, isMac) : undefined
+          }
           {...stylex.props(inlineStyles.sessionAction)}
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M12 5v14M5 12h14" />
           </svg>
           <span>{t(newSessionPending ? "Creating…" : "New session")}</span>
+          {newSessionCommand?.hotkey && (
+            <kbd {...stylex.props(inlineStyles.shortcutHint)}>
+              {formatApplicationHotkey(newSessionCommand.hotkey, isMac)}
+            </kbd>
+          )}
         </button>
         <button
           type="button"
@@ -1437,12 +1567,23 @@ export function SessionSidebar({
       </div>
 
       {(selectedCwdProp || selectedCwd) && (
-        <button type="button" onClick={onOpenExplorer} {...stylex.props(inlineStyles.explorerButton)}>
+        <button
+          type="button"
+          onClick={onOpenExplorer}
+          aria-keyshortcuts={
+            resourcesCommand?.hotkey ? applicationAriaHotkey(resourcesCommand.hotkey, isMac) : undefined
+          }
+          {...stylex.props(inlineStyles.explorerButton)}
+        >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
             <path d="M3 5.5A1.5 1.5 0 0 1 4.5 4H9l2 2h8.5A1.5 1.5 0 0 1 21 7.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5v-13Z" />
           </svg>
           <span>{t("Resource manager")}</span>
-          <kbd {...stylex.props(inlineStyles.shortcutHint)}>⌘⇧E</kbd>
+          {resourcesCommand?.hotkey && (
+            <kbd {...stylex.props(inlineStyles.shortcutHint)}>
+              {formatApplicationHotkey(resourcesCommand.hotkey, isMac)}
+            </kbd>
+          )}
         </button>
       )}
     </div>
@@ -1938,6 +2079,112 @@ const inlineStyles = stylex.create({
     height: 30,
     justifyContent: "center",
     width: 30,
+  },
+  updateIndicator: {
+    alignItems: "center",
+    background: "var(--accent)",
+    border: 0,
+    borderRadius: "50%",
+    color: "#fff",
+    cursor: "pointer",
+    display: "flex",
+    fontSize: 10,
+    fontWeight: 700,
+    height: 17,
+    justifyContent: "center",
+    marginLeft: -4,
+    padding: 0,
+    width: 17,
+  },
+  updateCard: {
+    background: "var(--bg-raised)",
+    border: "1px solid var(--border)",
+    borderRadius: 11,
+    boxShadow: "var(--shadow-surface)",
+    left: { default: 54, "@media (max-width: 760px)": 10 },
+    padding: 12,
+    position: "fixed",
+    top: 49,
+    width: { default: 320, "@media (max-width: 760px)": "calc(100vw - 20px)" },
+    zIndex: "var(--layer-popover)",
+  },
+  updateHeader: {
+    alignItems: "flex-start",
+    display: "flex",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  updateTitle: {
+    color: "var(--text)",
+    fontSize: 13,
+  },
+  updateVersion: {
+    color: "var(--text-dim)",
+    fontSize: 11,
+    marginTop: 3,
+  },
+  updateClose: {
+    alignItems: "center",
+    background: "transparent",
+    border: 0,
+    borderRadius: 6,
+    color: "var(--text-dim)",
+    cursor: "pointer",
+    display: "flex",
+    fontSize: 17,
+    height: 25,
+    justifyContent: "center",
+    padding: 0,
+    width: 25,
+    ":hover": { background: "var(--bg-hover)", color: "var(--text)" },
+  },
+  updateTabs: {
+    background: "var(--bg-subtle)",
+    borderRadius: 7,
+    display: "grid",
+    gap: 2,
+    gridTemplateColumns: "repeat(3, 1fr)",
+    marginBottom: 9,
+    padding: 3,
+  },
+  updateTab: {
+    background: "transparent",
+    border: 0,
+    borderRadius: 5,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    padding: "5px 8px",
+  },
+  updateTabSelected: {
+    background: "var(--bg-raised)",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+    color: "var(--text)",
+  },
+  updateCommand: {
+    background: "var(--bg-subtle)",
+    border: "1px solid var(--border-soft)",
+    borderRadius: 7,
+    color: "var(--text)",
+    display: "block",
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    lineHeight: 1.5,
+    overflowWrap: "anywhere",
+    padding: "9px 10px",
+  },
+  updateCopy: {
+    background: "var(--text)",
+    border: 0,
+    borderRadius: 7,
+    color: "var(--bg)",
+    cursor: "pointer",
+    fontSize: 11,
+    fontWeight: 600,
+    marginTop: 9,
+    padding: "7px 10px",
+    width: "100%",
   },
   inline6: {
     display: "flex",

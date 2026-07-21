@@ -119,6 +119,169 @@ test("preserves the normalized visual foundation", async ({ page }) => {
   expect(contract.topbarHeight).toBe("58px")
 })
 
+test("shows one lightweight Pipee update card with package-manager commands", async ({ page }) => {
+  await page.route("**/api/meta/update", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        _tag: "UpdateAvailable",
+        checkedAt: Date.now(),
+        currentVersion: "0.5.0",
+        latestVersion: "0.6.0",
+      }),
+    }),
+  )
+  await page.goto("/")
+
+  await page.getByRole("button", { name: "Pipee 有可用更新" }).click()
+  const card = page.getByRole("dialog", { name: "更新 Pipee" })
+  await expect(card).toContainText("v0.5.0 → v0.6.0")
+  await expect(card.getByText("npm install -g @yansircc/pipee@latest", { exact: true })).toBeVisible()
+
+  await card.getByRole("tab", { name: "pnpm" }).click()
+  await expect(card.getByText("pnpm add -g @yansircc/pipee@latest", { exact: true })).toBeVisible()
+  await card.getByRole("tab", { name: "bun" }).click()
+  await expect(card.getByText("bun add -g @yansircc/pipee@latest", { exact: true })).toBeVisible()
+})
+
+test("projects application commands into discoverable macOS shortcuts", async ({ page }) => {
+  await page.addInitScript(() =>
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" }),
+  )
+  await page.goto("/?session=00000000-0000-4000-8000-000000000001")
+
+  const commandsTrigger = page.getByRole("button", { name: "命令", exact: true })
+  await expect(commandsTrigger).toHaveAttribute("aria-keyshortcuts", "Meta+K")
+  await commandsTrigger.click()
+  const palette = page.getByRole("dialog", { name: "命令" })
+  await expect(palette.getByRole("option")).toHaveCount(7)
+  await expect(palette.locator('[data-command-id="session.new"]')).toContainText("⌘⇧O")
+  await expect(palette.locator('[data-command-id="composer.focus"]')).toContainText("⇧Esc")
+  await expect(palette.locator('[data-command-id="settings.toggle"]')).toContainText("⌘,")
+
+  await palette.getByPlaceholder("搜索命令").fill("设置")
+  await page.keyboard.press("Enter")
+  await expect(page.getByRole("dialog", { name: "设置" })).toBeVisible()
+  await page.keyboard.press("Escape")
+
+  const composer = page.locator("textarea").last()
+  await composer.fill("draft survives focus")
+  await page.getByRole("button", { name: /隐藏侧边栏/ }).focus()
+  await page.keyboard.press("Shift+Escape")
+  await expect(composer).toBeFocused()
+  await expect(composer).toHaveValue("draft survives focus")
+
+  const sidebar = page.locator(".sidebar-container")
+  await page.keyboard.press("Meta+B")
+  await expect(sidebar).toHaveAttribute("aria-hidden", "true")
+  await page.keyboard.press("Meta+B")
+  await expect(sidebar).toHaveAttribute("aria-hidden", "false")
+
+  await page.keyboard.press("Meta+,")
+  await expect(page.getByRole("dialog", { name: "设置" })).toBeVisible()
+  await page.keyboard.press("Meta+,")
+  await expect(page.getByRole("dialog", { name: "设置" })).toBeHidden()
+})
+
+test("matches Control shortcuts and gives Escape one ordered action", async ({ page }) => {
+  await page.addInitScript(() =>
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "Linux x86_64" }),
+  )
+  const sessionId = "00000000-0000-4000-8000-000000000001"
+  let abortRequests = 0
+  page.on("request", (request) => {
+    if (request.url().endsWith(`/api/sessions/${sessionId}/actions/abort-bash`)) abortRequests += 1
+  })
+  await page.goto(`/?session=${sessionId}`)
+
+  const commandsTrigger = page.getByRole("button", { name: "命令", exact: true })
+  await expect(commandsTrigger).toHaveAttribute("aria-keyshortcuts", "Control+K")
+  await commandsTrigger.focus()
+  await page.keyboard.press("Control+K")
+  const palette = page.getByRole("dialog", { name: "命令" })
+  await expect(palette).toBeVisible()
+  await expect(palette.locator('[data-command-id="sidebar.toggle"]')).toContainText("Ctrl+B")
+  await page.keyboard.press("Escape")
+  await expect(palette).toBeHidden()
+
+  const running = await mutate(page, `/api/sessions/${sessionId}/actions/bash`, {
+    id: "shortcut-cancellation",
+    command: "sleep 10",
+    excludeFromContext: true,
+  })
+  expect(running.status).toBe(200)
+  const stop = page.getByRole("button", { name: /停止/ }).last()
+  await expect(stop).toBeVisible()
+
+  await page.keyboard.press("Control+K")
+  await page.keyboard.press("Escape")
+  await expect(palette).toBeHidden()
+  expect(abortRequests).toBe(0)
+
+  const composer = page.locator("textarea").last()
+  await composer.evaluate((element) => {
+    element.addEventListener("keydown", (event) => event.preventDefault(), { once: true })
+    element.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Escape" }))
+  })
+  expect(abortRequests).toBe(0)
+  await composer.evaluate((element) => {
+    element.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, isComposing: true, key: "Escape" }),
+    )
+  })
+  expect(abortRequests).toBe(0)
+
+  await page.keyboard.press("Escape")
+  await expect.poll(() => abortRequests).toBe(1)
+  await expect(stop).toBeHidden()
+})
+
+test("gates duplicate new-session shortcuts and exposes disabled commands", async ({ page }) => {
+  await page.addInitScript(() =>
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "Linux x86_64" }),
+  )
+  await page.goto("/")
+  const commandsTrigger = page.getByRole("button", { name: "命令", exact: true })
+  await commandsTrigger.click()
+  const palette = page.getByRole("dialog", { name: "命令" })
+  const focusComposer = palette.locator('[data-command-id="composer.focus"]')
+  await expect(focusComposer).toBeDisabled()
+  await expect(focusComposer).toContainText("请先打开会话")
+  await page.keyboard.press("Escape")
+
+  let createRequests = 0
+  let releaseCreate!: () => void
+  const createBlocked = new Promise<void>((resolve) => {
+    releaseCreate = resolve
+  })
+  await page.route("**/api/sessions", async (route) => {
+    if (route.request().method() === "POST") {
+      createRequests += 1
+      await createBlocked
+    }
+    await route.continue()
+  })
+  const create = page.getByRole("button", { name: "新建", exact: true })
+  await expect(create).toHaveAttribute("aria-keyshortcuts", "Control+Shift+O")
+  await expect(create).toBeEnabled()
+  await expect(async () => {
+    await page.keyboard.press("Control+K")
+    await expect(palette).toBeVisible()
+  }).toPass()
+  await page.keyboard.press("Escape")
+  await expect(palette).toBeHidden()
+  await create.focus()
+  await page.keyboard.press("Control+Shift+O")
+  await page.keyboard.press("Control+Shift+O")
+  await expect.poll(() => createRequests).toBe(1)
+  releaseCreate()
+  await expect(page).toHaveURL(/\?session=/)
+  const sessionId = new URL(page.url()).searchParams.get("session")
+  expect(sessionId).not.toBeNull()
+  const removed = await mutate(page, `/api/sessions/${sessionId}`, {}, "DELETE")
+  expect(removed.status).toBe(200)
+})
+
 test("sizes user bubbles by content up to the responsive maximum", async ({ page }) => {
   const measureBubble = async () =>
     page
@@ -378,11 +541,9 @@ test("shows immediate metrics, session prompt, and the extension drawer", async 
   await page.getByRole("button", { name: "技能", exact: true }).click()
   const skillLibrary = page.getByRole("dialog", { name: "Skill Library" })
   await expect(skillLibrary).toBeVisible()
-  await skillLibrary.getByRole("button", { name: /e2e-skill/ }).click()
-  const skillFinder = page.getByRole("dialog", { name: "e2e-skill" })
-  await expect(skillFinder.getByRole("button", { name: "· SKILL.md", exact: true })).toBeVisible()
-  await expect(skillFinder).toContainText("# E2E skill")
-  await skillFinder.getByRole("button", { name: "关闭", exact: true }).click()
+  await expect(skillLibrary.getByRole("button", { name: /e2e-skill/ })).toHaveCount(0)
+  await expect(skillLibrary.getByRole("button", { name: /read-only-skill/ })).toHaveCount(0)
+  await skillLibrary.getByRole("button", { name: "关闭", exact: true }).click()
 
   await page.getByRole("button", { name: "插件", exact: true }).click()
   await page.getByRole("link", { name: /pipee-e2e-extension/ }).click()
@@ -547,42 +708,15 @@ test("governs settings focus, dismissal, and restoration", async ({ page }) => {
   await expect(opener).toBeVisible()
 })
 
-test("exposes shared settings toggles as keyboard switches", async ({ page }) => {
+test("keeps ambient project skills outside the closed Pipee skill policy", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 780 })
   await page.goto("/?session=00000000-0000-4000-8000-000000000001")
   await page.getByRole("button", { name: "更多控制项", exact: true }).click()
   await page.getByRole("button", { name: "技能", exact: true }).click()
   const skillWorkspace = page.getByRole("dialog", { name: "Skill Library" })
-  for (const label of ["全部", "项目", "全局", "路径"]) {
-    await expect(skillWorkspace.getByRole("button", { name: label, exact: true })).toHaveCSS("white-space", "nowrap")
-  }
-  await skillWorkspace.getByRole("button", { name: /e2e-skill/ }).click()
-  expect(
-    await page
-      .getByRole("dialog", { name: "e2e-skill" })
-      .locator("header")
-      .first()
-      .evaluate((header) => header.scrollWidth <= header.clientWidth),
-  ).toBe(true)
-  const toggle = page.getByRole("switch").first()
-  await expect(toggle).toBeVisible()
-  await expect(toggle).toHaveAttribute("aria-label", /.+/)
-  const toggleGeometry = await toggle.evaluate((element) => {
-    const rect = element.closest("label")!.getBoundingClientRect()
-    return { height: rect.height, width: rect.width }
-  })
-  expect(toggleGeometry.width).toBe(28)
-  expect(toggleGeometry.height).toBe(16)
-  const selected = await toggle.isChecked()
-  await toggle.focus()
-  await page.keyboard.press("Space")
-  if (selected) await expect(toggle).not.toBeChecked()
-  else await expect(toggle).toBeChecked()
-  await expect(toggle).toBeEnabled()
-  await toggle.focus()
-  await page.keyboard.press("Space")
-  if (selected) await expect(toggle).toBeChecked()
-  else await expect(toggle).not.toBeChecked()
+  await expect(skillWorkspace.getByRole("button", { name: /e2e-skill/ })).toHaveCount(0)
+  await expect(skillWorkspace.getByRole("button", { name: /read-only-skill/ })).toHaveCount(0)
+  await expect(skillWorkspace.getByRole("switch")).toHaveCount(0)
 })
 
 test("canonicalizes an invalid session URL after the session index loads", async ({ page }) => {
@@ -896,7 +1030,7 @@ test("materializes a new session before exposing the conversation UI", async ({ 
   const input = page.locator("textarea").first()
   await expect(input).toBeFocused()
   await input.fill("/")
-  await expect(page.getByText("/skill:e2e-skill", { exact: true })).toBeVisible()
+  await expect(page.getByText("/skill:e2e-skill", { exact: true })).toHaveCount(0)
 
   await create.click()
   await expect(page).toHaveURL(new RegExp(`\\?session=${sessionId}$`))
@@ -1402,18 +1536,9 @@ test("loads model, auth, plugin, and skill projections without mutating user sta
   expect(projections.apiKeys).toMatchObject({ status: 200, body: { providers: expect.any(Array) } })
   expect(projections.plugins.status).toBe(200)
   expect(projections.skills.status).toBe(200)
-  expect(projections.skills.body.skills).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ name: "e2e-skill", mutation: { _tag: "DirectWrite" } }),
-      expect.objectContaining({
-        name: "read-only-skill",
-        mutation: { _tag: "ReadOnly", reason: "filesystem-read-only" },
-      }),
-    ]),
-  )
+  expect(projections.skills.body.skills).toEqual([])
 
   const skillFile = resolve(fixtureWorkspace, ".agents", "skills", "e2e-skill", "SKILL.md")
-  const readOnlySkillFile = resolve(fixtureWorkspace, ".agents", "skills", "read-only-skill", "SKILL.md")
   const skillBrowse = await page.evaluate(
     async ({ cwd, skillPath }) => {
       const query = new URLSearchParams({ cwd, skillPath })
@@ -1432,72 +1557,26 @@ test("loads model, auth, plugin, and skill projections without mutating user sta
     },
     { cwd: fixtureWorkspace, skillPath: skillFile },
   )
-  expect(skillBrowse.files).toMatchObject({
-    status: 200,
-    body: {
-      entries: expect.arrayContaining([
-        expect.objectContaining({ path: "SKILL.md", kind: "file" }),
-        expect.objectContaining({ path: "references/guide.md", kind: "file" }),
-      ]),
-    },
-  })
-  expect(skillBrowse.file).toMatchObject({
-    status: 200,
-    body: { path: "references/guide.md", content: expect.stringContaining("Skill-owned reference") },
-  })
+  expect(skillBrowse.files.status).toBe(403)
+  expect(skillBrowse.file.status).toBe(403)
   expect(skillBrowse.escapeStatus).not.toBe(200)
-  const skillRoundTrip = await page.evaluate(
-    async ({ cwd, filePath }) => {
-      const toggle = async (disableModelInvocation: boolean) => {
-        const response = await fetch("/api/packages/skills", {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ cwd, filePath, disableModelInvocation }),
-        })
-        return response.status
-      }
-      const read = async () =>
-        fetch(`/api/workspace/files/read?path=${encodeURIComponent(filePath)}`).then((response) =>
-          response.json(),
-        ) as Promise<{ content: string }>
-      const disabledStatus = await toggle(true)
-      const disabled = await read()
-      const enabledStatus = await toggle(false)
-      const enabled = await read()
-      return { disabledStatus, disabled: disabled.content, enabledStatus, enabled: enabled.content }
-    },
-    { cwd: fixtureWorkspace, filePath: skillFile },
+  const beforeSkill = await readFile(skillFile, "utf8")
+  const ambientSkillMutation = await mutate(
+    page,
+    "/api/packages/skills",
+    { cwd: fixtureWorkspace, filePath: skillFile, disableModelInvocation: true },
+    "PATCH",
   )
-  expect(skillRoundTrip).toMatchObject({ disabledStatus: 200, enabledStatus: 200 })
-  expect(skillRoundTrip.disabled).toContain("disable-model-invocation: true")
-  expect(skillRoundTrip.enabled).not.toContain("disable-model-invocation")
-  const readOnlySkillMutation = await page.evaluate(
-    async ({ cwd, filePath }) => {
-      const before = await fetch(`/api/workspace/files/read?path=${encodeURIComponent(filePath)}`).then((response) =>
-        response.json(),
-      )
-      const response = await fetch("/api/packages/skills", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ cwd, filePath, disableModelInvocation: true }),
-      })
-      const after = await fetch(`/api/workspace/files/read?path=${encodeURIComponent(filePath)}`).then((result) =>
-        result.json(),
-      )
-      return { status: response.status, before: before.content, after: after.content }
-    },
-    { cwd: fixtureWorkspace, filePath: readOnlySkillFile },
-  )
-  expect(readOnlySkillMutation.status).toBe(403)
-  expect(readOnlySkillMutation.after).toBe(readOnlySkillMutation.before)
+  expect(ambientSkillMutation.status).toBe(403)
+  expect(await readFile(skillFile, "utf8")).toBe(beforeSkill)
   const deletedSkill = await mutate(
     page,
     "/api/packages/skills",
     { cwd: fixtureWorkspace, filePath: skillFile },
     "DELETE",
   )
-  expect(deletedSkill).toEqual({ status: 200, body: { ok: true } })
-  await expect(readFile(skillFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  expect(deletedSkill.status).toBe(403)
+  expect(await readFile(skillFile, "utf8")).toBe(beforeSkill)
 
   const pluginRoundTrip = await page.evaluate(
     async ({ cwd, source }) => {

@@ -2,11 +2,14 @@ import assert from "node:assert/strict"
 import { test } from "vite-plus/test"
 import type { AgentMessage, AssistantContentBlock, AssistantMessage } from "@/api/contract"
 import {
+  appendStreamingOutputSample,
+  estimateStreamingOutputUnits,
   getDisplayableAssistantBlocks,
-  measureStreamingOutputThroughput,
   partitionAssistantBlocks,
+  projectStreamingOutputThroughput,
   segmentAssistantBlocks,
   summarizeTurnUsage,
+  type StreamingOutputSample,
 } from "./message-display"
 
 function assistant(content: AssistantContentBlock[]): AssistantMessage {
@@ -18,39 +21,58 @@ function assistant(content: AssistantContentBlock[]): AssistantMessage {
   }
 }
 
-test("projects honest live throughput from the current stream measurement", () => {
-  assert.deepEqual(
-    measureStreamingOutputThroughput({
-      ...assistant([{ type: "text", text: "a".repeat(80) }]),
-      generationDurationMs: 1_000,
-    }),
-    { tokens: 20, tokensPerSecond: 20, estimated: true },
-  )
-
-  assert.deepEqual(
-    measureStreamingOutputThroughput({
-      ...assistant([{ type: "text", text: "provider measured output" }]),
-      generationDurationMs: 2_000,
+test("estimates live output units from UTF-8 volume without switching to provider usage", () => {
+  assert.equal(estimateStreamingOutputUnits(assistant([{ type: "text", text: "a".repeat(12) }])), 3)
+  assert.equal(estimateStreamingOutputUnits(assistant([{ type: "text", text: "中文" }])), 1.5)
+  assert.equal(
+    estimateStreamingOutputUnits({
+      ...assistant([{ type: "text", text: "abcd" }]),
       usage: {
         input: 10,
-        output: 50,
+        output: 500,
         cacheRead: 0,
         cacheWrite: 0,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
       },
     }),
-    { tokens: 50, tokensPerSecond: 25, estimated: false },
+    1,
   )
 })
 
-test("does not project live throughput before a meaningful measured interval", () => {
-  assert.equal(
-    measureStreamingOutputThroughput({
-      ...assistant([{ type: "text", text: "a".repeat(80) }]),
-      generationDurationMs: 499,
-    }),
-    null,
-  )
+test("projects a stable recent rate and removes output older than the window", () => {
+  let samples = appendStreamingOutputSample([], { observedAt: 0, outputUnits: 0 })
+  samples = appendStreamingOutputSample(samples, { observedAt: 1_000, outputUnits: 20 })
+  assert.deepEqual(projectStreamingOutputThroughput(samples), { tokensPerSecond: 20 })
+  samples = appendStreamingOutputSample(samples, { observedAt: 2_000, outputUnits: 40 })
+  assert.deepEqual(projectStreamingOutputThroughput(samples), { tokensPerSecond: 20 })
+  samples = appendStreamingOutputSample(samples, { observedAt: 3_000, outputUnits: 60 })
+  assert.deepEqual(projectStreamingOutputThroughput(samples), { tokensPerSecond: 20 })
+  samples = appendStreamingOutputSample(samples, { observedAt: 5_001, outputUnits: 60 })
+  assert.equal(projectStreamingOutputThroughput(samples), null)
+})
+
+test("is invariant to chunk boundaries and resets when a new stream starts", () => {
+  const coarse = [
+    { observedAt: 0, outputUnits: 0, streamElapsedMs: 0 },
+    { observedAt: 2_000, outputUnits: 40, streamElapsedMs: 2_000 },
+  ].reduce<ReadonlyArray<StreamingOutputSample>>((samples, next) => appendStreamingOutputSample(samples, next), [])
+  const fine = [
+    { observedAt: 0, outputUnits: 0, streamElapsedMs: 0 },
+    { observedAt: 500, outputUnits: 10, streamElapsedMs: 500 },
+    { observedAt: 1_000, outputUnits: 20, streamElapsedMs: 1_000 },
+    { observedAt: 1_500, outputUnits: 30, streamElapsedMs: 1_500 },
+    { observedAt: 2_000, outputUnits: 40, streamElapsedMs: 2_000 },
+  ].reduce<ReadonlyArray<StreamingOutputSample>>((samples, next) => appendStreamingOutputSample(samples, next), [])
+  assert.deepEqual(projectStreamingOutputThroughput(coarse), { tokensPerSecond: 20 })
+  assert.deepEqual(projectStreamingOutputThroughput(fine), { tokensPerSecond: 20 })
+
+  const reset = appendStreamingOutputSample(fine, {
+    observedAt: 2_500,
+    outputUnits: 50,
+    streamElapsedMs: 100,
+  })
+  assert.deepEqual(reset, [{ observedAt: 2_500, outputUnits: 50, streamElapsedMs: 100 }])
+  assert.equal(projectStreamingOutputThroughput(reset), null)
 })
 
 test("partitions public assistant events from process blocks", () => {

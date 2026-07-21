@@ -5,10 +5,18 @@ import { MarkdownBody } from "./MarkdownBody"
 import { copyText } from "@/lib/clipboard"
 import { parseCompactionSummary } from "@/lib/compaction-summary"
 import { elapsedDuration, formatDuration } from "@/lib/duration"
-import { isEmptyThinkingBlock, measureStreamingOutputThroughput, type TurnUsage } from "@/lib/message-display"
+import {
+  appendStreamingOutputSample,
+  estimateStreamingOutputUnits,
+  isEmptyThinkingBlock,
+  projectStreamingOutputThroughput,
+  type StreamingOutputSample,
+  type TurnUsage,
+} from "@/lib/message-display"
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch"
 import { useI18n } from "@/lib/i18n"
 import { withApi, runApi, runBrowser } from "@/browser/api-client"
+import { observeCurrentTime } from "@/browser/timing"
 import type {
   AgentMessage,
   UserMessage,
@@ -1639,7 +1647,39 @@ export function TurnUsageSummary({
 
 export function StreamingThroughputBadge({ message }: { message: AssistantMessage }) {
   const { t } = useI18n()
-  const throughput = measureStreamingOutputThroughput(message)
+  const outputUnits = estimateStreamingOutputUnits(message)
+  const observedAt = message.observedAt
+  const [samples, setSamples] = useState<ReadonlyArray<StreamingOutputSample>>([])
+  const [now, setNow] = useState(observedAt ?? 0)
+  useEffect(() => {
+    if (observedAt === undefined) return
+    setSamples((current) =>
+      appendStreamingOutputSample(current, {
+        observedAt,
+        outputUnits,
+        streamElapsedMs: message.generationDurationMs,
+      }),
+    )
+  }, [message.generationDurationMs, observedAt, outputUnits])
+  useEffect(
+    () =>
+      runBrowser(observeCurrentTime("250 millis", setNow), {
+        onSuccess: () => undefined,
+      }),
+    [],
+  )
+  const projectedSamples =
+    observedAt === undefined
+      ? samples
+      : appendStreamingOutputSample(samples, {
+          observedAt: Math.max(observedAt, now),
+          outputUnits,
+          streamElapsedMs:
+            message.generationDurationMs === undefined
+              ? undefined
+              : message.generationDurationMs + Math.max(0, now - observedAt),
+        })
+  const throughput = projectStreamingOutputThroughput(projectedSamples)
   if (throughput === null) return null
   const background =
     throughput.tokensPerSecond >= 50
@@ -1649,9 +1689,7 @@ export function StreamingThroughputBadge({ message }: { message: AssistantMessag
         : throughput.tokensPerSecond >= 15
           ? "#f9c22e"
           : "#e01a4f"
-  const title = throughput.estimated
-    ? t("Estimated token speed while streaming")
-    : t("Measured token speed while streaming")
+  const title = t("Estimated recent output speed from UTF-8 output volume")
   return (
     <span
       data-testid="streaming-throughput"
@@ -1660,8 +1698,7 @@ export function StreamingThroughputBadge({ message }: { message: AssistantMessag
       {...stylex.props(inlineStyles.streamingThroughput)}
       style={{ background }}
     >
-      {throughput.estimated ? "≈" : ""}
-      {throughput.tokensPerSecond.toFixed(1)} tok/s
+      ≈ {throughput.tokensPerSecond.toFixed(1)} tok/s
     </span>
   )
 }

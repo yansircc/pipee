@@ -178,6 +178,7 @@ export const AssistantMessage = Schema.Struct({
   stopReason: Schema.optionalKey(Schema.String),
   errorMessage: Schema.optionalKey(Schema.String),
   timestamp: Schema.optionalKey(Schema.Number),
+  observedAt: Schema.optionalKey(Schema.Number),
   generationDurationMs: Schema.optionalKey(Schema.Finite.check(Schema.isGreaterThan(0))),
   usage: Schema.optionalKey(Usage),
 })
@@ -874,18 +875,42 @@ const IdParam = { id: Schema.String }
 const ProviderParam = { provider: Schema.String }
 const CommonErrors = ApiErrors
 
-const MetaApi = HttpApiGroup.make("meta").add(
-  HttpApiEndpoint.get("health", "/api/health", {
-    success: Schema.Struct({
-      status: Schema.Literal("ok"),
-      appVersion: Schema.String,
-      piVersion: Schema.String,
+export const PipeeUpdateStatus = Schema.Union([
+  Schema.TaggedStruct("Current", {
+    checkedAt: Schema.Finite,
+    currentVersion: Schema.String,
+    latestVersion: Schema.String,
+  }),
+  Schema.TaggedStruct("UpdateAvailable", {
+    checkedAt: Schema.Finite,
+    currentVersion: Schema.String,
+    latestVersion: Schema.String,
+  }),
+  Schema.TaggedStruct("Unavailable", {
+    checkedAt: Schema.Finite,
+    currentVersion: Schema.String,
+  }),
+])
+export type PipeeUpdateStatus = typeof PipeeUpdateStatus.Type
+
+const MetaApi = HttpApiGroup.make("meta")
+  .add(
+    HttpApiEndpoint.get("health", "/api/health", {
+      success: Schema.Struct({
+        status: Schema.Literal("ok"),
+        appVersion: Schema.String,
+        piVersion: Schema.String,
+      }),
     }),
-  }),
-  HttpApiEndpoint.get("version", "/api/meta/version", {
-    success: Schema.Struct({ appVersion: Schema.String, piVersion: Schema.String }),
-  }),
-)
+    HttpApiEndpoint.get("version", "/api/meta/version", {
+      success: Schema.Struct({ appVersion: Schema.String, piVersion: Schema.String }),
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("updateStatus", "/api/meta/update", {
+      success: PipeeUpdateStatus,
+    }),
+  )
 
 const SessionsApi = HttpApiGroup.make("sessions").add(
   HttpApiEndpoint.get("list", "/api/sessions", { success: SessionIndex, error: CommonErrors }),

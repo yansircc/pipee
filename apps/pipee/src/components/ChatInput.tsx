@@ -106,6 +106,8 @@ interface Props {
   draftKey?: string
   /** Session working directory — enables the @ file autocomplete menu */
   cwd?: string | null
+  cancelShortcut?: string
+  focusComposerAriaKeyshortcuts?: string
 }
 export interface ChatInputHandle {
   focus: () => void
@@ -300,6 +302,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     onPromptWithStreamingBehavior,
     draftKey,
     cwd,
+    cancelShortcut,
+    focusComposerAriaKeyshortcuts,
   }: Props,
   ref,
 ) {
@@ -1489,6 +1493,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                       : t("Message… Type / for commands, @ for files")
               }
               rows={1}
+              aria-keyshortcuts={focusComposerAriaKeyshortcuts}
               {...stylex.props(inlineStyles.inline51)}
             />
 
@@ -2209,7 +2214,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
               {isStreaming && (
                 <button
                   onClick={onAbort}
-                  title={t(isBashRunning ? "Stop shell command" : "Stop agent")}
+                  title={`${t(isBashRunning ? "Stop shell command" : "Stop agent")}${cancelShortcut ? ` · ${cancelShortcut}` : ""}`}
+                  aria-keyshortcuts={cancelShortcut === "Esc" ? "Escape" : undefined}
                   {...stylex.props(inlineStyles.inline93)}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.background = "rgba(239,68,68,0.16)"
@@ -2222,6 +2228,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                     <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
                   </svg>
                   {t("Stop")}
+                  {cancelShortcut && <kbd {...stylex.props(inlineStyles.stopShortcut)}>{cancelShortcut}</kbd>}
                 </button>
               )}
 
@@ -3013,6 +3020,13 @@ const inlineStyles = stylex.create({
     whiteSpace: "nowrap",
     letterSpacing: "-0.01em",
     transition: "background 0.12s",
+  },
+  stopShortcut: {
+    color: "currentColor",
+    fontFamily: "inherit",
+    fontSize: 10,
+    fontWeight: 500,
+    opacity: 0.72,
   },
   inline94: {
     display: "flex",

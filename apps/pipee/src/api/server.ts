@@ -36,6 +36,7 @@ import { activeSessionInfo, mergeSessionIndex } from "@/server/session-index"
 import { isLocalPackageSource } from "@/lib/plugin-package-settings"
 import { WebSurfaceCatalog, WebSurfaceCatalogLive } from "@/server/web-surface-catalog"
 import { webSurfaceAssetHandler } from "@/server/web-surface-assets"
+import { PipeeUpdateChecker, PipeeUpdateCheckerLive } from "@/server/pipee-update-checker"
 
 const ok = { ok: true as const }
 
@@ -176,15 +177,19 @@ const RequestSchemaErrorsLive = HttpApiMiddleware.layerSchemaErrorTransform(Requ
 )
 
 const MetaLive = HttpApiBuilder.group(PipeeApi, "meta", (handlers) =>
-  handlers
-    .handle("health", () =>
-      Effect.succeed({
-        status: "ok" as const,
-        appVersion: __APP_VERSION__,
-        piVersion: __PI_VERSION__,
-      }),
-    )
-    .handle("version", () => Effect.succeed({ appVersion: __APP_VERSION__, piVersion: __PI_VERSION__ })),
+  Effect.gen(function* () {
+    const updateChecker = yield* PipeeUpdateChecker
+    return handlers
+      .handle("health", () =>
+        Effect.succeed({
+          status: "ok" as const,
+          appVersion: __APP_VERSION__,
+          piVersion: __PI_VERSION__,
+        }),
+      )
+      .handle("version", () => Effect.succeed({ appVersion: __APP_VERSION__, piVersion: __PI_VERSION__ }))
+      .handle("updateStatus", () => updateChecker.status)
+  }),
 )
 
 const SessionsLive = HttpApiBuilder.group(PipeeApi, "sessions", (handlers) =>
@@ -957,8 +962,10 @@ const ServicesLive = Layer.mergeAll(WorkspaceIoLive, PackageIoLive, WebSurfaceCa
   Layer.provideMerge(DomainLive),
 )
 
+const MetaProvided = MetaLive.pipe(Layer.provide(PipeeUpdateCheckerLive), Layer.provide(FoundationLive))
+
 const HandlersLive = Layer.mergeAll(
-  MetaLive,
+  MetaProvided,
   SessionsLive,
   SessionActionsLive,
   WorkspaceLive,

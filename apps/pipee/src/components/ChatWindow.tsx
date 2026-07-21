@@ -17,7 +17,6 @@ import type {
   WeixinStatusProjection,
 } from "@/api/contract"
 import {
-  measureStreamingOutputThroughput,
   partitionAssistantBlocks,
   segmentAssistantBlocks,
   summarizeTurnUsage,
@@ -69,6 +68,11 @@ interface Props {
   onOpenModels?: () => void
   onOpenSkills?: () => void
   skillsCount?: number
+  cancelActivityEpoch?: number
+  onActivityStateChange?: (state: { readonly busy: boolean; readonly blockingDialog: boolean }) => void
+  onCancelActivity?: () => void
+  cancelShortcut?: string
+  focusComposerAriaKeyshortcuts?: string
 }
 function phaseLabel(phase: AgentPhase, t: (source: string) => string): string {
   if (phase?.kind === "running_tools") {
@@ -233,6 +237,11 @@ export function ChatWindow({
   onOpenModels,
   onOpenSkills,
   skillsCount,
+  cancelActivityEpoch = 0,
+  onActivityStateChange,
+  onCancelActivity,
+  cancelShortcut,
+  focusComposerAriaKeyshortcuts,
 }: Props) {
   const { t } = useI18n()
   const { soundEnabled, playDoneSound, unlockAudio } = useAudio()
@@ -325,6 +334,16 @@ export function ChatWindow({
     }
   }, [error, loading, onSystemPromptChange, session.id, systemPrompt])
   const sessionBusy = agentRunning || activeBashExecution !== null
+  const previousCancelEpoch = useRef(cancelActivityEpoch)
+  useEffect(() => {
+    if (cancelActivityEpoch <= previousCancelEpoch.current) return
+    previousCancelEpoch.current = cancelActivityEpoch
+    handleAbort()
+  }, [cancelActivityEpoch, handleAbort])
+  useEffect(() => {
+    onActivityStateChange?.({ busy: sessionBusy, blockingDialog: extensionDialog !== null })
+  }, [extensionDialog, onActivityStateChange, sessionBusy])
+  useEffect(() => () => onActivityStateChange?.({ busy: false, blockingDialog: false }), [onActivityStateChange])
   const activeBashOutputLength = activeBashExecution?.output.length
   const [followingLatest, setFollowingLatestState] = useState(true)
   const followingLatestRef = useRef(true)
@@ -443,7 +462,7 @@ export function ChatWindow({
       ref={chatInputRef}
       onSend={handleSend}
       onBashCommand={handleBashCommand}
-      onAbort={handleAbort}
+      onAbort={onCancelActivity ?? handleAbort}
       onSteer={agentRunning ? handleSteer : undefined}
       onFollowUp={agentRunning ? handleFollowUp : undefined}
       onPromptWithStreamingBehavior={agentRunning ? handlePromptWithStreamingBehavior : undefined}
@@ -457,6 +476,8 @@ export function ChatWindow({
       onOpenModels={onOpenModels}
       onOpenSkills={onOpenSkills}
       skillsCount={skillsCount}
+      cancelShortcut={cancelShortcut}
+      focusComposerAriaKeyshortcuts={focusComposerAriaKeyshortcuts}
       sessionStats={sessionStats}
       contextUsage={contextUsage}
       onAbortCompaction={handleAbortCompaction}
@@ -884,13 +905,10 @@ export function ChatWindow({
                         })
                       }
                       const footerUsage = isLiveTail ? liveTurnUsage : turnUsage
-                      const streamingThroughput = streamingAssistant
-                        ? measureStreamingOutputThroughput(streamingAssistant)
-                        : null
                       const turnTimestamp = messages
                         .slice(userIdx + 1, endIdx)
                         .findLast((message) => message.role === "assistant")?.timestamp
-                      if (streamingThroughput || footerUsage) {
+                      if (streamingAssistant || footerUsage) {
                         turnSegments.push(
                           <div key={`turn-metrics-${userIdx}`} {...stylex.props(inlineStyles.turnMetrics)}>
                             {streamingAssistant && <StreamingThroughputBadge message={streamingAssistant} />}

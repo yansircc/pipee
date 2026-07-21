@@ -25,31 +25,61 @@ export interface AssistantDisplaySegment {
   readonly blocks: ReadonlyArray<AssistantContentBlock>
 }
 
-export interface StreamingOutputThroughput {
-  readonly tokens: number
-  readonly tokensPerSecond: number
-  readonly estimated: boolean
+export interface StreamingOutputSample {
+  readonly observedAt: number
+  readonly outputUnits: number
+  readonly streamElapsedMs?: number
 }
 
-export function measureStreamingOutputThroughput(message: AssistantMessage): StreamingOutputThroughput | null {
-  const durationMs = message.generationDurationMs
-  if (durationMs === undefined || durationMs < 500) return null
+export interface StreamingOutputThroughput {
+  readonly tokensPerSecond: number
+}
 
-  const measuredTokens = message.usage?.output ?? 0
-  let outputCharacters = 0
+const utf8 = new TextEncoder()
+
+export function estimateStreamingOutputUnits(message: AssistantMessage): number {
+  let outputBytes = 0
   for (const block of message.content ?? []) {
-    if (block.type === "text") outputCharacters += block.text.length
-    else if (block.type === "thinking") outputCharacters += block.thinking.length
-    else if (block.type === "toolCall") outputCharacters += JSON.stringify(block.input).length
+    if (block.type === "text") outputBytes += utf8.encode(block.text).byteLength
+    else if (block.type === "thinking") outputBytes += utf8.encode(block.thinking).byteLength
+    else if (block.type === "toolCall") outputBytes += utf8.encode(JSON.stringify(block.input)).byteLength
   }
-  const estimated = measuredTokens <= 0
-  const tokens = estimated ? Math.round(outputCharacters / 4) : measuredTokens
-  if (tokens <= 0) return null
-  return {
-    tokens,
-    tokensPerSecond: (tokens * 1_000) / durationMs,
-    estimated,
+  return outputBytes / 4
+}
+
+export function appendStreamingOutputSample(
+  samples: ReadonlyArray<StreamingOutputSample>,
+  next: StreamingOutputSample,
+  windowMs = 2_000,
+): ReadonlyArray<StreamingOutputSample> {
+  const previous = samples.at(-1)
+  if (
+    previous !== undefined &&
+    (next.observedAt < previous.observedAt ||
+      next.outputUnits < previous.outputUnits ||
+      (next.streamElapsedMs !== undefined &&
+        previous.streamElapsedMs !== undefined &&
+        next.streamElapsedMs < previous.streamElapsedMs))
+  ) {
+    return [next]
   }
+  const appended = previous?.observedAt === next.observedAt ? [...samples.slice(0, -1), next] : [...samples, next]
+  const cutoff = next.observedAt - windowMs
+  const firstInside = appended.findIndex((sample) => sample.observedAt >= cutoff)
+  if (firstInside <= 0) return appended
+  return appended.slice(firstInside - 1)
+}
+
+export function projectStreamingOutputThroughput(
+  samples: ReadonlyArray<StreamingOutputSample>,
+): StreamingOutputThroughput | null {
+  const first = samples[0]
+  const last = samples.at(-1)
+  if (first === undefined || last === undefined) return null
+  const elapsedMs = last.observedAt - first.observedAt
+  const outputUnits = last.outputUnits - first.outputUnits
+  if (elapsedMs < 500 || outputUnits <= 0) return null
+  return { tokensPerSecond: (outputUnits * 1_000) / elapsedMs }
 }
 
 export function summarizeTurnUsage(messages: AgentMessage[], userIndex: number, endIndex: number): TurnUsage | null {

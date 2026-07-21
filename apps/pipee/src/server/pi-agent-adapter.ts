@@ -18,6 +18,7 @@ import {
   type ResolvedPaths,
   type ResolvedResource,
 } from "@earendil-works/pi-coding-agent"
+import { pipeeResourceLoaderPolicy } from "./pipee-resource-loader-policy"
 import { Type } from "@earendil-works/pi-ai"
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat"
 import type {
@@ -940,11 +941,13 @@ const makeRuntime = (
           case "message_update": {
             const message = Schema.decodeUnknownOption(AgentMessage)(normalizePiMessage(event.message))
             if (Option.isNone(message)) return null
+            const observedAt = clock.currentTimeMillisUnsafe()
             const streamingMessage =
               message.value.role === "assistant" && assistantStreamStartedAt !== null
                 ? {
                     ...message.value,
-                    generationDurationMs: Math.max(1, clock.currentTimeMillisUnsafe() - assistantStreamStartedAt),
+                    observedAt,
+                    generationDurationMs: Math.max(1, observedAt - assistantStreamStartedAt),
                   }
                 : message.value
             return RunScopedEvent.make({ _tag: "MessageUpdated", runId, message: streamingMessage })
@@ -952,11 +955,13 @@ const makeRuntime = (
           case "message_end": {
             const message = Schema.decodeUnknownOption(AgentMessage)(normalizePiMessage(event.message))
             if (Option.isNone(message)) return null
+            const observedAt = clock.currentTimeMillisUnsafe()
             const completedMessage =
               message.value.role === "assistant" && assistantStreamStartedAt !== null
                 ? {
                     ...message.value,
-                    generationDurationMs: Math.max(1, clock.currentTimeMillisUnsafe() - assistantStreamStartedAt),
+                    observedAt,
+                    generationDurationMs: Math.max(1, observedAt - assistantStreamStartedAt),
                   }
                 : message.value
             if (message.value.role === "assistant") assistantStreamStartedAt = null
@@ -1578,7 +1583,12 @@ const adapterLive = Effect.gen(function* () {
   const modelCatalog = (cwd: string) =>
     Effect.gen(function* () {
       const services = yield* Effect.tryPromise({
-        try: () => createAgentSessionServices({ cwd, agentDir: getAgentDir() }),
+        try: () =>
+          createAgentSessionServices({
+            cwd,
+            agentDir: getAgentDir(),
+            resourceLoaderOptions: pipeeResourceLoaderPolicy(),
+          }),
         catch: adapterError("models.catalog"),
       })
       const settings = services.settingsManager
@@ -2143,7 +2153,12 @@ const adapterLive = Effect.gen(function* () {
         return yield* sdkExtensionCache.withCandidate(
           { cwd: options.cwd, packageSetFingerprint: fingerprint },
           Effect.tryPromise({
-            try: () => createAgentSessionServices({ cwd: options.cwd, agentDir: options.agentDir }),
+            try: () =>
+              createAgentSessionServices({
+                cwd: options.cwd,
+                agentDir: options.agentDir,
+                resourceLoaderOptions: pipeeResourceLoaderPolicy(),
+              }),
             catch: adapterError("runtime.services.create"),
           }),
           (services) =>
@@ -2179,7 +2194,7 @@ const adapterLive = Effect.gen(function* () {
 
   const skills = (cwd: string) =>
     Effect.gen(function* () {
-      const loader = new DefaultResourceLoader({ cwd, agentDir: getAgentDir() })
+      const loader = new DefaultResourceLoader({ cwd, agentDir: getAgentDir(), ...pipeeResourceLoaderPolicy() })
       yield* Effect.tryPromise({ try: () => loader.reload(), catch: adapterError("skills.reload") })
       const discovered = yield* decode(DiscoveredSkillsResponse, "skills.discovery", loader.getSkills())
       const mutationFor = (skill: (typeof discovered.skills)[number]): Effect.Effect<SkillMutationValue> => {

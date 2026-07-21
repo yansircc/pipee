@@ -15,9 +15,11 @@ catalog:
   "@effect/tsgo": 0.21.0
   "@effect/vitest": 4.0.0-beta.98
   "@types/cross-spawn": 6.0.6
+  "@types/semver": 7.7.1
   "@yansircc/effect-scan": 0.1.3
   effect: 4.0.0-beta.98
   jiti: 2.7.0
+  semver: 7.8.0
   typescript: 7.0.2
   vite: npm:@voidzero-dev/vite-plus-core@0.2.4
   vite-plus: 0.2.4
