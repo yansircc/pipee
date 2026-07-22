@@ -4,7 +4,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { Effect, Exit, Schema, Scope, Stream } from "effect";
+import { Deferred, Effect, Exit, Schema, Scope, Stream } from "effect";
 import QRCode from "qrcode";
 import packageJson from "../package.json" with { type: "json" };
 import type { MediaViewPort } from "@pipee/companion-contracts/host-capabilities";
@@ -206,43 +206,48 @@ export default function weixinExtension(pi: ExtensionAPI): void {
   };
 
   const startStatusSync = (ctx: ExtensionContext) =>
-    statusSync.replace(
-      Effect.gen(function* () {
-        const bridge = yield* Bridge;
-        const presentation = livePresentation(ctx.ui, packageJson.name);
-        yield* bridge.statusChanges.pipe(
-          Stream.map(
-            Exit.match({
-              onFailure: () => {
-                latestStatus = undefined;
-                return projectSessionStatus(undefined);
-              },
-              onSuccess: (status) => {
-                latestStatus = status;
-                return projectSessionStatus(status);
-              },
-            }),
-          ),
-          Stream.changesWith(sameSessionStatus),
-          Stream.runForEach((status) =>
-            Effect.sync(() => {
-              if (status.connected) loginProjection = undefined;
-              surfaceSlot?.replace(
-                projectWeixinWebView(
-                  latestStatus,
-                  ctx.sessionManager.getSessionId(),
-                  ctx.cwd,
-                  loginProjection,
-                ),
-              );
-              setPiWeixinRetention(status.enabled);
-            }).pipe(
-              Effect.andThen(Effect.sync(() => publishSessionPresentation(presentation, status))),
+    Effect.gen(function* () {
+      const ready = yield* Deferred.make<void>();
+      yield* statusSync.replace(
+        Effect.gen(function* () {
+          const bridge = yield* Bridge;
+          const presentation = livePresentation(ctx.ui, packageJson.name);
+          yield* bridge.statusChanges.pipe(
+            Stream.map(
+              Exit.match({
+                onFailure: () => {
+                  latestStatus = undefined;
+                  return projectSessionStatus(undefined);
+                },
+                onSuccess: (status) => {
+                  latestStatus = status;
+                  return projectSessionStatus(status);
+                },
+              }),
             ),
-          ),
-        );
-      }),
-    );
+            Stream.changesWith(sameSessionStatus),
+            Stream.runForEach((status) =>
+              Effect.sync(() => {
+                if (status.connected) loginProjection = undefined;
+                surfaceSlot?.replace(
+                  projectWeixinWebView(
+                    latestStatus,
+                    ctx.sessionManager.getSessionId(),
+                    ctx.cwd,
+                    loginProjection,
+                  ),
+                );
+                setPiWeixinRetention(status.enabled);
+              }).pipe(
+                Effect.andThen(Effect.sync(() => publishSessionPresentation(presentation, status))),
+                Effect.andThen(Deferred.succeed(ready, undefined)),
+              ),
+            ),
+          );
+        }),
+      );
+      yield* Deferred.await(ready);
+    });
 
   pi.registerTool({
     name: "weixin_connect",
