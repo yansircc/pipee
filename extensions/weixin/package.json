@@ -1,6 +1,6 @@
 {
   "name": "@yansircc/pi-weixin",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Weixin iLink bridge for Pi sessions hosted by pipee",
   "keywords": [
     "ilink",
