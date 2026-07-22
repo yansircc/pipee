@@ -609,6 +609,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     })
   }, [addNotice, chatInputRef, runScoped])
 
+  const handleClearQueue = useCallback(() => {
+    const sessionId = sessionIdRef.current
+    if (sessionId === null) return
+    runScoped(sessionController.clearQueue(sessionId), {
+      onSuccess: () => undefined,
+      onFailure: (error) => addNotice({ type: "error", message: messageFor(error) }),
+    })
+  }, [addNotice, runScoped])
+
   const handleThinkingLevelChange = useCallback(
     (level: ThinkingLevelOption) => {
       setThinkingLevel(level)
@@ -858,6 +867,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handlePromptWithStreamingBehavior,
     handleAbortCompaction,
     handleRecallQueue,
+    handleClearQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange,
     handleThinkingLevelChange,

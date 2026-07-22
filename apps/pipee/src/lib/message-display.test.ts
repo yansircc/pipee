@@ -3,6 +3,7 @@ import { test } from "vite-plus/test"
 import type { AgentMessage, AssistantContentBlock, AssistantMessage } from "@/api/contract"
 import {
   appendStreamingOutputSample,
+  classifyOutputRate,
   estimateStreamingOutputUnits,
   getDisplayableAssistantBlocks,
   partitionAssistantBlocks,
@@ -11,6 +12,15 @@ import {
   summarizeTurnUsage,
   type StreamingOutputSample,
 } from "./message-display"
+
+test("classifies output speed with one stable set of visual thresholds", () => {
+  assert.equal(classifyOutputRate(50), "very-fast")
+  assert.equal(classifyOutputRate(49.9), "fast")
+  assert.equal(classifyOutputRate(30), "fast")
+  assert.equal(classifyOutputRate(29.9), "moderate")
+  assert.equal(classifyOutputRate(15), "moderate")
+  assert.equal(classifyOutputRate(14.9), "slow")
+})
 
 function assistant(content: AssistantContentBlock[]): AssistantMessage {
   return {

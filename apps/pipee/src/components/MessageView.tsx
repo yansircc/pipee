@@ -7,6 +7,7 @@ import { parseCompactionSummary } from "@/lib/compaction-summary"
 import { elapsedDuration, formatDuration } from "@/lib/duration"
 import {
   appendStreamingOutputSample,
+  classifyOutputRate,
   estimateStreamingOutputUnits,
   isEmptyThinkingBlock,
   projectStreamingOutputThroughput,
@@ -17,6 +18,7 @@ import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch"
 import { useI18n } from "@/lib/i18n"
 import { withApi, runApi, runBrowser } from "@/browser/api-client"
 import { observeCurrentTime } from "@/browser/timing"
+import { useIsMobile } from "@/hooks/useIsMobile"
 import type {
   AgentMessage,
   UserMessage,
@@ -727,6 +729,7 @@ function AssistantMessageView({
   blockIndices?: ReadonlyArray<number>
 }) {
   const { t } = useI18n()
+  const isMobile = useIsMobile()
   const time = showTimestamp ? formatTime(message.timestamp) : null
   const blockItems = (message.content ?? [])
     .map((block, localIndex) => ({
@@ -741,6 +744,7 @@ function AssistantMessageView({
     )
   const blocks = blockItems.map(({ block }) => block)
   const [hovered, setHovered] = useState(false)
+  const [copyFocused, setCopyFocused] = useState(false)
   const [copied, setCopied] = useState(false)
   const blockItemsRef = useRef(blockItems)
   blockItemsRef.current = blockItems
@@ -850,12 +854,64 @@ function AssistantMessageView({
   if (blocks.length === 0 && termination === undefined && !isStreaming) return null
   return (
     <div
+      data-assistant-message
       {...stylex.props(inlineStyles.inline22)}
       style={{ marginBottom: turnSegment ? 0 : undefined }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div {...stylex.props(inlineStyles.inline27)}>
+      {textContent && !isStreaming && (
+        <button
+          type="button"
+          data-message-copy
+          onClick={copyContent}
+          onFocus={() => setCopyFocused(true)}
+          onBlur={() => setCopyFocused(false)}
+          title={t(copied ? "Copied" : "Copy message")}
+          aria-label={t(copied ? "Copied" : "Copy message")}
+          {...stylex.props(inlineStyles.assistantCopyAction)}
+          style={{
+            color: copied ? "var(--accent)" : "var(--text-dim)",
+            opacity: hovered || copyFocused || copied || isMobile ? 1 : 0,
+            pointerEvents: hovered || copyFocused || copied || isMobile ? "auto" : "none",
+          }}
+        >
+          {copied ? (
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ) : (
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+          )}
+        </button>
+      )}
+      <div
+        {...stylex.props(inlineStyles.inline27)}
+        style={{ paddingRight: textContent && !isStreaming ? 36 : undefined }}
+      >
         {termination !== undefined && (
           <div
             role={termination.error ? "alert" : "status"}
@@ -890,64 +946,18 @@ function AssistantMessageView({
         ))}
       </div>
 
-      <div {...stylex.props(inlineStyles.inline29)}>
-        {turnUsage && !isStreaming ? (
-          <TurnUsageSummary modelNames={modelNames} usage={turnUsage} />
-        ) : message.usage && !isStreaming && !hideUsage ? (
-          <div {...stylex.props(inlineStyles.inline30)}>
-            {formatUsage(message.usage, elapsedDuration(prevTimestamp, message.timestamp))}
-          </div>
-        ) : null}
-        {textContent && !isStreaming && (
-          <button
-            onClick={copyContent}
-            title={t("Copy message")}
-            {...stylex.props(inlineStyles.inline31)}
-            style={{
-              color: copied ? "var(--accent)" : "var(--text-dim)",
-              opacity: hovered ? 1 : 0,
-              pointerEvents: hovered ? "auto" : "none",
-            }}
-            onMouseEnter={(e) => {
-              if (!copied) e.currentTarget.style.color = "var(--accent)"
-            }}
-            onMouseLeave={(e) => {
-              if (!copied) e.currentTarget.style.color = "var(--text-dim)"
-            }}
-          >
-            {copied ? (
-              <svg
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            ) : (
-              <svg
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-              </svg>
-            )}
-            {copied ? "Copied" : "Copy"}
-          </button>
-        )}
-        {time && !isStreaming && <span {...stylex.props(inlineStyles.inline32)}>{time}</span>}
-      </div>
+      {!isStreaming && (turnUsage || (!hideUsage && message.usage) || time) && (
+        <div {...stylex.props(inlineStyles.inline29)}>
+          {turnUsage ? (
+            <TurnUsageSummary modelNames={modelNames} usage={turnUsage} />
+          ) : message.usage && !hideUsage ? (
+            <div {...stylex.props(inlineStyles.inline30)}>
+              {formatUsage(message.usage, elapsedDuration(prevTimestamp, message.timestamp))}
+            </div>
+          ) : null}
+          {time && <span {...stylex.props(inlineStyles.inline32)}>{time}</span>}
+        </div>
+      )}
     </div>
   )
 }
@@ -1683,13 +1693,22 @@ export function StreamingThroughputBadge({ message }: { message: AssistantMessag
         })
   const throughput = projectStreamingOutputThroughput(projectedSamples)
   if (throughput === null) return null
+  const tone = classifyOutputRate(throughput.tokensPerSecond)
+  const background = {
+    "very-fast": "#0e7490",
+    fast: "#15803d",
+    moderate: "#b45309",
+    slow: "#b91c1c",
+  }[tone]
   const title = t("Estimated recent output speed from UTF-8 output volume")
   return (
     <span
       data-testid="streaming-throughput"
+      data-rate-tone={tone}
       title={title}
       aria-label={`${title}: ${throughput.tokensPerSecond.toFixed(1)} tok/s`}
       {...stylex.props(inlineStyles.streamingThroughput)}
+      style={{ background }}
     >
       ≈ {throughput.tokensPerSecond.toFixed(1)} tok/s
     </span>
@@ -1881,6 +1900,7 @@ const inlineStyles = stylex.create({
   },
   inline22: {
     marginBottom: 25,
+    position: "relative",
   },
   inline27: {
     display: "flex",
@@ -1905,20 +1925,22 @@ const inlineStyles = stylex.create({
     fontSize: 11,
     color: "var(--text-dim)",
   },
-  inline31: {
-    display: "flex",
+  assistantCopyAction: {
     alignItems: "center",
-    gap: 4,
-    padding: "3px 8px",
-    height: 22,
-    background: "none",
-    border: "none",
-    borderRadius: 5,
+    background: "var(--bg)",
+    border: "1px solid var(--border-soft)",
+    borderRadius: 7,
     cursor: "pointer",
-    fontSize: 11,
-    fontWeight: 400,
-    whiteSpace: "nowrap",
-    transition: "opacity 0.12s, color 0.12s",
+    display: "flex",
+    height: 28,
+    justifyContent: "center",
+    padding: 0,
+    position: "absolute",
+    right: 0,
+    top: 0,
+    transition: "opacity 0.12s, color 0.12s, background 0.12s",
+    width: 28,
+    zIndex: 1,
   },
   inline32: {
     fontSize: 10,
@@ -2303,10 +2325,7 @@ const inlineStyles = stylex.create({
     marginLeft: "auto",
   },
   inline87: {
-    position: "absolute",
-    bottom: "calc(100% + 7px)",
-    left: 0,
-    zIndex: 70,
+    marginTop: 8,
     width: "min(280px, calc(100vw - 48px))",
     padding: "10px 12px",
     border: "1px solid var(--border)",

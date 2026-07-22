@@ -2677,7 +2677,9 @@ const inlineStyles = stylex.create({
   },
   sessionAction: {
     flex: 1,
+    minWidth: 0,
     height: 35,
+    padding: "0 12px",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -2691,6 +2693,7 @@ const inlineStyles = stylex.create({
     cursor: "pointer",
   },
   sessionActionIcon: {
+    flexShrink: 0,
     width: 35,
     height: 35,
     display: "flex",
@@ -2999,6 +3002,8 @@ const inlineStyles = stylex.create({
     color: "var(--text-dim)",
     fontFamily: "inherit",
     fontSize: 10,
+    flexShrink: 0,
     marginLeft: "auto",
+    whiteSpace: "nowrap",
   },
 })

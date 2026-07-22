@@ -1,7 +1,4 @@
-export type ViewportMode =
-  | { readonly kind: "following-end" }
-  | { readonly kind: "anchoring-turn"; readonly turnId: string; readonly viewportOffset: number }
-  | { readonly kind: "free-scrolling" }
+export type ViewportMode = { readonly kind: "following-end" } | { readonly kind: "free-scrolling" }
 
 export type ViewportEvent =
   | { readonly kind: "session-reset" }
@@ -12,14 +9,26 @@ export type ViewportEvent =
 
 export const initialViewportMode: ViewportMode = { kind: "following-end" }
 
+export interface LogicalViewportAnchor {
+  readonly rowId: string
+  readonly dataLength: number
+  readonly rowPosition: number
+  readonly headerSize: number
+  readonly scrollOffset: number
+  readonly userScrollGeneration: number
+}
+
+export function restoreScrollOffset(
+  anchor: LogicalViewportAnchor,
+  next: { readonly rowPosition: number; readonly headerSize: number },
+): number {
+  return anchor.scrollOffset + next.rowPosition - anchor.rowPosition + next.headerSize - anchor.headerSize
+}
+
 export function reduceViewportMode(mode: ViewportMode, event: ViewportEvent): ViewportMode {
   if (event.kind === "session-reset" || event.kind === "scroll-to-latest") return initialViewportMode
   if (event.kind === "jump-to-turn") return { kind: "free-scrolling" }
-  if (event.kind === "new-turn") {
-    return mode.kind === "following-end"
-      ? { kind: "anchoring-turn", turnId: event.turnId, viewportOffset: event.viewportOffset }
-      : mode
-  }
+  if (event.kind === "new-turn") return mode
   if (event.direction === "up") return { kind: "free-scrolling" }
   return event.atEnd ? initialViewportMode : mode
 }

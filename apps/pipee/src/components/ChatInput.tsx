@@ -19,6 +19,7 @@ import {
 import { FolderIcon, getFileIcon } from "./FileIcons"
 import { useIsMobile } from "@/hooks/useIsMobile"
 import { useI18n } from "@/lib/i18n"
+import { resolveStreamingPrimaryAction } from "@/lib/composer-primary-action"
 import { useAppForm, useFormSelector } from "@/ui/interaction/AppForm"
 import { parseBashCommand } from "@/lib/bash-command"
 import { DEFAULT_TOOL_PRESET, type ToolPreset } from "@/lib/tool-presets"
@@ -98,6 +99,7 @@ interface Props {
   } | null
   queuedMessages?: QueuedMessages | null
   onRecallQueue?: () => void
+  onClearQueue?: () => void
   slashCommands?: SlashCommandInfo[]
   slashCommandsLoading?: boolean
   onLoadSlashCommands?: () => SlashCommandInfo[]
@@ -297,6 +299,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     retryInfo,
     queuedMessages,
     onRecallQueue,
+    onClearQueue,
     slashCommands,
     slashCommandsLoading,
     onLoadSlashCommands,
@@ -670,6 +673,20 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
   const hasAttachments = attachedImages.length > 0 || attachedFiles.length > 0
   const canQueueStreamingMessage =
     !sendDisabled && hasInputText && attachedImages.length === 0 && attachedFiles.length === 0
+  const streamingPrimaryAction = resolveStreamingPrimaryAction({
+    hasDraft: canQueueStreamingMessage,
+    canFollowUp: onFollowUp !== undefined,
+    canSteer: onSteer !== undefined,
+  })
+  const submitPrimaryAction = () => {
+    if (!isStreaming) {
+      void messageForm.handleSubmit({ mode: "send" })
+      return
+    }
+    if (streamingPrimaryAction !== "stop") {
+      void messageForm.handleSubmit({ mode: streamingPrimaryAction })
+    }
+  }
 
   // ── @ file autocomplete ──────────────────────────────────────────────────
   // Recomputed from the text before the caret on every change/caret move.
@@ -1007,9 +1024,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
       }
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault()
-        if (isStreaming && (onSteer || onFollowUp)) {
-          // Default Enter sends as steer if available, else followup
-          void messageForm.handleSubmit({ mode: onSteer ? "steer" : "followup" })
+        if (isStreaming && streamingPrimaryAction !== "stop") {
+          void messageForm.handleSubmit({ mode: streamingPrimaryAction })
         } else {
           void messageForm.handleSubmit({ mode: "send" })
         }
@@ -1017,8 +1033,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     },
     [
       isStreaming,
-      onSteer,
-      onFollowUp,
+      streamingPrimaryAction,
       slashMenuOpen,
       slashQuery,
       filteredSlashCommands,
@@ -1208,36 +1223,41 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
               <span {...stylex.props(inlineStyles.inline9)}>
                 {t("Queued")} · {queuedMessageCount}
               </span>
-              {onRecallQueue && (
-                <button
-                  onClick={onRecallQueue}
-                  title={t("Remove all queued messages and put them back into the input box for editing")}
-                  {...stylex.props(inlineStyles.inline10)}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--bg-hover)"
-                    e.currentTarget.style.borderColor = "color-mix(in srgb, var(--accent) 45%, var(--border))"
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "transparent"
-                    e.currentTarget.style.borderColor = "var(--border)"
-                  }}
-                >
-                  <svg
-                    width="13"
-                    height="13"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+              <div {...stylex.props(inlineStyles.queueActions)}>
+                {onRecallQueue && (
+                  <button
+                    onClick={onRecallQueue}
+                    title={t("Remove all queued messages and put them back into the input box for editing")}
+                    {...stylex.props(inlineStyles.inline10)}
                   >
-                    <polyline points="9 14 4 9 9 4" />
-                    <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
-                  </svg>
-                  Recall to input
-                </button>
-              )}
+                    {t("Edit queued messages")}
+                  </button>
+                )}
+                {onClearQueue && (
+                  <button
+                    onClick={onClearQueue}
+                    title={t("Remove all queued messages")}
+                    aria-label={t("Remove all queued messages")}
+                    {...stylex.props(inlineStyles.queueDelete)}
+                  >
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4h8v2" />
+                      <path d="m19 6-1 14H6L5 6" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
             {queuedMessages?.steering.map((text, i) => (
               <QueuedMessageRow key={`steer-${i}`} kind="steer" text={text} />
@@ -1518,7 +1538,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                     isBashRunning
                       ? t("Shell command is running…")
                       : isStreaming && (onSteer || onFollowUp)
-                        ? t("Steer now / queue follow-up...")
+                        ? t("Type a follow-up message...")
                         : isStreaming
                           ? t("Agent is running…")
                           : t("Message… Type / for commands, @ for files")
@@ -1530,79 +1550,29 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
               )}
             </messageForm.Field>
 
-            {isStreaming ? (
-              <div {...stylex.props(inlineStyles.inline52)}>
-                {onSteer && (
-                  <button
-                    onClick={() => void messageForm.handleSubmit({ mode: "steer" })}
-                    disabled={!canQueueStreamingMessage}
-                    title={
-                      hasAttachments
-                        ? t("Attachments cannot be queued while the agent is running")
-                        : t("Interrupt the current run and inject this message now")
-                    }
-                    {...stylex.props(inlineStyles.inline53)}
-                    style={{
-                      background: canQueueStreamingMessage ? "rgba(234,179,8,0.12)" : "none",
-                      color: canQueueStreamingMessage ? "rgba(180,130,0,1)" : "var(--text-dim)",
-                      cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
-                    }}
-                  >
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 10 10"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M5 1 L9 5 L5 9" />
-                      <line x1="1" y1="5" x2="9" y2="5" />
-                    </svg>
-                    {t("Steer")}
-                  </button>
-                )}
-                {onFollowUp && (
-                  <button
-                    onClick={() => void messageForm.handleSubmit({ mode: "followup" })}
-                    disabled={!canQueueStreamingMessage}
-                    title={
-                      hasAttachments
-                        ? t("Attachments cannot be queued while the agent is running")
-                        : t("Queue this message after the agent finishes")
-                    }
-                    {...stylex.props(inlineStyles.inline54)}
-                    style={{
-                      background: canQueueStreamingMessage ? "rgba(129,140,248,0.12)" : "none",
-                      color: canQueueStreamingMessage ? "rgba(99,102,241,1)" : "var(--text-dim)",
-                      cursor: canQueueStreamingMessage ? "pointer" : "not-allowed",
-                    }}
-                  >
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 10 10"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <line x1="5" y1="1" x2="5" y2="6" />
-                      <polyline points="2.5 3.5 5 1 7.5 3.5" />
-                      <line x1="2" y1="9" x2="8" y2="9" />
-                    </svg>
-                    {t("Follow-up")}
-                  </button>
-                )}
-              </div>
+            {isStreaming && streamingPrimaryAction === "stop" ? (
+              <button
+                type="button"
+                onClick={onAbort}
+                title={`${t(isBashRunning ? "Stop shell command" : "Stop agent")}${cancelShortcut ? ` · ${cancelShortcut}` : ""}`}
+                aria-label={t(isBashRunning ? "Stop shell command" : "Stop agent")}
+                aria-keyshortcuts={cancelShortcut === "Esc" ? "Escape" : undefined}
+                {...stylex.props(inlineStyles.inline55)}
+                style={{ background: "var(--text)", color: "var(--bg-panel)", cursor: "pointer" }}
+              >
+                <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
+                  <rect x="3" y="3" width="7" height="7" rx="1.5" fill="currentColor" />
+                </svg>
+              </button>
             ) : (
               <button
-                onClick={() => void messageForm.handleSubmit({ mode: "send" })}
+                onClick={submitPrimaryAction}
                 disabled={
-                  sendDisabled || sessionLoading || (!value.trim() && !hasAttachments) || uploadingAttachments > 0
+                  sendDisabled ||
+                  sessionLoading ||
+                  (!value.trim() && !hasAttachments) ||
+                  uploadingAttachments > 0 ||
+                  (isStreaming && streamingPrimaryAction === "stop")
                 }
                 aria-label={sessionLoading ? t("Loading...") : t("Send")}
                 {...stylex.props(inlineStyles.inline55)}
@@ -2249,27 +2219,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                 </Tooltip>
               ) : null}
 
-              {isStreaming && (
-                <button
-                  onClick={onAbort}
-                  title={`${t(isBashRunning ? "Stop shell command" : "Stop agent")}${cancelShortcut ? ` · ${cancelShortcut}` : ""}`}
-                  aria-keyshortcuts={cancelShortcut === "Esc" ? "Escape" : undefined}
-                  {...stylex.props(inlineStyles.inline93)}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "rgba(239,68,68,0.16)"
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "rgba(239,68,68,0.08)"
-                  }}
-                >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                    <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
-                  </svg>
-                  {t("Stop")}
-                  {cancelShortcut && <kbd {...stylex.props(inlineStyles.stopShortcut)}>{cancelShortcut}</kbd>}
-                </button>
-              )}
-
               {isMobile && controlsMenuOpen && (
                 <button
                   type="button"
@@ -2389,6 +2338,24 @@ const inlineStyles = stylex.create({
     cursor: "pointer",
     transition: "background 0.12s, border-color 0.12s",
     whiteSpace: "nowrap",
+  },
+  queueActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+  },
+  queueDelete: {
+    alignItems: "center",
+    background: "transparent",
+    border: "none",
+    borderRadius: 6,
+    color: "var(--text-dim)",
+    cursor: "pointer",
+    display: "flex",
+    height: 26,
+    justifyContent: "center",
+    padding: 0,
+    width: 26,
   },
   inline11: {
     marginBottom: 8,
@@ -2686,41 +2653,6 @@ const inlineStyles = stylex.create({
     maxHeight: 120,
     overflow: "auto",
     padding: "7px 9px",
-  },
-  inline52: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    flexShrink: 0,
-    alignSelf: "flex-end",
-    bottom: -35,
-    position: "absolute",
-    right: 7,
-    zIndex: 1,
-  },
-  inline53: {
-    display: "flex",
-    alignItems: "center",
-    gap: 5,
-    padding: "7px 12px",
-    border: "1px solid rgba(234,179,8,0.35)",
-    borderRadius: 8,
-    fontSize: 13,
-    fontWeight: 600,
-    letterSpacing: "-0.01em",
-    transition: "background 0.12s",
-  },
-  inline54: {
-    display: "flex",
-    alignItems: "center",
-    gap: 5,
-    padding: "7px 12px",
-    border: "1px solid rgba(129,140,248,0.35)",
-    borderRadius: 8,
-    fontSize: 13,
-    fontWeight: 600,
-    letterSpacing: "-0.01em",
-    transition: "background 0.12s",
   },
   inline55: {
     flexShrink: 0,
@@ -3041,30 +2973,6 @@ const inlineStyles = stylex.create({
   },
   inline92: {
     whiteSpace: "nowrap",
-  },
-  inline93: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    padding: "8px 14px",
-    height: 32,
-    background: "rgba(239,68,68,0.08)",
-    border: "1px solid rgba(239,68,68,0.3)",
-    borderRadius: 9,
-    color: "#ef4444",
-    cursor: "pointer",
-    fontSize: 12,
-    fontWeight: 600,
-    whiteSpace: "nowrap",
-    letterSpacing: "-0.01em",
-    transition: "background 0.12s",
-  },
-  stopShortcut: {
-    color: "currentColor",
-    fontFamily: "inherit",
-    fontSize: 10,
-    fontWeight: 500,
-    opacity: 0.72,
   },
   inline94: {
     display: "flex",

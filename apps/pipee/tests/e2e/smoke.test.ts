@@ -97,17 +97,28 @@ test("preserves the normalized visual foundation", async ({ page }) => {
     )
     const brand = visibleButtons[0]
     const newSession = visibleButtons.find((button) => button.textContent?.includes("新建"))
+    const newSessionShortcut = newSession?.querySelector("kbd")
     const settings = visibleButtons.find((button) => button.getAttribute("aria-label") === "设置")
     const sidebar = document.querySelector(".sidebar-container")
-    if (brand === undefined || newSession === undefined || settings === undefined || sidebar === null) {
+    if (
+      brand === undefined ||
+      newSession === undefined ||
+      newSessionShortcut === undefined ||
+      newSessionShortcut === null ||
+      settings === undefined ||
+      sidebar === null
+    ) {
       throw new Error("visual contract inventory is incomplete")
     }
     const topbar = sidebar.nextElementSibling?.firstElementChild
+    const newSessionRect = newSession.getBoundingClientRect()
+    const shortcutRect = newSessionShortcut.getBoundingClientRect()
     return {
       browserDefaultFontLeaks: visibleButtons
         .filter((button) => getComputedStyle(button).fontFamily === "Arial")
         .map((button) => button.textContent),
       newSessionBackground: getComputedStyle(newSession).backgroundColor,
+      newSessionShortcutRightInset: newSessionRect.right - shortcutRect.right,
       sidebarWidth: getComputedStyle(sidebar).width,
       topbarHeight: topbar instanceof HTMLElement ? getComputedStyle(topbar).height : null,
     }
@@ -115,6 +126,7 @@ test("preserves the normalized visual foundation", async ({ page }) => {
 
   expect(contract.browserDefaultFontLeaks).toEqual([])
   expect(contract.newSessionBackground).not.toBe("rgba(0, 0, 0, 0)")
+  expect(contract.newSessionShortcutRightInset).toBeGreaterThanOrEqual(10)
   expect(contract.sidebarWidth).toBe("292px")
   expect(contract.topbarHeight).toBe("58px")
 })
@@ -319,7 +331,36 @@ test("projects assistant speech as conversation events and keeps execution detai
   await expect(readActivity).toBeVisible()
   await expect(thinkingActivities).toHaveCount(2)
   await expect(finalEvent).toBeVisible()
+  const firstAssistantMessage = page.locator("[data-assistant-message]").filter({ has: firstEvent })
+  const copyMessage = firstAssistantMessage.getByRole("button", { name: "复制消息" })
+  await expect(copyMessage).toHaveCount(1)
+  await page.mouse.move(0, 0)
+  await expect(copyMessage).toHaveCSS("opacity", "0")
+  await expect(copyMessage).toHaveCSS("pointer-events", "none")
+  await firstAssistantMessage.hover()
+  await expect(copyMessage).toHaveCSS("opacity", "1")
+  await expect(copyMessage).toHaveCSS("pointer-events", "auto")
+  await expect(copyMessage).toHaveText("")
+  const copyGeometry = await firstAssistantMessage.evaluate((message) => {
+    const button = message.querySelector<HTMLElement>("[data-message-copy]")
+    if (!button) throw new Error("assistant copy action is missing")
+    const messageRect = message.getBoundingClientRect()
+    const buttonRect = button.getBoundingClientRect()
+    return {
+      rightInset: messageRect.right - buttonRect.right,
+      topInset: buttonRect.top - messageRect.top,
+    }
+  })
+  expect(copyGeometry).toEqual({ rightInset: 0, topInset: 0 })
+  await page.mouse.move(0, 0)
+  await copyMessage.focus()
+  await expect(copyMessage).toHaveCSS("opacity", "1")
   await expect(page.locator("summary").getByText("6.7 tok/s", { exact: true })).toBeVisible()
+  const turnTelemetry = page.locator(".turn-telemetry details summary")
+  await expect(turnTelemetry).toHaveCount(1)
+  await turnTelemetry.click()
+  await expect(page.getByText("本轮用量", { exact: true })).toBeVisible()
+  await expect(page.getByRole("button", { name: "回到最新消息" })).toHaveCount(0)
   await expect(readActivity.locator("..")).not.toContainText("I will inspect the workspace first.")
   await expect(thinkingActivities.last().locator("..")).not.toContainText(
     "The workspace read succeeded; I am preparing the result.",
@@ -745,7 +786,19 @@ test("follows live output until the user scrolls away and offers a return to lat
   await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
   await expect(page.getByRole("button", { name: "回到最新消息" })).toHaveCount(0)
 
-  await scroller.evaluate((element) => element.scrollTo({ top: 0 }))
+  const followed = await mutate(page, `/api/sessions/${sessionId}/actions/bash`, {
+    id: "followed-scroll-output",
+    command: "for i in $(seq 1 40); do printf 'followed-output-%s\\n' \"$i\"; sleep 0.02; done",
+    excludeFromContext: true,
+  })
+  expect(followed.status).toBe(200)
+  await waitForBashEvent(page, sessionId, "followed-scroll-output", "BashFinished")
+  await expect
+    .poll(() => scroller.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight))
+    .toBeLessThanOrEqual(2)
+
+  await scroller.hover()
+  await page.mouse.wheel(0, -100_000)
   await expect(page.getByRole("button", { name: "回到最新消息" })).toBeVisible()
 
   const running = await mutate(page, `/api/sessions/${sessionId}/actions/bash`, {
@@ -768,7 +821,10 @@ test("windows deep sessions and preserves the visible anchor while prepending hi
   await expect(scroller).toBeVisible()
   expect(await page.locator("[data-transcript-row]").count()).toBeLessThanOrEqual(200)
 
-  await scroller.evaluate((element) => element.scrollTo({ top: 0 }))
+  await scroller.hover()
+  await page.mouse.wheel(0, -100_000)
+  await expect(page.getByRole("button", { name: "回到最新消息" })).toBeVisible()
+  await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeLessThan(2)
   const loadEarlier = page.getByRole("button", { name: "Load earlier messages", exact: true })
   await expect(loadEarlier).toBeVisible()
   const anchor = await scroller.evaluate((element) => {
@@ -779,12 +835,16 @@ test("windows deep sessions and preserves the visible anchor while prepending hi
     if (!row) throw new Error("visible transcript anchor is missing")
     return { id: row.dataset.transcriptRow!, top: row.getBoundingClientRect().top }
   })
-  await loadEarlier.click()
+  await loadEarlier.click({ force: true })
   await expect(page.getByRole("button", { name: "Loading…", exact: true })).toHaveCount(0)
-  const anchoredTop = await page
-    .locator(`[data-transcript-row="${anchor.id}"]`)
-    .evaluate((row) => row.getBoundingClientRect().top)
-  expect(Math.abs(anchoredTop - anchor.top)).toBeLessThanOrEqual(1)
+  await expect
+    .poll(async () => {
+      const anchoredTop = await page
+        .locator(`[data-transcript-row="${anchor.id}"]`)
+        .evaluate((row) => row.getBoundingClientRect().top)
+      return Math.abs(anchoredTop - anchor.top)
+    })
+    .toBeLessThanOrEqual(1)
   expect(await page.locator("[data-transcript-row]").count()).toBeLessThanOrEqual(200)
 })
 

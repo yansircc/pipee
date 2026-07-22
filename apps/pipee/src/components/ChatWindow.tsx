@@ -170,6 +170,7 @@ export function ChatWindow({
     handlePromptWithStreamingBehavior,
     handleAbortCompaction,
     handleRecallQueue,
+    handleClearQueue,
     handleBuiltinSlashCommand,
     handleThinkingLevelChange,
     loadSlashCommands,
@@ -352,6 +353,7 @@ export function ChatWindow({
       retryInfo={retryInfo}
       queuedMessages={queuedMessages}
       onRecallQueue={handleRecallQueue}
+      onClearQueue={handleClearQueue}
       slashCommands={slashCommands}
       slashCommandsLoading={slashCommandsLoading}
       onLoadSlashCommands={loadSlashCommands}

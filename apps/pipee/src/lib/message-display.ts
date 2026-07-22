@@ -39,6 +39,18 @@ export type OutputRate =
   | { readonly kind: "estimated-live"; readonly tokensPerSecond: number }
   | { readonly kind: "measured-completed"; readonly tokensPerSecond: number }
 
+export type OutputRateTone = "very-fast" | "fast" | "moderate" | "slow"
+
+const outputRateBands: ReadonlyArray<{ readonly minimum: number; readonly tone: OutputRateTone }> = [
+  { minimum: 50, tone: "very-fast" },
+  { minimum: 30, tone: "fast" },
+  { minimum: 15, tone: "moderate" },
+  { minimum: Number.NEGATIVE_INFINITY, tone: "slow" },
+]
+
+export const classifyOutputRate = (tokensPerSecond: number): OutputRateTone =>
+  outputRateBands.find(({ minimum }) => tokensPerSecond >= minimum)!.tone
+
 export const projectCompletedOutputRate = (usage: TurnUsage): OutputRate | null =>
   usage.outputTokensPerSecond === null
     ? null
