@@ -7,7 +7,9 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from "@/api/contract"
+import type { ConversationView } from "@pipee/companion-contracts/conversation-view"
 import type { TranscriptSource } from "@/features/session/session-ui-state"
+import { conversationViewFromDetails } from "./conversation-view"
 import { summarizeTurnUsage, type TurnUsage } from "./message-display"
 
 export type SourceIdentity = Pick<TranscriptSource, "id" | "kind" | "runId"> & { readonly entryId?: string }
@@ -63,6 +65,14 @@ export interface ExtensionContentNode {
   readonly collapsed: boolean
 }
 
+export interface ConversationViewNode {
+  readonly kind: "conversation-view"
+  readonly id: string
+  readonly source: SourceIdentity
+  readonly message: ToolResultMessage | CustomMessage
+  readonly view: ConversationView | null
+}
+
 export interface TerminationNode {
   readonly kind: "termination"
   readonly id: string
@@ -71,7 +81,12 @@ export interface TerminationNode {
   readonly message?: string
 }
 
-export type TurnFlowNode = AssistantContentNode | AgentTraceNode | ExtensionContentNode | TerminationNode
+export type TurnFlowNode =
+  | AssistantContentNode
+  | AgentTraceNode
+  | ExtensionContentNode
+  | ConversationViewNode
+  | TerminationNode
 
 export interface TurnNode {
   readonly kind: "turn"
@@ -112,7 +127,13 @@ export interface OrphanMessageNode {
   readonly message: AgentMessage
 }
 
-export type DocumentNode = TurnNode | UserCommandNode | ContextBoundaryNode | ExtensionEntryNode | OrphanMessageNode
+export type DocumentNode =
+  | TurnNode
+  | UserCommandNode
+  | ContextBoundaryNode
+  | ExtensionEntryNode
+  | ConversationViewNode
+  | OrphanMessageNode
 
 export interface TurnIndexEntry {
   readonly turnId: string
@@ -268,6 +289,20 @@ export function compileConversationDocument(
       continue
     }
     if (turn === null) {
+      if (message.role === "custom" || message.role === "toolResult") {
+        const conversationView = conversationViewFromDetails(message.details)
+        if (conversationView !== null) {
+          nodes.push({
+            kind: "conversation-view",
+            id: `conversation-view:${source.id}`,
+            source: sourceIdentity,
+            message,
+            view: conversationView._tag === "Valid" ? conversationView.view : null,
+          })
+          nodeMessages.set(nodes.at(-1)!, [message])
+          continue
+        }
+      }
       if (message.role === "custom") {
         nodes.push({
           kind: "extension-entry",
@@ -358,17 +393,39 @@ export function compileConversationDocument(
           message,
         })
       }
+      const conversationView = conversationViewFromDetails(message.details)
+      if (conversationView !== null) {
+        finishTrace()
+        ;(turn.node.flow as TurnFlowNode[]).push({
+          kind: "conversation-view",
+          id: `${turn.node.id}:flow:${turn.node.flow.length}`,
+          source: sourceIdentity,
+          message,
+          view: conversationView._tag === "Valid" ? conversationView.view : null,
+        })
+      }
       continue
     }
     if (message.role === "custom") {
       finishTrace()
-      ;(turn.node.flow as TurnFlowNode[]).push({
-        kind: "extension-content",
-        id: `${turn.node.id}:flow:${turn.node.flow.length}`,
-        source: sourceIdentity,
-        message,
-        collapsed: !message.display,
-      })
+      const conversationView = conversationViewFromDetails(message.details)
+      ;(turn.node.flow as TurnFlowNode[]).push(
+        conversationView === null
+          ? {
+              kind: "extension-content",
+              id: `${turn.node.id}:flow:${turn.node.flow.length}`,
+              source: sourceIdentity,
+              message,
+              collapsed: !message.display,
+            }
+          : {
+              kind: "conversation-view",
+              id: `${turn.node.id}:flow:${turn.node.flow.length}`,
+              source: sourceIdentity,
+              message,
+              view: conversationView._tag === "Valid" ? conversationView.view : null,
+            },
+      )
     }
   }
   finishTurn()

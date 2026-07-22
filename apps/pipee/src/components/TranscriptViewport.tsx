@@ -6,6 +6,7 @@ import type { DisclosureState, DisplayRow } from "@/lib/disclosure-projection"
 import { projectDisclosure } from "@/lib/disclosure-projection"
 import {
   initialViewportMode,
+  isViewportNavigationGesture,
   reduceViewportMode,
   restoreScrollOffset,
   type LogicalViewportAnchor,
@@ -148,6 +149,11 @@ export function TranscriptViewport(props: Props) {
           if (!(scroll instanceof HTMLElement)) return Effect.never
           const handleUserNavigation = (event: Event) => {
             if (event.target instanceof Element && event.target.closest("[data-prepend-anchor-control]")) return
+            if (
+              (event.type === "wheel" || event.type === "touchmove" || event.type === "pointerdown") &&
+              !isViewportNavigationGesture(event.type, event.target === scroll)
+            )
+              return
             cancelLiveFollowForUserNavigation()
           }
           return Effect.scoped(

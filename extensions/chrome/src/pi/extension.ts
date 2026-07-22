@@ -1,6 +1,12 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { layer as nodeServicesLayer, type NodeServices } from "@effect/platform-node/NodeServices";
-import { structuredView, webSurface, type WebSurfaceSlot } from "@pipee/extension-kit";
+import {
+  structuredView,
+  webSurface,
+  withCompanionView,
+  withConversationView,
+  type WebSurfaceSlot,
+} from "@pipee/extension-kit";
 import * as Effect from "effect/Effect";
 import * as Clock from "effect/Clock";
 import * as Exit from "effect/Exit";
@@ -26,6 +32,7 @@ import {
   type ChromeStatusProjection,
 } from "./status-projection.js";
 import { registerChromeTools, type ToolResult } from "./tools.js";
+import { projectChromeCompanionView, projectChromeConversationView } from "./conversation-view.js";
 import {
   ChromeWebAction,
   projectChromeWebView,
@@ -119,7 +126,10 @@ export default function piChrome(pi: ExtensionAPI): void {
     Effect.sync(() => {
       if (!sameScope(scope)) return;
       latestStatus = status;
-      structuredView(scope.context.ui, packageJson.name)?.replace("chrome", status);
+      structuredView(scope.context.ui, packageJson.name)?.replace(
+        "chrome",
+        withCompanionView(status, projectChromeCompanionView(status)),
+      );
       surface?.replace(projectChromeWebView(status, tabs, receipts, activity, events));
       const label =
         status.state === "ready"
@@ -329,7 +339,7 @@ export default function piChrome(pi: ExtensionAPI): void {
         yield* publishStatus(scope, status);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
-          details: { status },
+          details: withConversationView({ status }, projectChromeConversationView(status)),
         } satisfies ToolResult;
       }),
       signal,

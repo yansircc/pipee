@@ -18,6 +18,11 @@ export interface LogicalViewportAnchor {
   readonly userScrollGeneration: number
 }
 
+export const isViewportNavigationGesture = (
+  kind: "wheel" | "touchmove" | "pointerdown",
+  targetsScrollSurface: boolean,
+): boolean => kind !== "pointerdown" || targetsScrollSurface
+
 export function restoreScrollOffset(
   anchor: LogicalViewportAnchor,
   next: { readonly rowPosition: number; readonly headerSize: number },

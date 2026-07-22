@@ -6,6 +6,8 @@
   "exports": {
     "./browser-companion": "./src/browser-companion.ts",
     "./chrome": "./src/chrome.ts",
+    "./conversation-view": "./src/conversation-view.ts",
+    "./companion-view": "./src/companion-view.ts",
     "./host-capabilities": "./src/host-capabilities.ts",
     "./loop": "./src/loop.ts",
     "./web-surface-browser": "./src/web-surface-browser.ts",

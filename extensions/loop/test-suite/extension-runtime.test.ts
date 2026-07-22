@@ -154,6 +154,12 @@ it.effect("gates the real Pi callback path until the agent becomes idle", () =>
         version: 1,
         sessionId: "session-automation",
         loops: [{ prompt: "inspect build" }, { prompt: "immediate probe" }],
+        pipeeCompanionView: {
+          contract: "pipee/companion-view@1",
+          label: "Automations",
+          state: "2",
+          glyph: "automation",
+        },
       });
       expect(capabilities.hasRetention()).toBe(true);
 

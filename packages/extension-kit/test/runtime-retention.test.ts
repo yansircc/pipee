@@ -12,8 +12,102 @@ import {
   type RuntimeRetentionSlot,
   webSurface,
   WebSurfaceCapabilityUnavailable,
+  withCompanionView,
+  withConversationView,
 } from "../src/index.js";
 import type { WebSurfaceRuntimePort } from "@pipee/companion-contracts/web-surface";
+
+it("attaches one validated conversation view to existing message details", () => {
+  const details = withConversationView(
+    { status: "ready" },
+    {
+      contract: "pipee/conversation-view@1",
+      label: "Fixture",
+      tone: "success",
+      root: { type: "badge", text: "Ready", tone: "success" },
+    },
+  );
+  expect(details).toEqual({
+    status: "ready",
+    pipeeConversationView: {
+      contract: "pipee/conversation-view@1",
+      label: "Fixture",
+      tone: "success",
+      root: { type: "badge", text: "Ready", tone: "success" },
+    },
+  });
+  expect(() =>
+    withConversationView(
+      {},
+      {
+        contract: "pipee/conversation-view@1",
+        label: "",
+        tone: "info",
+        root: { type: "progress", value: 2 },
+      },
+    ),
+  ).toThrow();
+  expect(() =>
+    withConversationView(
+      {},
+      {
+        contract: "pipee/conversation-view@1",
+        label: "Oversized",
+        tone: "info",
+        root: {
+          type: "group",
+          direction: "column",
+          gap: "small",
+          children: Array.from({ length: 65 }, () => ({
+            type: "text" as const,
+            text: "node",
+            variant: "body" as const,
+          })),
+        },
+      },
+    ),
+  ).toThrow();
+});
+
+it("attaches one validated companion view to extension-owned status", () => {
+  expect(
+    withCompanionView(
+      { kind: "fixture/status", version: 1 },
+      {
+        contract: "pipee/companion-view@1",
+        label: "Fixture",
+        state: "Ready",
+        summary: "Connected",
+        tone: "success",
+        glyph: "extension",
+      },
+    ),
+  ).toEqual({
+    kind: "fixture/status",
+    version: 1,
+    pipeeCompanionView: {
+      contract: "pipee/companion-view@1",
+      label: "Fixture",
+      state: "Ready",
+      summary: "Connected",
+      tone: "success",
+      glyph: "extension",
+    },
+  });
+  expect(() =>
+    withCompanionView(
+      { kind: "fixture/status", version: 1 },
+      {
+        contract: "pipee/companion-view@1",
+        label: "Fixture",
+        state: "Ready",
+        summary: "Connected",
+        tone: "success",
+        glyph: "unsupported" as "extension",
+      },
+    ),
+  ).toThrow();
+});
 
 it("returns undefined when the host does not provide Pipee capabilities", () => {
   expect(structuredView({}, "alpha")).toBeUndefined();

@@ -320,15 +320,21 @@ test("sizes user bubbles by content up to the responsive maximum", async ({ page
 test("projects assistant speech as conversation events and keeps execution details separate", async ({ page }) => {
   await page.goto("/?session=00000000-0000-4000-8000-000000000005")
 
+  const companionView = page.locator('[data-companion-renderer="pipee/companion-view@1"]')
   const firstEvent = page.getByText("I will inspect the workspace first.", { exact: true })
   const finalEvent = page.getByText("The workspace read succeeded; I am preparing the result.", { exact: true })
   const traces = page.locator(".agent-trace-summary")
   await expect(firstEvent).toBeVisible()
-  await expect(traces).toHaveCount(2)
+  await expect(companionView).toContainText("Fixture companion")
+  await expect(companionView).toContainText("Injected by the extension")
+  await expect(traces).toHaveCount(3)
   for (const trace of await traces.all()) await trace.click()
   const readActivity = page.locator('[data-process-kind="tool"][data-tool-name="read"]')
+  const extensionView = page.locator('[data-conversation-view="Fixture Extension"]')
   const thinkingActivities = page.locator('[data-process-kind="thinking"]')
   await expect(readActivity).toBeVisible()
+  await expect(extensionView).toContainText("Workspace inspection")
+  await expect(extensionView).toContainText("hello.txt")
   await expect(thinkingActivities).toHaveCount(2)
   await expect(finalEvent).toBeVisible()
   const firstAssistantMessage = page.locator("[data-assistant-message]").filter({ has: firstEvent })
@@ -372,20 +378,26 @@ test("projects assistant speech as conversation events and keeps execution detai
       [...document.querySelectorAll<HTMLElement>(selector)].find((element) => element.textContent?.trim() === text)
     const first = byText("p", "I will inspect the workspace first.")
     const read = document.querySelector<HTMLElement>('[data-process-kind="tool"][data-tool-name="read"]')
+    const extensionView = document.querySelector<HTMLElement>('[data-conversation-view="Fixture Extension"]')
     const thinking = [...document.querySelectorAll<HTMLElement>('[data-process-kind="thinking"]')]
     const final = byText("p", "The workspace read succeeded; I am preparing the result.")
-    if (!first || !read || thinking.length !== 2 || !final) throw new Error("turn projection is incomplete")
+    if (!first || !read || !extensionView || thinking.length !== 2 || !final)
+      throw new Error("turn projection is incomplete")
     return {
       thinkingBeforeFirst: Boolean(thinking[0]?.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING),
       firstBeforeRead: Boolean(first.compareDocumentPosition(read) & Node.DOCUMENT_POSITION_FOLLOWING),
-      readBeforeThinking: Boolean(read.compareDocumentPosition(thinking[1]!) & Node.DOCUMENT_POSITION_FOLLOWING),
+      readBeforeView: Boolean(read.compareDocumentPosition(extensionView) & Node.DOCUMENT_POSITION_FOLLOWING),
+      viewBeforeThinking: Boolean(
+        extensionView.compareDocumentPosition(thinking[1]!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
       thinkingBeforeFinal: Boolean(thinking[1]?.compareDocumentPosition(final) & Node.DOCUMENT_POSITION_FOLLOWING),
     }
   })
   expect(order).toEqual({
     thinkingBeforeFirst: true,
     firstBeforeRead: true,
-    readBeforeThinking: true,
+    readBeforeView: true,
+    viewBeforeThinking: true,
     thinkingBeforeFinal: true,
   })
   await expect(page.getByText("Pi", { exact: true })).toHaveCount(0)

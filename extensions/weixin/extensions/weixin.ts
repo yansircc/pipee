@@ -12,6 +12,7 @@ import {
   makeRuntimeRetentionSlot,
   mediaView,
   structuredView,
+  withConversationView,
   webSurface,
   type RuntimeRetentionSlot,
   type WebSurfaceSlot,
@@ -32,6 +33,7 @@ import {
   sameSessionStatus,
 } from "../src/session-status.ts";
 import { makeStatusSync } from "../src/status-sync.ts";
+import { projectWeixinConversationView } from "../src/conversation-view.ts";
 import {
   projectWeixinWebView,
   WeixinWebAction,
@@ -181,9 +183,13 @@ const connect = (ctx: ExtensionContext) =>
     return yield* bridge.status;
   });
 
-const toolResult = (text: string, details: unknown): AgentToolResult<unknown> => ({
+const toolResult = (
+  text: string,
+  details: Readonly<Record<string, unknown>>,
+  view?: ReturnType<typeof projectWeixinConversationView>,
+): AgentToolResult<unknown> => ({
   content: [{ type: "text", text }],
-  details,
+  details: view === undefined ? details : withConversationView(details, view),
 });
 
 export default function weixinExtension(pi: ExtensionAPI): void {
@@ -247,14 +253,19 @@ export default function weixinExtension(pi: ExtensionAPI): void {
     execute(_id, _parameters, signal, _onUpdate, context) {
       return requireRuntime().runPromise(
         connect(context).pipe(
-          Effect.map((status) =>
-            toolResult(`Weixin connected: ${formatStatus(status)}`, {
-              accountId: status.accountId,
-              defaultSessionId: status.defaultSessionId,
-              sendReady: status.sendReady,
-              phase: status.connection._tag,
-            }),
-          ),
+          Effect.map((status) => {
+            const projection = projectSessionStatus(status);
+            return toolResult(
+              `Weixin connected: ${formatStatus(status)}`,
+              {
+                accountId: status.accountId,
+                defaultSessionId: status.defaultSessionId,
+                sendReady: status.sendReady,
+                phase: status.connection._tag,
+              },
+              projectWeixinConversationView(projection),
+            );
+          }),
         ),
         { signal },
       );
@@ -316,9 +327,11 @@ export default function weixinExtension(pi: ExtensionAPI): void {
           const bridge = yield* Bridge;
           yield* bridge.setEnabled(false);
           const status = yield* bridge.status;
-          return toolResult(`Weixin disconnected: ${formatStatus(status)}`, {
-            phase: status.connection._tag,
-          });
+          return toolResult(
+            `Weixin disconnected: ${formatStatus(status)}`,
+            { phase: status.connection._tag },
+            projectWeixinConversationView(projectSessionStatus(status)),
+          );
         }),
         { signal },
       );
@@ -359,14 +372,18 @@ export default function weixinExtension(pi: ExtensionAPI): void {
         Effect.gen(function* () {
           const bridge = yield* Bridge;
           const status = yield* bridge.status;
-          return toolResult(formatStatus(status), {
-            accountId: status.accountId,
-            defaultSessionId: status.defaultSessionId,
-            sendReady: status.sendReady,
-            enabled: status.enabled,
-            phase: status.connection._tag,
-            lastError: status.lastError,
-          });
+          return toolResult(
+            formatStatus(status),
+            {
+              accountId: status.accountId,
+              defaultSessionId: status.defaultSessionId,
+              sendReady: status.sendReady,
+              enabled: status.enabled,
+              phase: status.connection._tag,
+              lastError: status.lastError,
+            },
+            projectWeixinConversationView(projectSessionStatus(status)),
+          );
         }),
         { signal },
       );

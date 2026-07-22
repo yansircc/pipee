@@ -15,7 +15,17 @@ import {
   type WebSurfaceRuntimeHandle,
   type WebSurfaceRuntimePort,
 } from "@pipee/companion-contracts/web-surface";
-import { Data, Effect, Scope } from "effect";
+import {
+  CONVERSATION_VIEW_DETAILS_KEY,
+  ConversationView as ConversationViewSchema,
+  type ConversationView,
+} from "@pipee/companion-contracts/conversation-view";
+import {
+  COMPANION_VIEW_KEY,
+  CompanionView as CompanionViewSchema,
+  type CompanionView,
+} from "@pipee/companion-contracts/companion-view";
+import { Data, Effect, Schema, Scope } from "effect";
 
 interface HostCapabilityLookup {
   readonly [PIPEE_CAPABILITY_METHOD]?: <T = unknown>(ownerId: string, id: string) => T | undefined;
@@ -25,6 +35,25 @@ export type HostCapabilityCarrier = unknown;
 
 const capability = <T>(host: HostCapabilityCarrier, ownerId: string, id: string): T | undefined =>
   (host as HostCapabilityLookup | undefined)?.[PIPEE_CAPABILITY_METHOD]?.<T>(ownerId, id);
+
+const decodeConversationView = Schema.decodeUnknownSync(ConversationViewSchema);
+const decodeCompanionView = Schema.decodeUnknownSync(CompanionViewSchema);
+
+export const withCompanionView = <Status extends Readonly<Record<string, unknown>>>(
+  status: Status,
+  view: CompanionView,
+): Status & { readonly [COMPANION_VIEW_KEY]: CompanionView } => ({
+  ...status,
+  [COMPANION_VIEW_KEY]: decodeCompanionView(view),
+});
+
+export const withConversationView = <Details extends Readonly<Record<string, unknown>>>(
+  details: Details,
+  view: ConversationView,
+): Details & { readonly [CONVERSATION_VIEW_DETAILS_KEY]: ConversationView } => ({
+  ...details,
+  [CONVERSATION_VIEW_DETAILS_KEY]: decodeConversationView(view),
+});
 
 export const structuredView = (
   host: HostCapabilityCarrier,

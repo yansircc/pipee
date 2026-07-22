@@ -146,13 +146,32 @@ await writeFile(
   join(fixtureExtensionSource, "dist", "pi", "extension.js"),
   `export default function e2eExtension(pi) {
   let surface
+  let statusView
   pi.on("session_start", (_event, context) => {
     surface = context.ui.getPipeeCapability("pipee-e2e-extension", "pipee/web-surface-runtime@2").register({
       dispatch: async (request) => ({ _tag: "Accepted", payload: Number(request.payload) + 1 }),
     })
     surface.replace({ answer: 41 })
+    statusView = context.ui.getPipeeCapability("pipee-e2e-extension", "pipee/structured-view@2")
+    statusView.replace("status", {
+      kind: "fixture/status",
+      version: 1,
+      pipeeCompanionView: {
+        contract: "pipee/companion-view@1",
+        label: "Fixture companion",
+        state: "Ready",
+        summary: "Injected by the extension",
+        tone: "success",
+        glyph: "extension",
+      },
+    })
   })
-  pi.on("session_shutdown", () => { surface?.release(); surface = undefined })
+  pi.on("session_shutdown", () => {
+    statusView?.replace("status")
+    statusView = undefined
+    surface?.release()
+    surface = undefined
+  })
   pi.registerCommand("interaction-test", {
     description: "Exercise session-scoped extension interaction",
     async handler(_args, context) {
@@ -360,6 +379,30 @@ processSession.appendMessage({
   toolCallId: "fixture-call-1",
   toolName: "read",
   content: [{ type: "text", text: "hello from the isolated e2e workspace" }],
+  details: {
+    pipeeConversationView: {
+      contract: "pipee/conversation-view@1",
+      label: "Fixture Extension",
+      tone: "success",
+      root: {
+        type: "group",
+        direction: "column",
+        gap: "medium",
+        children: [
+          {
+            type: "group",
+            direction: "row",
+            gap: "small",
+            children: [
+              { type: "text", text: "Workspace inspection", variant: "title" },
+              { type: "badge", text: "Ready", tone: "success" },
+            ],
+          },
+          { type: "field", label: "File", value: "hello.txt" },
+        ],
+      },
+    },
+  },
   isError: false,
   timestamp: 1_700_000_010_200,
 })

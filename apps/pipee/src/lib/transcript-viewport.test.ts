@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest"
-import { initialViewportMode, reduceViewportMode, restoreScrollOffset } from "./transcript-viewport"
+import {
+  initialViewportMode,
+  isViewportNavigationGesture,
+  reduceViewportMode,
+  restoreScrollOffset,
+} from "./transcript-viewport"
+
+describe("isViewportNavigationGesture", () => {
+  it("separates scrolling gestures from pointer activation inside a row", () => {
+    expect(isViewportNavigationGesture("wheel", false)).toBe(true)
+    expect(isViewportNavigationGesture("touchmove", false)).toBe(true)
+    expect(isViewportNavigationGesture("pointerdown", true)).toBe(true)
+    expect(isViewportNavigationGesture("pointerdown", false)).toBe(false)
+  })
+})
 
 describe("restoreScrollOffset", () => {
   it("preserves the anchor's logical viewport offset after rows are prepended", () => {

@@ -1,5 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import type { StructuredView } from "@pipee/companion-contracts/host-capabilities";
+import { projectWeixinCompanionView } from "../src/conversation-view.ts";
 import {
   publishSessionStatus,
   type WeixinStatusProjection,
@@ -32,7 +33,10 @@ it("publishes structured connection state when the host supports it", () => {
   publishSessionStatus(ui, view, status(true));
   publishSessionStatus(ui, view, status(false));
 
-  expect(structured).toEqual([status(true), status(false)]);
+  expect(structured).toEqual([
+    { ...status(true), pipeeCompanionView: projectWeixinCompanionView(status(true)) },
+    { ...status(false), pipeeCompanionView: projectWeixinCompanionView(status(false)) },
+  ]);
   expect(text).toEqual(["微信已连接", "微信未连接"]);
 });
 

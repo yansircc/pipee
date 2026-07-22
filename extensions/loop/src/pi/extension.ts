@@ -9,6 +9,8 @@ import { Clock, Data, Effect, Exit, ManagedRuntime, Schema, Scope } from "effect
 import {
   makeRuntimeRetentionSlot,
   structuredView,
+  withCompanionView,
+  withConversationView,
   webSurface,
   type RuntimeRetentionSlot,
   type WebSurfaceSlot,
@@ -23,6 +25,8 @@ import { cronToHuman } from "../domain/cron.js";
 import type { Loop, LoopConfig, Occurrence } from "../domain/model.js";
 import { projectLoops } from "./status.js";
 import { makeSessionLoopPersistence } from "./session-state.js";
+import { projectLoopConversationView } from "./conversation-view.js";
+import { projectLoopCompanionView } from "./companion-view.js";
 import { LoopWebAction, projectLoopWebView } from "./web-surface.js";
 
 const runtime = ManagedRuntime.make(nodeServicesLayer);
@@ -78,9 +82,12 @@ const describeLoop = (loop: Loop): string => {
   return `[${loop.id}] ${cadence} — ${loop.prompt.slice(0, 60)} (${phase}, ${loop.retention})`;
 };
 
-const toolResult = (text: string): AgentToolResult<undefined> => ({
+const toolResult = (
+  text: string,
+  view?: ReturnType<typeof projectLoopConversationView>,
+): AgentToolResult<unknown> => ({
   content: [{ type: "text" as const, text }],
-  details: undefined,
+  details: view === undefined ? undefined : withConversationView({}, view),
 });
 
 const notifyFailure = (context: ExtensionContext, error: unknown) =>
@@ -103,13 +110,17 @@ const refreshStatus = (active: Session) =>
           "pi-loop",
           loops.length === 0 ? undefined : `${loops.length} loop${loops.length === 1 ? "" : "s"}`,
         );
-        active.statusView?.replace("status", {
-          kind: "pi-loop/status",
-          version: 1,
+        const status = {
+          kind: "pi-loop/status" as const,
+          version: 1 as const,
           sessionId: active.context.sessionManager.getSessionId(),
           observedAt,
           loops: projectLoops(loops),
-        });
+        };
+        active.statusView?.replace(
+          "status",
+          withCompanionView(status, projectLoopCompanionView(status)),
+        );
         active.surface.replace(
           projectLoopWebView(loops, active.context.sessionManager.getSessionId(), observedAt),
         );
@@ -281,7 +292,12 @@ export default function piLoop(pi: ExtensionAPI): void {
             .pipe(
               Effect.tap(() => active.scheduler.drain),
               Effect.tap(() => refreshStatus(active)),
-              Effect.map((loop) => toolResult(`Created ${describeLoop(loop)}`)),
+              Effect.map((loop) =>
+                toolResult(
+                  `Created ${describeLoop(loop)}`,
+                  projectLoopConversationView(loop, "Loop created"),
+                ),
+              ),
             ),
         ),
       );
@@ -313,7 +329,12 @@ export default function piLoop(pi: ExtensionAPI): void {
             .pipe(
               Effect.tap(() => active.scheduler.drain),
               Effect.tap(() => refreshStatus(active)),
-              Effect.map((loop) => toolResult(`Updated ${describeLoop(loop)}`)),
+              Effect.map((loop) =>
+                toolResult(
+                  `Updated ${describeLoop(loop)}`,
+                  projectLoopConversationView(loop, "Loop updated"),
+                ),
+              ),
             ),
         ),
       );
@@ -332,7 +353,10 @@ export default function piLoop(pi: ExtensionAPI): void {
             active.operations.setEnabled(parameters.id ?? "", enabled).pipe(
               Effect.tap(() => refreshStatus(active)),
               Effect.map((loop) =>
-                toolResult(`${enabled ? "Resumed" : "Paused"} ${describeLoop(loop)}`),
+                toolResult(
+                  `${enabled ? "Resumed" : "Paused"} ${describeLoop(loop)}`,
+                  projectLoopConversationView(loop, enabled ? "Loop resumed" : "Loop paused"),
+                ),
               ),
             ),
           ),

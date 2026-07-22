@@ -1,6 +1,8 @@
 import type { WeixinStatusProjection } from "@pipee/companion-contracts/weixin";
 import type { StructuredViewPort } from "@pipee/companion-contracts/host-capabilities";
+import { withCompanionView } from "@pipee/extension-kit";
 import type { BridgeStatus } from "./bridge.ts";
+import { projectWeixinCompanionView } from "./conversation-view.ts";
 
 export type { WeixinStatusProjection };
 
@@ -37,6 +39,6 @@ export const publishSessionStatus = (
   view: StructuredViewPort | undefined,
   status: WeixinStatusProjection,
 ): void => {
-  view?.replace("status", status);
+  view?.replace("status", withCompanionView(status, projectWeixinCompanionView(status)));
   ui.setStatus("weixin", status.connected ? "微信已连接" : "微信未连接");
 };

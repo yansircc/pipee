@@ -3,7 +3,6 @@ import * as stylex from "@stylexjs/stylex"
 import type { DropPayload } from "@/lib/drop-paths"
 import type {
   ExtensionInteraction,
-  ExtensionStatusContribution,
   ExtensionWidgetItem,
   SessionInfo,
   SessionStats,
@@ -480,7 +479,6 @@ export function ChatWindow({
         <>
           <div className="companion-region">
             <CompanionRendererRegistry statuses={extensionStatuses} sessionId={session.id} />
-            <ExtensionStatusBar statuses={extensionStatuses} />
           </div>
           <div {...stylex.props(styles.conversation)}>
             <TranscriptViewport
@@ -625,22 +623,6 @@ const styles = stylex.create({
     position: "relative",
   },
 })
-function ExtensionStatusBar({ statuses }: { statuses: ReadonlyArray<ExtensionStatusContribution> }) {
-  const visibleStatuses = statuses.filter(
-    (status) => status._tag === "Text" && status.key !== "weixin" && status.key !== "chrome",
-  )
-  if (visibleStatuses.length === 0) return null
-  return (
-    <div {...stylex.props(inlineStyles.inline27)}>
-      {visibleStatuses.map((status) => (
-        <div key={status.key} {...stylex.props(inlineStyles.inline28)}>
-          <span {...stylex.props(inlineStyles.inline29)}>{status.key}</span>
-          <span {...stylex.props(inlineStyles.inline30)}>{status._tag === "Text" ? status.text : ""}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
 function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }) {
   if (widgets.length === 0) return null
   return (
@@ -939,35 +921,6 @@ const inlineStyles = stylex.create({
   inline26: {
     maxWidth: 850,
     margin: "0 auto",
-  },
-  inline27: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 6,
-    marginBottom: 10,
-  },
-  inline28: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    maxWidth: "100%",
-    padding: "4px 8px",
-    border: "1px solid color-mix(in srgb, var(--accent) 24%, var(--border))",
-    borderRadius: 6,
-    background: "color-mix(in srgb, var(--accent) 7%, var(--bg))",
-    color: "var(--text-muted)",
-    fontSize: 12,
-  },
-  inline29: {
-    color: "var(--accent)",
-    fontFamily: "var(--font-mono)",
-    fontSize: 11,
-  },
-  inline30: {
-    minWidth: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
   },
   inline31: {
     display: "flex",

@@ -1,174 +1,58 @@
-import * as stylex from "@stylexjs/stylex"
-import { Option, Schema } from "effect"
-import type { ReactNode } from "react"
-import { ChromeStatusProjection, WeixinStatusProjection, type ExtensionStatusContribution } from "@/api/contract"
-import { LoopStatusProjection } from "@/features/session/session-automation"
-import { SessionAutomationBar } from "@/components/SessionAutomationBar"
-export type CompanionRendererKey = `${string}@${number}`
+import type { ExtensionStatusContribution } from "@/api/contract"
+import { CompanionViewSurface } from "@/components/ExtensionSurface"
+import { companionViewFromValue } from "@/lib/companion-view"
+
 export interface CompanionRendererProps {
   readonly sessionId: string
 }
-interface RendererDefinition {
-  readonly render: (
-    contribution: Extract<
-      ExtensionStatusContribution,
-      {
-        readonly _tag: "Structured"
-      }
-    >,
-    props: CompanionRendererProps,
-  ) => ReactNode
-  readonly accepts: (value: unknown) => boolean
-}
-const panelStyle = {
-  border: "1px solid var(--border)",
-  borderRadius: 7,
-  background: "var(--bg-panel)",
-  padding: "8px 10px",
-  marginBottom: 10,
-} as const
-const defineRenderer = <A, I>(
-  schema: Schema.Codec<A, I>,
-  render: (value: A, props: CompanionRendererProps) => ReactNode,
-): RendererDefinition => {
-  const decode = Schema.decodeUnknownOption(schema)
-  return {
-    accepts: (value) => Option.isSome(decode(value)),
-    render: (contribution, props) =>
-      Option.match(decode(contribution.value), {
-        onNone: () => <IncompatibleRenderer contribution={contribution} />,
-        onSome: (value) => render(value, props),
-      }),
-  }
-}
-const renderers = {
-  "pi-loop/status@1": defineRenderer(LoopStatusProjection, (status, props) =>
-    status.sessionId === props.sessionId ? <SessionAutomationBar status={status} /> : null,
-  ),
-  "pi-weixin/status@3": defineRenderer(WeixinStatusProjection, (status) => (
-    <div style={panelStyle} data-companion-renderer="pi-weixin/status@3">
-      <div>Weixin · {status.phase}</div>
-      {status.accountId && <div {...stylex.props(inlineStyles.inline1)}>{status.accountId}</div>}
-      {status.defaultSessionId && (
-        <div {...stylex.props(inlineStyles.inline2)}>Default · {status.defaultSessionId}</div>
-      )}
-      {status.error && <div {...stylex.props(inlineStyles.inline3)}>{status.error}</div>}
-    </div>
-  )),
-  "pi-chrome/status@3": defineRenderer(ChromeStatusProjection, (status) => (
-    <div style={panelStyle} data-companion-renderer="pi-chrome/status@3">
-      <div>Chrome · {status.state}</div>
-      {status.connector && <div {...stylex.props(inlineStyles.inline4)}>{status.connector.label}</div>}
-      {status.errorMessage && <div {...stylex.props(inlineStyles.inline5)}>{status.errorMessage}</div>}
-    </div>
-  )),
-} satisfies Record<CompanionRendererKey, RendererDefinition>
-export const companionRendererKeys = Object.keys(renderers) as ReadonlyArray<keyof typeof renderers>
-const rendererFor = (key: CompanionRendererKey): RendererDefinition | undefined =>
-  Object.prototype.hasOwnProperty.call(renderers, key) ? renderers[key as keyof typeof renderers] : undefined
+
+type StructuredContribution = Extract<ExtensionStatusContribution, { readonly _tag: "Structured" }>
+
 export const inspectCompanionContribution = (
-  contribution: Extract<
-    ExtensionStatusContribution,
-    {
-      readonly _tag: "Structured"
-    }
-  >,
+  contribution: StructuredContribution,
 ): "known" | "incompatible" | "unknown" => {
-  const renderer = rendererFor(`${contribution.kind}@${contribution.version}`)
-  if (renderer === undefined) return "unknown"
-  return renderer.accepts(contribution.value) ? "known" : "incompatible"
+  const projection = companionViewFromValue(contribution.value)
+  if (projection === null) return "unknown"
+  return projection._tag === "Valid" ? "known" : "incompatible"
 }
-function IncompatibleRenderer({
+
+function RawCompanionFallback({
   contribution,
+  reason,
 }: {
-  readonly contribution: Extract<
-    ExtensionStatusContribution,
-    {
-      readonly _tag: "Structured"
-    }
-  >
+  readonly contribution: StructuredContribution
+  readonly reason: "incompatible" | "unknown"
 }) {
   return (
-    <details style={panelStyle} data-companion-renderer="incompatible">
+    <details className="extension-status-fallback" data-companion-renderer={reason}>
       <summary>
-        {contribution.kind}@{contribution.version} · incompatible
+        {contribution.kind}@{contribution.version} · {reason}
       </summary>
-      <pre {...stylex.props(inlineStyles.inline6)}>{JSON.stringify(contribution.value, null, 2)}</pre>
+      <pre>{JSON.stringify(contribution.value, null, 2)}</pre>
     </details>
   )
 }
-function UnknownRenderer({
-  contribution,
-}: {
-  readonly contribution: Extract<
-    ExtensionStatusContribution,
-    {
-      readonly _tag: "Structured"
-    }
-  >
-}) {
-  return (
-    <details style={panelStyle} data-companion-renderer="unknown">
-      <summary>
-        {contribution.kind}@{contribution.version}
-      </summary>
-      <pre {...stylex.props(inlineStyles.inline7)}>{JSON.stringify(contribution.value, null, 2)}</pre>
-    </details>
-  )
-}
+
 export function CompanionRendererRegistry({
   statuses,
-  ...props
 }: CompanionRendererProps & {
   readonly statuses: ReadonlyArray<ExtensionStatusContribution>
 }) {
-  return statuses
-    .filter(
-      (
-        status,
-      ): status is Extract<
-        ExtensionStatusContribution,
-        {
-          readonly _tag: "Structured"
-        }
-      > => status._tag === "Structured",
-    )
+  const items = statuses
+    .filter((status): status is StructuredContribution => status._tag === "Structured")
     .map((status) => {
-      const renderer = rendererFor(`${status.kind}@${status.version}`)
+      const projection = companionViewFromValue(status.value)
       return (
-        <div key={status.key}>
-          {renderer === undefined ? <UnknownRenderer contribution={status} /> : renderer.render(status, props)}
+        <div key={status.key} className="companion-status-slot">
+          {projection === null ? (
+            <RawCompanionFallback contribution={status} reason="unknown" />
+          ) : projection._tag === "Invalid" ? (
+            <RawCompanionFallback contribution={status} reason="incompatible" />
+          ) : (
+            <CompanionViewSurface renderer={projection.view.contract} view={projection.view} />
+          )}
         </div>
       )
     })
+  return items.length > 0 ? <div className="companion-status-grid">{items}</div> : null
 }
-const inlineStyles = stylex.create({
-  inline1: {
-    marginTop: 4,
-    color: "var(--text-muted)",
-  },
-  inline2: {
-    marginTop: 4,
-    color: "var(--text-muted)",
-  },
-  inline3: {
-    marginTop: 4,
-    color: "#d14343",
-  },
-  inline4: {
-    marginTop: 4,
-    color: "var(--text-muted)",
-  },
-  inline5: {
-    marginTop: 4,
-    color: "#d14343",
-  },
-  inline6: {
-    whiteSpace: "pre-wrap",
-    overflowWrap: "anywhere",
-  },
-  inline7: {
-    whiteSpace: "pre-wrap",
-    overflowWrap: "anywhere",
-  },
-})

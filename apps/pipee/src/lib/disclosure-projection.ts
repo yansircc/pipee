@@ -46,6 +46,12 @@ export type DisplayRow =
       readonly expanded: boolean
     }
   | {
+      readonly kind: "conversation-view"
+      readonly id: string
+      readonly turnId?: string
+      readonly node: Extract<TurnFlowNode | DocumentNode, { kind: "conversation-view" }>
+    }
+  | {
       readonly kind: "termination"
       readonly id: string
       readonly turnId: string
@@ -90,6 +96,7 @@ const sameRow = (left: DisplayRow, right: DisplayRow): boolean => {
     return left.node === right.node && left.expanded === right.expanded
   if (left.kind === "extension-content" && right.kind === "extension-content")
     return left.node === right.node && left.expanded === right.expanded
+  if (left.kind === "conversation-view" && right.kind === "conversation-view") return left.node === right.node
   if (left.kind === "termination" && right.kind === "termination") return left.node === right.node
   if (left.kind === "turn-telemetry" && right.kind === "turn-telemetry")
     return left.turn === right.turn && left.expanded === right.expanded
@@ -130,6 +137,8 @@ export function projectDisclosure(
           node,
           expanded: !node.collapsed || state.expandedExtensionIds.has(node.id),
         })
+      } else if (node.kind === "conversation-view") {
+        rows.push({ kind: "conversation-view", id: node.id, turnId: turn.id, node })
       } else {
         rows.push({ kind: "termination", id: node.id, turnId: turn.id, node })
       }
@@ -147,6 +156,7 @@ export function projectDisclosure(
     if (node.kind === "turn") pushTurn(node)
     else if (node.kind === "user-command") rows.push({ kind: "user-command", id: node.id, node })
     else if (node.kind === "context-boundary") rows.push({ kind: "context-boundary", id: node.id, node })
+    else if (node.kind === "conversation-view") rows.push({ kind: "conversation-view", id: node.id, node })
     else if (node.kind === "extension-entry") {
       rows.push({
         kind: "extension-content",

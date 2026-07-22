@@ -2,6 +2,7 @@ import { memo } from "react"
 import type { AssistantMessage } from "@/api/contract"
 import type { DisplayRow } from "@/lib/disclosure-projection"
 import { AgentTraceItemsView, MessageView, StreamingThroughputBadge, TurnUsageSummary } from "./MessageView"
+import { ConversationView } from "./ConversationView"
 
 interface Props {
   readonly row: DisplayRow
@@ -147,6 +148,38 @@ export const ConversationRow = memo(function ConversationRow(props: Props) {
             Extension event · {row.node.message.customType}
           </button>
         )}
+      </div>
+    )
+  }
+  if (row.kind === "conversation-view") {
+    if (row.node.view === null) {
+      return (
+        <div data-transcript-row={row.id} className="conversation-view-fallback">
+          {row.node.message.role === "toolResult" ? (
+            <AgentTraceItemsView
+              sessionId={props.sessionId}
+              items={[
+                {
+                  kind: "unmatched-tool-result",
+                  id: `${row.id}:fallback`,
+                  source: row.node.source,
+                  message: row.node.message,
+                },
+              ]}
+            />
+          ) : (
+            <MessageView
+              message={{ ...row.node.message, display: true }}
+              cwd={props.cwd}
+              onOpenFile={props.onOpenFile}
+            />
+          )}
+        </div>
+      )
+    }
+    return (
+      <div data-transcript-row={row.id}>
+        <ConversationView view={row.node.view} />
       </div>
     )
   }

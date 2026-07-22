@@ -73,6 +73,73 @@ describe("compileConversationDocument", () => {
     ])
   })
 
+  it("projects a validated tool result view into the conversation without duplicating its fact", () => {
+    const document = compileConversationDocument([
+      source("u", user()),
+      source("a1", assistant([{ type: "toolCall", toolCallId: "view", toolName: "extension", input: {} }])),
+      source("r", {
+        role: "toolResult",
+        toolCallId: "view",
+        content: [{ type: "text", text: "Extension is ready" }],
+        details: {
+          pipeeConversationView: {
+            contract: "pipee/conversation-view@1",
+            label: "Fixture Extension",
+            tone: "success",
+            root: {
+              type: "group",
+              direction: "row",
+              gap: "small",
+              children: [
+                { type: "text", text: "Connected", variant: "title" },
+                { type: "badge", text: "Ready", tone: "success" },
+              ],
+            },
+          },
+        },
+      }),
+      source("a2", assistant([{ type: "text", text: "Done" }])),
+    ])
+    const turn = document.nodes[0]
+    if (turn.kind !== "turn") throw new Error("expected turn")
+    expect(turn.flow.map(({ kind }) => kind)).toEqual(["agent-trace", "conversation-view", "assistant-content"])
+    const view = turn.flow[1]
+    expect(view.kind === "conversation-view" ? view.view?.label : null).toBe("Fixture Extension")
+    const trace = turn.flow[0]
+    expect(
+      trace.kind === "agent-trace" && trace.items[0]?.kind === "tool" ? trace.items[0].result?.message : null,
+    ).toMatchObject({ toolCallId: "view", details: { pipeeConversationView: { label: "Fixture Extension" } } })
+  })
+
+  it("projects invalid conversation metadata as a visible generic fallback", () => {
+    const document = compileConversationDocument([
+      source("u", user()),
+      source("a", assistant([{ type: "toolCall", toolCallId: "invalid", toolName: "extension", input: {} }])),
+      source("r", {
+        role: "toolResult",
+        toolCallId: "invalid",
+        content: [{ type: "text", text: "Readable fallback" }],
+        details: {
+          pipeeConversationView: {
+            contract: "pipee/conversation-view@1",
+            label: "",
+            tone: "success",
+            root: { type: "progress", value: 2 },
+          },
+        },
+      }),
+    ])
+    const turn = document.nodes[0]
+    if (turn.kind !== "turn") throw new Error("expected turn")
+    expect(turn.flow.map(({ kind }) => kind)).toEqual(["agent-trace", "conversation-view"])
+    const trace = turn.flow[0]
+    expect(
+      trace.kind === "agent-trace" && trace.items[0]?.kind === "tool" ? trace.items[0].result?.message.content : null,
+    ).toEqual([{ type: "text", text: "Readable fallback" }])
+    const fallback = turn.flow[1]
+    expect(fallback.kind === "conversation-view" ? fallback.view : undefined).toBeNull()
+  })
+
   it("uses run identity for turns and projects commands, compaction, custom and termination", () => {
     const document = compileConversationDocument([
       source("u", user("A very long prompt"), "run-9"),
