@@ -133,9 +133,9 @@ for (const entry of config.packages) {
 }
 
 const schemaOwners = [
-  ["pi-chrome/status", "protocols/companion-contracts/src/chrome.ts"],
-  ["pi-weixin/status", "protocols/companion-contracts/src/weixin.ts"],
-  ["pi-loop/status", "protocols/companion-contracts/src/loop.ts"],
+  ["pi-chrome/status", "extensions/chrome/src/protocol/chrome.ts"],
+  ["pi-weixin/status", "extensions/weixin/src/status-projection.ts"],
+  ["pi-loop/status", "extensions/loop/src/pi/status-contract.ts"],
 ];
 
 for (const entry of config.packages.filter(({ id }) => id !== "pipee")) {
@@ -210,5 +210,5 @@ for (const forbidden of [
   );
 }
 process.stdout.write(
-  `Verified ${config.packages.length} Pipee packages, ${schemaOwners.length} shared contracts, and Pi release train ${piReleaseVersion}.\n`,
+  `Verified ${config.packages.length} Pipee packages, ${schemaOwners.length} domain contracts, and Pi release train ${piReleaseVersion}.\n`,
 );

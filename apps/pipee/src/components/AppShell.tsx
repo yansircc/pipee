@@ -13,13 +13,7 @@ import { BranchNavigator } from "./BranchNavigator"
 import { useIsMobile } from "@/hooks/useIsMobile"
 import { getFileName } from "@/lib/file-paths"
 import { buildAtMentionText } from "@/lib/file-fuzzy"
-import type {
-  PipeeUpdateStatus,
-  SessionBranchNode,
-  SessionInfo,
-  SessionStats,
-  WeixinStatusProjection,
-} from "@/api/contract"
+import type { PipeeUpdateStatus, SessionBranchNode, SessionInfo, SessionStats } from "@/api/contract"
 import { ChatInput, type ChatInputHandle } from "./ChatInput"
 import { useI18n } from "@/lib/i18n"
 import { withApi, apiUrls, runApi, runBrowser } from "@/browser/api-client"
@@ -137,10 +131,6 @@ export function AppShell() {
   const [sessionStats, setSessionStats] = useState<SessionStats | null>(null)
   const handleSessionStatsChange = useCallback((stats: SessionStats | null) => {
     setSessionStats(stats)
-  }, [])
-  const [weixinStatus, setWeixinStatus] = useState<WeixinStatusProjection | undefined>(undefined)
-  const handleWeixinStatusChange = useCallback((status: WeixinStatusProjection) => {
-    setWeixinStatus(status)
   }, [])
   // Context usage — populated by ChatWindow, displayed in top bar
   const [contextUsage, setContextUsage] = useState<SessionContextUsage | null>(null)
@@ -813,7 +803,6 @@ export function AppShell() {
                     selectedSessionId={selectedSessionId}
                     sessionStats={sessionStats}
                     systemPromptState={systemPromptState}
-                    weixinStatus={weixinStatus}
                   />
                 )}
               </div>
@@ -837,7 +826,6 @@ export function AppShell() {
                 onSessionStatsChange={handleSessionStatsChange}
                 onSessionStatsPanelOpen={openSessionStatsPanel}
                 onContextUsageChange={handleContextUsageChange}
-                onWeixinStatusChange={handleWeixinStatusChange}
                 onOpenFile={handleOpenLinkedFile}
                 onOpenModels={() => openSettingsSurface({ kind: "models" })}
                 onOpenSkills={() => openSettingsSurface({ kind: "skills" })}
@@ -936,7 +924,6 @@ export function AppShell() {
             onReloaded={() => setSessionRefreshKey((key) => key + 1)}
             openablePackageNames={new Set(extensionCatalog?.groups.map((group) => group.item.packageName) ?? [])}
             projectCwds={[...new Set(sessionCollection.map((session) => session.cwd))].sort()}
-            weixinStatus={weixinStatus}
           />
         )}
         {settingsSurface?.kind === "general" && <ApplicationSettingsPopover onClose={() => setSettingsSurface(null)} />}

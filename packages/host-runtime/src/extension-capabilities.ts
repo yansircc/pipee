@@ -3,15 +3,17 @@ import {
   MediaView,
   RUNTIME_RETENTION_CAPABILITY,
   RuntimeRetentionClaim,
-  STRUCTURED_VIEW_CAPABILITY,
-  StructuredViewDiscriminator,
+  LIVE_PRESENTATION_CAPABILITY,
   WEB_SURFACE_RUNTIME_CAPABILITY,
   type MediaView as MediaViewValue,
   type MediaViewPort,
   type RuntimeRetentionPort,
-  type StructuredView as StructuredViewValue,
-  type StructuredViewPort,
+  type LivePresentationPort,
 } from "@pipee/companion-contracts/host-capabilities";
+import {
+  PresentationDocument,
+  type PresentationDocument as PresentationDocumentValue,
+} from "@pipee/companion-contracts/presentation";
 import {
   WebSurfaceActionOutcome,
   JsonValue as JsonValueSchema,
@@ -38,10 +40,10 @@ export interface HostCapabilityProvider {
 }
 
 export interface ExtensionCapabilityCallbacks {
-  readonly replaceStructuredView: (
+  readonly replaceLivePresentation: (
     ownerId: string,
     slot: string,
-    view?: StructuredViewValue,
+    document?: PresentationDocumentValue,
   ) => void;
   readonly replaceMediaView: (ownerId: string, slot: string, view?: MediaViewValue) => void;
   readonly webSurfaceCandidates?: ReadonlyMap<string, CandidateHash>;
@@ -51,7 +53,7 @@ export interface ExtensionCapabilityCallbacks {
   ) => void;
 }
 
-const decodeStructuredView = Schema.decodeUnknownSync(StructuredViewDiscriminator);
+const decodePresentationDocument = Schema.decodeUnknownSync(PresentationDocument);
 const decodeMediaView = Schema.decodeUnknownSync(MediaView);
 const decodeRetentionClaim = Schema.decodeUnknownSync(RuntimeRetentionClaim);
 const decodeName = Schema.decodeUnknownSync(Schema.NonEmptyString);
@@ -67,6 +69,8 @@ export const capabilitySlotKey = (ownerId: string, slot: string): string =>
   JSON.stringify([ownerId, slot]);
 
 export const makeExtensionHostCapabilities = (callbacks: ExtensionCapabilityCallbacks) => {
+  let disposed = false;
+  const presentations = new Map<string, { readonly ownerId: string; readonly slot: string }>();
   const retention = new Map<string, symbol>();
   type SurfaceController = {
     readonly candidateHash: CandidateHash;
@@ -78,15 +82,20 @@ export const makeExtensionHostCapabilities = (callbacks: ExtensionCapabilityCall
   };
   const surfaces = new Map<string, SurfaceController>();
 
-  const structuredProvider: HostCapabilityProvider = {
+  const presentationProvider: HostCapabilityProvider = {
     forExtension(ownerId) {
       const owner = assertName(ownerId);
       return {
-        replace(slot, view) {
-          if (view !== undefined) decodeStructuredView(view);
-          callbacks.replaceStructuredView(owner, assertName(slot), view);
+        replace(slot, document) {
+          if (disposed) return;
+          const name = assertName(slot);
+          const key = capabilitySlotKey(owner, name);
+          const decoded = document && decodePresentationDocument(document);
+          if (decoded === undefined) presentations.delete(key);
+          else presentations.set(key, { ownerId: owner, slot: name });
+          callbacks.replaceLivePresentation(owner, name, decoded);
         },
-      } satisfies StructuredViewPort;
+      } satisfies LivePresentationPort;
     },
   };
 
@@ -177,7 +186,7 @@ export const makeExtensionHostCapabilities = (callbacks: ExtensionCapabilityCall
 
   return {
     providers: new Map<string, HostCapabilityProvider>([
-      [STRUCTURED_VIEW_CAPABILITY, structuredProvider],
+      [LIVE_PRESENTATION_CAPABILITY, presentationProvider],
       [MEDIA_VIEW_CAPABILITY, mediaProvider],
       [RUNTIME_RETENTION_CAPABILITY, retentionProvider],
       [WEB_SURFACE_RUNTIME_CAPABILITY, webSurfaceProvider],
@@ -228,6 +237,11 @@ export const makeExtensionHostCapabilities = (callbacks: ExtensionCapabilityCall
         );
       }),
     dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      for (const presentation of presentations.values())
+        callbacks.replaceLivePresentation(presentation.ownerId, presentation.slot, undefined);
+      presentations.clear();
       retention.clear();
       for (const controller of surfaces.values()) {
         controller.released = true;

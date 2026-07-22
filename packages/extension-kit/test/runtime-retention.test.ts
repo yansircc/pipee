@@ -1,60 +1,69 @@
 import { expect, it } from "@effect/vitest";
 import {
   RUNTIME_RETENTION_CAPABILITY,
+  LIVE_PRESENTATION_CAPABILITY,
   WEB_SURFACE_RUNTIME_CAPABILITY,
+  type LivePresentationPort,
   type RuntimeRetentionPort,
 } from "@pipee/companion-contracts/host-capabilities";
 import { Effect } from "effect";
 import {
   makeRuntimeRetentionSlot,
-  structuredView,
+  livePresentation,
   type HostCapabilityCarrier,
   type RuntimeRetentionSlot,
   webSurface,
   WebSurfaceCapabilityUnavailable,
-  withCompanionView,
-  withConversationView,
+  withPresentation,
 } from "../src/index.js";
 import type { WebSurfaceRuntimePort } from "@pipee/companion-contracts/web-surface";
 
-it("attaches one validated conversation view to existing message details", () => {
-  const details = withConversationView(
+it("attaches one validated presentation to existing message details", () => {
+  const details = withPresentation(
     { status: "ready" },
     {
-      contract: "pipee/conversation-view@1",
-      label: "Fixture",
+      contract: "pipee/presentation@1",
+      title: "Fixture",
+      summary: "Connected",
       tone: "success",
-      root: { type: "badge", text: "Ready", tone: "success" },
+      icon: "extension",
+      body: { type: "badge", text: "Ready", tone: "success" },
     },
   );
   expect(details).toEqual({
     status: "ready",
-    pipeeConversationView: {
-      contract: "pipee/conversation-view@1",
-      label: "Fixture",
+    pipeePresentation: {
+      contract: "pipee/presentation@1",
+      title: "Fixture",
+      summary: "Connected",
       tone: "success",
-      root: { type: "badge", text: "Ready", tone: "success" },
+      icon: "extension",
+      body: { type: "badge", text: "Ready", tone: "success" },
     },
   });
   expect(() =>
-    withConversationView(
+    withPresentation(
       {},
       {
-        contract: "pipee/conversation-view@1",
-        label: "",
+        contract: "pipee/presentation@1",
+        title: "",
+        summary: "Invalid",
         tone: "info",
-        root: { type: "progress", value: 2 },
+        icon: "extension",
+        body: { type: "progress", value: 2 },
       },
     ),
   ).toThrow();
   expect(() =>
-    withConversationView(
+    withPresentation(
       {},
       {
-        contract: "pipee/conversation-view@1",
-        label: "Oversized",
+        contract: "pipee/presentation@1",
+        title: "Oversized",
+        summary: "Too many nodes",
         tone: "info",
-        root: {
+        icon: "extension",
+        body: {
           type: "group",
           direction: "column",
           gap: "small",
@@ -69,48 +78,17 @@ it("attaches one validated conversation view to existing message details", () =>
   ).toThrow();
 });
 
-it("attaches one validated companion view to extension-owned status", () => {
-  expect(
-    withCompanionView(
-      { kind: "fixture/status", version: 1 },
-      {
-        contract: "pipee/companion-view@1",
-        label: "Fixture",
-        state: "Ready",
-        summary: "Connected",
-        tone: "success",
-        glyph: "extension",
-      },
-    ),
-  ).toEqual({
-    kind: "fixture/status",
-    version: 1,
-    pipeeCompanionView: {
-      contract: "pipee/companion-view@1",
-      label: "Fixture",
-      state: "Ready",
-      summary: "Connected",
-      tone: "success",
-      glyph: "extension",
-    },
-  });
-  expect(() =>
-    withCompanionView(
-      { kind: "fixture/status", version: 1 },
-      {
-        contract: "pipee/companion-view@1",
-        label: "Fixture",
-        state: "Ready",
-        summary: "Connected",
-        tone: "success",
-        glyph: "unsupported" as "extension",
-      },
-    ),
-  ).toThrow();
+it("returns undefined when the host does not provide Pipee capabilities", () => {
+  expect(livePresentation({}, "alpha")).toBeUndefined();
 });
 
-it("returns undefined when the host does not provide Pipee capabilities", () => {
-  expect(structuredView({}, "alpha")).toBeUndefined();
+it("looks up the explicit live presentation capability", () => {
+  const port: LivePresentationPort = { replace: () => undefined };
+  const host: HostCapabilityCarrier = {
+    getPipeeCapability: <T>(_ownerId: string, id: string) =>
+      (id === LIVE_PRESENTATION_CAPABILITY ? port : undefined) as T | undefined,
+  };
+  expect(livePresentation(host, "alpha")).toBe(port);
 });
 
 it.effect("releases the current runtime claim when its Effect scope closes", () =>

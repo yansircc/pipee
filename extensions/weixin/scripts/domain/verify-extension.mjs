@@ -20,6 +20,7 @@ const handlers = new Map();
 const tools = new Map();
 const notifications = [];
 const statuses = new Map();
+let livePresentation;
 let surfaceProjection;
 let surfaceRegistration;
 const pi = {
@@ -49,7 +50,13 @@ const context = {
                 };
               },
             }
-          : { replace: (slot, value) => statuses.set(slot, value) },
+          : id === "pipee/live-presentation@1"
+            ? {
+                replace: (_slot, value) => {
+                  livePresentation = value;
+                },
+              }
+            : undefined,
   },
   sessionManager: {
     getSessionId: () => "release-domain-check",
@@ -70,12 +77,15 @@ try {
 
   await start({}, context);
   assert.equal(surfaceProjection.kind, "pi-weixin/web-surface");
+  assert.equal(livePresentation.contract, "pipee/presentation@1");
+  assert.equal(livePresentation.title, "Weixin");
   assert.equal(typeof surfaceRegistration.dispatch, "function");
   const initial = await status.execute("release-status", {}, undefined, undefined, context);
   assert.match(initial.content[0].text, /已停止，未登录/);
   assert.equal(initial.details.phase, "Stopped");
   assert.equal(initial.details.accountId, undefined);
   assert.equal(initial.details.defaultSessionId, undefined);
+  assert.equal(initial.details.pipeePresentation.contract, "pipee/presentation@1");
   assert.equal(
     notifications.some((message) => message.includes("运行中")),
     false,

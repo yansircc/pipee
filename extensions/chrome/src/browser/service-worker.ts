@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Schedule from "effect/Schedule";
-import { classifyChromeConnectorCompatibility } from "@pipee/companion-contracts/chrome";
+import { classifyChromeConnectorCompatibility } from "../protocol/chrome.js";
 import { messageOf } from "../core/errors.js";
 import { decodePollResponseJson } from "../protocol/codec.js";
 import { encodeJsonTransport } from "../protocol/json-transport.js";

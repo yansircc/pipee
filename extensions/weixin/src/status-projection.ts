@@ -1,4 +1,4 @@
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 export const WeixinStatusProjection = Schema.Struct({
   kind: Schema.Literal("pi-weixin/status"),
@@ -16,5 +16,5 @@ export const WeixinStatusProjection = Schema.Struct({
   accountId: Schema.optionalKey(Schema.String),
   defaultSessionId: Schema.optionalKey(Schema.String),
   error: Schema.optionalKey(Schema.String),
-})
-export type WeixinStatusProjection = typeof WeixinStatusProjection.Type
+});
+export type WeixinStatusProjection = typeof WeixinStatusProjection.Type;

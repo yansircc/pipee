@@ -17,6 +17,7 @@ const tools = new Map();
 const entries = [];
 let surfaceProjection;
 let surfaceRegistration;
+let livePresentation;
 const pi = {
   on: (name, handler) => handlers.set(name, handler),
   registerCommand: () => undefined,
@@ -45,7 +46,13 @@ const context = {
                 };
               },
             }
-          : undefined,
+          : id === "pipee/live-presentation@1"
+            ? {
+                replace: (_slot, value) => {
+                  livePresentation = value;
+                },
+              }
+            : undefined,
   },
   sessionManager: {
     getSessionId: () => "release-domain-check",
@@ -68,15 +75,18 @@ try {
 
   await start({}, context);
   assert.equal(surfaceProjection.kind, "pi-loop/web-surface");
+  assert.equal(livePresentation.contract, "pipee/presentation@1");
+  assert.equal(livePresentation.title, "Automations");
   assert.equal(typeof surfaceRegistration.dispatch, "function");
-  const created = textOf(
-    await create.execute("release-create", {
-      prompt: "release domain probe",
-      schedule: { kind: "interval", periodSeconds: 300, runImmediately: false },
-      retention: "session",
-    }),
-  );
+  const createResult = await create.execute("release-create", {
+    prompt: "release domain probe",
+    schedule: { kind: "interval", periodSeconds: 300, runImmediately: false },
+    retention: "session",
+  });
+  const created = textOf(createResult);
   assert.match(created, /^Created \[/, "loop_create did not create an archive-backed loop");
+  assert.equal(createResult.details.pipeePresentation.contract, "pipee/presentation@1");
+  assert.equal(livePresentation.status.text, "1");
   const id = created.match(/^Created \[([^\]]+)\]/)?.[1];
   assert.ok(id, "loop_create result did not expose the loop id");
 

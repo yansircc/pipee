@@ -300,7 +300,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const activeLeafId = snapshot?.leafId ?? null
   const messages = useMemo(() => asUiMessages(projectSessionMessages(state)), [state])
   const transcriptSources = useMemo(() => projectTranscriptSources(state), [state])
-  const extensionStatuses = state.extensionUi.statuses
+  const livePresentations = state.extensionUi.livePresentations
   const extensionWidgets = state.extensionUi.widgets
   const activeBashExecution = state.activeBashExecution as ActiveBashExecution | null
   const currentModel = snapshot?.context.model ?? null
@@ -848,7 +848,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       followUp: [...state.queuedMessages.followUp],
     },
     extensionDialog,
-    extensionStatuses,
+    livePresentations,
     extensionWidgets,
     respondToExtensionUi,
     isAutoModelSelection: false,

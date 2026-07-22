@@ -674,18 +674,6 @@ code {
   font-size: 9.5px;
   line-height: 1.4;
 }
-.extension-status-fallback {
-  height: 100%;
-  padding: 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: 11px;
-  background: var(--bg-panel);
-  font-size: 11px;
-}
-.extension-status-fallback pre {
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
 .transcript-viewport {
   flex: 1;
   min-height: 0;

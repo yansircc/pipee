@@ -1,6 +1,5 @@
-import type { ConversationView } from "@pipee/companion-contracts/conversation-view";
-import type { CompanionView } from "@pipee/companion-contracts/companion-view";
-import type { WeixinStatusProjection } from "@pipee/companion-contracts/weixin";
+import type { PresentationDocument } from "@pipee/companion-contracts/presentation";
+import type { WeixinStatusProjection } from "./status-projection.ts";
 
 const phaseText: Record<WeixinStatusProjection["phase"], string> = {
   Stopped: "已停止",
@@ -10,11 +9,10 @@ const phaseText: Record<WeixinStatusProjection["phase"], string> = {
   ReauthenticationRequired: "需要重新登录",
 };
 
-export const projectWeixinConversationView = (
-  status: WeixinStatusProjection,
-): ConversationView => ({
-  contract: "pipee/conversation-view@1",
-  label: "Weixin",
+export const projectWeixinArtifact = (status: WeixinStatusProjection): PresentationDocument => ({
+  contract: "pipee/presentation@1",
+  title: "Weixin",
+  summary: status.error ?? status.accountId ?? "尚未登录",
   tone: status.error
     ? "danger"
     : status.connected
@@ -22,24 +20,17 @@ export const projectWeixinConversationView = (
       : status.enabled
         ? "info"
         : "neutral",
-  root: {
+  icon: "messages",
+  status: {
+    text: phaseText[status.phase],
+    tone: status.error ? "danger" : status.connected ? "success" : "warning",
+  },
+  body: {
     type: "group",
     direction: "column",
     gap: "medium",
     children: [
-      {
-        type: "group",
-        direction: "row",
-        gap: "small",
-        children: [
-          { type: "text", text: "微信连接", variant: "title" },
-          {
-            type: "badge",
-            text: phaseText[status.phase],
-            tone: status.error ? "danger" : status.connected ? "success" : "warning",
-          },
-        ],
-      },
+      { type: "text", text: "微信连接", variant: "title" },
       {
         type: "group",
         direction: "row",
@@ -57,10 +48,11 @@ export const projectWeixinConversationView = (
   },
 });
 
-export const projectWeixinCompanionView = (status: WeixinStatusProjection): CompanionView => ({
-  contract: "pipee/companion-view@1",
-  label: "Weixin",
-  state: phaseText[status.phase],
+export const projectWeixinLivePresentation = (
+  status: WeixinStatusProjection,
+): PresentationDocument => ({
+  contract: "pipee/presentation@1",
+  title: "Weixin",
   summary: status.error ?? status.accountId ?? "尚未登录",
   tone: status.error
     ? "danger"
@@ -69,5 +61,9 @@ export const projectWeixinCompanionView = (status: WeixinStatusProjection): Comp
       : status.enabled
         ? "warning"
         : "neutral",
-  glyph: "messages",
+  icon: "messages",
+  status: {
+    text: phaseText[status.phase],
+    tone: status.error ? "danger" : status.connected ? "success" : "warning",
+  },
 });

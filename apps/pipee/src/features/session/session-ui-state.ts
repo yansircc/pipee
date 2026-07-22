@@ -110,7 +110,8 @@ export const initialSessionUiState: SessionUiState = {
   extensionUi: ExtensionUiProjection.make({
     revision: 0,
     pendingInteraction: null,
-    statuses: [],
+    textStatuses: [],
+    livePresentations: [],
     widgets: [],
     webSurfaces: [],
   }),

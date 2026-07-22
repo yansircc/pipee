@@ -320,17 +320,22 @@ test("sizes user bubbles by content up to the responsive maximum", async ({ page
 test("projects assistant speech as conversation events and keeps execution details separate", async ({ page }) => {
   await page.goto("/?session=00000000-0000-4000-8000-000000000005")
 
-  const companionView = page.locator('[data-companion-renderer="pipee/companion-view@1"]')
+  const companionView = page.locator(
+    '[data-presentation-contract="pipee/presentation@1"][data-presentation-mode="live"]',
+  )
   const firstEvent = page.getByText("I will inspect the workspace first.", { exact: true })
   const finalEvent = page.getByText("The workspace read succeeded; I am preparing the result.", { exact: true })
   const traces = page.locator(".agent-trace-summary")
   await expect(firstEvent).toBeVisible()
   await expect(companionView).toContainText("Fixture companion")
   await expect(companionView).toContainText("Injected by the extension")
+  await companionView.getByRole("button").click()
+  await expect(companionView).toContainText("Synthetic extension")
+  await companionView.getByRole("button").click()
   await expect(traces).toHaveCount(3)
   for (const trace of await traces.all()) await trace.click()
   const readActivity = page.locator('[data-process-kind="tool"][data-tool-name="read"]')
-  const extensionView = page.locator('[data-conversation-view="Fixture Extension"]')
+  const extensionView = page.locator('[data-presentation="Fixture Extension"]')
   const thinkingActivities = page.locator('[data-process-kind="thinking"]')
   await expect(readActivity).toBeVisible()
   await expect(extensionView).toContainText("Workspace inspection")
@@ -378,7 +383,7 @@ test("projects assistant speech as conversation events and keeps execution detai
       [...document.querySelectorAll<HTMLElement>(selector)].find((element) => element.textContent?.trim() === text)
     const first = byText("p", "I will inspect the workspace first.")
     const read = document.querySelector<HTMLElement>('[data-process-kind="tool"][data-tool-name="read"]')
-    const extensionView = document.querySelector<HTMLElement>('[data-conversation-view="Fixture Extension"]')
+    const extensionView = document.querySelector<HTMLElement>('[data-presentation="Fixture Extension"]')
     const thinking = [...document.querySelectorAll<HTMLElement>('[data-process-kind="thinking"]')]
     const final = byText("p", "The workspace read succeeded; I am preparing the result.")
     if (!first || !read || !extensionView || thinking.length !== 2 || !final)
@@ -993,7 +998,7 @@ test("resolves a session-scoped extension interaction before any run exists", as
       runId: null,
       extensionUi: {
         pendingInteraction: null,
-        statuses: expect.arrayContaining([{ _tag: "Text", key: "e2e-interaction", text: "resolved:2468" }]),
+        textStatuses: expect.arrayContaining([{ key: "e2e-interaction", text: "resolved:2468" }]),
       },
     },
   })
@@ -1032,7 +1037,7 @@ test("resolves a session-scoped extension interaction before any run exists", as
   await expect.poll(snapshot).toMatchObject({
     runtime: {
       extensionUi: {
-        statuses: expect.arrayContaining([{ _tag: "Text", key: "e2e-interaction-queue", text: "alpha:beta" }]),
+        textStatuses: expect.arrayContaining([{ key: "e2e-interaction-queue", text: "alpha:beta" }]),
       },
     },
   })
@@ -1047,7 +1052,7 @@ test("resolves a session-scoped extension interaction before any run exists", as
       runId: null,
       extensionUi: {
         pendingInteraction: null,
-        statuses: expect.arrayContaining([{ _tag: "Text", key: "e2e-interaction-timeout", text: "cancelled" }]),
+        textStatuses: expect.arrayContaining([{ key: "e2e-interaction-timeout", text: "cancelled" }]),
       },
     },
   })
@@ -1076,7 +1081,7 @@ test("resolves a session-scoped extension interaction before any run exists", as
   await expect.poll(snapshot).toMatchObject({
     runtime: {
       extensionUi: {
-        statuses: expect.arrayContaining([{ _tag: "Text", key: "e2e-interaction-abort", text: "undefined:done" }]),
+        textStatuses: expect.arrayContaining([{ key: "e2e-interaction-abort", text: "undefined:done" }]),
       },
     },
   })

@@ -10,9 +10,9 @@ import packageJson from "../package.json" with { type: "json" };
 import type { MediaViewPort } from "@pipee/companion-contracts/host-capabilities";
 import {
   makeRuntimeRetentionSlot,
+  livePresentation,
   mediaView,
-  structuredView,
-  withConversationView,
+  withPresentation,
   webSurface,
   type RuntimeRetentionSlot,
   type WebSurfaceSlot,
@@ -28,12 +28,12 @@ import {
   type PiWeixinRuntime,
 } from "../src/runtime.ts";
 import {
-  publishSessionStatus,
+  publishSessionPresentation,
   projectSessionStatus,
   sameSessionStatus,
 } from "../src/session-status.ts";
 import { makeStatusSync } from "../src/status-sync.ts";
-import { projectWeixinConversationView } from "../src/conversation-view.ts";
+import { projectWeixinArtifact } from "../src/presentation.ts";
 import {
   projectWeixinWebView,
   WeixinWebAction,
@@ -186,10 +186,10 @@ const connect = (ctx: ExtensionContext) =>
 const toolResult = (
   text: string,
   details: Readonly<Record<string, unknown>>,
-  view?: ReturnType<typeof projectWeixinConversationView>,
+  presentation?: ReturnType<typeof projectWeixinArtifact>,
 ): AgentToolResult<unknown> => ({
   content: [{ type: "text", text }],
-  details: view === undefined ? details : withConversationView(details, view),
+  details: presentation === undefined ? details : withPresentation(details, presentation),
 });
 
 export default function weixinExtension(pi: ExtensionAPI): void {
@@ -209,7 +209,7 @@ export default function weixinExtension(pi: ExtensionAPI): void {
     statusSync.replace(
       Effect.gen(function* () {
         const bridge = yield* Bridge;
-        const statusView = structuredView(ctx.ui, packageJson.name);
+        const presentation = livePresentation(ctx.ui, packageJson.name);
         yield* bridge.statusChanges.pipe(
           Stream.map(
             Exit.match({
@@ -237,7 +237,7 @@ export default function weixinExtension(pi: ExtensionAPI): void {
               );
               setPiWeixinRetention(status.enabled);
             }).pipe(
-              Effect.andThen(Effect.sync(() => publishSessionStatus(ctx.ui, statusView, status))),
+              Effect.andThen(Effect.sync(() => publishSessionPresentation(presentation, status))),
             ),
           ),
         );
@@ -263,7 +263,7 @@ export default function weixinExtension(pi: ExtensionAPI): void {
                 sendReady: status.sendReady,
                 phase: status.connection._tag,
               },
-              projectWeixinConversationView(projection),
+              projectWeixinArtifact(projection),
             );
           }),
         ),
@@ -330,7 +330,7 @@ export default function weixinExtension(pi: ExtensionAPI): void {
           return toolResult(
             `Weixin disconnected: ${formatStatus(status)}`,
             { phase: status.connection._tag },
-            projectWeixinConversationView(projectSessionStatus(status)),
+            projectWeixinArtifact(projectSessionStatus(status)),
           );
         }),
         { signal },
@@ -382,7 +382,7 @@ export default function weixinExtension(pi: ExtensionAPI): void {
               phase: status.connection._tag,
               lastError: status.lastError,
             },
-            projectWeixinConversationView(projectSessionStatus(status)),
+            projectWeixinArtifact(projectSessionStatus(status)),
           );
         }),
         { signal },

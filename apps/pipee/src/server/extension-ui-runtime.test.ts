@@ -5,10 +5,10 @@ import type { SessionScopedEvent } from "@/api/contract"
 import {
   MEDIA_VIEW_CAPABILITY,
   RUNTIME_RETENTION_CAPABILITY,
-  STRUCTURED_VIEW_CAPABILITY,
+  LIVE_PRESENTATION_CAPABILITY,
+  type LivePresentationPort,
   type MediaViewPort,
   type RuntimeRetentionPort,
-  type StructuredViewPort,
 } from "@pipee/companion-contracts/host-capabilities"
 import { capabilitySlotKey } from "@pipee/host-runtime/extension-capabilities"
 import { makeExtensionUiRuntime, PiExtensionUiClosedError } from "./extension-ui-runtime"
@@ -74,7 +74,7 @@ it.effect("interrupts callback fibers instead of waiting forever during close", 
   ),
 )
 
-it.effect("keeps structured views and retention on independent owner-bound ports", () =>
+it.effect("keeps live presentations and retention on independent owner-bound ports", () =>
   Effect.gen(function* () {
     const runtime = yield* makeExtensionUiRuntime(
       { randomUUIDv4: Effect.succeed("00000000-0000-4000-8000-000000000001") },
@@ -83,15 +83,23 @@ it.effect("keeps structured views and retention on independent owner-bound ports
       () => new Error("unavailable"),
       new Map(),
     )
-    const structured = runtime.uiContext.getPipeeCapability<StructuredViewPort>("alpha", STRUCTURED_VIEW_CAPABILITY)!
+    const presentation = runtime.uiContext.getPipeeCapability<LivePresentationPort>(
+      "alpha",
+      LIVE_PRESENTATION_CAPABILITY,
+    )!
     const retention = runtime.uiContext.getPipeeCapability<RuntimeRetentionPort>("alpha", RUNTIME_RETENTION_CAPABILITY)!
     const media = runtime.uiContext.getPipeeCapability<MediaViewPort>("alpha", MEDIA_VIEW_CAPABILITY)!
 
-    structured.replace("status", { kind: "alpha/status", version: 1, ready: true })
-    expect(runtime.projection().statuses[0]).toMatchObject({
+    presentation.replace("status", {
+      contract: "pipee/presentation@1",
+      title: "Alpha",
+      summary: "Ready",
+      tone: "success",
+      icon: "extension",
+    })
+    expect(runtime.projection().livePresentations[0]).toMatchObject({
       key: capabilitySlotKey("alpha", "status"),
-      kind: "alpha/status",
-      version: 1,
+      document: { title: "Alpha" },
     })
     expect(yield* runtime.hasRetention).toBe(false)
 
@@ -105,13 +113,31 @@ it.effect("keeps structured views and retention on independent owner-bound ports
 
     const handle = retention.acquire("runtime", { reason: "running" })
     expect(yield* runtime.hasRetention).toBe(true)
-    expect(runtime.projection().statuses).toHaveLength(1)
+    expect(runtime.projection().livePresentations).toHaveLength(1)
     media.replace("preview", undefined)
     expect(runtime.projection().widgets).toHaveLength(0)
     expect(yield* runtime.hasRetention).toBe(true)
     handle.release()
     expect(yield* runtime.hasRetention).toBe(false)
-    expect(runtime.projection().statuses).toHaveLength(1)
+    expect(runtime.projection().livePresentations).toHaveLength(1)
+    presentation.replace("status")
+    expect(runtime.projection().livePresentations).toHaveLength(0)
+    presentation.replace("status", {
+      contract: "pipee/presentation@1",
+      title: "Alpha",
+      summary: "Ready",
+      tone: "success",
+      icon: "extension",
+    })
     yield* runtime.dispose
+    expect(runtime.projection().livePresentations).toHaveLength(0)
+    presentation.replace("stale", {
+      contract: "pipee/presentation@1",
+      title: "Stale",
+      summary: "Ignored",
+      tone: "warning",
+      icon: "extension",
+    })
+    expect(runtime.projection().livePresentations).toHaveLength(0)
   }),
 )

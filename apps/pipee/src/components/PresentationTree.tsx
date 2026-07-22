@@ -1,6 +1,6 @@
-import type { ConversationViewNode } from "@pipee/companion-contracts/conversation-view"
+import type { PresentationNode } from "@pipee/companion-contracts/presentation"
 
-const NodeView = ({ node, path }: { readonly node: ConversationViewNode; readonly path: string }) => {
+const NodeView = ({ node, path }: { readonly node: PresentationNode; readonly path: string }) => {
   if (node.type === "group") {
     return (
       <div className={`conversation-view-group is-${node.direction} gap-${node.gap}`}>
@@ -40,6 +40,6 @@ const NodeView = ({ node, path }: { readonly node: ConversationViewNode; readonl
   )
 }
 
-export function ConversationViewTree({ root }: { readonly root: ConversationViewNode }) {
+export function PresentationTree({ root }: { readonly root: PresentationNode }) {
   return <NodeView node={root} path="root" />
 }

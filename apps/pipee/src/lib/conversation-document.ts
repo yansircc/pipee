@@ -7,9 +7,9 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from "@/api/contract"
-import type { ConversationView } from "@pipee/companion-contracts/conversation-view"
+import type { PresentationDocument } from "@pipee/companion-contracts/presentation"
 import type { TranscriptSource } from "@/features/session/session-ui-state"
-import { conversationViewFromDetails } from "./conversation-view"
+import { presentationFromDetails } from "./presentation"
 import { summarizeTurnUsage, type TurnUsage } from "./message-display"
 
 export type SourceIdentity = Pick<TranscriptSource, "id" | "kind" | "runId"> & { readonly entryId?: string }
@@ -65,12 +65,12 @@ export interface ExtensionContentNode {
   readonly collapsed: boolean
 }
 
-export interface ConversationViewNode {
-  readonly kind: "conversation-view"
+export interface PresentationContentNode {
+  readonly kind: "presentation"
   readonly id: string
   readonly source: SourceIdentity
   readonly message: ToolResultMessage | CustomMessage
-  readonly view: ConversationView | null
+  readonly document: PresentationDocument | null
 }
 
 export interface TerminationNode {
@@ -85,7 +85,7 @@ export type TurnFlowNode =
   | AssistantContentNode
   | AgentTraceNode
   | ExtensionContentNode
-  | ConversationViewNode
+  | PresentationContentNode
   | TerminationNode
 
 export interface TurnNode {
@@ -132,7 +132,7 @@ export type DocumentNode =
   | UserCommandNode
   | ContextBoundaryNode
   | ExtensionEntryNode
-  | ConversationViewNode
+  | PresentationContentNode
   | OrphanMessageNode
 
 export interface TurnIndexEntry {
@@ -290,14 +290,14 @@ export function compileConversationDocument(
     }
     if (turn === null) {
       if (message.role === "custom" || message.role === "toolResult") {
-        const conversationView = conversationViewFromDetails(message.details)
-        if (conversationView !== null) {
+        const presentation = presentationFromDetails(message.details)
+        if (presentation !== null) {
           nodes.push({
-            kind: "conversation-view",
-            id: `conversation-view:${source.id}`,
+            kind: "presentation",
+            id: `presentation:${source.id}`,
             source: sourceIdentity,
             message,
-            view: conversationView._tag === "Valid" ? conversationView.view : null,
+            document: presentation._tag === "Valid" ? presentation.document : null,
           })
           nodeMessages.set(nodes.at(-1)!, [message])
           continue
@@ -393,24 +393,24 @@ export function compileConversationDocument(
           message,
         })
       }
-      const conversationView = conversationViewFromDetails(message.details)
-      if (conversationView !== null) {
+      const presentation = presentationFromDetails(message.details)
+      if (presentation !== null) {
         finishTrace()
         ;(turn.node.flow as TurnFlowNode[]).push({
-          kind: "conversation-view",
+          kind: "presentation",
           id: `${turn.node.id}:flow:${turn.node.flow.length}`,
           source: sourceIdentity,
           message,
-          view: conversationView._tag === "Valid" ? conversationView.view : null,
+          document: presentation._tag === "Valid" ? presentation.document : null,
         })
       }
       continue
     }
     if (message.role === "custom") {
       finishTrace()
-      const conversationView = conversationViewFromDetails(message.details)
+      const presentation = presentationFromDetails(message.details)
       ;(turn.node.flow as TurnFlowNode[]).push(
-        conversationView === null
+        presentation === null
           ? {
               kind: "extension-content",
               id: `${turn.node.id}:flow:${turn.node.flow.length}`,
@@ -419,11 +419,11 @@ export function compileConversationDocument(
               collapsed: !message.display,
             }
           : {
-              kind: "conversation-view",
+              kind: "presentation",
               id: `${turn.node.id}:flow:${turn.node.flow.length}`,
               source: sourceIdentity,
               message,
-              view: conversationView._tag === "Valid" ? conversationView.view : null,
+              document: presentation._tag === "Valid" ? presentation.document : null,
             },
       )
     }

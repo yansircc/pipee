@@ -1,10 +1,9 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { layer as nodeServicesLayer, type NodeServices } from "@effect/platform-node/NodeServices";
 import {
-  structuredView,
+  livePresentation,
   webSurface,
-  withCompanionView,
-  withConversationView,
+  withPresentation,
   type WebSurfaceSlot,
 } from "@pipee/extension-kit";
 import * as Effect from "effect/Effect";
@@ -32,7 +31,7 @@ import {
   type ChromeStatusProjection,
 } from "./status-projection.js";
 import { registerChromeTools, type ToolResult } from "./tools.js";
-import { projectChromeCompanionView, projectChromeConversationView } from "./conversation-view.js";
+import { projectChromeArtifact, projectChromeLivePresentation } from "./presentation.js";
 import {
   ChromeWebAction,
   projectChromeWebView,
@@ -126,20 +125,11 @@ export default function piChrome(pi: ExtensionAPI): void {
     Effect.sync(() => {
       if (!sameScope(scope)) return;
       latestStatus = status;
-      structuredView(scope.context.ui, packageJson.name)?.replace(
+      livePresentation(scope.context.ui, packageJson.name)?.replace(
         "chrome",
-        withCompanionView(status, projectChromeCompanionView(status)),
+        projectChromeLivePresentation(status),
       );
       surface?.replace(projectChromeWebView(status, tabs, receipts, activity, events));
-      const label =
-        status.state === "ready"
-          ? "Chrome ready"
-          : status.state === "waiting-for-extension"
-            ? "Chrome waiting"
-            : status.state === "offline"
-              ? "Chrome offline"
-              : "Chrome error";
-      scope.context.ui.setStatus("chrome", label);
     });
 
   const refreshStatus = (scope: ChromeToolScope) =>
@@ -339,7 +329,7 @@ export default function piChrome(pi: ExtensionAPI): void {
         yield* publishStatus(scope, status);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
-          details: withConversationView({ status }, projectChromeConversationView(status)),
+          details: withPresentation({ status }, projectChromeArtifact(status)),
         } satisfies ToolResult;
       }),
       signal,

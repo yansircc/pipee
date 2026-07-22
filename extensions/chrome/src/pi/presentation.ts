@@ -1,6 +1,5 @@
-import type { ChromeStatusProjection } from "@pipee/companion-contracts/chrome";
-import type { CompanionView } from "@pipee/companion-contracts/companion-view";
-import type { ConversationView } from "@pipee/companion-contracts/conversation-view";
+import type { PresentationDocument } from "@pipee/companion-contracts/presentation";
+import type { ChromeStatusProjection } from "./status-projection.js";
 
 const stateText: Record<ChromeStatusProjection["state"], string> = {
   ready: "Ready",
@@ -9,35 +8,25 @@ const stateText: Record<ChromeStatusProjection["state"], string> = {
   error: "Error",
 };
 
-export const projectChromeConversationView = (
-  status: ChromeStatusProjection,
-): ConversationView => ({
-  contract: "pipee/conversation-view@1",
-  label: "Chrome",
+export const projectChromeArtifact = (status: ChromeStatusProjection): PresentationDocument => ({
+  contract: "pipee/presentation@1",
+  title: "Chrome",
+  summary:
+    status.errorMessage ??
+    status.connector?.label ??
+    (status.bridge === "running" ? "Bridge running" : "Bridge stopped"),
   tone: status.state === "ready" ? "success" : status.state === "error" ? "danger" : "warning",
-  root: {
+  icon: "browser",
+  status: {
+    text: stateText[status.state],
+    tone: status.state === "ready" ? "success" : status.state === "error" ? "danger" : "warning",
+  },
+  body: {
     type: "group",
     direction: "column",
     gap: "medium",
     children: [
-      {
-        type: "group",
-        direction: "row",
-        gap: "small",
-        children: [
-          { type: "text", text: "Browser connection", variant: "title" },
-          {
-            type: "badge",
-            text: stateText[status.state],
-            tone:
-              status.state === "ready"
-                ? "success"
-                : status.state === "error"
-                  ? "danger"
-                  : "warning",
-          },
-        ],
-      },
+      { type: "text", text: "Browser connection", variant: "title" },
       {
         type: "group",
         direction: "row",
@@ -61,14 +50,19 @@ export const projectChromeConversationView = (
   },
 });
 
-export const projectChromeCompanionView = (status: ChromeStatusProjection): CompanionView => ({
-  contract: "pipee/companion-view@1",
-  label: "Chrome",
-  state: stateText[status.state],
+export const projectChromeLivePresentation = (
+  status: ChromeStatusProjection,
+): PresentationDocument => ({
+  contract: "pipee/presentation@1",
+  title: "Chrome",
   summary:
     status.errorMessage ??
     status.connector?.label ??
     (status.bridge === "running" ? "Bridge running" : "Bridge stopped"),
   tone: status.state === "ready" ? "success" : status.state === "error" ? "danger" : "warning",
-  glyph: "browser",
+  icon: "browser",
+  status: {
+    text: stateText[status.state],
+    tone: status.state === "ready" ? "success" : status.state === "error" ? "danger" : "warning",
+  },
 });

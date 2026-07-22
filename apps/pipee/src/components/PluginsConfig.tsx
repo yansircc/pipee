@@ -1,10 +1,9 @@
 import * as stylex from "@stylexjs/stylex"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useIsMobile } from "@/hooks/useIsMobile"
-import type { PluginPackageInfo, PluginsResponse, WeixinStatusProjection } from "@/api/contract"
+import type { PluginPackageInfo, PluginsResponse } from "@/api/contract"
 import { useI18n } from "@/lib/i18n"
 import { runApi, withApi } from "@/browser/api-client"
-import { PI_COMPANION_PACKAGE_NAMES } from "@/lib/plugin-package-settings"
 import { SettingsToggle as Toggle } from "@/ui/interaction/SettingsToggle"
 import { SettingsWorkspace } from "@/ui/interaction/SettingsWorkspace"
 import { useAppForm } from "@/ui/interaction/AppForm"
@@ -390,7 +389,6 @@ function PackageDetail({
   sessionId,
   onAction,
   onReloadSession,
-  weixinStatus,
 }: {
   pkg: PluginPackageInfo
   cwd: string | null
@@ -399,30 +397,14 @@ function PackageDetail({
   sessionId: string | null
   onAction: (action: PluginAction, pkg: PluginPackageInfo) => void
   onReloadSession: () => void
-  weixinStatus: WeixinStatusProjection | undefined
 }) {
   const { t } = useI18n()
   const key = packageKey(pkg)
   const busy = busyKey?.endsWith(key) ?? false
   const reloadBusy = busyKey === "reload"
   const enabled = !pkg.disabled
-  const isWeixin = pkg.scope === "global" && pkg.packageName === PI_COMPANION_PACKAGE_NAMES.weixin
   return (
     <div {...stylex.props(inlineStyles.inline26)}>
-      {isWeixin && (
-        <div data-weixin-global-status {...stylex.props(inlineStyles.inline32)}>
-          <div {...stylex.props(inlineStyles.inline33)}>{t("Global Weixin status")}</div>
-          <div {...stylex.props(inlineStyles.inline34)}>{t("Connection")}</div>
-          <div>{weixinStatus?.phase ?? t("Unavailable until a session loads")}</div>
-          <div {...stylex.props(inlineStyles.inline35)}>{t("Account")}</div>
-          <div {...stylex.props(inlineStyles.inline36)}>{weixinStatus?.accountId ?? t("Not logged in")}</div>
-          <div {...stylex.props(inlineStyles.inline37)}>{t("Default session")}</div>
-          <div {...stylex.props(inlineStyles.inline38)}>{weixinStatus?.defaultSessionId ?? t("Not configured")}</div>
-          <div {...stylex.props(inlineStyles.inline39)}>{t("Proactive send")}</div>
-          <div>{weixinStatus?.sendReady ? t("Ready") : t("Waiting for an inbound Weixin message")}</div>
-          {weixinStatus?.error && <div {...stylex.props(inlineStyles.inline40)}>{weixinStatus.error}</div>}
-        </div>
-      )}
       <div {...stylex.props(inlineStyles.inline41)}>
         <div {...stylex.props(inlineStyles.inline42)}>
           <Toggle
@@ -510,7 +492,6 @@ export function PluginsConfig({
   onClose,
   onReloaded,
   initialPackageName,
-  weixinStatus,
   presentation = "dialog",
   onOpenPackage,
   openablePackageNames,
@@ -521,7 +502,6 @@ export function PluginsConfig({
   onClose: () => void
   onReloaded?: () => void
   initialPackageName?: string
-  weixinStatus: WeixinStatusProjection | undefined
   presentation?: "dialog" | "page"
   onOpenPackage?: (packageName: string) => void
   openablePackageNames?: ReadonlySet<string>
@@ -1040,7 +1020,6 @@ export function PluginsConfig({
               sessionId={sessionId}
               onAction={runAction}
               onReloadSession={reloadSession}
-              weixinStatus={weixinStatus}
             />
           ) : (
             <div {...stylex.props(inlineStyles.inline88)}>{t("Select a package")}</div>
@@ -1235,45 +1214,6 @@ const inlineStyles = stylex.create({
     flexDirection: "column",
     gap: 20,
     maxWidth: 680,
-  },
-  inline32: {
-    padding: 16,
-    border: "1px solid var(--border)",
-    borderRadius: 8,
-    background: "var(--bg-secondary)",
-    display: "grid",
-    gridTemplateColumns: "max-content minmax(0, 1fr)",
-    gap: "8px 14px",
-    fontSize: 12,
-  },
-  inline33: {
-    gridColumn: "1 / -1",
-    fontSize: 14,
-    fontWeight: 700,
-  },
-  inline34: {
-    color: "var(--text-dim)",
-  },
-  inline35: {
-    color: "var(--text-dim)",
-  },
-  inline36: {
-    overflowWrap: "anywhere",
-  },
-  inline37: {
-    color: "var(--text-dim)",
-  },
-  inline38: {
-    overflowWrap: "anywhere",
-    fontFamily: "var(--font-mono)",
-  },
-  inline39: {
-    color: "var(--text-dim)",
-  },
-  inline40: {
-    gridColumn: "1 / -1",
-    color: "#ef4444",
-    overflowWrap: "anywhere",
   },
   inline41: {
     display: "flex",

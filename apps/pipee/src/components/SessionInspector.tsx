@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex"
-import type { SessionStats, WeixinStatusProjection } from "@/api/contract"
+import type { SessionStats } from "@/api/contract"
 import { runBrowser } from "@/browser/api-client"
 import { copyText } from "@/lib/clipboard"
 import { useI18n } from "@/lib/i18n"
@@ -22,7 +22,6 @@ type SessionInspectorProps = {
   readonly selectedSessionId: string | null
   readonly sessionStats: SessionStats | null
   readonly systemPromptState: SystemPromptState
-  readonly weixinStatus: WeixinStatusProjection | undefined
 }
 
 const formatCompact = (value: number) =>
@@ -44,7 +43,6 @@ export function SessionInspector({
   selectedSessionId,
   sessionStats,
   systemPromptState,
-  weixinStatus,
 }: SessionInspectorProps) {
   const { t } = useI18n()
   const displayedContext = contextUsage ?? sessionStats?.contextUsage ?? null
@@ -76,7 +74,6 @@ export function SessionInspector({
             cwd,
             session: sessionStats,
             systemPrompt: systemPromptState,
-            weixin: weixinStatus,
           },
           null,
           2,

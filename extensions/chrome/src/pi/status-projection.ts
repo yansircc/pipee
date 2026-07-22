@@ -1,7 +1,7 @@
 import {
   classifyChromeConnectorCompatibility,
   type ChromeStatusProjection,
-} from "@pipee/companion-contracts/chrome";
+} from "../protocol/chrome.js";
 import type { BridgeStatusResponse } from "../protocol/schema.js";
 
 export type { ChromeStatusProjection };

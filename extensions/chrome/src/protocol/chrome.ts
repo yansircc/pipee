@@ -42,7 +42,7 @@ export interface ChromeConnectorEvidenceSource {
   readonly protocolFingerprint: string;
 }
 
-export const projectChromeExtensionEvidence = (
+const projectChromeExtensionEvidence = (
   connector: ChromeConnectorEvidenceSource,
 ): ChromeExtensionEvidence => ({
   extensionId: connector.extensionId,
@@ -54,9 +54,9 @@ export const projectChromeExtensionEvidence = (
   },
 });
 
-export const ChromeCompatibilityMismatch = BrowserCompanionMismatch;
+const ChromeCompatibilityMismatch = BrowserCompanionMismatch;
 
-export const chromeExtensionMismatches = (
+const chromeExtensionMismatches = (
   expected: ChromeExtensionExpectation,
   actual: ChromeExtensionExpectation,
 ): ReadonlyArray<typeof ChromeCompatibilityMismatch.Type> => {
@@ -75,15 +75,15 @@ export const ChromeCompatibility = Schema.Union([
 export type ChromeCompatibility = typeof ChromeCompatibility.Type;
 export type ChromeKnownCompatibility = Exclude<ChromeCompatibility, { readonly _tag: "Unknown" }>;
 
-export function classifyChromeCompatibility(
+function classifyChromeCompatibility(
   expected: ChromeExtensionExpectation,
   actual: ChromeExtensionEvidence,
 ): ChromeKnownCompatibility;
-export function classifyChromeCompatibility(
+function classifyChromeCompatibility(
   expected: ChromeExtensionExpectation | null,
   actual: ChromeExtensionEvidence | null,
 ): ChromeCompatibility;
-export function classifyChromeCompatibility(
+function classifyChromeCompatibility(
   expected: ChromeExtensionExpectation | null,
   actual: ChromeExtensionEvidence | null,
 ): ChromeCompatibility {

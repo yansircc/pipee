@@ -40,7 +40,8 @@ const runtimeSnapshot = (sessionId: string, sessionFile: string) =>
     extensionUi: {
       revision: 0,
       pendingInteraction: null,
-      statuses: [],
+      textStatuses: [],
+      livePresentations: [],
       widgets: [],
       webSurfaces: [],
     },

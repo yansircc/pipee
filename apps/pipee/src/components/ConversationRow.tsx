@@ -2,7 +2,7 @@ import { memo } from "react"
 import type { AssistantMessage } from "@/api/contract"
 import type { DisplayRow } from "@/lib/disclosure-projection"
 import { AgentTraceItemsView, MessageView, StreamingThroughputBadge, TurnUsageSummary } from "./MessageView"
-import { ConversationView } from "./ConversationView"
+import { PresentationSurface } from "./PresentationSurface"
 
 interface Props {
   readonly row: DisplayRow
@@ -151,8 +151,8 @@ export const ConversationRow = memo(function ConversationRow(props: Props) {
       </div>
     )
   }
-  if (row.kind === "conversation-view") {
-    if (row.node.view === null) {
+  if (row.kind === "presentation") {
+    if (row.node.document === null) {
       return (
         <div data-transcript-row={row.id} className="conversation-view-fallback">
           {row.node.message.role === "toolResult" ? (
@@ -179,7 +179,7 @@ export const ConversationRow = memo(function ConversationRow(props: Props) {
     }
     return (
       <div data-transcript-row={row.id}>
-        <ConversationView view={row.node.view} />
+        <PresentationSurface mode="artifact" document={row.node.document} />
       </div>
     )
   }

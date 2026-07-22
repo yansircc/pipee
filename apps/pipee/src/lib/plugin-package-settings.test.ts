@@ -1,28 +1,13 @@
 import assert from "node:assert/strict"
 import { test } from "vite-plus/test"
 import {
-  PI_COMPANION_PACKAGE_NAMES,
   isDisabledPackage,
   isLocalPackageSource,
-  isPiCompanionPackage,
   removeConfiguredPackage,
   setConfiguredPackageDisabled,
 } from "./plugin-package-settings"
 
 const source = "../../code/52/pi-chrome/package"
-
-test("owns the exact scoped identities of every companion package", () => {
-  assert.deepEqual(PI_COMPANION_PACKAGE_NAMES, {
-    chrome: "@yansircc/pi-chrome",
-    loop: "@yansircc/pi-loop",
-    weixin: "@yansircc/pi-weixin",
-  })
-  assert.equal(isPiCompanionPackage("@yansircc/pi-chrome", "chrome"), true)
-  assert.equal(isPiCompanionPackage("@yansircc/pi-loop", "loop"), true)
-  assert.equal(isPiCompanionPackage("@yansircc/pi-weixin", "weixin"), true)
-  assert.equal(isPiCompanionPackage("pi-chrome", "chrome"), false)
-  assert.equal(isPiCompanionPackage("@another/pi-chrome", "chrome"), false)
-})
 
 test("enables and disables the exact configured source without resolving it against cwd", () => {
   const disabled = setConfiguredPackageDisabled([source, "../another-package"], source, true)

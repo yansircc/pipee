@@ -8,14 +8,13 @@ import { Type, type Static } from "@sinclair/typebox";
 import { Clock, Data, Effect, Exit, ManagedRuntime, Schema, Scope } from "effect";
 import {
   makeRuntimeRetentionSlot,
-  structuredView,
-  withCompanionView,
-  withConversationView,
+  livePresentation,
+  withPresentation,
   webSurface,
   type RuntimeRetentionSlot,
   type WebSurfaceSlot,
 } from "@pipee/extension-kit";
-import type { StructuredViewPort } from "@pipee/companion-contracts/host-capabilities";
+import type { LivePresentationPort } from "@pipee/companion-contracts/host-capabilities";
 import packageJson from "../../package.json" with { type: "json" };
 import { loadLoopConfig } from "../application/config.js";
 import { makeLoopOperations, type LoopOperations } from "../application/operations.js";
@@ -25,8 +24,7 @@ import { cronToHuman } from "../domain/cron.js";
 import type { Loop, LoopConfig, Occurrence } from "../domain/model.js";
 import { projectLoops } from "./status.js";
 import { makeSessionLoopPersistence } from "./session-state.js";
-import { projectLoopConversationView } from "./conversation-view.js";
-import { projectLoopCompanionView } from "./companion-view.js";
+import { projectLoopArtifact, projectLoopLivePresentation } from "./presentation.js";
 import { LoopWebAction, projectLoopWebView } from "./web-surface.js";
 
 const runtime = ManagedRuntime.make(nodeServicesLayer);
@@ -38,7 +36,7 @@ type Session = {
   readonly operations: LoopOperations;
   readonly scheduler: Scheduler;
   readonly scope: Scope.Closeable;
-  readonly statusView: StructuredViewPort | undefined;
+  readonly presentation: LivePresentationPort | undefined;
   readonly retention: RuntimeRetentionSlot;
   readonly surface: WebSurfaceSlot;
 };
@@ -84,10 +82,10 @@ const describeLoop = (loop: Loop): string => {
 
 const toolResult = (
   text: string,
-  view?: ReturnType<typeof projectLoopConversationView>,
+  presentation?: ReturnType<typeof projectLoopArtifact>,
 ): AgentToolResult<unknown> => ({
   content: [{ type: "text" as const, text }],
-  details: view === undefined ? undefined : withConversationView({}, view),
+  details: presentation === undefined ? undefined : withPresentation({}, presentation),
 });
 
 const notifyFailure = (context: ExtensionContext, error: unknown) =>
@@ -106,10 +104,6 @@ const refreshStatus = (active: Session) =>
     Effect.flatMap(({ loops, observedAt }) =>
       Effect.gen(function* () {
         if (!active.context.hasUI) return;
-        active.context.ui.setStatus(
-          "pi-loop",
-          loops.length === 0 ? undefined : `${loops.length} loop${loops.length === 1 ? "" : "s"}`,
-        );
         const status = {
           kind: "pi-loop/status" as const,
           version: 1 as const,
@@ -117,10 +111,7 @@ const refreshStatus = (active: Session) =>
           observedAt,
           loops: projectLoops(loops),
         };
-        active.statusView?.replace(
-          "status",
-          withCompanionView(status, projectLoopCompanionView(status)),
-        );
+        active.presentation?.replace("status", projectLoopLivePresentation(status));
         active.surface.replace(
           projectLoopWebView(loops, active.context.sessionManager.getSessionId(), observedAt),
         );
@@ -213,7 +204,7 @@ const startSession = (pi: ExtensionAPI, context: ExtensionContext) =>
         operations,
         scheduler,
         scope,
-        statusView: structuredView(context.ui, packageJson.name),
+        presentation: livePresentation(context.ui, packageJson.name),
         retention,
         surface,
       };
@@ -295,7 +286,7 @@ export default function piLoop(pi: ExtensionAPI): void {
               Effect.map((loop) =>
                 toolResult(
                   `Created ${describeLoop(loop)}`,
-                  projectLoopConversationView(loop, "Loop created"),
+                  projectLoopArtifact(loop, "Loop created"),
                 ),
               ),
             ),
@@ -332,7 +323,7 @@ export default function piLoop(pi: ExtensionAPI): void {
               Effect.map((loop) =>
                 toolResult(
                   `Updated ${describeLoop(loop)}`,
-                  projectLoopConversationView(loop, "Loop updated"),
+                  projectLoopArtifact(loop, "Loop updated"),
                 ),
               ),
             ),
@@ -355,7 +346,7 @@ export default function piLoop(pi: ExtensionAPI): void {
               Effect.map((loop) =>
                 toolResult(
                   `${enabled ? "Resumed" : "Paused"} ${describeLoop(loop)}`,
-                  projectLoopConversationView(loop, enabled ? "Loop resumed" : "Loop paused"),
+                  projectLoopArtifact(loop, enabled ? "Loop resumed" : "Loop paused"),
                 ),
               ),
             ),

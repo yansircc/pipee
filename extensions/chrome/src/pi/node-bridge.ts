@@ -11,7 +11,7 @@ import { layer as nodeServicesLayer, type NodeServices } from "@effect/platform-
 import {
   classifyChromeConnectorCompatibility,
   type ChromeExtensionExpectation,
-} from "@pipee/companion-contracts/chrome";
+} from "../protocol/chrome.js";
 import { CommandBroker } from "../core/broker.js";
 import {
   BridgeBindFailed,

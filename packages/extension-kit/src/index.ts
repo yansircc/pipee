@@ -2,12 +2,12 @@ import {
   MEDIA_VIEW_CAPABILITY,
   PIPEE_CAPABILITY_METHOD,
   RUNTIME_RETENTION_CAPABILITY,
-  STRUCTURED_VIEW_CAPABILITY,
+  LIVE_PRESENTATION_CAPABILITY,
   WEB_SURFACE_RUNTIME_CAPABILITY,
   type MediaViewPort,
   type RuntimeRetentionClaim,
   type RuntimeRetentionPort,
-  type StructuredViewPort,
+  type LivePresentationPort,
 } from "@pipee/companion-contracts/host-capabilities";
 import {
   type JsonValue,
@@ -16,15 +16,10 @@ import {
   type WebSurfaceRuntimePort,
 } from "@pipee/companion-contracts/web-surface";
 import {
-  CONVERSATION_VIEW_DETAILS_KEY,
-  ConversationView as ConversationViewSchema,
-  type ConversationView,
-} from "@pipee/companion-contracts/conversation-view";
-import {
-  COMPANION_VIEW_KEY,
-  CompanionView as CompanionViewSchema,
-  type CompanionView,
-} from "@pipee/companion-contracts/companion-view";
+  PRESENTATION_DETAILS_KEY,
+  PresentationDocument as PresentationDocumentSchema,
+  type PresentationDocument,
+} from "@pipee/companion-contracts/presentation";
 import { Data, Effect, Schema, Scope } from "effect";
 
 interface HostCapabilityLookup {
@@ -36,30 +31,21 @@ export type HostCapabilityCarrier = unknown;
 const capability = <T>(host: HostCapabilityCarrier, ownerId: string, id: string): T | undefined =>
   (host as HostCapabilityLookup | undefined)?.[PIPEE_CAPABILITY_METHOD]?.<T>(ownerId, id);
 
-const decodeConversationView = Schema.decodeUnknownSync(ConversationViewSchema);
-const decodeCompanionView = Schema.decodeUnknownSync(CompanionViewSchema);
+const decodePresentationDocument = Schema.decodeUnknownSync(PresentationDocumentSchema);
 
-export const withCompanionView = <Status extends Readonly<Record<string, unknown>>>(
-  status: Status,
-  view: CompanionView,
-): Status & { readonly [COMPANION_VIEW_KEY]: CompanionView } => ({
-  ...status,
-  [COMPANION_VIEW_KEY]: decodeCompanionView(view),
-});
-
-export const withConversationView = <Details extends Readonly<Record<string, unknown>>>(
+export const withPresentation = <Details extends Readonly<Record<string, unknown>>>(
   details: Details,
-  view: ConversationView,
-): Details & { readonly [CONVERSATION_VIEW_DETAILS_KEY]: ConversationView } => ({
+  document: PresentationDocument,
+): Details & { readonly [PRESENTATION_DETAILS_KEY]: PresentationDocument } => ({
   ...details,
-  [CONVERSATION_VIEW_DETAILS_KEY]: decodeConversationView(view),
+  [PRESENTATION_DETAILS_KEY]: decodePresentationDocument(document),
 });
 
-export const structuredView = (
+export const livePresentation = (
   host: HostCapabilityCarrier,
   ownerId: string,
-): StructuredViewPort | undefined =>
-  capability<StructuredViewPort>(host, ownerId, STRUCTURED_VIEW_CAPABILITY);
+): LivePresentationPort | undefined =>
+  capability<LivePresentationPort>(host, ownerId, LIVE_PRESENTATION_CAPABILITY);
 
 export const mediaView = (
   host: HostCapabilityCarrier,

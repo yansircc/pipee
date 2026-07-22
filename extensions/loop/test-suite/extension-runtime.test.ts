@@ -59,7 +59,7 @@ it.effect("gates the real Pi callback path until the agent becomes idle", () =>
       const statuses = new Map<string, unknown>();
       const capabilities = makeExtensionHostCapabilities({
         webSurfaceCandidates: new Map([["@yansircc/pi-loop", "a".repeat(64) as never]]),
-        replaceStructuredView: (ownerId, slot, value) => {
+        replaceLivePresentation: (ownerId, slot, value) => {
           const key = capabilitySlotKey(ownerId, slot);
           if (value === undefined) statuses.delete(key);
           else statuses.set(key, value);
@@ -150,16 +150,10 @@ it.effect("gates the real Pi callback path until the agent becomes idle", () =>
       );
       expect(messages).toEqual(["inspect build", "immediate probe"]);
       expect(statuses.get(capabilitySlotKey("@yansircc/pi-loop", "status"))).toMatchObject({
-        kind: "pi-loop/status",
-        version: 1,
-        sessionId: "session-automation",
-        loops: [{ prompt: "inspect build" }, { prompt: "immediate probe" }],
-        pipeeCompanionView: {
-          contract: "pipee/companion-view@1",
-          label: "Automations",
-          state: "2",
-          glyph: "automation",
-        },
+        contract: "pipee/presentation@1",
+        title: "Automations",
+        status: { text: "2" },
+        icon: "automation",
       });
       expect(capabilities.hasRetention()).toBe(true);
 

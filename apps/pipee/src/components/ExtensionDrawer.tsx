@@ -1,6 +1,5 @@
 import * as stylex from "@stylexjs/stylex"
 import { PluginsConfig } from "@/browser/code-split"
-import type { WeixinStatusProjection } from "@/api/contract"
 import { useI18n } from "@/lib/i18n"
 
 type ExtensionDrawerProps = {
@@ -10,7 +9,6 @@ type ExtensionDrawerProps = {
   readonly onReloaded: () => void
   readonly openablePackageNames: ReadonlySet<string>
   readonly projectCwds: readonly string[]
-  readonly weixinStatus: WeixinStatusProjection | undefined
 }
 
 export function ExtensionDrawer({
@@ -20,7 +18,6 @@ export function ExtensionDrawer({
   onReloaded,
   openablePackageNames,
   projectCwds,
-  weixinStatus,
 }: ExtensionDrawerProps) {
   const { t } = useI18n()
 
@@ -44,7 +41,6 @@ export function ExtensionDrawer({
           sessionId={null}
           projectCwds={projectCwds}
           initialPackageName={initialPackageName}
-          weixinStatus={weixinStatus}
           onClose={onClose}
           openablePackageNames={openablePackageNames}
           onOpenPackage={onOpenPackage}

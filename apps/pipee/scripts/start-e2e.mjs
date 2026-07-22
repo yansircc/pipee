@@ -152,18 +152,15 @@ await writeFile(
       dispatch: async (request) => ({ _tag: "Accepted", payload: Number(request.payload) + 1 }),
     })
     surface.replace({ answer: 41 })
-    statusView = context.ui.getPipeeCapability("pipee-e2e-extension", "pipee/structured-view@2")
+    statusView = context.ui.getPipeeCapability("pipee-e2e-extension", "pipee/live-presentation@1")
     statusView.replace("status", {
-      kind: "fixture/status",
-      version: 1,
-      pipeeCompanionView: {
-        contract: "pipee/companion-view@1",
-        label: "Fixture companion",
-        state: "Ready",
-        summary: "Injected by the extension",
-        tone: "success",
-        glyph: "extension",
-      },
+      contract: "pipee/presentation@1",
+      title: "Fixture companion",
+      summary: "Injected by the extension",
+      tone: "success",
+      icon: "extension",
+      status: { text: "Ready", tone: "success" },
+      body: { type: "field", label: "Owner", value: "Synthetic extension" },
     })
   })
   pi.on("session_shutdown", () => {
@@ -380,26 +377,18 @@ processSession.appendMessage({
   toolName: "read",
   content: [{ type: "text", text: "hello from the isolated e2e workspace" }],
   details: {
-    pipeeConversationView: {
-      contract: "pipee/conversation-view@1",
-      label: "Fixture Extension",
+    pipeePresentation: {
+      contract: "pipee/presentation@1",
+      title: "Fixture Extension",
+      summary: "Workspace inspection",
       tone: "success",
-      root: {
+      icon: "extension",
+      status: { text: "Ready", tone: "success" },
+      body: {
         type: "group",
         direction: "column",
         gap: "medium",
-        children: [
-          {
-            type: "group",
-            direction: "row",
-            gap: "small",
-            children: [
-              { type: "text", text: "Workspace inspection", variant: "title" },
-              { type: "badge", text: "Ready", tone: "success" },
-            ],
-          },
-          { type: "field", label: "File", value: "hello.txt" },
-        ],
+        children: [{ type: "field", label: "File", value: "hello.txt" }],
       },
     },
   },

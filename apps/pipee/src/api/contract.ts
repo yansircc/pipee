@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { PresentationDocument } from "@pipee/companion-contracts/presentation"
 import { JsonValue, WebSurfaceProjection } from "@pipee/companion-contracts/web-surface"
 import {
   CandidateHash,
@@ -237,24 +238,10 @@ export const CompletedBashExecution = Schema.Struct({
 })
 export type CompletedBashExecution = typeof CompletedBashExecution.Type
 
-export {
-  ChromeStatusProjection,
-  type ChromeStatusProjection as ChromeStatusProjectionType,
-} from "@pipee/companion-contracts/chrome"
-export {
-  WeixinStatusProjection,
-  type WeixinStatusProjection as WeixinStatusProjectionType,
-} from "@pipee/companion-contracts/weixin"
-export const ExtensionStatusContribution = Schema.Union([
-  Schema.TaggedStruct("Text", { key: Schema.String, text: Schema.String }),
-  Schema.TaggedStruct("Structured", {
-    key: Schema.String,
-    kind: Schema.NonEmptyString,
-    version: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-    value: JsonValue,
-  }),
-])
-export type ExtensionStatusContribution = typeof ExtensionStatusContribution.Type
+export const ExtensionTextStatus = Schema.Struct({ key: Schema.String, text: Schema.String })
+export type ExtensionTextStatus = typeof ExtensionTextStatus.Type
+export const LivePresentationItem = Schema.Struct({ key: Schema.String, document: PresentationDocument })
+export type LivePresentationItem = typeof LivePresentationItem.Type
 export const ExtensionWidgetContent = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("text"), lines: Schema.Array(Schema.String) }),
   Schema.Struct({
@@ -313,7 +300,8 @@ export type ExtensionInteractionResponse = typeof ExtensionInteractionResponse.T
 export const ExtensionUiProjection = Schema.Struct({
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   pendingInteraction: Schema.NullOr(ExtensionInteraction),
-  statuses: Schema.Array(ExtensionStatusContribution),
+  textStatuses: Schema.Array(ExtensionTextStatus),
+  livePresentations: Schema.Array(LivePresentationItem),
   widgets: Schema.Array(ExtensionWidgetItem),
   webSurfaces: Schema.Array(WebSurfaceProjection),
 })

@@ -7,15 +7,13 @@ import type {
   SessionInfo,
   SessionStats,
   SessionBranchNode,
-  WeixinStatusProjection,
 } from "@/api/contract"
 import { ChatInput, type ChatInputHandle } from "./ChatInput"
 import { useAgentSession } from "@/hooks/useAgentSession"
 import { useAudio } from "@/hooks/useAudio"
 import { useDragDrop } from "@/hooks/useDragDrop"
 import { useI18n } from "@/lib/i18n"
-import { getWeixinStatusProjection, sameWeixinStatusProjection } from "@/lib/extension-status"
-import { CompanionRendererRegistry } from "@/features/companions/renderer-registry"
+import { LivePresentationRegion } from "@/features/presentation/LivePresentationRegion"
 import { compileConversationDocument } from "@/lib/conversation-document"
 import type { ConversationDocument } from "@/lib/conversation-document"
 import { emptyDisclosureState, type DisclosureState } from "@/lib/disclosure-projection"
@@ -51,7 +49,6 @@ interface Props {
       tokens: number | null
     } | null,
   ) => void
-  onWeixinStatusChange?: (status: WeixinStatusProjection) => void
   onOpenFile?: (filePath: string) => void
   onOpenModels?: () => void
   onOpenSkills?: () => void
@@ -97,7 +94,6 @@ export function ChatWindow({
   onSessionStatsChange,
   onSessionStatsPanelOpen,
   onContextUsageChange,
-  onWeixinStatusChange,
   onOpenFile,
   onOpenModels,
   onOpenSkills,
@@ -153,7 +149,7 @@ export function ChatWindow({
     slashCommandsLoading,
     queuedMessages,
     extensionDialog,
-    extensionStatuses,
+    livePresentations,
     extensionWidgets,
     respondToExtensionUi,
     isAutoModelSelection,
@@ -244,15 +240,6 @@ export function ChatWindow({
   useEffect(() => {
     onContextUsageChange?.(contextUsageRef.current)
   }, [ctxKey, onContextUsageChange])
-  const weixinStatus = getWeixinStatusProjection(extensionStatuses)
-  const publishedWeixinStatusRef = useRef<WeixinStatusProjection | undefined>(undefined)
-  useEffect(() => {
-    if (weixinStatus === undefined) return
-    const published = publishedWeixinStatusRef.current
-    if (published !== undefined && sameWeixinStatusProjection(published, weixinStatus)) return
-    publishedWeixinStatusRef.current = weixinStatus
-    onWeixinStatusChange?.(weixinStatus)
-  }, [onWeixinStatusChange, weixinStatus])
   const onDrop = useCallback(
     (payload: DropPayload) => {
       if (sessionBusy) return
@@ -478,7 +465,7 @@ export function ChatWindow({
       ) : (
         <>
           <div className="companion-region">
-            <CompanionRendererRegistry statuses={extensionStatuses} sessionId={session.id} />
+            <LivePresentationRegion presentations={livePresentations} />
           </div>
           <div {...stylex.props(styles.conversation)}>
             <TranscriptViewport

@@ -1,17 +1,5 @@
 const RESOURCE_FILTERS = ["extensions", "skills", "prompts", "themes"] as const
 
-export const PI_COMPANION_PACKAGE_NAMES = {
-  chrome: "@yansircc/pi-chrome",
-  loop: "@yansircc/pi-loop",
-  weixin: "@yansircc/pi-weixin",
-} as const
-
-export type PiCompanionPackage = keyof typeof PI_COMPANION_PACKAGE_NAMES
-
-export function isPiCompanionPackage(packageName: string | undefined, companion: PiCompanionPackage): boolean {
-  return packageName === PI_COMPANION_PACKAGE_NAMES[companion]
-}
-
 export type ConfiguredPackageSource =
   | string
   | {

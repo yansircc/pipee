@@ -1,12 +1,9 @@
 import { expect, it } from "vite-plus/test";
-import {
-  projectChromeCompanionView,
-  projectChromeConversationView,
-} from "../../src/pi/conversation-view.js";
+import { projectChromeArtifact, projectChromeLivePresentation } from "../../src/pi/presentation.js";
 
 it("projects a Chrome status card from the extension-owned status fact", () => {
   expect(
-    projectChromeConversationView({
+    projectChromeArtifact({
       kind: "pi-chrome/status",
       version: 3,
       state: "ready",
@@ -15,12 +12,14 @@ it("projects a Chrome status card from the extension-owned status fact", () => {
       connector: { id: "connector", label: "Primary profile", connected: true },
     }),
   ).toMatchObject({
-    contract: "pipee/conversation-view@1",
-    label: "Chrome",
+    contract: "pipee/presentation@1",
+    title: "Chrome",
+    summary: "Primary profile",
     tone: "success",
-    root: {
+    status: { text: "Ready", tone: "success" },
+    body: {
       children: [
-        { children: [{ text: "Browser connection" }, { text: "Ready", tone: "success" }] },
+        { text: "Browser connection" },
         { children: [{ value: "running" }, { value: "Primary profile" }, { value: "Connected" }] },
       ],
     },
@@ -29,7 +28,7 @@ it("projects a Chrome status card from the extension-owned status fact", () => {
 
 it("projects the generic companion surface beside typed Chrome status", () => {
   expect(
-    projectChromeCompanionView({
+    projectChromeLivePresentation({
       kind: "pi-chrome/status",
       version: 3,
       state: "ready",
@@ -38,11 +37,11 @@ it("projects the generic companion surface beside typed Chrome status", () => {
       connector: { id: "connector", label: "Primary profile", connected: true },
     }),
   ).toEqual({
-    contract: "pipee/companion-view@1",
-    label: "Chrome",
-    state: "Ready",
+    contract: "pipee/presentation@1",
+    title: "Chrome",
     summary: "Primary profile",
     tone: "success",
-    glyph: "browser",
+    icon: "browser",
+    status: { text: "Ready", tone: "success" },
   });
 });

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
 import {
   RUNTIME_RETENTION_CAPABILITY,
+  LIVE_PRESENTATION_CAPABILITY,
   WEB_SURFACE_RUNTIME_CAPABILITY,
+  type LivePresentationPort,
   type RuntimeRetentionPort,
 } from "@pipee/companion-contracts/host-capabilities";
 import type {
@@ -15,7 +17,7 @@ import { makeExtensionHostCapabilities } from "../src/extension-capabilities.js"
 describe("extension host capabilities", () => {
   it("binds owners and keeps stale handles from releasing replacement claims", () => {
     const capabilities = makeExtensionHostCapabilities({
-      replaceStructuredView: () => undefined,
+      replaceLivePresentation: () => undefined,
       replaceMediaView: () => undefined,
     });
     const provider = capabilities.providers.get(RUNTIME_RETENTION_CAPABILITY)!;
@@ -29,13 +31,63 @@ describe("extension host capabilities", () => {
     expect(capabilities.hasRetention()).toBe(false);
   });
 
+  it("validates complete owner-bound presentation documents", () => {
+    const projections: Array<{ owner: string; slot: string; title: string | undefined }> = [];
+    const capabilities = makeExtensionHostCapabilities({
+      replaceLivePresentation: (owner, slot, document) =>
+        projections.push({ owner, slot, title: document?.title }),
+      replaceMediaView: () => undefined,
+    });
+    const port = capabilities.providers
+      .get(LIVE_PRESENTATION_CAPABILITY)!
+      .forExtension("alpha") as LivePresentationPort;
+    port.replace("status", {
+      contract: "pipee/presentation@1",
+      title: "Fixture",
+      summary: "Ready",
+      tone: "success",
+      icon: "extension",
+    });
+    port.replace("status");
+    port.replace("status", {
+      contract: "pipee/presentation@1",
+      title: "Fixture",
+      summary: "Ready",
+      tone: "success",
+      icon: "extension",
+    });
+    expect(() =>
+      port.replace("status", {
+        contract: "pipee/presentation@1",
+        title: "",
+        summary: "Invalid",
+        tone: "success",
+        icon: "extension",
+      }),
+    ).toThrow();
+    capabilities.dispose();
+    port.replace("stale", {
+      contract: "pipee/presentation@1",
+      title: "Stale",
+      summary: "Ignored",
+      tone: "warning",
+      icon: "extension",
+    });
+    expect(projections).toEqual([
+      { owner: "alpha", slot: "status", title: "Fixture" },
+      { owner: "alpha", slot: "status", title: undefined },
+      { owner: "alpha", slot: "status", title: "Fixture" },
+      { owner: "alpha", slot: "status", title: undefined },
+    ]);
+  });
+
   it.effect("owns one cancellable web surface controller per admitted package", () =>
     Effect.gen(function* () {
       const hash = "a".repeat(64) as CandidateHash;
       const projections: Array<WebSurfaceProjection | undefined> = [];
       let finish: ((value: { _tag: "Accepted"; payload: number }) => void) | undefined;
       const capabilities = makeExtensionHostCapabilities({
-        replaceStructuredView: () => undefined,
+        replaceLivePresentation: () => undefined,
         replaceMediaView: () => undefined,
         webSurfaceCandidates: new Map([["@fixture/surface", hash]]),
         replaceWebSurface: (_ownerId, projection) => projections.push(projection),

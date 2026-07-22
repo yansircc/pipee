@@ -62,7 +62,8 @@ const runtime = (runId: string | null, streaming: boolean, runtimeIdentityValue 
     extensionUi: {
       revision: 0,
       pendingInteraction: null,
-      statuses: [],
+      textStatuses: [],
+      livePresentations: [],
       widgets: [],
       webSurfaces: [],
     },
@@ -859,7 +860,8 @@ test("projects extension interaction without a run and rejects stale projection 
       title: "输入手机微信显示的配对码",
       placeholder: "配对码",
     },
-    statuses: [],
+    textStatuses: [],
+    livePresentations: [],
     widgets: [],
     webSurfaces: [],
   }

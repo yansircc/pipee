@@ -4,7 +4,7 @@ import {
   projectCompanionReadiness,
   type ChromeStatusProjection,
   type CompanionReadiness,
-} from "@pipee/companion-contracts/chrome";
+} from "../protocol/chrome.js";
 import type { BrowserCompanionProbe } from "@pipee/companion-contracts/browser-companion";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";

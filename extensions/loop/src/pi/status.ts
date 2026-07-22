@@ -4,7 +4,7 @@ import {
   LoopScheduleProjection,
   LoopStatusProjection,
   type LoopProjection as LoopProjectionType,
-} from "@pipee/companion-contracts/loop";
+} from "./status-contract.js";
 import type { Loop } from "../domain/model.js";
 
 export { LoopPhaseProjection, LoopProjection, LoopScheduleProjection, LoopStatusProjection };

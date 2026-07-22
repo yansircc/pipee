@@ -1,13 +1,13 @@
 import {
-  ExtensionStatusContribution,
+  ExtensionTextStatus,
   ExtensionUiProjection,
   ExtensionWidgetItem,
+  LivePresentationItem,
   SessionScopedEvent,
   type ExtensionInteraction as ExtensionInteractionValue,
   type ExtensionInteractionAnswer as ExtensionInteractionAnswerValue,
   type ExtensionInteractionResponse as ExtensionInteractionResponseValue,
 } from "@/api/contract"
-import { extensionStructuredStatusOrUndefined } from "@/lib/extension-status"
 import { decodeExtensionImageWidget } from "@/lib/extension-widget"
 import { capabilitySlotKey, makeExtensionHostCapabilities } from "@pipee/host-runtime/extension-capabilities"
 import { PIPEE_CAPABILITY_METHOD } from "@pipee/companion-contracts/host-capabilities"
@@ -81,7 +81,8 @@ export const makeExtensionUiRuntime = (
     let projection = ExtensionUiProjection.make({
       revision: 0,
       pendingInteraction: null,
-      statuses: [],
+      textStatuses: [],
+      livePresentations: [],
       widgets: [],
       webSurfaces: [],
     })
@@ -137,18 +138,13 @@ export const makeExtensionUiRuntime = (
           ],
         }))
       },
-      replaceStructuredView: (ownerId, slot, value) => {
+      replaceLivePresentation: (ownerId, slot, document) => {
         const key = capabilitySlotKey(ownerId, slot)
-        const status = value === undefined ? undefined : extensionStructuredStatusOrUndefined(value)
-        if (value !== undefined && status === undefined) {
-          runCallback(Effect.logWarning("Ignored non-JSON extension status projection", { ownerId, slot }))
-          return
-        }
         commit((current) => ({
           ...current,
-          statuses: [
-            ...current.statuses.filter((item) => item.key !== key),
-            ...(status === undefined ? [] : [ExtensionStatusContribution.make({ _tag: "Structured", key, ...status })]),
+          livePresentations: [
+            ...current.livePresentations.filter((item) => item.key !== key),
+            ...(document === undefined ? [] : [LivePresentationItem.make({ key, document })]),
           ],
         }))
       },
@@ -285,9 +281,9 @@ export const makeExtensionUiRuntime = (
       setStatus: (key: string, text?: string) => {
         commit((current) => ({
           ...current,
-          statuses: [
-            ...current.statuses.filter((item) => item.key !== key),
-            ...(text === undefined ? [] : [ExtensionStatusContribution.make({ _tag: "Text", key, text })]),
+          textStatuses: [
+            ...current.textStatuses.filter((item) => item.key !== key),
+            ...(text === undefined ? [] : [ExtensionTextStatus.make({ key, text })]),
           ],
         }))
       },
@@ -362,11 +358,12 @@ export const makeExtensionUiRuntime = (
           lifecycle = "Closing"
           const admitted = [...requests.values()]
           requests.clear()
-          if (pending !== null) {
+          if (pending !== null || projection.livePresentations.length > 0) {
             pending = null
             projection = ExtensionUiProjection.make({
               ...projection,
               pendingInteraction: null,
+              livePresentations: [],
               revision: projection.revision + 1,
             })
             publish(SessionScopedEvent.make({ _tag: "ExtensionUiChanged", projection }))

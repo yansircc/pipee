@@ -167,12 +167,11 @@ Pi behaviors that must remain intact:
 - skill listing uses `DefaultResourceLoader` and toggle edits only `disable-model-invocation`;
 - exported HTML uses Pi's exporter and patches deep recursive traversal.
 
-### pi-chrome route ownership
+### Browser companion route ownership
 
-Chrome execution is Agent-first. Pipee renders the extension-owned status projection and exposes no
-Chrome mutation route, permission toggle, or same-profile attachment protocol. The Pi extension owns
-the active session scope and admits typed tools only when its automatically registered connector is
-live.
+Browser execution is Agent-first. Pipee interprets only generic extension presentation and browser-
+companion contracts; it exposes no extension-domain mutation route, permission toggle, or attachment
+protocol. The owning Pi extension controls its active session scope and tool admission.
 
 ## File/worktree boundary
 

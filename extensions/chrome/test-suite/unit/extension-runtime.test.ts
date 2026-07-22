@@ -142,7 +142,11 @@ it("admits same-session Agent Chrome tools across lifecycle context wrappers", a
   expect(test.commandCount()).toBe(0);
 
   await handler(test.handlers, "session_start")({}, test.context);
-  expect(test.statuses.at(-1)).toMatchObject({ version: 3, state: "ready" });
+  expect(test.statuses.at(-1)).toMatchObject({
+    contract: "pipee/presentation@1",
+    title: "Chrome",
+    status: { text: "Ready" },
+  });
 
   const callbackContext = { ...test.context } as ExtensionContext;
   const status = test.tools.get("chrome_status")!;

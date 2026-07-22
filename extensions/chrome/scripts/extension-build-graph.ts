@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join, posix, sep } from "node:path";
 import { Schema } from "effect";
-import { ChromeExtensionExpectation } from "@pipee/companion-contracts/chrome";
+import { ChromeExtensionExpectation } from "../src/protocol/chrome.ts";
 import {
   SNAPSHOT_BUNDLE_PATH,
   TARGET_BOOTSTRAP_DOCUMENT_PATH,
