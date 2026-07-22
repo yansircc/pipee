@@ -1,3 +1,4 @@
+import type { LivePresentationPort } from "@pipee/companion-contracts/host-capabilities";
 import type { PresentationDocument } from "@pipee/companion-contracts/presentation";
 import type { WeixinStatusProjection } from "./status-projection.ts";
 
@@ -67,3 +68,10 @@ export const projectWeixinLivePresentation = (
     tone: status.error ? "danger" : status.connected ? "success" : "warning",
   },
 });
+
+export const publishWeixinLivePresentation = (
+  presentation: LivePresentationPort | undefined,
+  status: WeixinStatusProjection,
+): void => {
+  presentation?.replace("status", projectWeixinLivePresentation(status));
+};

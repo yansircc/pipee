@@ -1,7 +1,10 @@
 import { expect, it } from "@effect/vitest";
 import type { LivePresentationPort } from "@pipee/companion-contracts/host-capabilities";
-import { projectWeixinLivePresentation } from "../src/presentation.ts";
-import { publishSessionPresentation, type WeixinStatusProjection } from "../src/session-status.ts";
+import {
+  projectWeixinLivePresentation,
+  publishWeixinLivePresentation,
+} from "../src/presentation.ts";
+import type { WeixinStatusProjection } from "../src/session-status.ts";
 
 const status = (connected: boolean): WeixinStatusProjection => ({
   kind: "pi-weixin/status",
@@ -22,8 +25,8 @@ it("publishes presentation state when the host supports it", () => {
     },
   };
 
-  publishSessionPresentation(presentation, status(true));
-  publishSessionPresentation(presentation, status(false));
+  publishWeixinLivePresentation(presentation, status(true));
+  publishWeixinLivePresentation(presentation, status(false));
 
   expect(documents).toEqual([
     projectWeixinLivePresentation(status(true)),
@@ -32,5 +35,5 @@ it("publishes presentation state when the host supports it", () => {
 });
 
 it("does nothing when the host does not provide live presentation", () => {
-  expect(() => publishSessionPresentation(undefined, status(true))).not.toThrow();
+  expect(() => publishWeixinLivePresentation(undefined, status(true))).not.toThrow();
 });

@@ -1,6 +1,4 @@
-import type { LivePresentationPort } from "@pipee/companion-contracts/host-capabilities";
 import type { BridgeStatus } from "./bridge.ts";
-import { projectWeixinLivePresentation } from "./presentation.ts";
 import type { WeixinStatusProjection } from "./status-projection.ts";
 
 export type { WeixinStatusProjection };
@@ -28,10 +26,3 @@ export const sameSessionStatus = (
   left.accountId === right.accountId &&
   left.defaultSessionId === right.defaultSessionId &&
   left.error === right.error;
-
-export const publishSessionPresentation = (
-  presentation: LivePresentationPort | undefined,
-  status: WeixinStatusProjection,
-): void => {
-  presentation?.replace("status", projectWeixinLivePresentation(status));
-};

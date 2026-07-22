@@ -27,13 +27,9 @@ import {
   setPiWeixinRetention,
   type PiWeixinRuntime,
 } from "../src/runtime.ts";
-import {
-  publishSessionPresentation,
-  projectSessionStatus,
-  sameSessionStatus,
-} from "../src/session-status.ts";
+import { projectSessionStatus, sameSessionStatus } from "../src/session-status.ts";
 import { makeStatusSync } from "../src/status-sync.ts";
-import { projectWeixinArtifact } from "../src/presentation.ts";
+import { projectWeixinArtifact, publishWeixinLivePresentation } from "../src/presentation.ts";
 import {
   projectWeixinWebView,
   WeixinWebAction,
@@ -239,7 +235,9 @@ export default function weixinExtension(pi: ExtensionAPI): void {
                 );
                 setPiWeixinRetention(status.enabled);
               }).pipe(
-                Effect.andThen(Effect.sync(() => publishSessionPresentation(presentation, status))),
+                Effect.andThen(
+                  Effect.sync(() => publishWeixinLivePresentation(presentation, status)),
+                ),
                 Effect.andThen(Deferred.succeed(ready, undefined)),
               ),
             ),

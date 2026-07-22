@@ -81,7 +81,11 @@ for (const [relativeDirectory, allowed] of extensionPresentationImports) {
   for (const path of await walk(directory)) {
     if (![".ts", ".tsx"].includes(extname(path)) || path.includes(".test.")) continue
     const source = await readFile(path, "utf8")
-    if (!source.includes("@pipee/companion-contracts/presentation") && !source.includes("@pipee/extension-kit"))
+    if (
+      !source.includes("@pipee/companion-contracts/presentation") &&
+      !source.includes("@pipee/extension-kit") &&
+      !source.includes("LivePresentationPort")
+    )
       continue
     const localPath = relative(directory, path)
     if (!allowed.has(localPath))
