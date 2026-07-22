@@ -310,12 +310,14 @@ test("projects assistant speech as conversation events and keeps execution detai
 
   const firstEvent = page.getByText("I will inspect the workspace first.", { exact: true })
   const finalEvent = page.getByText("The workspace read succeeded; I am preparing the result.", { exact: true })
-  const readActivity = page.getByRole("button", { name: "读取了文件" })
-  const thinkingActivities = page.getByRole("button", { name: "思考", exact: true })
+  const traces = page.locator(".agent-trace-summary")
   await expect(firstEvent).toBeVisible()
+  await expect(traces).toHaveCount(2)
+  for (const trace of await traces.all()) await trace.click()
+  const readActivity = page.locator('[data-process-kind="tool"][data-tool-name="read"]')
+  const thinkingActivities = page.locator('[data-process-kind="thinking"]')
   await expect(readActivity).toBeVisible()
   await expect(thinkingActivities).toHaveCount(2)
-  await expect(thinkingActivities.first()).toBeVisible()
   await expect(finalEvent).toBeVisible()
   await expect(page.locator("summary").getByText("6.7 tok/s", { exact: true })).toBeVisible()
   await expect(readActivity.locator("..")).not.toContainText("I will inspect the workspace first.")
@@ -328,12 +330,8 @@ test("projects assistant speech as conversation events and keeps execution detai
     const byText = (selector: string, text: string) =>
       [...document.querySelectorAll<HTMLElement>(selector)].find((element) => element.textContent?.trim() === text)
     const first = byText("p", "I will inspect the workspace first.")
-    const read = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent?.trim() === "读取了文件",
-    )
-    const thinking = [...document.querySelectorAll<HTMLButtonElement>("button")].filter(
-      (button) => button.textContent?.trim() === "思考",
-    )
+    const read = document.querySelector<HTMLElement>('[data-process-kind="tool"][data-tool-name="read"]')
+    const thinking = [...document.querySelectorAll<HTMLElement>('[data-process-kind="thinking"]')]
     const final = byText("p", "The workspace read succeeded; I am preparing the result.")
     if (!first || !read || thinking.length !== 2 || !final) throw new Error("turn projection is incomplete")
     return {
@@ -760,6 +758,32 @@ test("follows live output until the user scrolls away and offers a return to lat
   await page.getByRole("button", { name: "回到最新消息" }).click()
   await expect(page.getByRole("button", { name: "回到最新消息" })).toHaveCount(0)
   await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+})
+
+test("windows deep sessions and preserves the visible anchor while prepending history", async ({ page }) => {
+  await page.goto("/?session=00000000-0000-4000-8000-000000000004")
+  const scroller = page.getByTestId("chat-scroll-container")
+  await expect(scroller).toBeVisible()
+  expect(await page.locator("[data-transcript-row]").count()).toBeLessThanOrEqual(200)
+
+  await scroller.evaluate((element) => element.scrollTo({ top: 0 }))
+  const loadEarlier = page.getByRole("button", { name: "Load earlier messages", exact: true })
+  await expect(loadEarlier).toBeVisible()
+  const anchor = await scroller.evaluate((element) => {
+    const viewport = element.getBoundingClientRect()
+    const row = [...element.querySelectorAll<HTMLElement>("[data-transcript-row]")].find(
+      (candidate) => candidate.getBoundingClientRect().bottom > viewport.top,
+    )
+    if (!row) throw new Error("visible transcript anchor is missing")
+    return { id: row.dataset.transcriptRow!, top: row.getBoundingClientRect().top }
+  })
+  await loadEarlier.click()
+  await expect(page.getByRole("button", { name: "Loading…", exact: true })).toHaveCount(0)
+  const anchoredTop = await page
+    .locator(`[data-transcript-row="${anchor.id}"]`)
+    .evaluate((row) => row.getBoundingClientRect().top)
+  expect(Math.abs(anchoredTop - anchor.top)).toBeLessThanOrEqual(1)
+  expect(await page.locator("[data-transcript-row]").count()).toBeLessThanOrEqual(200)
 })
 
 test("projects an active session before Pi persists its first message", async ({ page }) => {

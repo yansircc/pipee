@@ -14,6 +14,41 @@ type RuntimeIdentityValue = typeof RuntimeIdentity.Type
 type RuntimeSnapshotValue = typeof RuntimeSnapshot.Type
 export type OperationKind = "prompt" | "bash" | "compaction"
 
+export type TranscriptSource =
+  | {
+      readonly kind: "persisted"
+      readonly id: string
+      readonly entryId: string
+      readonly runId: string | null
+      readonly message: AgentMessage
+    }
+  | {
+      readonly kind: "pending"
+      readonly id: string
+      readonly requestId: string
+      readonly runId: string | null
+      readonly message: AgentMessage
+    }
+  | {
+      readonly kind: "ephemeral"
+      readonly id: string
+      readonly eventId: string
+      readonly runId: string
+      readonly message: AgentMessage
+    }
+  | {
+      readonly kind: "streaming"
+      readonly id: string
+      readonly runId: string
+      readonly message: AgentMessage
+    }
+  | {
+      readonly kind: "active-bash"
+      readonly id: string
+      readonly runId: string | null
+      readonly message: AgentMessage
+    }
+
 export interface SessionUiState {
   readonly sessionId: string | null
   readonly runtimeIdentity: RuntimeIdentityValue | null
@@ -189,6 +224,77 @@ export const projectSessionEntryIds = (state: SessionUiState): ReadonlyArray<str
   ...state.ephemeralMessages.map(() => undefined),
 ]
 
+export const projectTranscriptSources = (state: SessionUiState): ReadonlyArray<TranscriptSource> => {
+  const receiptByEntryId = new Map<string, string>()
+  for (const receipt of state.snapshot?.context.promptRequests ?? []) {
+    if (receipt.userEntryId !== undefined) receiptByEntryId.set(receipt.userEntryId, receipt.runId)
+    if (receipt.assistantEntryId !== undefined) receiptByEntryId.set(receipt.assistantEntryId, receipt.runId)
+  }
+  const persisted = state.entryIds.map((entryId, index): TranscriptSource => {
+    const message = state.messages[index]!
+    return {
+      kind: "persisted",
+      id: `entry:${entryId}`,
+      entryId,
+      runId: receiptByEntryId.get(entryId) ?? null,
+      message,
+    }
+  })
+  const pending: ReadonlyArray<TranscriptSource> =
+    state.pendingPrompt === null
+      ? []
+      : [
+          {
+            kind: "pending",
+            id: `request:${state.pendingPrompt.requestId}`,
+            requestId: state.pendingPrompt.requestId,
+            runId: state.pendingPrompt.runId,
+            message: state.pendingPrompt.message,
+          },
+        ]
+  const ephemeral = state.ephemeralMessages.map(
+    ({ eventId, runId, message }): TranscriptSource => ({
+      kind: "ephemeral",
+      id: `event:${eventId}`,
+      eventId,
+      runId,
+      message,
+    }),
+  )
+  const streaming: ReadonlyArray<TranscriptSource> =
+    state.streamingMessage === null || state.runId === null
+      ? []
+      : [
+          {
+            kind: "streaming",
+            id: `run:${state.runId}:stream`,
+            runId: state.runId,
+            message: state.streamingMessage,
+          },
+        ]
+  const activeBash: ReadonlyArray<TranscriptSource> =
+    state.activeBashExecution === null
+      ? []
+      : [
+          {
+            kind: "active-bash",
+            id: `bash:${state.activeBashExecution.id}`,
+            runId: state.runId,
+            message: {
+              role: "bashExecution",
+              command: state.activeBashExecution.command,
+              output: state.activeBashExecution.output,
+              exitCode: undefined,
+              cancelled: false,
+              truncated: false,
+              timestamp: state.activeBashExecution.startedAt,
+              excludeFromContext: state.activeBashExecution.excludeFromContext,
+            },
+          },
+        ]
+  return [...persisted, ...pending, ...ephemeral, ...streaming, ...activeBash]
+}
+
 const applyRuntime = (state: SessionUiState, runtime: RuntimeSnapshotValue | null): SessionUiState => {
   if (runtime === null) return state
   const identified: SessionUiState =
@@ -322,9 +428,18 @@ export const sessionUiReducer = (state: SessionUiState, action: SessionUiAction)
             : {
                 ...state.snapshot,
                 context: {
-                  ...action.page.context,
+                  ...state.snapshot.context,
                   messages: nextMessages,
                   entryIds: nextEntryIds,
+                  promptRequests: [
+                    ...action.page.context.promptRequests,
+                    ...state.snapshot.context.promptRequests.filter(
+                      (receipt) =>
+                        !action.page.context.promptRequests.some(
+                          (candidate) => candidate.requestId === receipt.requestId,
+                        ),
+                    ),
+                  ],
                 },
                 contextPage: {
                   beforeEntryId: action.page.beforeEntryId,

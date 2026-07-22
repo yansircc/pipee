@@ -53,6 +53,7 @@
   "dependencies": {
     "@earendil-works/pi-ai": "catalog:",
     "@earendil-works/pi-coding-agent": "catalog:",
+    "@legendapp/list": "3.2.0",
     "@stylexjs/stylex": "0.19.0",
     "@tanstack/react-hotkeys": "0.10.0",
     "fflate": "0.8.2",

@@ -1,39 +1,27 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import * as stylex from "@stylexjs/stylex"
-import { Effect } from "effect"
 import type { DropPayload } from "@/lib/drop-paths"
 import type {
-  AgentMessage,
-  AssistantContentBlock,
-  AssistantMessage,
-  BashExecutionMessage,
   ExtensionInteraction,
   ExtensionStatusContribution,
   ExtensionWidgetItem,
   SessionInfo,
   SessionStats,
   SessionBranchNode,
-  ToolResultMessage,
   WeixinStatusProjection,
 } from "@/api/contract"
-import {
-  partitionAssistantBlocks,
-  segmentAssistantBlocks,
-  summarizeTurnUsage,
-  type TurnUsage,
-} from "@/lib/message-display"
-import { MessageView, ProcessMessageView, StreamingThroughputBadge, TurnUsageSummary } from "./MessageView"
 import { ChatInput, type ChatInputHandle } from "./ChatInput"
-import { ChatMinimap, useMessageRefs } from "./ChatMinimap"
-import { useAgentSession, type AgentPhase } from "@/hooks/useAgentSession"
+import { useAgentSession } from "@/hooks/useAgentSession"
 import { useAudio } from "@/hooks/useAudio"
 import { useDragDrop } from "@/hooks/useDragDrop"
-import { useIsMobile } from "@/hooks/useIsMobile"
 import { useI18n } from "@/lib/i18n"
 import { getWeixinStatusProjection, sameWeixinStatusProjection } from "@/lib/extension-status"
-import { runBrowser } from "@/browser/api-client"
-import { BrowserPlatform } from "@/browser/browser-platform"
 import { CompanionRendererRegistry } from "@/features/companions/renderer-registry"
+import { compileConversationDocument } from "@/lib/conversation-document"
+import type { ConversationDocument } from "@/lib/conversation-document"
+import { emptyDisclosureState, type DisclosureState } from "@/lib/disclosure-projection"
+import { TranscriptViewport } from "./TranscriptViewport"
+import { TurnNavigator } from "./TurnNavigator"
 interface Props {
   session: SessionInfo
   sessionRefreshKey: number
@@ -74,21 +62,7 @@ interface Props {
   cancelShortcut?: string
   focusComposerAriaKeyshortcuts?: string
 }
-function phaseLabel(phase: AgentPhase, t: (source: string) => string): string {
-  if (phase?.kind === "running_tools") {
-    const names = phase.tools.map((t) => t.name)
-    if (names.length === 0) return t("Running tool...")
-    if (names.length === 1) return `${t("Running")}: ${names[0]}…`
-    if (names.length <= 3) return `${t("Running")}: ${names.join(", ")}…`
-    return `${t("Running")}: ${names.slice(0, 2).join(", ")} (+${names.length - 2})…`
-  }
-  if (phase?.kind === "waiting_model") return t("Waiting for model...")
-  if (phase?.kind === "running_command") return t("Running command...")
-  return t("Thinking...")
-}
-const CHAT_MINIMAP_WIDTH = 36
 const CHAT_COLUMN_PADDING = 16
-const CHAT_INPUT_RIGHT_PADDING = CHAT_COLUMN_PADDING + CHAT_MINIMAP_WIDTH
 const dropZoneIn = stylex.keyframes({
   from: {
     opacity: 0,
@@ -109,115 +83,6 @@ const dropRipple = stylex.keyframes({
     transform: "scale(1)",
   },
 })
-const pulse = stylex.keyframes({
-  "0%, 100%": {
-    opacity: 1,
-  },
-  "50%": {
-    opacity: 0.5,
-  },
-})
-const spin = stylex.keyframes({
-  to: { transform: "rotate(360deg)" },
-})
-function withAssistantBlocks(
-  message: AssistantMessage,
-  content: AssistantContentBlock[],
-  options: {
-    omitTermination?: boolean
-    omitUsage?: boolean
-  } = {},
-): AssistantMessage {
-  const next = {
-    ...message,
-    content,
-  }
-  if (options.omitTermination) {
-    next.stopReason = undefined
-    next.errorMessage = undefined
-  }
-  if (options.omitUsage) next.usage = undefined
-  return next
-}
-function describeActivity(message: AgentMessage, locale: string): string {
-  if (message.role !== "assistant") return locale === "zh-CN" ? "扩展事件" : "Extension event"
-  const toolNames = partitionAssistantBlocks(message as AssistantMessage)
-    .processBlocks.filter((block) => block.type === "toolCall")
-    .map((block) => block.toolName.toLowerCase())
-  if (toolNames.length === 0) return locale === "zh-CN" ? "思考" : "Thinking"
-  const hasBrowser = toolNames.some((name) => name.startsWith("chrome_") || name.includes("browser"))
-  const hasEdits = toolNames.some((name) => /(^|_)(edit|write|patch|apply_patch)($|_)/.test(name))
-  const hasCommands = toolNames.some((name) => /(^|_)(bash|shell|exec|command)($|_)/.test(name))
-  const hasReads = toolNames.some((name) => /(^|_)(read|grep|find|ls|search)($|_)/.test(name))
-  if (locale === "zh-CN") {
-    if (hasBrowser) return "操作了浏览器"
-    if (hasEdits && hasCommands) return "编辑了文件并运行命令"
-    if (hasEdits) return "编辑了文件"
-    if (hasReads && hasCommands) return "读取文件并运行命令"
-    if (hasCommands) return toolNames.length === 1 ? "运行了命令" : "运行了多个命令"
-    if (hasReads) return "读取了文件"
-    return toolNames.length === 1 ? `调用了 ${toolNames[0]}` : `调用了 ${toolNames.length} 个工具`
-  }
-  if (hasBrowser) return "Used the browser"
-  if (hasEdits && hasCommands) return "Edited files and ran commands"
-  if (hasEdits) return "Edited files"
-  if (hasReads && hasCommands) return "Read files and ran commands"
-  if (hasCommands) return toolNames.length === 1 ? "Ran a command" : "Ran multiple commands"
-  if (hasReads) return "Read files"
-  return toolNames.length === 1 ? `Called ${toolNames[0]}` : `Called ${toolNames.length} tools`
-}
-
-function ActivityGroup({
-  message,
-  running,
-  children,
-}: {
-  message: AgentMessage
-  running: boolean
-  children: ReactNode
-}) {
-  const { locale, t } = useI18n()
-  const [expanded, setExpanded] = useState(true)
-  return (
-    <div aria-busy={running} {...stylex.props(inlineStyles.activityGroup)}>
-      <button
-        type="button"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
-        {...stylex.props(inlineStyles.activityToggle)}
-        title={t(expanded ? "Collapse process details" : "Expand process details")}
-      >
-        {running ? (
-          <span {...stylex.props(inlineStyles.processStateDot)} aria-hidden="true" />
-        ) : (
-          <span {...stylex.props(inlineStyles.activityComplete)} aria-hidden="true">
-            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <polyline points="2.5 6 5 8.5 9.5 3.5" />
-            </svg>
-          </span>
-        )}
-        <strong {...stylex.props(inlineStyles.activityTitle)}>{describeActivity(message, locale)}</strong>
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 12 12"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          {...stylex.props(inlineStyles.activityChevron)}
-          style={{
-            transform: expanded ? "rotate(90deg)" : "none",
-          }}
-        >
-          <polyline points="4 2.5 7.5 6 4 9.5" />
-        </svg>
-      </button>
-      {expanded && <div {...stylex.props(inlineStyles.activityBody)}>{children}</div>}
-    </div>
-  )
-}
 export function ChatWindow({
   session,
   sessionRefreshKey,
@@ -245,7 +110,6 @@ export function ChatWindow({
 }: Props) {
   const { t } = useI18n()
   const { soundEnabled, playDoneSound, unlockAudio } = useAudio()
-  const isMobile = useIsMobile()
 
   // Wrap onAgentEnd to play the completion sound. This is more reliable than
   // wrapping handleAgentEventRef because useAgentSession overwrites that ref
@@ -266,9 +130,8 @@ export function ChatWindow({
     loadingEarlier,
     hasMoreBefore,
     error,
-    messages,
-    entryIds,
-    streamState,
+    transcriptSources,
+    runId,
     agentRunning,
     activeBashExecution,
     modelNames,
@@ -294,10 +157,6 @@ export function ChatWindow({
     extensionWidgets,
     respondToExtensionUi,
     isAutoModelSelection,
-    agentPhase,
-    messagesEndRef,
-    scrollContainerRef,
-    lastUserMsgRef,
     handleSend,
     handleBashCommand,
     handleAbort,
@@ -334,6 +193,7 @@ export function ChatWindow({
     }
   }, [error, loading, onSystemPromptChange, session.id, systemPrompt])
   const sessionBusy = agentRunning || activeBashExecution !== null
+  const [editorDialogOpen, setEditorDialogOpen] = useState(false)
   const previousCancelEpoch = useRef(cancelActivityEpoch)
   useEffect(() => {
     if (cancelActivityEpoch <= previousCancelEpoch.current) return
@@ -341,52 +201,12 @@ export function ChatWindow({
     handleAbort()
   }, [cancelActivityEpoch, handleAbort])
   useEffect(() => {
-    onActivityStateChange?.({ busy: sessionBusy, blockingDialog: extensionDialog !== null })
-  }, [extensionDialog, onActivityStateChange, sessionBusy])
+    onActivityStateChange?.({ busy: sessionBusy, blockingDialog: editorDialogOpen })
+  }, [editorDialogOpen, onActivityStateChange, sessionBusy])
   useEffect(() => () => onActivityStateChange?.({ busy: false, blockingDialog: false }), [onActivityStateChange])
-  const activeBashOutputLength = activeBashExecution?.output.length
-  const [followingLatest, setFollowingLatestState] = useState(true)
-  const followingLatestRef = useRef(true)
-  const setFollowingLatest = useCallback((following: boolean) => {
-    followingLatestRef.current = following
-    setFollowingLatestState(following)
-  }, [])
-  const scrollToLatest = useCallback(
-    (behavior: ScrollBehavior) => {
-      const target = messagesEndRef.current
-      if (target === null) return
-      setFollowingLatest(true)
-      runBrowser(BrowserPlatform.pipe(Effect.flatMap((browser) => browser.scrollElementIntoView(target, behavior))), {
-        onSuccess: () => undefined,
-      })
-    },
-    [messagesEndRef, setFollowingLatest],
-  )
   useEffect(() => {
     if (!loading && inputFocusEpoch > 0) chatInputRef?.current?.focus()
   }, [chatInputRef, inputFocusEpoch, loading])
-  useEffect(() => {
-    setFollowingLatest(true)
-  }, [session.id, setFollowingLatest])
-  useEffect(() => {
-    const container = scrollContainerRef.current
-    const target = messagesEndRef.current
-    if (container === null || target === null) return
-    return runBrowser(
-      BrowserPlatform.pipe(
-        Effect.flatMap((browser) =>
-          browser.watchElementNearViewportEnd(container, target, 48, (nearEnd) => setFollowingLatest(nearEnd)),
-        ),
-      ),
-      {
-        onSuccess: () => undefined,
-      },
-    )
-  }, [messages.length, messagesEndRef, scrollContainerRef, session.id, setFollowingLatest])
-  useEffect(() => {
-    if (!followingLatestRef.current) return
-    scrollToLatest("auto")
-  }, [activeBashOutputLength, agentPhase, messages, scrollToLatest, streamState.streamingMessage])
 
   // Push session stats up to AppShell for the top bar.
   // Compare scalar fields to avoid loops from new object identity each render.
@@ -444,12 +264,50 @@ export function ChatWindow({
     [sessionBusy, chatInputRef],
   )
   const { isDragOver, dragKind, handleDragEnter, handleDragOver, handleDragLeave, handleDrop } = useDragDrop(onDrop)
-  const visibleMessages = messages.filter((m) => m.role === "user" || m.role === "assistant")
-  const messageRefs = useMessageRefs(visibleMessages.length)
-  const runInProgress = agentRunning || streamState.isStreaming
-  const liveUserIndex = runInProgress ? messages.findLastIndex((message) => message.role === "user") : -1
-  const liveTurnUsage = liveUserIndex >= 0 ? summarizeTurnUsage(messages, liveUserIndex, messages.length) : null
-  const isEmptySession = messages.length === 0 && !streamState.isStreaming && !sessionBusy
+  const previousDocument = useRef<ConversationDocument | undefined>(undefined)
+  const document = useMemo(() => {
+    const next = compileConversationDocument(
+      transcriptSources,
+      { liveRunId: agentRunning ? runId : null },
+      previousDocument.current,
+    )
+    previousDocument.current = next
+    return next
+  }, [agentRunning, runId, transcriptSources])
+  const [disclosure, setDisclosure] = useState<DisclosureState>(emptyDisclosureState)
+  const [activeTurnId, setActiveTurnId] = useState<string | null>(null)
+  const [navigatorRequest, setNavigatorRequest] = useState<{ turnId: string; epoch: number } | null>(null)
+  useEffect(() => {
+    setDisclosure(emptyDisclosureState())
+    setActiveTurnId(null)
+    setNavigatorRequest(null)
+  }, [session.id])
+  const toggleTrace = useCallback((traceId: string) => {
+    setDisclosure((current) => {
+      const expandedTraceIds = new Set(current.expandedTraceIds)
+      if (expandedTraceIds.has(traceId)) expandedTraceIds.delete(traceId)
+      else expandedTraceIds.add(traceId)
+      return { ...current, expandedTraceIds }
+    })
+  }, [])
+  const toggleExtension = useCallback((id: string) => {
+    setDisclosure((current) => {
+      const expandedExtensionIds = new Set(current.expandedExtensionIds)
+      if (expandedExtensionIds.has(id)) expandedExtensionIds.delete(id)
+      else expandedExtensionIds.add(id)
+      return { ...current, expandedExtensionIds }
+    })
+  }, [])
+  const toggleTelemetry = useCallback((turnId: string, expanded: boolean) => {
+    setDisclosure((current) => {
+      if (current.expandedTelemetryTurnIds.has(turnId) === expanded) return current
+      const expandedTelemetryTurnIds = new Set(current.expandedTelemetryTurnIds)
+      if (expanded) expandedTelemetryTurnIds.add(turnId)
+      else expandedTelemetryTurnIds.delete(turnId)
+      return { ...current, expandedTelemetryTurnIds }
+    })
+  }, [])
+  const isEmptySession = document.nodes.length === 0 && !sessionBusy
   const messageCwd = session.cwd
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
@@ -467,6 +325,7 @@ export function ChatWindow({
       onFollowUp={agentRunning ? handleFollowUp : undefined}
       onPromptWithStreamingBehavior={agentRunning ? handlePromptWithStreamingBehavior : undefined}
       isStreaming={sessionBusy}
+      sendDisabled={extensionDialog !== null}
       isBashRunning={activeBashExecution !== null}
       model={displayModelValue}
       isAutoModelSelection={isAutoModelSelection}
@@ -585,8 +444,6 @@ export function ChatWindow({
         </div>
       )}
 
-      {extensionDialog && <ExtensionDialog request={extensionDialog} onRespond={respondToExtensionUi} />}
-
       {isEmptySession ? (
         <div {...stylex.props(styles.emptySession)}>
           <div {...stylex.props(styles.chatColumn)}>
@@ -604,426 +461,76 @@ export function ChatWindow({
                 </span>
               </div>
             </div>
+            <ExtensionWidgets widgets={aboveEditorWidgets} />
+            {extensionDialog && (
+              <InteractionDock
+                request={extensionDialog}
+                onRespond={respondToExtensionUi}
+                onEditorOpenChange={setEditorDialogOpen}
+              />
+            )}
             {chatInputElement}
+            <ExtensionWidgets widgets={belowEditorWidgets} />
           </div>
         </div>
       ) : (
         <>
+          <div className="companion-region">
+            <CompanionRendererRegistry statuses={extensionStatuses} sessionId={session.id} />
+            <ExtensionStatusBar statuses={extensionStatuses} />
+          </div>
           <div {...stylex.props(styles.conversation)}>
-            <div ref={scrollContainerRef} data-testid="chat-scroll-container" {...stylex.props(styles.scroller)}>
-              <div
-                style={{
-                  padding: `0 ${CHAT_COLUMN_PADDING}px`,
-                  paddingLeft: isMobile ? CHAT_COLUMN_PADDING : CHAT_INPUT_RIGHT_PADDING,
-                }}
-              >
-                <div {...stylex.props(inlineStyles.inline20)}>
-                  <CompanionRendererRegistry statuses={extensionStatuses} sessionId={session.id} />
-                  <ExtensionStatusBar statuses={extensionStatuses} />
-                  <ExtensionWidgets widgets={aboveEditorWidgets} />
-
-                  {hasMoreBefore && (
-                    <div {...stylex.props(inlineStyles.inline21)}>
-                      <button
-                        type="button"
-                        disabled={loadingEarlier}
-                        onClick={loadEarlier}
-                        {...stylex.props(inlineStyles.inline22)}
-                        style={{
-                          cursor: loadingEarlier ? "default" : "pointer",
-                          opacity: loadingEarlier ? 0.6 : 1,
-                        }}
-                      >
-                        {t(loadingEarlier ? "Loading..." : "Load earlier messages")}
-                      </button>
-                    </div>
-                  )}
-
-                  {(() => {
-                    const toolResultsMap = new Map<string, ToolResultMessage>()
-                    for (const msg of messages) {
-                      if (msg.role === "toolResult") {
-                        toolResultsMap.set((msg as ToolResultMessage).toolCallId, msg as ToolResultMessage)
-                      }
-                    }
-                    let lastUserIdx = -1
-                    for (let i = messages.length - 1; i >= 0; i--) {
-                      if (messages[i].role === "user") {
-                        lastUserIdx = i
-                        break
-                      }
-                    }
-                    const visibleRefIndexByMessage = new Map<number, number>()
-                    let refIdx = 0
-                    messages.forEach((msg, idx) => {
-                      if (msg.role === "user" || msg.role === "assistant") {
-                        visibleRefIndexByMessage.set(idx, refIdx++)
-                      }
-                    })
-                    const attachVisibleRef = (idx: number, refIndex: number) => (el: HTMLDivElement | null) => {
-                      messageRefs.current[refIndex] = el
-                      if (idx === lastUserIdx) {
-                        ;(
-                          lastUserMsgRef as {
-                            current: HTMLDivElement | null
-                          }
-                        ).current = el
-                      }
-                    }
-                    const renderMessage = (
-                      idx: number,
-                      options: {
-                        attachRef?: boolean
-                        keyPrefix?: string
-                        messageOverride?: AgentMessage
-                        showTimestamp?: boolean
-                        turnUsage?: TurnUsage
-                        hideUsage?: boolean
-                        turnSegment?: boolean
-                      } = {},
-                    ): ReactNode => {
-                      const msg = options.messageOverride ?? messages[idx]
-                      const prevAssistantEntryId =
-                        msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
-                          ? entryIds[idx - 1]
-                          : undefined
-                      const isVisible = msg.role === "user" || msg.role === "assistant"
-                      const currentRefIdx = visibleRefIndexByMessage.get(idx)
-                      const keyPrefix = options.keyPrefix ?? "message"
-                      let showTimestamp = false
-                      if (msg.role === "assistant") {
-                        showTimestamp = true
-                        for (let j = idx + 1; j < messages.length; j++) {
-                          const r = messages[j].role
-                          if (r === "user") break
-                          if (r === "assistant") {
-                            showTimestamp = false
-                            break
-                          }
-                        }
-                        // Hide on the currently-streaming tail (the streaming bubble owns the live timestamp)
-                        if (showTimestamp && streamState.isStreaming && idx === messages.length - 1) {
-                          showTimestamp = false
-                        }
-                      }
-                      if (options.showTimestamp !== undefined) showTimestamp = options.showTimestamp
-                      const view = (
-                        <MessageView
-                          key={`${keyPrefix}-view-${idx}`}
-                          message={msg}
-                          toolResults={toolResultsMap}
-                          modelNames={modelNames}
-                          cwd={messageCwd}
-                          onOpenFile={onOpenFile}
-                          entryId={entryIds[idx]}
-                          onFork={sessionBusy || (idx === 0 && msg.role === "user") ? undefined : handleFork}
-                          forking={forkingEntryId === entryIds[idx]}
-                          onNavigate={sessionBusy ? undefined : handleNavigate}
-                          prevAssistantEntryId={sessionBusy ? undefined : prevAssistantEntryId}
-                          onEditContent={(content) => chatInputRef?.current?.insertIfEmpty(content)}
-                          showTimestamp={showTimestamp}
-                          prevTimestamp={
-                            idx > 0
-                              ? (
-                                  messages[idx - 1] as AgentMessage & {
-                                    timestamp?: number
-                                  }
-                                ).timestamp
-                              : undefined
-                          }
-                          sessionId={session.id}
-                          turnUsage={options.turnUsage}
-                          hideUsage={options.hideUsage}
-                          turnSegment={options.turnSegment}
-                        />
-                      )
-                      if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view
-                      return (
-                        <div key={`${keyPrefix}-${idx}`} ref={attachVisibleRef(idx, currentRefIdx)}>
-                          {view}
-                        </div>
-                      )
-                    }
-                    const rendered: ReactNode[] = []
-                    for (let idx = 0; idx < messages.length; ) {
-                      const msg = messages[idx]
-                      if (msg.role !== "user") {
-                        rendered.push(renderMessage(idx))
-                        idx += 1
-                        continue
-                      }
-                      const userIdx = idx
-                      let endIdx = userIdx + 1
-                      while (endIdx < messages.length && messages[endIdx].role !== "user") endIdx += 1
-                      const turnUsage = summarizeTurnUsage(messages, userIdx, endIdx)
-                      const isLiveTail = runInProgress && endIdx === messages.length && userIdx === lastUserIdx
-                      rendered.push(renderMessage(userIdx))
-                      const streamingAssistant =
-                        isLiveTail && streamState.streamingMessage?.role === "assistant"
-                          ? (streamState.streamingMessage as AssistantMessage)
-                          : null
-                      const streamingSegments = streamingAssistant
-                        ? segmentAssistantBlocks(streamingAssistant, { isStreaming: true })
-                        : []
-                      const persistedProcessIndices: number[] = []
-                      for (let messageIdx = userIdx + 1; messageIdx < endIdx; messageIdx++) {
-                        const turnMessage = messages[messageIdx]
-                        if (turnMessage.role === "assistant") {
-                          if (
-                            segmentAssistantBlocks(turnMessage as AssistantMessage).some(
-                              ({ kind }) => kind === "process",
-                            )
-                          ) {
-                            persistedProcessIndices.push(messageIdx)
-                          }
-                        }
-                      }
-                      const streamingHasProcess = streamingSegments.some(({ kind }) => kind === "process")
-                      const runningPersistedProcessIdx =
-                        isLiveTail && !streamingHasProcess ? persistedProcessIndices.at(-1) : undefined
-                      const turnSegments: ReactNode[] = []
-                      for (let messageIdx = userIdx + 1; messageIdx < endIdx; messageIdx++) {
-                        const turnMessage = messages[messageIdx]
-                        if (turnMessage.role === "toolResult") continue
-                        if (turnMessage.role !== "assistant") {
-                          if (turnMessage.role === "custom") {
-                            turnSegments.push(
-                              <ActivityGroup key={`activity-${messageIdx}`} message={turnMessage} running={false}>
-                                <ProcessMessageView
-                                  message={turnMessage}
-                                  toolResults={toolResultsMap}
-                                  prevTimestamp={messages[messageIdx - 1]?.timestamp}
-                                  sessionId={session.id}
-                                  entryId={entryIds[messageIdx]}
-                                />
-                              </ActivityGroup>,
-                            )
-                          } else {
-                            turnSegments.push(renderMessage(messageIdx, { turnSegment: true }))
-                          }
-                          continue
-                        }
-                        const assistant = turnMessage as AssistantMessage
-                        const segments = segmentAssistantBlocks(assistant)
-                        const lastProcessSegment = segments.findLastIndex(({ kind }) => kind === "process")
-                        segments.forEach((segment, segmentIndex) => {
-                          const segmentMessage = withAssistantBlocks(assistant, [...segment.blocks], {
-                            omitTermination: true,
-                            omitUsage: true,
-                          })
-                          if (segment.kind === "event") {
-                            turnSegments.push(
-                              renderMessage(messageIdx, {
-                                attachRef: segmentIndex === 0,
-                                hideUsage: true,
-                                keyPrefix: `turn-event-${segmentIndex}`,
-                                messageOverride: segmentMessage,
-                                showTimestamp: false,
-                                turnSegment: true,
-                              }),
-                            )
-                            return
-                          }
-                          const activityRefIdx =
-                            segmentIndex === 0 ? visibleRefIndexByMessage.get(messageIdx) : undefined
-                          turnSegments.push(
-                            <div
-                              key={`activity-${messageIdx}-${segmentIndex}`}
-                              ref={
-                                activityRefIdx === undefined
-                                  ? undefined
-                                  : (element) => {
-                                      messageRefs.current[activityRefIdx] = element
-                                    }
-                              }
-                            >
-                              <ActivityGroup
-                                message={segmentMessage}
-                                running={
-                                  messageIdx === runningPersistedProcessIdx && segmentIndex === lastProcessSegment
-                                }
-                              >
-                                <ProcessMessageView
-                                  message={segmentMessage}
-                                  toolResults={toolResultsMap}
-                                  prevTimestamp={
-                                    messageIdx > 0 ? (messages[messageIdx - 1] as AgentMessage).timestamp : undefined
-                                  }
-                                  sessionId={session.id}
-                                  entryId={entryIds[messageIdx]}
-                                />
-                              </ActivityGroup>
-                            </div>,
-                          )
-                        })
-                        if (assistant.stopReason === "aborted" || assistant.errorMessage?.trim()) {
-                          turnSegments.push(
-                            renderMessage(messageIdx, {
-                              attachRef: segments.length === 0,
-                              hideUsage: true,
-                              keyPrefix: "turn-termination",
-                              messageOverride: withAssistantBlocks(assistant, [], { omitUsage: true }),
-                              showTimestamp: false,
-                              turnSegment: true,
-                            }),
-                          )
-                        }
-                      }
-                      if (streamingAssistant) {
-                        const lastStreamingProcess = streamingSegments.findLastIndex(({ kind }) => kind === "process")
-                        streamingSegments.forEach((segment, segmentIndex) => {
-                          const segmentMessage = withAssistantBlocks(streamingAssistant, [...segment.blocks], {
-                            omitTermination: true,
-                            omitUsage: true,
-                          })
-                          turnSegments.push(
-                            segment.kind === "event" ? (
-                              <MessageView
-                                key={`streaming-event-${userIdx}-${segmentIndex}`}
-                                message={segmentMessage}
-                                isStreaming
-                                modelNames={modelNames}
-                                cwd={messageCwd}
-                                onOpenFile={onOpenFile}
-                                turnSegment
-                              />
-                            ) : (
-                              <ActivityGroup
-                                key={`streaming-activity-${userIdx}-${segmentIndex}`}
-                                message={segmentMessage}
-                                running={segmentIndex === lastStreamingProcess}
-                              >
-                                <ProcessMessageView
-                                  message={segmentMessage}
-                                  toolResults={toolResultsMap}
-                                  prevTimestamp={messages.at(-1)?.timestamp}
-                                  sessionId={session.id}
-                                />
-                              </ActivityGroup>
-                            ),
-                          )
-                        })
-                      }
-                      const footerUsage = isLiveTail ? liveTurnUsage : turnUsage
-                      const turnTimestamp = messages
-                        .slice(userIdx + 1, endIdx)
-                        .findLast((message) => message.role === "assistant")?.timestamp
-                      if (streamingAssistant || footerUsage) {
-                        turnSegments.push(
-                          <div key={`turn-metrics-${userIdx}`} {...stylex.props(inlineStyles.turnMetrics)}>
-                            {streamingAssistant && <StreamingThroughputBadge message={streamingAssistant} />}
-                            {footerUsage && (
-                              <TurnUsageSummary
-                                modelNames={modelNames}
-                                usage={footerUsage}
-                                ongoing={isLiveTail}
-                                timestamp={turnTimestamp}
-                              />
-                            )}
-                          </div>,
-                        )
-                      }
-                      if (turnSegments.length > 0) {
-                        rendered.push(
-                          <div key={`assistant-turn-${userIdx}`} {...stylex.props(inlineStyles.assistantTurn)}>
-                            {turnSegments}
-                          </div>,
-                        )
-                      }
-                      idx = endIdx
-                    }
-                    return rendered
-                  })()}
-
-                  {streamState.isStreaming && streamState.streamingMessage && liveUserIndex < 0 && (
-                    <>
-                      <MessageView
-                        message={streamState.streamingMessage as AgentMessage}
-                        isStreaming
-                        modelNames={modelNames}
-                        cwd={messageCwd}
-                        onOpenFile={onOpenFile}
-                      />
-                      {streamState.streamingMessage.role === "assistant" && (
-                        <StreamingThroughputBadge message={streamState.streamingMessage as AssistantMessage} />
-                      )}
-                    </>
-                  )}
-
-                  {activeBashExecution && (
-                    <MessageView
-                      message={
-                        {
-                          role: "bashExecution",
-                          command: activeBashExecution.command,
-                          output: activeBashExecution.output,
-                          exitCode: undefined,
-                          cancelled: false,
-                          truncated: false,
-                          timestamp: activeBashExecution.startedAt,
-                          excludeFromContext: activeBashExecution.excludeFromContext,
-                        } satisfies BashExecutionMessage
-                      }
-                      isStreaming
-                      cwd={messageCwd}
-                      onOpenFile={onOpenFile}
-                    />
-                  )}
-
-                  {agentRunning && !streamState.streamingMessage && (
-                    <div {...stylex.props(styles.agentPhase)}>
-                      <span {...stylex.props(styles.pulse)}>{phaseLabel(agentPhase, t)}</span>
-                    </div>
-                  )}
-
-                  <div ref={messagesEndRef} />
-
-                  {agentRunning && (
-                    <div
-                      style={{
-                        height: scrollContainerRef.current ? scrollContainerRef.current.clientHeight : "80vh",
-                      }}
-                    />
-                  )}
-                </div>
-              </div>
-            </div>
-            {!followingLatest && (
-              <button
-                type="button"
-                onClick={() => scrollToLatest("smooth")}
-                title={t("Scroll to latest")}
-                {...stylex.props(inlineStyles.inline25)}
-                style={{
-                  right: isMobile ? 16 : CHAT_MINIMAP_WIDTH + 16,
-                }}
-              >
-                <span aria-hidden="true">↓</span>
-                <span>{t("Scroll to latest")}</span>
-              </button>
-            )}
-            {isMobile ? null : (
-              <ChatMinimap
-                messages={messages}
-                streamingMessage={streamState.streamingMessage}
-                scrollContainer={scrollContainerRef}
-                messageRefs={messageRefs}
-              />
-            )}
+            <TranscriptViewport
+              sessionId={session.id}
+              document={document}
+              disclosure={disclosure}
+              cwd={messageCwd}
+              modelNames={modelNames}
+              sessionBusy={sessionBusy}
+              forkingEntryId={forkingEntryId}
+              hasMoreBefore={hasMoreBefore}
+              loadingEarlier={loadingEarlier}
+              onLoadEarlier={loadEarlier}
+              onOpenFile={onOpenFile}
+              onFork={handleFork}
+              onNavigate={handleNavigate}
+              onEditContent={(content) => chatInputRef?.current?.insertIfEmpty(content)}
+              onToggleTrace={toggleTrace}
+              onToggleExtension={toggleExtension}
+              onToggleTelemetry={toggleTelemetry}
+              onActiveTurnChange={setActiveTurnId}
+              navigatorRequest={navigatorRequest}
+            />
+            <TurnNavigator
+              document={document}
+              activeTurnId={activeTurnId}
+              onNavigate={(turnId) => setNavigatorRequest((current) => ({ turnId, epoch: (current?.epoch ?? 0) + 1 }))}
+            />
           </div>
 
           <div {...stylex.props(styles.inputRegion)}>
             <div
               style={{
                 padding: `0 ${CHAT_COLUMN_PADDING}px`,
-                paddingRight: isMobile ? CHAT_COLUMN_PADDING : CHAT_INPUT_RIGHT_PADDING,
               }}
             >
+              <div {...stylex.props(inlineStyles.inline26)}>
+                <ExtensionWidgets widgets={aboveEditorWidgets} />
+              </div>
+            </div>
+            {extensionDialog && (
+              <InteractionDock
+                request={extensionDialog}
+                onRespond={respondToExtensionUi}
+                onEditorOpenChange={setEditorDialogOpen}
+              />
+            )}
+            {chatInputElement}
+            <div style={{ padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
               <div {...stylex.props(inlineStyles.inline26)}>
                 <ExtensionWidgets widgets={belowEditorWidgets} />
               </div>
             </div>
-            {chatInputElement}
           </div>
         </>
       )}
@@ -1111,22 +618,6 @@ const styles = stylex.create({
     overflow: "hidden",
     position: "relative",
   },
-  scroller: {
-    flex: 1,
-    overflowY: "auto",
-    paddingTop: 16,
-    scrollbarWidth: "none",
-  },
-  agentPhase: {
-    color: "var(--text-muted)",
-    fontSize: 13,
-    paddingBlock: 8,
-  },
-  pulse: {
-    animationDuration: "1.5s",
-    animationIterationCount: "infinite",
-    animationName: pulse,
-  },
   inputRegion: {
     position: "relative",
   },
@@ -1172,202 +663,146 @@ function ExtensionWidgets({ widgets }: { widgets: ExtensionWidgetItem[] }) {
     </div>
   )
 }
-type ExtensionDialogRequest = ExtensionInteraction
-function ExtensionDialog({
+type InteractionRequest = ExtensionInteraction
+type InteractionResponse = { value: string } | { confirmed: boolean } | { cancelled: true }
+
+function InteractionDock({
   request,
   onRespond,
+  onEditorOpenChange,
 }: {
-  request: ExtensionDialogRequest
-  onRespond: (
-    request: ExtensionDialogRequest,
-    response:
-      | {
-          value: string
-        }
-      | {
-          confirmed: boolean
-        }
-      | {
-          cancelled: true
-        },
-  ) => void
+  request: InteractionRequest
+  onRespond: (request: InteractionRequest, response: InteractionResponse) => void
+  onEditorOpenChange: (open: boolean) => void
 }) {
   const [value, setValue] = useState(request.method === "editor" ? (request.prefill ?? "") : "")
+  const [editorOpen, setEditorOpen] = useState(false)
+  const responded = useRef(false)
+  const editorPrefill = request.method === "editor" ? request.prefill : undefined
   useEffect(() => {
-    setValue(request.method === "editor" ? (request.prefill ?? "") : "")
-  }, [request])
+    setValue(editorPrefill ?? "")
+    setEditorOpen(false)
+    responded.current = false
+    onEditorOpenChange(false)
+  }, [editorPrefill, onEditorOpenChange, request.interactionId])
+  useEffect(() => () => onEditorOpenChange(false), [onEditorOpenChange])
+  const setOpen = (open: boolean) => {
+    setEditorOpen(open)
+    onEditorOpenChange(open)
+  }
+  const respond = (response: InteractionResponse) => {
+    if (responded.current) return
+    responded.current = true
+    setOpen(false)
+    onRespond(request, response)
+  }
   const submitValue = () => {
     if (request.method === "confirm") {
-      onRespond(request, {
-        confirmed: true,
-      })
+      respond({ confirmed: true })
     } else {
-      onRespond(request, {
-        value,
-      })
+      respond({ value })
     }
   }
   return (
-    <div {...stylex.props(inlineStyles.inline48)}>
-      <div role="dialog" aria-modal="true" {...stylex.props(inlineStyles.inline49)}>
-        <div {...stylex.props(inlineStyles.inline50)}>
-          <div {...stylex.props(inlineStyles.inline51)}>{request.title}</div>
-          <div {...stylex.props(inlineStyles.inline52)}>extension request</div>
-        </div>
-
-        <div {...stylex.props(inlineStyles.inline53)}>
-          {request.method === "confirm" && <div {...stylex.props(inlineStyles.inline54)}>{request.message}</div>}
-          {request.method === "select" && (
-            <div {...stylex.props(inlineStyles.inline55)}>
-              {request.options.map((option) => (
-                <button
-                  key={option}
-                  onClick={() =>
-                    onRespond(request, {
-                      value: option,
-                    })
-                  }
-                  {...stylex.props(inlineStyles.inline56)}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
+    <>
+      <section
+        className="interaction-dock"
+        aria-label="Extension interaction"
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return
+          event.preventDefault()
+          event.stopPropagation()
+          respond({ cancelled: true })
+        }}
+      >
+        <div className="interaction-dock-copy">
+          <strong>{request.title}</strong>
+          {request.method === "confirm" && <span>{request.message}</span>}
+          {request.method === "editor" && (
+            <span>
+              {value.trim()
+                ? `${value.trim().slice(0, 120)}${value.trim().length > 120 ? "…" : ""}`
+                : "Open the editor to respond"}
+            </span>
           )}
-          {request.method === "input" && (
+        </div>
+        {request.method === "select" && (
+          <div className="interaction-options">
+            {request.options.map((option) => (
+              <button key={option} type="button" onClick={() => respond({ value: option })}>
+                {option}
+              </button>
+            ))}
+          </div>
+        )}
+        {request.method === "input" && (
+          <form
+            className="interaction-input"
+            onSubmit={(event) => {
+              event.preventDefault()
+              submitValue()
+            }}
+          >
             <input
               autoFocus
               value={value}
               placeholder={request.placeholder}
-              onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") submitValue()
-                if (e.key === "Escape")
-                  onRespond(request, {
-                    cancelled: true,
-                  })
-              }}
-              {...stylex.props(inlineStyles.inline57)}
+              onChange={(event) => setValue(event.target.value)}
             />
+            <button type="submit">Submit</button>
+          </form>
+        )}
+        <div className="interaction-actions">
+          <button type="button" onClick={() => respond({ cancelled: true })}>
+            Cancel
+          </button>
+          {request.method === "confirm" && (
+            <button type="button" onClick={submitValue}>
+              Confirm
+            </button>
           )}
           {request.method === "editor" && (
+            <button type="button" onClick={() => setOpen(true)}>
+              Open editor
+            </button>
+          )}
+        </div>
+      </section>
+      {request.method === "editor" && editorOpen && (
+        <div {...stylex.props(inlineStyles.inline48)} onKeyDown={(event) => event.stopPropagation()}>
+          <div role="dialog" aria-modal="true" aria-label={request.title} {...stylex.props(inlineStyles.inline49)}>
+            <div {...stylex.props(inlineStyles.inline50)}>
+              <div {...stylex.props(inlineStyles.inline51)}>{request.title}</div>
+            </div>
             <textarea
               autoFocus
               value={value}
-              onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape")
-                  onRespond(request, {
-                    cancelled: true,
-                  })
-                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submitValue()
+              onChange={(event) => setValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setOpen(false)
+                }
+                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") submitValue()
               }}
               {...stylex.props(inlineStyles.inline58)}
             />
-          )}
+            <div {...stylex.props(inlineStyles.inline59)}>
+              <button type="button" onClick={() => setOpen(false)} {...stylex.props(inlineStyles.inline60)}>
+                Close
+              </button>
+              <button type="button" onClick={submitValue} {...stylex.props(inlineStyles.inline62)}>
+                Submit
+              </button>
+            </div>
+          </div>
         </div>
-
-        <div {...stylex.props(inlineStyles.inline59)}>
-          <button
-            onClick={() =>
-              onRespond(request, {
-                cancelled: true,
-              })
-            }
-            {...stylex.props(inlineStyles.inline60)}
-          >
-            Cancel
-          </button>
-          {request.method === "confirm" ? (
-            <button onClick={submitValue} {...stylex.props(inlineStyles.inline61)}>
-              Confirm
-            </button>
-          ) : request.method !== "select" ? (
-            <button onClick={submitValue} {...stylex.props(inlineStyles.inline62)}>
-              Submit
-            </button>
-          ) : null}
-        </div>
-      </div>
-    </div>
+      )}
+    </>
   )
 }
 const inlineStyles = stylex.create({
-  assistantTurn: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 20,
-    marginBottom: 25,
-  },
-  turnMetrics: {
-    alignItems: "center",
-    display: "flex",
-    gap: 8,
-    minHeight: 18,
-  },
-  activityGroup: {
-    color: "var(--text-muted)",
-    position: "relative",
-  },
-  activityToggle: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    width: "100%",
-    minHeight: 34,
-    padding: "2px 6px 2px 2px",
-    border: "none",
-    borderRadius: 8,
-    background: "transparent",
-    color: "var(--text-muted)",
-    cursor: "pointer",
-    textAlign: "left",
-    ":hover": {
-      background: "var(--bg-subtle)",
-      color: "var(--text)",
-    },
-  },
-  activityComplete: {
-    alignItems: "center",
-    background: "rgba(34,197,94,0.12)",
-    borderRadius: "50%",
-    color: "#16a34a",
-    display: "flex",
-    flex: "0 0 auto",
-    height: 20,
-    justifyContent: "center",
-    width: 20,
-  },
-  activityTitle: {
-    fontSize: 12,
-    fontWeight: 600,
-  },
-  activityChevron: {
-    color: "var(--text-dim)",
-    flexShrink: 0,
-    marginLeft: 1,
-    transition: "transform 0.15s",
-  },
-  activityBody: {
-    borderLeft: "1px solid var(--border)",
-    display: "flex",
-    flexDirection: "column",
-    marginLeft: 10,
-    padding: "3px 0 3px 20px",
-  },
-  processStateDot: {
-    animationDuration: "800ms",
-    animationIterationCount: "infinite",
-    animationName: spin,
-    animationTimingFunction: "linear",
-    border: "2px solid var(--accent)",
-    borderRightColor: "transparent",
-    borderRadius: "50%",
-    flexShrink: 0,
-    height: 12,
-    margin: 4,
-    width: 12,
-  },
   inline6: {
     transformOrigin: "center",
   },

@@ -334,6 +334,142 @@ code {
   top: 25px;
   width: 1px;
 }
+.companion-region {
+  flex: none;
+  padding: 8px 16px 0;
+}
+.transcript-viewport {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.transcript-viewport > div {
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.transcript-viewport [data-transcript-row] {
+  margin: 0 auto;
+  max-width: 850px;
+  padding: 0 16px;
+}
+.load-earlier-row {
+  display: flex;
+  justify-content: center;
+  padding: 16px;
+}
+.agent-trace {
+  color: var(--text-muted);
+  margin-bottom: 12px !important;
+}
+.agent-trace-summary,
+.extension-placeholder {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 6px;
+  text-align: left;
+  width: 100%;
+}
+.agent-trace-summary:hover,
+.extension-placeholder:hover {
+  background: var(--bg-subtle);
+}
+.agent-trace-summary strong {
+  flex: 1;
+  font-size: 12px;
+}
+.agent-trace-items {
+  border-left: 1px solid var(--border);
+  margin-left: 10px;
+  padding: 4px 0 4px 20px;
+}
+.turn-telemetry {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px !important;
+}
+.scroll-to-latest {
+  bottom: 12px;
+  left: 50%;
+  position: absolute;
+  transform: translateX(-50%);
+  z-index: 3;
+}
+.turn-navigator {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  justify-content: center;
+  padding: 10px 8px;
+  width: 32px;
+}
+.turn-navigator-item {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 3px;
+}
+.turn-navigator-item span {
+  background: var(--border);
+  border-radius: 999px;
+  display: block;
+  height: 3px;
+  width: 12px;
+}
+.turn-navigator-item.boundary span {
+  border-radius: 0;
+  height: 1px;
+  width: 16px;
+}
+.turn-navigator-item[aria-current="true"] span {
+  background: var(--accent);
+  height: 5px;
+}
+.interaction-dock {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 8px 16px;
+  padding: 10px 12px;
+}
+.interaction-dock-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.interaction-dock-copy span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.interaction-actions,
+.interaction-options,
+.interaction-input {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.interaction-input input {
+  flex: 1;
+  min-width: 120px;
+}
+@media (max-width: 760px) {
+  .turn-navigator {
+    display: none;
+  }
+  .transcript-viewport [data-transcript-row] {
+    padding-inline: 12px;
+  }
+}
 .markdown-body th {
   background: var(--bg-panel);
   color: color-mix(in srgb, var(--text) 88%, var(--text-muted));

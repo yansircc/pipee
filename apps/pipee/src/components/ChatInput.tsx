@@ -55,6 +55,7 @@ interface Props {
   onFollowUp?: (message: string, images?: AttachedImage[]) => void
   onPromptWithStreamingBehavior?: (message: string, behavior: "steer" | "followUp", images?: AttachedImage[]) => void
   isStreaming: boolean
+  sendDisabled?: boolean
   sessionLoading?: boolean
   isBashRunning?: boolean
   model?: {
@@ -272,6 +273,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     onSteer,
     onFollowUp,
     isStreaming,
+    sendDisabled = false,
     sessionLoading = false,
     isBashRunning,
     model,
@@ -566,6 +568,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     }
   }, [])
   const handleSend = useCallback(() => {
+    if (sendDisabled) return
     const references = attachedFiles.map((attachment) => buildAtMentionText(attachment.path, false).trim())
     const msg = [value.trim(), ...references].filter(Boolean).join(" ")
     if (!msg && !attachedImages.length) return
@@ -592,6 +595,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     attachedImages,
     uploadingAttachments,
     isStreaming,
+    sendDisabled,
     onBashCommand,
     onBuiltinCommand,
     onSend,
@@ -649,7 +653,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
       : `${filteredSlashCommands.length} ${slashQuery ? "matches" : "commands"}`
   const hasInputText = Boolean(value.trim())
   const hasAttachments = attachedImages.length > 0 || attachedFiles.length > 0
-  const canQueueStreamingMessage = hasInputText && attachedImages.length === 0 && attachedFiles.length === 0
+  const canQueueStreamingMessage =
+    !sendDisabled && hasInputText && attachedImages.length === 0 && attachedFiles.length === 0
 
   // ── @ file autocomplete ──────────────────────────────────────────────────
   // Recomputed from the text before the caret on every change/caret move.
@@ -841,6 +846,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
   }, [])
   const sendQueued = useCallback(
     (mode: "steer" | "followup") => {
+      if (sendDisabled) return
       const msg = value.trim()
       if (!msg && !attachedImages.length && !attachedFiles.length) return
       if (attachedImages.length || attachedFiles.length) return
@@ -873,6 +879,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
       onFollowUp,
       clearInput,
       onAudioUnlock,
+      sendDisabled,
     ],
   )
   const getNextSlashIndex = useCallback(
@@ -1568,17 +1575,22 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
             ) : (
               <button
                 onClick={handleSend}
-                disabled={sessionLoading || (!value.trim() && !hasAttachments) || uploadingAttachments > 0}
+                disabled={
+                  sendDisabled || sessionLoading || (!value.trim() && !hasAttachments) || uploadingAttachments > 0
+                }
                 aria-label={sessionLoading ? t("Loading...") : t("Send")}
                 {...stylex.props(inlineStyles.inline55)}
                 style={{
                   background: "var(--text)",
                   color: "var(--bg-panel)",
                   cursor:
-                    !sessionLoading && (value.trim() || hasAttachments) && uploadingAttachments === 0
+                    !sendDisabled && !sessionLoading && (value.trim() || hasAttachments) && uploadingAttachments === 0
                       ? "pointer"
                       : "not-allowed",
-                  opacity: !sessionLoading && (value.trim() || hasAttachments) && uploadingAttachments === 0 ? 1 : 0.25,
+                  opacity:
+                    !sendDisabled && !sessionLoading && (value.trim() || hasAttachments) && uploadingAttachments === 0
+                      ? 1
+                      : 0.25,
                 }}
               >
                 <svg

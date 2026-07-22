@@ -31,6 +31,7 @@ import type {
   ThinkingContent,
   JsonValue,
 } from "@/api/contract"
+import type { AgentTraceNode } from "@/lib/conversation-document"
 const MAX_THINKING_CACHE_ENTRIES = 100
 const thinkingContentCache = new Map<string, string>()
 function loadThinkingContent(
@@ -133,6 +134,7 @@ interface Props {
   turnUsage?: TurnUsage
   hideUsage?: boolean
   turnSegment?: boolean
+  blockIndices?: ReadonlyArray<number>
 }
 function formatTime(ts?: number): string | null {
   if (!ts) return null
@@ -176,6 +178,7 @@ export function MessageView({
   turnUsage,
   hideUsage,
   turnSegment,
+  blockIndices,
 }: Props) {
   if (message.role === "user") {
     return (
@@ -208,6 +211,7 @@ export function MessageView({
         turnUsage={turnUsage}
         hideUsage={hideUsage}
         turnSegment={turnSegment}
+        blockIndices={blockIndices}
       />
     )
   }
@@ -226,59 +230,42 @@ export function MessageView({
   }
   return null
 }
-export function ProcessMessageView({
-  message,
-  toolResults,
-  prevTimestamp,
-  sessionId,
-  entryId,
-}: {
-  message: AgentMessage
-  toolResults?: Map<string, ToolResultMessage>
-  prevTimestamp?: number
-  sessionId?: string
-  entryId?: string
-}) {
-  if (message.role === "assistant") {
-    const assistant = message as AssistantMessage
-    return (
-      <>
-        {(assistant.content ?? []).map((block, blockIndex) => {
-          if (block.type === "thinking" && !block.deferred && block.thinking.trim() === "") return null
-          if (block.type === "thinking") {
-            return (
-              <CompactThinkingRow
-                key={`${entryId ?? "process"}-${blockIndex}`}
-                block={block as ThinkingContent}
-                duration={elapsedSeconds(prevTimestamp, assistant.timestamp)}
-                sessionId={sessionId}
-                entryId={entryId}
-                blockIndex={blockIndex}
-              />
-            )
-          }
-          if (block.type === "toolCall") {
-            const toolCall = block as ToolCallContent
-            const result = toolResults?.get(toolCall.toolCallId)
-            return (
-              <CompactToolCallRow
-                key={`${entryId ?? "process"}-${blockIndex}`}
-                block={toolCall}
-                result={result}
-                duration={elapsedSeconds(assistant.timestamp, result?.timestamp)}
-              />
-            )
-          }
-          return null
-        })}
-      </>
-    )
-  }
-  if (message.role === "custom") {
-    const custom = message as CustomMessage
-    return <CompactProcessTextRow label={formatCustomType(custom.customType)} text={getMessageText(custom.content)} />
-  }
-  return null
+export function AgentTraceItemsView({ items, sessionId }: { items: AgentTraceNode["items"]; sessionId?: string }) {
+  return (
+    <>
+      {items.map((item) => {
+        if (item.kind === "thinking") {
+          return (
+            <CompactThinkingRow
+              key={item.id}
+              block={item.block}
+              duration={elapsedSeconds(item.message.observedAt, item.message.timestamp)}
+              sessionId={sessionId}
+              entryId={item.source.entryId}
+              blockIndex={item.blockIndex}
+            />
+          )
+        }
+        if (item.kind === "tool") {
+          return (
+            <CompactToolCallRow
+              key={item.id}
+              block={item.block}
+              result={item.result?.message}
+              duration={elapsedSeconds(item.message.timestamp, item.result?.message.timestamp)}
+            />
+          )
+        }
+        return (
+          <CompactProcessTextRow
+            key={item.id}
+            label={`Unmatched result · ${item.message.toolCallId}`}
+            text={getToolResultText(item.message) ?? "(no output)"}
+          />
+        )
+      })}
+    </>
+  )
 }
 
 function elapsedSeconds(start?: number, end?: number): number | undefined {
@@ -296,6 +283,8 @@ function CompactProcessRow({
   expanded,
   onToggle,
   children,
+  processKind,
+  toolName,
 }: {
   label: string
   preview: string
@@ -305,6 +294,8 @@ function CompactProcessRow({
   expanded?: boolean
   onToggle?: () => void
   children?: React.ReactNode
+  processKind?: "thinking" | "tool" | "diagnostic"
+  toolName?: string
 }) {
   const rowContent = (
     <>
@@ -363,7 +354,7 @@ function CompactProcessRow({
     </>
   )
   return (
-    <div className="compact-process-row">
+    <div className="compact-process-row" data-process-kind={processKind} data-tool-name={toolName}>
       <div {...stylex.props(inlineStyles.processRow)}>
         {onToggle ? (
           <button type="button" onClick={onToggle} {...stylex.props(inlineStyles.processRowButton)}>
@@ -400,6 +391,7 @@ function CompactThinkingRow({
       duration={duration}
       expanded={disclosure.expanded}
       onToggle={disclosure.toggle}
+      processKind="thinking"
     >
       <pre {...stylex.props(inlineStyles.processRowDetails)}>{disclosure.detail}</pre>
     </CompactProcessRow>
@@ -418,6 +410,7 @@ function CompactToolCallRow({
   const [expanded, setExpanded] = useState(false)
   const isError = result?.isError ?? false
   const resultText = getToolResultText(result) ?? ""
+  const resultDiff = result && !result.isError ? getResultDiff(result) : null
   return (
     <CompactProcessRow
       label={block.toolName}
@@ -427,10 +420,17 @@ function CompactToolCallRow({
       running={!result}
       expanded={expanded}
       onToggle={() => setExpanded((value) => !value)}
+      processKind="tool"
+      toolName={block.toolName}
     >
       <div {...stylex.props(inlineStyles.processRowDetailsStack)}>
         <pre {...stylex.props(inlineStyles.processRowDetails)}>{JSON.stringify(block.input, null, 2)}</pre>
-        {result && <pre {...stylex.props(inlineStyles.processRowDetails)}>{resultText || "(no output)"}</pre>}
+        {result &&
+          (resultDiff ? (
+            <SplitPatchView text={resultDiff.text} />
+          ) : (
+            <pre {...stylex.props(inlineStyles.processRowDetails)}>{resultText || "(no output)"}</pre>
+          ))}
       </div>
     </CompactProcessRow>
   )
@@ -445,6 +445,7 @@ function CompactProcessTextRow({ label, text }: { label: string; text: string })
       preview={previewText(normalized || "(no message)")}
       expanded={expanded}
       onToggle={() => setExpanded((value) => !value)}
+      processKind="diagnostic"
     >
       <pre {...stylex.props(inlineStyles.processRowDetails)}>{normalized || "(no message)"}</pre>
     </CompactProcessRow>
@@ -708,6 +709,7 @@ function AssistantMessageView({
   turnUsage,
   hideUsage,
   turnSegment,
+  blockIndices,
 }: {
   message: AssistantMessage
   isStreaming?: boolean
@@ -722,13 +724,14 @@ function AssistantMessageView({
   turnUsage?: TurnUsage
   hideUsage?: boolean
   turnSegment?: boolean
+  blockIndices?: ReadonlyArray<number>
 }) {
   const { t } = useI18n()
   const time = showTimestamp ? formatTime(message.timestamp) : null
   const blockItems = (message.content ?? [])
-    .map((block, originalIndex) => ({
+    .map((block, localIndex) => ({
       block,
-      originalIndex,
+      originalIndex: blockIndices?.[localIndex] ?? localIndex,
     }))
     .filter(
       ({ block }) =>
@@ -974,6 +977,9 @@ function BlockView({
   if (block.type === "text") {
     return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />
   }
+  if (block.type === "image") {
+    return <img src={imageSource(block)} alt="" {...stylex.props(inlineStyles.inline14)} />
+  }
   if (block.type === "thinking") {
     return (
       <ThinkingBlock
@@ -1055,7 +1061,6 @@ function ToolCallBlock({
 }) {
   const [expanded, setExpanded] = useState(false)
   const inputStr = JSON.stringify(block.input, null, 2)
-  const isEditTool = isEditToolName(block.toolName)
   const resultDiff = result && !result.isError ? getResultDiff(result) : null
 
   // Result display
@@ -1101,7 +1106,7 @@ function ToolCallBlock({
       </button>
 
       {/* ── Expanded: input args ── */}
-      {expanded && !isEditTool && (
+      {expanded && (
         <pre
           {...stylex.props(inlineStyles.inline43)}
           style={{
@@ -1302,17 +1307,6 @@ function getResultDiff(result: ToolResultMessage): ResultDiff | null {
       text: diff,
     }
   return null
-}
-function isEditToolName(toolName: string): boolean {
-  const name = toolName.toLowerCase()
-  return (
-    name === "edit" ||
-    name.startsWith("edit_") ||
-    name.endsWith(".edit") ||
-    name.endsWith("_edit") ||
-    name.includes("str_replace") ||
-    name.includes("replace_editor")
-  )
 }
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -1565,11 +1559,15 @@ export function TurnUsageSummary({
   ongoing = false,
   modelNames,
   timestamp,
+  expanded,
+  onExpandedChange,
 }: {
   usage: TurnUsage
   ongoing?: boolean
   modelNames?: Record<string, string>
   timestamp?: number
+  expanded?: boolean
+  onExpandedChange?: (expanded: boolean) => void
 }) {
   const { locale, t } = useI18n()
   const modelLabel = usage.models
@@ -1592,12 +1590,16 @@ export function TurnUsageSummary({
     ...(usage.lastCallDurationMs !== null
       ? [[t("Last call duration"), formatDuration(usage.lastCallDurationMs)] as [string, string]]
       : []),
-    ...(usage.outputTokensPerSecond !== null
+    ...(!ongoing && usage.outputTokensPerSecond !== null
       ? [[t("Output speed"), `${usage.outputTokensPerSecond.toFixed(1)} tok/s`] as [string, string]]
       : []),
   ]
   return (
-    <details {...stylex.props(inlineStyles.inline84)}>
+    <details
+      {...stylex.props(inlineStyles.inline84)}
+      {...(expanded === undefined ? {} : { open: expanded })}
+      onToggle={(event) => onExpandedChange?.(event.currentTarget.open)}
+    >
       <summary title={t("Show turn usage details")} {...stylex.props(inlineStyles.inline85)}>
         {modelLabel && (
           <>
@@ -1614,7 +1616,7 @@ export function TurnUsageSummary({
             <span>{formatDuration(usage.durationMs)}</span>
           </>
         )}
-        {usage.outputTokensPerSecond !== null && (
+        {!ongoing && usage.outputTokensPerSecond !== null && (
           <>
             <span>·</span>
             <span>{usage.outputTokensPerSecond.toFixed(1)} tok/s</span>
@@ -1681,14 +1683,6 @@ export function StreamingThroughputBadge({ message }: { message: AssistantMessag
         })
   const throughput = projectStreamingOutputThroughput(projectedSamples)
   if (throughput === null) return null
-  const background =
-    throughput.tokensPerSecond >= 50
-      ? "#53b3cb"
-      : throughput.tokensPerSecond >= 30
-        ? "#9bc53d"
-        : throughput.tokensPerSecond >= 15
-          ? "#f9c22e"
-          : "#e01a4f"
   const title = t("Estimated recent output speed from UTF-8 output volume")
   return (
     <span
@@ -1696,7 +1690,6 @@ export function StreamingThroughputBadge({ message }: { message: AssistantMessag
       title={title}
       aria-label={`${title}: ${throughput.tokensPerSecond.toFixed(1)} tok/s`}
       {...stylex.props(inlineStyles.streamingThroughput)}
-      style={{ background }}
     >
       ≈ {throughput.tokensPerSecond.toFixed(1)} tok/s
     </span>

@@ -35,6 +35,15 @@ export interface StreamingOutputThroughput {
   readonly tokensPerSecond: number
 }
 
+export type OutputRate =
+  | { readonly kind: "estimated-live"; readonly tokensPerSecond: number }
+  | { readonly kind: "measured-completed"; readonly tokensPerSecond: number }
+
+export const projectCompletedOutputRate = (usage: TurnUsage): OutputRate | null =>
+  usage.outputTokensPerSecond === null
+    ? null
+    : { kind: "measured-completed", tokensPerSecond: usage.outputTokensPerSecond }
+
 const utf8 = new TextEncoder()
 
 export function estimateStreamingOutputUnits(message: AssistantMessage): number {

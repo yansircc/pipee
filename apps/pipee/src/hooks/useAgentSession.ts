@@ -5,8 +5,8 @@ import { useBrowserEffectScope } from "@/browser/use-browser-effect-scope"
 import { loadSessionSnapshot, observeSession, sessionController } from "@/features/session/session-controller"
 import {
   initialSessionUiState,
-  projectSessionEntryIds,
   projectSessionMessages,
+  projectTranscriptSources,
   sessionUiReducer,
 } from "@/features/session/session-ui-state"
 import { parseBashCommand } from "@/lib/bash-command"
@@ -156,9 +156,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const bashSequenceRef = useRef(0)
   const contextSequenceRef = useRef(0)
   const snapshotSequenceRef = useRef(0)
-  const messagesEndRef = useRef<HTMLDivElement | null>(null)
-  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
-  const lastUserMsgRef = useRef<HTMLDivElement | null>(null)
   const handledCompletionRunIdRef = useRef<string | null>(null)
 
   const loadSnapshot = useCallback(
@@ -302,7 +299,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const activeLeafId = snapshot?.leafId ?? null
   const messages = useMemo(() => asUiMessages(projectSessionMessages(state)), [state])
-  const entryIds = useMemo(() => [...projectSessionEntryIds(state)], [state])
+  const transcriptSources = useMemo(() => projectTranscriptSources(state), [state])
   const extensionStatuses = state.extensionUi.statuses
   const extensionWidgets = state.extensionUi.widgets
   const activeBashExecution = state.activeBashExecution as ActiveBashExecution | null
@@ -811,8 +808,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     hasMoreBefore: snapshot?.contextPage.hasMoreBefore ?? false,
     error: state.error,
     activeLeafId,
-    messages,
-    entryIds,
+    transcriptSources,
+    runId: state.runId,
     streamState: {
       isStreaming: state.isStreaming,
       streamingMessage: state.streamingMessage as AgentMessage | null,
@@ -848,9 +845,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     isAutoModelSelection: false,
     agentPhase,
     sessionIdRef,
-    messagesEndRef,
-    scrollContainerRef,
-    lastUserMsgRef,
     handleSend,
     handleBashCommand,
     handleAbort,

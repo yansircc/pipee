@@ -4,8 +4,33 @@ import {
   initialSessionUiState,
   projectSessionEntryIds,
   projectSessionMessages,
+  projectTranscriptSources,
   sessionUiReducer,
 } from "./session-ui-state"
+
+test("transcript sources assign owner identities to persisted and runtime facts", () => {
+  const sources = projectTranscriptSources({
+    ...initialSessionUiState,
+    runId: "run-live",
+    messages: [{ role: "user", content: "persisted" }],
+    entryIds: ["entry-1"],
+    pendingPrompt: { requestId: "request-1", runId: "run-live", message: { role: "user", content: "pending" } },
+    ephemeralMessages: [
+      {
+        eventId: "event-1",
+        runId: "run-live",
+        message: { role: "custom", customType: "note", content: "event", display: true },
+      },
+    ],
+    streamingMessage: { role: "assistant", model: "m", provider: "p", content: [{ type: "text", text: "live" }] },
+  })
+  expect(sources.map(({ kind, id }) => [kind, id])).toEqual([
+    ["persisted", "entry:entry-1"],
+    ["pending", "request:request-1"],
+    ["ephemeral", "event:event-1"],
+    ["streaming", "run:run-live:stream"],
+  ])
+})
 
 const completeContextPage = { beforeEntryId: null, hasMoreBefore: false } as const
 
@@ -677,7 +702,7 @@ test("prepends earlier context pages without duplicating entry ids", () => {
         { role: "user", content: "three" },
       ],
       entryIds: ["entry-2", "entry-3"],
-      promptRequests: [],
+      promptRequests: [{ requestId: "request-current", runId: RunId.make("run-current"), userEntryId: "entry-3" }],
       thinkingLevel: "high",
       model: null,
     },
@@ -701,7 +726,7 @@ test("prepends earlier context pages without duplicating entry ids", () => {
           { role: "user", content: "two duplicate" },
         ],
         entryIds: ["entry-1", "entry-2"],
-        promptRequests: [],
+        promptRequests: [{ requestId: "request-earlier", runId: RunId.make("run-earlier"), userEntryId: "entry-1" }],
         thinkingLevel: "high",
         model: null,
       },
@@ -716,6 +741,10 @@ test("prepends earlier context pages without duplicating entry ids", () => {
     "three",
   ])
   expect(prepended.snapshot?.contextPage).toEqual({ beforeEntryId: null, hasMoreBefore: false })
+  expect(prepended.snapshot?.context.promptRequests.map(({ requestId }) => requestId)).toEqual([
+    "request-earlier",
+    "request-current",
+  ])
 })
 
 test("binds a new bash operation after an older run has finished", () => {

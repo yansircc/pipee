@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { assertPipeeBrand } from "./brand-contract.mjs";
 import { root } from "./lib.mjs";
@@ -11,10 +11,12 @@ const files = execFileSync(
 )
   .toString("utf8")
   .split("\0")
-  .filter(Boolean);
+  .filter(Boolean)
+  .filter((relative) => existsSync(resolve(root, relative)));
 
 for (const relative of files) {
-  const bytes = readFileSync(resolve(root, relative));
+  const absolute = resolve(root, relative);
+  const bytes = readFileSync(absolute);
   if (bytes.includes(0)) continue;
   assertPipeeBrand(relative, `path ${relative}`);
   assertPipeeBrand(bytes.toString("utf8"), `file ${relative}`);
