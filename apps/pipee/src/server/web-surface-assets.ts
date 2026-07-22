@@ -89,7 +89,6 @@ export const webSurfaceAssetHandler = (
         "form-action 'none'",
         "base-uri 'none'",
         "frame-ancestors 'self'",
-        "navigate-to 'none'",
       ].join("; ")
     }
     return HttpServerResponse.uint8Array(bytes.value, { contentType, headers })

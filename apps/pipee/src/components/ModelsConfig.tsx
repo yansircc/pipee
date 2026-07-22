@@ -19,6 +19,7 @@ import {
   ProviderConfigEntry,
 } from "@/api/contract"
 import { SettingsWorkspace } from "@/ui/interaction/SettingsWorkspace"
+import { useAppForm, useFormSelector, useFormSentinel } from "@/ui/interaction/AppForm"
 const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   anthropic: "A",
   openai: "OA",
@@ -895,9 +896,28 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
   const [loginState, setLoginState] = useState<OAuthLoginState>({
     phase: "idle",
   })
-  const [inputValue, setInputValue] = useState("")
   const cancelLoginRef = useRef<Cancel | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const promptForm = useAppForm({
+    defaultValues: { code: "" },
+    onSubmit: ({ value, formApi }) => {
+      if (loginState.phase !== "prompt" || !value.code.trim()) return
+      const token = loginState.token
+      setLoginState({ phase: "progress", message: "Verifying…" })
+      runApi(
+        withApi((api) =>
+          api.auth.submitOAuthInput({
+            params: { provider: provider.id },
+            payload: { token, code: value.code.trim() },
+          }),
+        ),
+        {
+          onSuccess: () => formApi.reset(),
+          onFailure: (error) => setLoginState({ phase: "error", message: errorMessage(error) }),
+        },
+      )
+    },
+  })
   useEffect(() => {
     if (loginState.phase !== "auth" && loginState.phase !== "prompt") return
     const input = inputRef.current
@@ -912,10 +932,10 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
     setLoginState({
       phase: "idle",
     })
-    setInputValue("")
+    promptForm.reset()
     cancelLoginRef.current?.()
     cancelLoginRef.current = null
-  }, [provider.id])
+  }, [promptForm, provider.id])
   useEffect(() => {
     return () => {
       cancelLoginRef.current?.()
@@ -926,7 +946,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
     setLoginState({
       phase: "connecting",
     })
-    setInputValue("")
+    promptForm.reset()
     cancelLoginRef.current = runApiStream(
       withApi((api) =>
         api.auth.oauthEvents({
@@ -1017,7 +1037,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           }),
       },
     )
-  }, [provider.id, onRefresh])
+  }, [onRefresh, promptForm, provider.id])
   const handleLogout = useCallback(() => {
     runApi(
       withApi((api) =>
@@ -1043,37 +1063,6 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
       },
     )
   }, [provider.id, onRefresh])
-  const submitCode = useCallback(
-    (token: string, code: string) => {
-      if (!code.trim()) return
-      setLoginState({
-        phase: "progress",
-        message: "Verifying…",
-      })
-      runApi(
-        withApi((api) =>
-          api.auth.submitOAuthInput({
-            params: {
-              provider: provider.id,
-            },
-            payload: {
-              token,
-              code: code.trim(),
-            },
-          }),
-        ),
-        {
-          onSuccess: () => setInputValue(""),
-          onFailure: (error) =>
-            setLoginState({
-              phase: "error",
-              message: errorMessage(error),
-            }),
-        },
-      )
-    },
-    [provider.id],
-  )
   const submitSelection = useCallback(
     (token: string, value: string) => {
       setLoginState({
@@ -1178,33 +1167,44 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           </div>
         )}
         {loginState.phase === "prompt" && (
-          <div {...stylex.props(inlineStyles.inline49)}>
+          <form
+            {...stylex.props(inlineStyles.inline49)}
+            onSubmit={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              void promptForm.handleSubmit()
+            }}
+          >
             <p {...stylex.props(inlineStyles.inline50)}>{loginState.message}</p>
             <div {...stylex.props(inlineStyles.inline51)}>
-              <input
-                ref={inputRef}
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") submitCode(loginState.token, inputValue)
-                }}
-                placeholder={loginState.placeholder ?? "Enter value…"}
-                {...stylex.props(inlineStyles.inline52)}
-              />
-              <button
-                onClick={() => submitCode(loginState.token, inputValue)}
-                disabled={!inputValue.trim()}
-                {...stylex.props(inlineStyles.inline53)}
-                style={{
-                  background: inputValue.trim() ? "var(--accent)" : "var(--bg-panel)",
-                  color: inputValue.trim() ? "#fff" : "var(--text-dim)",
-                  cursor: inputValue.trim() ? "pointer" : "not-allowed",
-                }}
-              >
-                Submit
-              </button>
+              <promptForm.Field name="code">
+                {(field) => (
+                  <>
+                    <input
+                      ref={inputRef}
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => field.handleChange(event.target.value)}
+                      placeholder={loginState.placeholder ?? "Enter value…"}
+                      {...stylex.props(inlineStyles.inline52)}
+                    />
+                    <button
+                      type="submit"
+                      disabled={!field.state.value.trim()}
+                      {...stylex.props(inlineStyles.inline53)}
+                      style={{
+                        background: field.state.value.trim() ? "var(--accent)" : "var(--bg-panel)",
+                        color: field.state.value.trim() ? "#fff" : "var(--text-dim)",
+                        cursor: field.state.value.trim() ? "pointer" : "not-allowed",
+                      }}
+                    >
+                      Submit
+                    </button>
+                  </>
+                )}
+              </promptForm.Field>
             </div>
-          </div>
+          </form>
         )}
         {loginState.phase === "device_code" && (
           <div {...stylex.props(inlineStyles.inline54)}>
@@ -1265,56 +1265,55 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
 // ── API Key detail ────────────────────────────────────────────────────────────
 
 function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRefresh: () => void }) {
-  const [apiKey, setApiKey] = useState("")
   const [saving, setSaving] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedOk, setSavedOk] = useState(false)
   const dismissSavedRef = useRef<Cancel | null>(null)
+  const form = useAppForm({
+    defaultValues: { apiKey: "" },
+    onSubmit: ({ value, formApi }) => {
+      const apiKey = value.apiKey.trim()
+      if (!apiKey) return
+      setSaving(true)
+      setError(null)
+      setSavedOk(false)
+      runApi(
+        withApi((api) =>
+          api.auth.setApiKey({
+            params: { provider: provider.id },
+            payload: { apiKey },
+          }),
+        ),
+        {
+          onSuccess: () => {
+            formApi.reset()
+            setSavedOk(true)
+            dismissSavedRef.current?.()
+            dismissSavedRef.current = runApi(Effect.sleep("2 seconds"), {
+              onSuccess: () => setSavedOk(false),
+            })
+            setSaving(false)
+            onRefresh()
+          },
+          onFailure: (cause) => {
+            setError(errorMessage(cause))
+            setSaving(false)
+          },
+        },
+      )
+    },
+  })
 
   // Reset state when provider changes
   useEffect(() => {
-    setApiKey("")
+    form.reset()
     setError(null)
     setSavedOk(false)
     dismissSavedRef.current?.()
     dismissSavedRef.current = null
-  }, [provider.id])
+  }, [form, provider.id])
   useEffect(() => () => dismissSavedRef.current?.(), [])
-  const handleSave = useCallback(() => {
-    if (!apiKey.trim()) return
-    setSaving(true)
-    setError(null)
-    setSavedOk(false)
-    runApi(
-      withApi((api) =>
-        api.auth.setApiKey({
-          params: {
-            provider: provider.id,
-          },
-          payload: {
-            apiKey: apiKey.trim(),
-          },
-        }),
-      ),
-      {
-        onSuccess: () => {
-          setApiKey("")
-          setSavedOk(true)
-          dismissSavedRef.current?.()
-          dismissSavedRef.current = runApi(Effect.sleep("2 seconds"), {
-            onSuccess: () => setSavedOk(false),
-          })
-          setSaving(false)
-          onRefresh()
-        },
-        onFailure: (cause) => {
-          setError(errorMessage(cause))
-          setSaving(false)
-        },
-      },
-    )
-  }, [apiKey, provider.id, onRefresh])
   const handleRemove = useCallback(() => {
     setRemoving(true)
     setError(null)
@@ -1339,7 +1338,14 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
     )
   }, [provider.id, onRefresh])
   return (
-    <div {...stylex.props(inlineStyles.inline66)}>
+    <form
+      {...stylex.props(inlineStyles.inline66)}
+      onSubmit={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        void form.handleSubmit()
+      }}
+    >
       <div {...stylex.props(inlineStyles.inline67)}>
         <SectionTitle>API Key</SectionTitle>
         <div {...stylex.props(inlineStyles.inline68)}>
@@ -1368,46 +1374,47 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
 
       <Field label="API Key">
         <div {...stylex.props(inlineStyles.inline72)}>
-          <SecretTextInput
-            value={apiKey}
-            onChange={setApiKey}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && apiKey.trim()) handleSave()
-            }}
-            placeholder={provider.configured ? "Enter new key to replace…" : "sk-…"}
-            style={{
-              flex: 1,
-            }}
-            autoComplete="off"
-            spellCheck={false}
-            mono
-          />
-          <button
-            onClick={handleSave}
-            disabled={saving || !apiKey.trim() || savedOk}
-            {...stylex.props(inlineStyles.inline73)}
-            style={{
-              background: savedOk ? "#16a34a" : apiKey.trim() ? "var(--accent)" : "var(--bg-panel)",
-              color: apiKey.trim() || savedOk ? "#fff" : "var(--text-dim)",
-              cursor: saving || !apiKey.trim() || savedOk ? "not-allowed" : "pointer",
-            }}
-          >
-            {savedOk && (
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+          <form.Field name="apiKey">
+            {(field) => (
+              <>
+                <SecretTextInput
+                  value={field.state.value}
+                  onChange={field.handleChange}
+                  placeholder={provider.configured ? "Enter new key to replace…" : "sk-…"}
+                  style={{ flex: 1 }}
+                  autoComplete="off"
+                  spellCheck={false}
+                  mono
+                />
+                <button
+                  type="submit"
+                  disabled={saving || !field.state.value.trim() || savedOk}
+                  {...stylex.props(inlineStyles.inline73)}
+                  style={{
+                    background: savedOk ? "#16a34a" : field.state.value.trim() ? "var(--accent)" : "var(--bg-panel)",
+                    color: field.state.value.trim() || savedOk ? "#fff" : "var(--text-dim)",
+                    cursor: saving || !field.state.value.trim() || savedOk ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {savedOk && (
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                  {savedOk ? "Saved" : saving ? "Saving…" : "Save"}
+                </button>
+              </>
             )}
-            {savedOk ? "Saved" : saving ? "Saving…" : "Save"}
-          </button>
+          </form.Field>
         </div>
       </Field>
 
@@ -1415,6 +1422,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
 
       {provider.configured && (
         <button
+          type="button"
           onClick={handleRemove}
           disabled={removing}
           {...stylex.props(inlineStyles.inline75)}
@@ -1425,7 +1433,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
           {removing ? "Removing…" : "Disconnect"}
         </button>
       )}
-    </div>
+    </form>
   )
 }
 
@@ -1672,9 +1680,6 @@ function AddProviderPicker({
 export function ModelsConfig({ onClose }: { onClose: () => void }) {
   const { t } = useI18n()
   const isMobile = useIsMobile()
-  const [config, setConfig] = useState<ModelsJson>({
-    providers: {},
-  })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -1686,9 +1691,43 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
   const [apiKeyProviders, setApiKeyProviders] = useState<ReadonlyArray<ApiKeyProvider>>([])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [rawMode, setRawMode] = useState(false)
-  const [rawSource, setRawSource] = useState("")
   const [rawValidation, setRawValidation] = useState<RawValidationState>("idle")
   const [notice, setNotice] = useState<string | null>(null)
+  const configForm = useAppForm({
+    defaultValues: { config: { providers: {} } as ModelsJson, mounted: true },
+    onSubmit: ({ value }) => {
+      setSaving(true)
+      setSaveError(null)
+      setNotice(null)
+      setSavedOk(false)
+      runApi(
+        requireValidModelsConfig(value.config).pipe(
+          Effect.flatMap((validated) => withApi((api) => api.models.saveConfig({ payload: validated }))),
+        ),
+        {
+          onSuccess: () => {
+            setSaving(false)
+            setSavedOk(true)
+            dismissSavedRef.current?.()
+            dismissSavedRef.current = runApi(Effect.sleep("2 seconds"), {
+              onSuccess: () => setSavedOk(false),
+            })
+          },
+          onFailure: (cause) => {
+            setSaving(false)
+            setSaveError(errorMessage(cause))
+          },
+        },
+      )
+    },
+  })
+  const config = useFormSelector(configForm.store, (state) => state.values.config)
+  useFormSentinel(configForm, "mounted")
+  const updateConfig = useCallback(
+    (update: (current: ModelsJson) => ModelsJson) =>
+      configForm.reset({ config: update(configForm.state.values.config), mounted: true }, { keepDefaultValues: true }),
+    [configForm],
+  )
   useEffect(() => () => dismissSavedRef.current?.(), [])
   const loadOAuthProviders = useCallback(() => {
     runApi(
@@ -1706,18 +1745,40 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       },
     )
   }, [])
-  const replaceConfig = useCallback((value: ModelsJson) => {
-    setConfig(value)
-    const firstProvider = Object.keys(value.providers)[0]
-    setSelection(
-      firstProvider === undefined
-        ? null
-        : {
-            type: "provider",
-            name: firstProvider,
-          },
-    )
-  }, [])
+  const replaceConfig = useCallback(
+    (value: ModelsJson) => {
+      configForm.reset({ config: value, mounted: true }, { keepDefaultValues: true })
+      const firstProvider = Object.keys(value.providers)[0]
+      setSelection(
+        firstProvider === undefined
+          ? null
+          : {
+              type: "provider",
+              name: firstProvider,
+            },
+      )
+    },
+    [configForm],
+  )
+  const rawForm = useAppForm({
+    defaultValues: { source: "" },
+    onSubmit: ({ value }) => {
+      setRawValidation("validating")
+      setSaveError(null)
+      setNotice(null)
+      runApi(parseAndValidateModelsConfig(value.source), {
+        onSuccess: (validated) => {
+          replaceConfig(validated)
+          setRawValidation("valid")
+          setNotice(t("Valid configuration"))
+        },
+        onFailure: (cause) => {
+          setRawValidation("idle")
+          setSaveError(errorMessage(cause))
+        },
+      })
+    },
+  })
   useEffect(() => {
     const cancel = runApi(
       withApi((api) => api.models.config({})),
@@ -1727,9 +1788,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
           setLoading(false)
         },
         onFailure: () => {
-          setConfig({
-            providers: {},
-          })
+          replaceConfig({ providers: {} })
           setLoading(false)
         },
       },
@@ -1737,35 +1796,19 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     loadOAuthProviders()
     loadApiKeyProviders()
     return cancel
-  }, [loadOAuthProviders, loadApiKeyProviders, replaceConfig])
+  }, [loadApiKeyProviders, loadOAuthProviders, replaceConfig])
   const openRawEditor = useCallback(() => {
     setSaveError(null)
     setNotice(null)
     runApi(formatModelsConfigJson(config), {
       onSuccess: (source) => {
-        setRawSource(source)
+        rawForm.reset({ source }, { keepDefaultValues: true })
         setRawValidation("idle")
         setRawMode(true)
       },
       onFailure: (cause) => setSaveError(errorMessage(cause)),
     })
-  }, [config])
-  const validateRawEditor = useCallback(() => {
-    setRawValidation("validating")
-    setSaveError(null)
-    setNotice(null)
-    runApi(parseAndValidateModelsConfig(rawSource), {
-      onSuccess: (value) => {
-        replaceConfig(value)
-        setRawValidation("valid")
-        setNotice(t("Valid configuration"))
-      },
-      onFailure: (cause) => {
-        setRawValidation("idle")
-        setSaveError(errorMessage(cause))
-      },
-    })
-  }, [rawSource, replaceConfig, t])
+  }, [config, rawForm])
   const importModelsConfig = useCallback(
     (file: File) => {
       setSaveError(null)
@@ -1810,7 +1853,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     let finalName = "new-provider"
     let n = 1
     while (config.providers[finalName]) finalName = `new-provider-${n++}`
-    setConfig((prev) => ({
+    updateConfig((prev) => ({
       ...prev,
       providers: {
         ...prev.providers,
@@ -1823,165 +1866,152 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       type: "provider",
       name: finalName,
     })
-  }, [config.providers])
-  const updateProvider = useCallback((name: string, p: ProviderEntry) => {
-    setConfig((prev) => ({
-      ...prev,
-      providers: {
-        ...prev.providers,
-        [name]: p,
-      },
-    }))
-  }, [])
-  const renameProvider = useCallback((oldName: string, newName: string) => {
-    setConfig((prev) => {
-      const entries = Object.entries(prev.providers)
-      const idx = entries.findIndex(([k]) => k === oldName)
-      if (idx === -1) return prev
-      entries[idx] = [newName, entries[idx][1]]
-      return {
+  }, [config.providers, updateConfig])
+  const updateProvider = useCallback(
+    (name: string, p: ProviderEntry) => {
+      updateConfig((prev) => ({
         ...prev,
-        providers: Object.fromEntries(entries),
-      }
-    })
-    setSelection((prev) => {
-      if (!prev) return prev
-      if (prev.type === "provider" && prev.name === oldName)
-        return {
-          type: "provider",
-          name: newName,
-        }
-      if (prev.type === "model" && prev.providerName === oldName)
+        providers: {
+          ...prev.providers,
+          [name]: p,
+        },
+      }))
+    },
+    [updateConfig],
+  )
+  const renameProvider = useCallback(
+    (oldName: string, newName: string) => {
+      updateConfig((prev) => {
+        const entries = Object.entries(prev.providers)
+        const idx = entries.findIndex(([k]) => k === oldName)
+        if (idx === -1) return prev
+        entries[idx] = [newName, entries[idx][1]]
         return {
           ...prev,
-          providerName: newName,
+          providers: Object.fromEntries(entries),
         }
-      return prev
-    })
-  }, [])
-  const deleteProvider = useCallback((name: string) => {
-    setConfig((prev) => {
-      const providers = {
-        ...prev.providers,
-      }
-      delete providers[name]
-      return {
-        ...prev,
-        providers,
-      }
-    })
-    setConfig((prev) => {
-      const remaining = Object.keys(prev.providers)
-      setSelection(
-        remaining.length > 0
-          ? {
-              type: "provider",
-              name: remaining[0],
-            }
-          : null,
-      )
-      return prev
-    })
-  }, [])
-  const addModel = useCallback((providerName: string) => {
-    setConfig((prev) => {
-      const provider = prev.providers[providerName] ?? {}
-      const models = [
-        ...(provider.models ?? []),
-        {
-          id: "",
-        },
-      ]
-      return {
-        ...prev,
-        providers: {
-          ...prev.providers,
-          [providerName]: {
-            ...provider,
-            models,
-          },
-        },
-      }
-    })
-    setConfig((prev) => {
-      const idx = (prev.providers[providerName]?.models?.length ?? 1) - 1
-      setSelection({
-        type: "model",
-        providerName,
-        index: idx,
       })
-      return prev
-    })
-  }, [])
-  const updateModel = useCallback((providerName: string, index: number, m: ModelEntry) => {
-    setConfig((prev) => {
-      const provider = prev.providers[providerName] ?? {}
-      const models = [...(provider.models ?? [])]
-      models[index] = m
-      return {
-        ...prev,
-        providers: {
+      setSelection((prev) => {
+        if (!prev) return prev
+        if (prev.type === "provider" && prev.name === oldName)
+          return {
+            type: "provider",
+            name: newName,
+          }
+        if (prev.type === "model" && prev.providerName === oldName)
+          return {
+            ...prev,
+            providerName: newName,
+          }
+        return prev
+      })
+    },
+    [updateConfig],
+  )
+  const deleteProvider = useCallback(
+    (name: string) => {
+      updateConfig((prev) => {
+        const providers = {
           ...prev.providers,
-          [providerName]: {
-            ...provider,
-            models,
+        }
+        delete providers[name]
+        return {
+          ...prev,
+          providers,
+        }
+      })
+      updateConfig((prev) => {
+        const remaining = Object.keys(prev.providers)
+        setSelection(
+          remaining.length > 0
+            ? {
+                type: "provider",
+                name: remaining[0],
+              }
+            : null,
+        )
+        return prev
+      })
+    },
+    [updateConfig],
+  )
+  const addModel = useCallback(
+    (providerName: string) => {
+      updateConfig((prev) => {
+        const provider = prev.providers[providerName] ?? {}
+        const models = [
+          ...(provider.models ?? []),
+          {
+            id: "",
           },
-        },
-      }
-    })
-  }, [])
-  const removeModel = useCallback((providerName: string, index: number) => {
-    setConfig((prev) => {
-      const provider = prev.providers[providerName] ?? {}
-      const models = [...(provider.models ?? [])]
-      models.splice(index, 1)
-      return {
-        ...prev,
-        providers: {
-          ...prev.providers,
-          [providerName]: {
-            ...provider,
-            models: models.length ? models : undefined,
+        ]
+        return {
+          ...prev,
+          providers: {
+            ...prev.providers,
+            [providerName]: {
+              ...provider,
+              models,
+            },
           },
-        },
-      }
-    })
-    setSelection({
-      type: "provider",
-      name: providerName,
-    })
-  }, [])
-  const handleSave = useCallback(() => {
-    setSaving(true)
-    setSaveError(null)
-    setNotice(null)
-    setSavedOk(false)
-    runApi(
-      requireValidModelsConfig(config).pipe(
-        Effect.flatMap((validated) =>
-          withApi((api) =>
-            api.models.saveConfig({
-              payload: validated,
-            }),
-          ),
-        ),
-      ),
-      {
-        onSuccess: () => {
-          setSaving(false)
-          setSavedOk(true)
-          dismissSavedRef.current?.()
-          dismissSavedRef.current = runApi(Effect.sleep("2 seconds"), {
-            onSuccess: () => setSavedOk(false),
-          })
-        },
-        onFailure: (cause) => {
-          setSaving(false)
-          setSaveError(errorMessage(cause))
-        },
-      },
-    )
-  }, [config])
+        }
+      })
+      updateConfig((prev) => {
+        const idx = (prev.providers[providerName]?.models?.length ?? 1) - 1
+        setSelection({
+          type: "model",
+          providerName,
+          index: idx,
+        })
+        return prev
+      })
+    },
+    [updateConfig],
+  )
+  const updateModel = useCallback(
+    (providerName: string, index: number, m: ModelEntry) => {
+      updateConfig((prev) => {
+        const provider = prev.providers[providerName] ?? {}
+        const models = [...(provider.models ?? [])]
+        models[index] = m
+        return {
+          ...prev,
+          providers: {
+            ...prev.providers,
+            [providerName]: {
+              ...provider,
+              models,
+            },
+          },
+        }
+      })
+    },
+    [updateConfig],
+  )
+  const removeModel = useCallback(
+    (providerName: string, index: number) => {
+      updateConfig((prev) => {
+        const provider = prev.providers[providerName] ?? {}
+        const models = [...(provider.models ?? [])]
+        models.splice(index, 1)
+        return {
+          ...prev,
+          providers: {
+            ...prev.providers,
+            [providerName]: {
+              ...provider,
+              models: models.length ? models : undefined,
+            },
+          },
+        }
+      })
+      setSelection({
+        type: "provider",
+        name: providerName,
+      })
+    },
+    [updateConfig],
+  )
   const providers = Object.entries(config.providers)
   const activeOAuth = oauthProviders.filter((p) => p.loggedIn)
   const activeApiKey = apiKeyProviders.filter((p) => p.configured)
@@ -2314,39 +2344,47 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
           {/* Right: detail */}
           <div {...stylex.props(inlineStyles.inline128)}>
             {loading ? null : rawMode ? (
-              <div {...stylex.props(inlineStyles.inline129)}>
+              <form
+                {...stylex.props(inlineStyles.inline129)}
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  void rawForm.handleSubmit()
+                }}
+              >
                 <div {...stylex.props(inlineStyles.inline130)}>{t("Raw models JSON")}</div>
                 <div {...stylex.props(inlineStyles.inline131)}>
                   {t("Validate the JSON before saving. Invalid content never replaces models.json.")}
                 </div>
-                <textarea
-                  aria-label={t("Raw models JSON")}
-                  value={rawSource}
-                  spellCheck={false}
-                  onChange={(event) => {
-                    setRawSource(event.target.value)
-                    setRawValidation("idle")
-                    setSaveError(null)
-                    setNotice(null)
-                  }}
-                  {...stylex.props(inlineStyles.inline132)}
-                  style={{
-                    border: `1px solid ${rawValidation === "valid" ? "#16a34a" : "var(--border)"}`,
-                  }}
-                />
+                <rawForm.Field name="source">
+                  {(field) => (
+                    <textarea
+                      aria-label={t("Raw models JSON")}
+                      value={field.state.value}
+                      spellCheck={false}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => {
+                        field.handleChange(event.target.value)
+                        setRawValidation("idle")
+                        setSaveError(null)
+                        setNotice(null)
+                      }}
+                      {...stylex.props(inlineStyles.inline132)}
+                      style={{
+                        border: `1px solid ${rawValidation === "valid" ? "#16a34a" : "var(--border)"}`,
+                      }}
+                    />
+                  )}
+                </rawForm.Field>
                 <div {...stylex.props(inlineStyles.inline133)}>
                   {rawValidation === "valid" && (
                     <span {...stylex.props(inlineStyles.inline134)}>{t("Valid configuration")}</span>
                   )}
-                  <button
-                    onClick={validateRawEditor}
-                    disabled={rawValidation === "validating"}
-                    style={toolbarButtonStyle}
-                  >
+                  <button type="submit" disabled={rawValidation === "validating"} style={toolbarButtonStyle}>
                     {t(rawValidation === "validating" ? "Validating…" : "Validate")}
                   </button>
                 </div>
-              </div>
+              </form>
             ) : (
               (detailContent ?? <div {...stylex.props(inlineStyles.inline135)}>{t("Select a provider or model")}</div>)
             )}
@@ -2362,7 +2400,8 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
             {t("Cancel")}
           </button>
           <button
-            onClick={handleSave}
+            type="button"
+            onClick={() => void configForm.handleSubmit()}
             disabled={saveDisabled}
             {...stylex.props(inlineStyles.inline141)}
             style={{

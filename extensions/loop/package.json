@@ -49,6 +49,7 @@
     "@pipee/extension-kit": "workspace:*",
     "@pipee/host-runtime": "workspace:*",
     "@sinclair/typebox": "0.34.41",
+    "@tanstack/form-core": "catalog:",
     "@types/cross-spawn": "catalog:",
     "@types/node": "22.20.1",
     "@yansircc/effect-scan": "catalog:",

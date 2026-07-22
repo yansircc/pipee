@@ -24,6 +24,7 @@ import {
   formatApplicationHotkey,
   type ApplicationCommandRegistry,
 } from "@/ui/interaction/ApplicationCommands"
+import { useAppForm } from "@/ui/interaction/AppForm"
 interface Props {
   selectedSessionId: string | null
   onSelectSession: (session: SessionInfo, isRestore?: boolean) => void
@@ -465,7 +466,6 @@ export function SessionSidebar({
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [projectFilter, setProjectFilter] = useState("")
   const [customPathOpen, setCustomPathOpen] = useState(false)
-  const [customPathValue, setCustomPathValue] = useState("")
   const [customPathError, setCustomPathError] = useState<string | null>(null)
   const [customPathValidating, setCustomPathValidating] = useState(false)
   const customPathInputRef = useRef<HTMLInputElement>(null)
@@ -474,13 +474,72 @@ export function SessionSidebar({
   const [worktreeState, setWorktreeState] = useState<WorktreeState | null>(null)
   const [wtDropdownOpen, setWtDropdownOpen] = useState(false)
   const [wtNewOpen, setWtNewOpen] = useState(false)
-  const [wtNewBranch, setWtNewBranch] = useState("")
   const [wtError, setWtError] = useState<string | null>(null)
   const [wtBusy, setWtBusy] = useState(false)
   const [wtConfirmRemove, setWtConfirmRemove] = useState<string | null>(null)
   const [worktreeLoadingCwd, setWorktreeLoadingCwd] = useState<string | null>(null)
   const wtDropdownRef = useRef<HTMLDivElement>(null)
   const wtNewInputRef = useRef<HTMLInputElement>(null)
+  const customPathForm = useAppForm({
+    defaultValues: { path: "" },
+    onSubmit: ({ value, formApi }) => {
+      const path = value.path.trim()
+      if (!path || customPathValidating) return
+      setCustomPathValidating(true)
+      setCustomPathError(null)
+      runApi(
+        withApi((api) => api.workspace.validateCwd({ payload: { cwd: path } })),
+        {
+          onSuccess: ({ cwd }) => {
+            setSelectedCwd(cwd)
+            setCustomPathOpen(false)
+            formApi.reset()
+            setDropdownOpen(false)
+            setCustomPathValidating(false)
+          },
+          onFailure: (failure) => {
+            setCustomPathError(failure instanceof Error ? failure.message : String(failure))
+            setCustomPathValidating(false)
+          },
+        },
+      )
+    },
+  })
+  const worktreeForm = useAppForm({
+    defaultValues: { branch: "" },
+    onSubmit: ({ value, formApi }) => {
+      const branch = value.branch.trim()
+      if (!branch || wtBusy || !worktreeState) return
+      setWtBusy(true)
+      setWtError(null)
+      runApi(
+        withApi((api) => api.workspace.createWorktree({ payload: { cwd: worktreeState.projectRoot, branch } })),
+        {
+          onSuccess: (data) => {
+            setWtNewOpen(false)
+            formApi.reset()
+            setWtDropdownOpen(false)
+            setWorktreeState((previous) =>
+              previous
+                ? {
+                    ...previous,
+                    forCwd: data.path,
+                    worktrees: [...previous.worktrees, { path: data.path, branch, isMain: false }],
+                  }
+                : previous,
+            )
+            setSelectedCwd(data.path)
+            setWtRefreshKey((key) => key + 1)
+            setWtBusy(false)
+          },
+          onFailure: (failure) => {
+            setWtError(failure instanceof Error ? failure.message : String(failure))
+            setWtBusy(false)
+          },
+        },
+      )
+    },
+  })
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set())
   const [currentTimeMillis, setCurrentTimeMillis] = useState(0)
   const previousRunningSessionIdsRef = useRef<Set<string>>(new Set())
@@ -668,34 +727,6 @@ export function SessionSidebar({
       if (projects.length > 0) setSelectedCwd(projects[0])
     }
   }, [allSessions, loading, selectedCwd, initialSessionId, onSelectSession, onInitialRestoreDone])
-  const commitCustomPath = useCallback(() => {
-    const path = customPathValue.trim()
-    if (!path || customPathValidating) return
-    setCustomPathValidating(true)
-    setCustomPathError(null)
-    runApi(
-      withApi((api) =>
-        api.workspace.validateCwd({
-          payload: {
-            cwd: path,
-          },
-        }),
-      ),
-      {
-        onSuccess: ({ cwd }) => {
-          setSelectedCwd(cwd)
-          setCustomPathOpen(false)
-          setCustomPathValue("")
-          setDropdownOpen(false)
-          setCustomPathValidating(false)
-        },
-        onFailure: (error) => {
-          setCustomPathError(error instanceof Error ? error.message : String(error))
-          setCustomPathValidating(false)
-        },
-      },
-    )
-  }, [customPathValue, customPathValidating])
   const pickCustomPath = useCallback(() => {
     if (customPathValidating) return
     setCustomPathValidating(true)
@@ -714,7 +745,7 @@ export function SessionSidebar({
           }
           setSelectedCwd(cwd)
           setCustomPathOpen(false)
-          setCustomPathValue("")
+          customPathForm.reset()
           setDropdownOpen(false)
           setCustomPathValidating(false)
         },
@@ -724,7 +755,7 @@ export function SessionSidebar({
         },
       },
     )
-  }, [customPathValidating])
+  }, [customPathForm, customPathValidating])
   const handleDefaultCwd = useCallback(() => {
     runApi(
       withApi((api) =>
@@ -736,62 +767,13 @@ export function SessionSidebar({
         onSuccess: ({ cwd }) => {
           setSelectedCwd(cwd)
           setCustomPathOpen(false)
-          setCustomPathValue("")
+          customPathForm.reset()
           setCustomPathError(null)
           setDropdownOpen(false)
         },
       },
     )
-  }, [])
-  const handleCreateWorktree = useCallback(() => {
-    const branch = wtNewBranch.trim()
-    if (!branch || wtBusy || !worktreeState) return
-    setWtBusy(true)
-    setWtError(null)
-    runApi(
-      withApi((api) =>
-        api.workspace.createWorktree({
-          payload: {
-            cwd: worktreeState.projectRoot,
-            branch,
-          },
-        }),
-      ),
-      {
-        onSuccess: (data) => {
-          setWtNewOpen(false)
-          setWtNewBranch("")
-          setWtDropdownOpen(false)
-          // Optimistically register the new worktree so projectRootFor() resolves
-          // it to the main repo before the refetch lands (keeps AppShell from
-          // treating the new cwd as a different project).
-          setWorktreeState((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  forCwd: data.path,
-                  worktrees: [
-                    ...prev.worktrees,
-                    {
-                      path: data.path,
-                      branch,
-                      isMain: false,
-                    },
-                  ],
-                }
-              : prev,
-          )
-          setSelectedCwd(data.path)
-          setWtRefreshKey((k) => k + 1)
-          setWtBusy(false)
-        },
-        onFailure: (error) => {
-          setWtError(error instanceof Error ? error.message : String(error))
-          setWtBusy(false)
-        },
-      },
-    )
-  }, [wtNewBranch, wtBusy, worktreeState])
+  }, [customPathForm])
   const handleRemoveWorktree = useCallback(
     (path: string, force: boolean) => {
       if (!worktreeState || wtBusy) return
@@ -836,13 +818,13 @@ export function SessionSidebar({
         setDropdownOpen(false)
         setProjectFilter("")
         setCustomPathOpen(false)
-        setCustomPathValue("")
+        customPathForm.reset()
         setCustomPathError(null)
       }
       if (wtDropdownRef.current && !wtDropdownRef.current.contains(e.target as Node)) {
         setWtDropdownOpen(false)
         setWtNewOpen(false)
-        setWtNewBranch("")
+        worktreeForm.reset()
         setWtError(null)
         setWtConfirmRemove(null)
       }
@@ -850,7 +832,7 @@ export function SessionSidebar({
     return runBrowser(BrowserPlatform.pipe(Effect.flatMap((browser) => browser.onDocumentMouseDown(handler))), {
       onSuccess: () => undefined,
     })
-  }, [])
+  }, [customPathForm, worktreeForm])
 
   // Clicking a session moves the effective cwd to that session's worktree.
   // Done on the click path (not via the selectedCwd prop sync) so it also
@@ -1020,7 +1002,7 @@ export function SessionSidebar({
                     setSelectedCwd(project)
                     setProjectFilter("")
                     setCustomPathOpen(false)
-                    setCustomPathValue("")
+                    customPathForm.reset()
                     setCustomPathError(null)
                     setDropdownOpen(false)
                   }}
@@ -1151,49 +1133,60 @@ export function SessionSidebar({
                 <span>{t("Enter path manually…")}</span>
               </button>
             ) : (
-              <div
+              <form
                 {...stylex.props(inlineStyles.inline25)}
                 style={{
                   borderTop: visibleProjects.length > 0 ? "none" : undefined,
                 }}
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  void customPathForm.handleSubmit()
+                }}
               >
-                <input
-                  ref={customPathInputRef}
-                  value={customPathValue}
-                  onChange={(e) => {
-                    setCustomPathValue(e.target.value)
-                    setCustomPathError(null)
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault()
-                      commitCustomPath()
-                    }
-                    if (e.key === "Escape") {
-                      setCustomPathOpen(false)
-                      setCustomPathValue("")
-                      setCustomPathError(null)
-                    }
-                  }}
-                  placeholder="/path/to/project"
-                  {...stylex.props(inlineStyles.inline26)}
-                />
+                <customPathForm.Field name="path">
+                  {(field) => (
+                    <input
+                      ref={customPathInputRef}
+                      value={field.state.value}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => {
+                        field.handleChange(event.target.value)
+                        setCustomPathError(null)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          setCustomPathOpen(false)
+                          customPathForm.reset()
+                          setCustomPathError(null)
+                        }
+                      }}
+                      placeholder="/path/to/project"
+                      {...stylex.props(inlineStyles.inline26)}
+                    />
+                  )}
+                </customPathForm.Field>
                 <div {...stylex.props(inlineStyles.inline27)}>
+                  <customPathForm.Subscribe selector={(state) => state.values.path}>
+                    {(path) => (
+                      <button
+                        type="submit"
+                        disabled={customPathValidating || !path.trim()}
+                        {...stylex.props(inlineStyles.inline28)}
+                        style={{
+                          cursor: customPathValidating || !path.trim() ? "not-allowed" : "pointer",
+                          opacity: customPathValidating || !path.trim() ? 0.65 : 1,
+                        }}
+                      >
+                        {customPathValidating ? t("Checking…") : t("Open")}
+                      </button>
+                    )}
+                  </customPathForm.Subscribe>
                   <button
-                    onClick={() => commitCustomPath()}
-                    disabled={customPathValidating || !customPathValue.trim()}
-                    {...stylex.props(inlineStyles.inline28)}
-                    style={{
-                      cursor: customPathValidating || !customPathValue.trim() ? "not-allowed" : "pointer",
-                      opacity: customPathValidating || !customPathValue.trim() ? 0.65 : 1,
-                    }}
-                  >
-                    {customPathValidating ? t("Checking…") : t("Open")}
-                  </button>
-                  <button
+                    type="button"
                     onClick={() => {
                       setCustomPathOpen(false)
-                      setCustomPathValue("")
+                      customPathForm.reset()
                       setCustomPathError(null)
                     }}
                     {...stylex.props(inlineStyles.inline29)}
@@ -1201,7 +1194,7 @@ export function SessionSidebar({
                     {t("Cancel")}
                   </button>
                 </div>
-              </div>
+              </form>
             )}
             {customPathError && <div {...stylex.props(inlineStyles.inline30)}>{customPathError}</div>}
           </AnimatedDropdown>
@@ -1421,44 +1414,57 @@ export function SessionSidebar({
                       <span>{t("New worktree…")}</span>
                     </button>
                   ) : (
-                    <div {...stylex.props(inlineStyles.inline50)}>
-                      <input
-                        ref={wtNewInputRef}
-                        value={wtNewBranch}
-                        onChange={(e) => {
-                          setWtNewBranch(e.target.value)
-                          setWtError(null)
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault()
-                            handleCreateWorktree()
-                          }
-                          if (e.key === "Escape") {
-                            setWtNewOpen(false)
-                            setWtNewBranch("")
-                            setWtError(null)
-                          }
-                        }}
-                        placeholder={t("branch name")}
-                        {...stylex.props(inlineStyles.inline51)}
-                      />
+                    <form
+                      {...stylex.props(inlineStyles.inline50)}
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        void worktreeForm.handleSubmit()
+                      }}
+                    >
+                      <worktreeForm.Field name="branch">
+                        {(field) => (
+                          <input
+                            ref={wtNewInputRef}
+                            value={field.state.value}
+                            onBlur={field.handleBlur}
+                            onChange={(event) => {
+                              field.handleChange(event.target.value)
+                              setWtError(null)
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Escape") {
+                                setWtNewOpen(false)
+                                worktreeForm.reset()
+                                setWtError(null)
+                              }
+                            }}
+                            placeholder={t("branch name")}
+                            {...stylex.props(inlineStyles.inline51)}
+                          />
+                        )}
+                      </worktreeForm.Field>
                       <div {...stylex.props(inlineStyles.inline52)}>
+                        <worktreeForm.Subscribe selector={(state) => state.values.branch}>
+                          {(branch) => (
+                            <button
+                              type="submit"
+                              disabled={wtBusy || !branch.trim()}
+                              {...stylex.props(inlineStyles.inline53)}
+                              style={{
+                                cursor: wtBusy || !branch.trim() ? "not-allowed" : "pointer",
+                                opacity: wtBusy || !branch.trim() ? 0.65 : 1,
+                              }}
+                            >
+                              {t(wtBusy ? "Creating…" : "Create")}
+                            </button>
+                          )}
+                        </worktreeForm.Subscribe>
                         <button
-                          onClick={() => handleCreateWorktree()}
-                          disabled={wtBusy || !wtNewBranch.trim()}
-                          {...stylex.props(inlineStyles.inline53)}
-                          style={{
-                            cursor: wtBusy || !wtNewBranch.trim() ? "not-allowed" : "pointer",
-                            opacity: wtBusy || !wtNewBranch.trim() ? 0.65 : 1,
-                          }}
-                        >
-                          {t(wtBusy ? "Creating…" : "Create")}
-                        </button>
-                        <button
+                          type="button"
                           onClick={() => {
                             setWtNewOpen(false)
-                            setWtNewBranch("")
+                            worktreeForm.reset()
                             setWtError(null)
                           }}
                           {...stylex.props(inlineStyles.inline54)}
@@ -1466,7 +1472,7 @@ export function SessionSidebar({
                           Cancel
                         </button>
                       </div>
-                    </div>
+                    </form>
                   )}
                   {wtError && <div {...stylex.props(inlineStyles.inline55)}>{wtError}</div>}
                 </AnimatedDropdown>
@@ -1741,15 +1747,28 @@ function SessionItem({
   const { t, locale } = useI18n()
   const [hovered, setHovered] = useState(false)
   const [renaming, setRenaming] = useState(false)
-  const [renameValue, setRenameValue] = useState("")
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const cancelRenameRef = useRef(false)
+  const renameForm = useAppForm({
+    defaultValues: { name: session.name ?? "" },
+    onSubmit: ({ value }) => {
+      const name = value.name.trim()
+      setRenaming(false)
+      if (name === (session.name ?? "")) return
+      runApi(
+        withApi((api) => api.sessions.rename({ params: { id: session.id }, payload: { name } })),
+        { onSuccess: () => onRenamed?.() },
+      )
+    },
+  })
   const title = session.name || session.firstMessage.slice(0, 50) || session.id.slice(0, 12)
   const startRename = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation()
-      setRenameValue(session.name ?? "")
+      cancelRenameRef.current = false
+      renameForm.reset({ name: session.name ?? "" }, { keepDefaultValues: true })
       setRenaming(true)
       runBrowser(
         after("0 millis", () => inputRef.current?.select()),
@@ -1758,28 +1777,8 @@ function SessionItem({
         },
       )
     },
-    [session.name],
+    [renameForm, session.name],
   )
-  const commitRename = useCallback(() => {
-    const name = renameValue.trim()
-    setRenaming(false)
-    if (name === (session.name ?? "")) return
-    runApi(
-      withApi((api) =>
-        api.sessions.rename({
-          params: {
-            id: session.id,
-          },
-          payload: {
-            name,
-          },
-        }),
-      ),
-      {
-        onSuccess: () => onRenamed?.(),
-      },
-    )
-  }, [renameValue, session.id, session.name, onRenamed])
   const handleDeleteClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     setConfirmDelete(true)
@@ -1871,18 +1870,40 @@ function SessionItem({
           </div>
         </>
       ) : renaming /* ── Rename: input fills the same row ── */ ? (
-        <input
-          ref={inputRef}
-          value={renameValue}
-          onChange={(e) => setRenameValue(e.target.value)}
-          onBlur={commitRename}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commitRename()
-            if (e.key === "Escape") setRenaming(false)
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            void renameForm.handleSubmit()
           }}
-          autoFocus
-          {...stylex.props(inlineStyles.inline81)}
-        />
+        >
+          <renameForm.Field name="name">
+            {(field) => (
+              <input
+                ref={inputRef}
+                value={field.state.value}
+                onChange={(event) => field.handleChange(event.target.value)}
+                onBlur={() => {
+                  if (cancelRenameRef.current) {
+                    cancelRenameRef.current = false
+                    return
+                  }
+                  void renameForm.handleSubmit()
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault()
+                    cancelRenameRef.current = true
+                    renameForm.reset({ name: session.name ?? "" }, { keepDefaultValues: true })
+                    setRenaming(false)
+                  }
+                }}
+                autoFocus
+                {...stylex.props(inlineStyles.inline81)}
+              />
+            )}
+          </renameForm.Field>
+        </form>
       ) : (
         /* ── Normal view ── */
         <>

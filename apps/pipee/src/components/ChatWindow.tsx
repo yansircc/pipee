@@ -20,6 +20,7 @@ import { CompanionRendererRegistry } from "@/features/companions/renderer-regist
 import { compileConversationDocument } from "@/lib/conversation-document"
 import type { ConversationDocument } from "@/lib/conversation-document"
 import { emptyDisclosureState, type DisclosureState } from "@/lib/disclosure-projection"
+import { useAppForm, useFormSelector } from "@/ui/interaction/AppForm"
 import { TranscriptViewport } from "./TranscriptViewport"
 import { TurnNavigator } from "./TurnNavigator"
 interface Props {
@@ -675,34 +676,41 @@ function InteractionDock({
   onRespond: (request: InteractionRequest, response: InteractionResponse) => void
   onEditorOpenChange: (open: boolean) => void
 }) {
-  const [value, setValue] = useState(request.method === "editor" ? (request.prefill ?? "") : "")
   const [editorOpen, setEditorOpen] = useState(false)
   const responded = useRef(false)
   const editorPrefill = request.method === "editor" ? request.prefill : undefined
+  const setOpen = useCallback(
+    (open: boolean) => {
+      setEditorOpen(open)
+      onEditorOpenChange(open)
+    },
+    [onEditorOpenChange],
+  )
+  const respond = useCallback(
+    (response: InteractionResponse) => {
+      if (responded.current) return
+      responded.current = true
+      setOpen(false)
+      onRespond(request, response)
+    },
+    [onRespond, request, setOpen],
+  )
+  const form = useAppForm({
+    defaultValues: { value: editorPrefill ?? "" },
+    onSubmitMeta: { selection: null as string | null },
+    onSubmit: ({ value, meta }) => {
+      if (request.method === "confirm") respond({ confirmed: true })
+      else respond({ value: meta.selection ?? value.value })
+    },
+  })
+  const value = useFormSelector(form.store, (state) => state.values.value)
   useEffect(() => {
-    setValue(editorPrefill ?? "")
+    form.reset({ value: editorPrefill ?? "" }, { keepDefaultValues: true })
     setEditorOpen(false)
     responded.current = false
     onEditorOpenChange(false)
-  }, [editorPrefill, onEditorOpenChange, request.interactionId])
+  }, [editorPrefill, form, onEditorOpenChange, request.interactionId])
   useEffect(() => () => onEditorOpenChange(false), [onEditorOpenChange])
-  const setOpen = (open: boolean) => {
-    setEditorOpen(open)
-    onEditorOpenChange(open)
-  }
-  const respond = (response: InteractionResponse) => {
-    if (responded.current) return
-    responded.current = true
-    setOpen(false)
-    onRespond(request, response)
-  }
-  const submitValue = () => {
-    if (request.method === "confirm") {
-      respond({ confirmed: true })
-    } else {
-      respond({ value })
-    }
-  }
   return (
     <>
       <section
@@ -729,7 +737,7 @@ function InteractionDock({
         {request.method === "select" && (
           <div className="interaction-options">
             {request.options.map((option) => (
-              <button key={option} type="button" onClick={() => respond({ value: option })}>
+              <button key={option} type="button" onClick={() => void form.handleSubmit({ selection: option })}>
                 {option}
               </button>
             ))}
@@ -740,15 +748,20 @@ function InteractionDock({
             className="interaction-input"
             onSubmit={(event) => {
               event.preventDefault()
-              submitValue()
+              void form.handleSubmit()
             }}
           >
-            <input
-              autoFocus
-              value={value}
-              placeholder={request.placeholder}
-              onChange={(event) => setValue(event.target.value)}
-            />
+            <form.Field name="value">
+              {(field) => (
+                <input
+                  autoFocus
+                  value={field.state.value}
+                  placeholder={request.placeholder}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                />
+              )}
+            </form.Field>
             <button type="submit">Submit</button>
           </form>
         )}
@@ -757,7 +770,7 @@ function InteractionDock({
             Cancel
           </button>
           {request.method === "confirm" && (
-            <button type="button" onClick={submitValue}>
+            <button type="button" onClick={() => void form.handleSubmit()}>
               Confirm
             </button>
           )}
@@ -774,25 +787,33 @@ function InteractionDock({
             <div {...stylex.props(inlineStyles.inline50)}>
               <div {...stylex.props(inlineStyles.inline51)}>{request.title}</div>
             </div>
-            <textarea
-              autoFocus
-              value={value}
-              onChange={(event) => setValue(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  setOpen(false)
-                }
-                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") submitValue()
-              }}
-              {...stylex.props(inlineStyles.inline58)}
-            />
+            <form.Field name="value">
+              {(field) => (
+                <textarea
+                  autoFocus
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      setOpen(false)
+                    }
+                    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                      event.preventDefault()
+                      void form.handleSubmit()
+                    }
+                  }}
+                  {...stylex.props(inlineStyles.inline58)}
+                />
+              )}
+            </form.Field>
             <div {...stylex.props(inlineStyles.inline59)}>
               <button type="button" onClick={() => setOpen(false)} {...stylex.props(inlineStyles.inline60)}>
                 Close
               </button>
-              <button type="button" onClick={submitValue} {...stylex.props(inlineStyles.inline62)}>
+              <button type="button" onClick={() => void form.handleSubmit()} {...stylex.props(inlineStyles.inline62)}>
                 Submit
               </button>
             </div>

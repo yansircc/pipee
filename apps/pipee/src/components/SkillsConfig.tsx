@@ -10,6 +10,7 @@ import { copyText } from "@/lib/clipboard"
 import { withApi, runApi, runBrowser } from "@/browser/api-client"
 import { SettingsToggle as Toggle } from "@/ui/interaction/SettingsToggle"
 import { SettingsWorkspace } from "@/ui/interaction/SettingsWorkspace"
+import { useAppForm } from "@/ui/interaction/AppForm"
 interface Skill {
   name: string
   description: string
@@ -154,14 +155,12 @@ function SkillDetail({ skill, cwd }: { skill: Skill; cwd: string }) {
 }
 function AddSkillPanel({ cwd, onInstalled }: { cwd: string; onInstalled: () => void }) {
   const { t } = useI18n()
-  const [query, setQuery] = useState("")
   const [results, setResults] = useState<SkillSearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
   const [installing, setInstalling] = useState<string | null>(null)
   const [installError, setInstallError] = useState<string | null>(null)
   const [installedPkgs, setInstalledPkgs] = useState<Set<string>>(new Set())
-  const [scope, setScope] = useState<"global" | "project">("global")
   const inputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
     inputRef.current?.focus()
@@ -199,7 +198,7 @@ function AddSkillPanel({ cwd, onInstalled }: { cwd: string; onInstalled: () => v
     }
   }, [])
   const install = useCallback(
-    (pkg: string) => {
+    (pkg: string, scope: "global" | "project") => {
       setInstalling(pkg)
       setInstallError(null)
       const operation =
@@ -233,58 +232,86 @@ function AddSkillPanel({ cwd, onInstalled }: { cwd: string; onInstalled: () => v
         },
       })
     },
-    [onInstalled, scope, cwd],
+    [onInstalled, cwd],
   )
-  const installPath = scope === "global" ? "~/.pi/agent/skills/" : `${shortenPath(cwd)}/.pi/agent/skills/`
+  type SubmitMeta = { action: "search"; pkg: null } | { action: "install"; pkg: string }
+  const form = useAppForm({
+    defaultValues: { query: "", scope: "global" as "global" | "project" },
+    onSubmitMeta: { action: "search", pkg: null } as SubmitMeta,
+    onSubmit: ({ value, meta }) => {
+      if (meta.action === "search") search(value.query)
+      else install(meta.pkg, value.scope)
+    },
+  })
   return (
-    <div {...stylex.props(inlineStyles.inline14)}>
+    <form
+      {...stylex.props(inlineStyles.inline14)}
+      onSubmit={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        void form.handleSubmit({ action: "search", pkg: null })
+      }}
+    >
       {/* ── Header area ── */}
       <div {...stylex.props(inlineStyles.inline15)}>
         {/* Search row */}
         <div {...stylex.props(inlineStyles.inline17)}>
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") search(query)
-            }}
-            placeholder="e.g. react, testing, deploy"
-            {...stylex.props(inlineStyles.inline18)}
-          />
-          <button
-            onClick={() => search(query)}
-            disabled={searching || !query.trim()}
-            {...stylex.props(inlineStyles.inline19)}
-            style={{
-              cursor: searching || !query.trim() ? "not-allowed" : "pointer",
-              opacity: searching || !query.trim() ? 0.5 : 1,
-            }}
-          >
-            {t(searching ? "Searching…" : "Search")}
-          </button>
+          <form.Field name="query">
+            {(field) => (
+              <>
+                <input
+                  ref={inputRef}
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  placeholder="e.g. react, testing, deploy"
+                  {...stylex.props(inlineStyles.inline18)}
+                />
+                <button
+                  type="submit"
+                  disabled={searching || !field.state.value.trim()}
+                  {...stylex.props(inlineStyles.inline19)}
+                  style={{
+                    cursor: searching || !field.state.value.trim() ? "not-allowed" : "pointer",
+                    opacity: searching || !field.state.value.trim() ? 0.5 : 1,
+                  }}
+                >
+                  {t(searching ? "Searching…" : "Search")}
+                </button>
+              </>
+            )}
+          </form.Field>
         </div>
 
         {/* Scope + install path row */}
         <div {...stylex.props(inlineStyles.inline20)}>
-          <div {...stylex.props(inlineStyles.inline21)}>
-            {(["global", "project"] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => setScope(s)}
-                {...stylex.props(inlineStyles.inline22)}
-                style={{
-                  background: scope === s ? "var(--bg-selected)" : "none",
-                  color: scope === s ? "var(--text)" : "var(--text-dim)",
-                  fontWeight: scope === s ? 600 : 400,
-                  borderRight: s === "global" ? "1px solid var(--border)" : "none",
-                }}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-          <span {...stylex.props(inlineStyles.inline23)}>→ {installPath}</span>
+          <form.Field name="scope">
+            {(field) => (
+              <>
+                <div {...stylex.props(inlineStyles.inline21)}>
+                  {(["global", "project"] as const).map((scope) => (
+                    <button
+                      key={scope}
+                      type="button"
+                      onClick={() => field.handleChange(scope)}
+                      {...stylex.props(inlineStyles.inline22)}
+                      style={{
+                        background: field.state.value === scope ? "var(--bg-selected)" : "none",
+                        color: field.state.value === scope ? "var(--text)" : "var(--text-dim)",
+                        fontWeight: field.state.value === scope ? 600 : 400,
+                        borderRight: scope === "global" ? "1px solid var(--border)" : "none",
+                      }}
+                    >
+                      {scope}
+                    </button>
+                  ))}
+                </div>
+                <span {...stylex.props(inlineStyles.inline23)}>
+                  → {field.state.value === "global" ? "~/.pi/agent/skills/" : `${shortenPath(cwd)}/.pi/agent/skills/`}
+                </span>
+              </>
+            )}
+          </form.Field>
         </div>
 
         {/* Errors */}
@@ -319,7 +346,10 @@ function AddSkillPanel({ cwd, onInstalled }: { cwd: string; onInstalled: () => v
                   </div>
                 </div>
                 <button
-                  onClick={() => !isInstalled && !isInstalling && install(r.package)}
+                  type="button"
+                  onClick={() =>
+                    !isInstalled && !isInstalling && void form.handleSubmit({ action: "install", pkg: r.package })
+                  }
                   disabled={isInstalled || isInstalling || installing !== null}
                   {...stylex.props(inlineStyles.inline34)}
                   style={{
@@ -348,7 +378,7 @@ function AddSkillPanel({ cwd, onInstalled }: { cwd: string; onInstalled: () => v
           </div>
         )
       )}
-    </div>
+    </form>
   )
 }
 export function SkillsConfig({ cwd, onClose }: { cwd: string; onClose: () => void }) {

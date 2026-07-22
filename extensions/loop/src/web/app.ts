@@ -1,5 +1,7 @@
 import { connectWebSurfaceBrowser } from "@pipee/companion-contracts/web-surface-browser";
 import type { JsonValue, WebSurfaceSessionContext } from "@pipee/companion-contracts/web-surface";
+import { FieldApi, FormApi } from "@tanstack/form-core";
+import { Schema } from "effect";
 import {
   aggregateOwnedLoops,
   type LoopWebProjection as View,
@@ -12,6 +14,22 @@ const knownSessions = new Map<string, WebSurfaceSessionContext>();
 const views = new Map<string, { session: WebSurfaceSessionContext; view: View }>();
 let entries = new Map<string, OwnedLoop>();
 let editing: OwnedLoop | null = null;
+
+const LoopEditInput = Schema.Struct({
+  label: Schema.String,
+  prompt: Schema.String.check(Schema.isPattern(/\S/)),
+  kind: Schema.Literals(["cron", "interval", "once", "dynamic"]),
+  schedule: Schema.String,
+}).check(
+  Schema.makeFilter((value) => {
+    if (value.kind === "dynamic") return undefined;
+    if (!value.schedule.trim()) return "Schedule is required";
+    if (value.kind === "cron") return undefined;
+    const seconds = Number(value.schedule);
+    return Number.isFinite(seconds) && seconds > 0 ? undefined : "Seconds must be positive";
+  }),
+);
+const loopEditValidator = Schema.toStandardSchemaV1(LoopEditInput);
 
 const esc = (value: string | number | null | undefined) =>
   String(value ?? "").replace(
@@ -41,11 +59,6 @@ const schedule = (loop: Loop) =>
 const sessionName = (session: WebSurfaceSessionContext) => session.name || session.sessionId;
 const projectName = (session: WebSurfaceSessionContext) =>
   (session.projectRoot || session.cwd).split("/").filter(Boolean).at(-1) || session.cwd;
-const formText = (data: FormData, name: string): string => {
-  const value = data.get(name);
-  return typeof value === "string" ? value : "";
-};
-
 function render() {
   const loops = aggregateOwnedLoops([...views.values()]);
   entries = new Map(loops.map((entry) => [entry.key, entry]));
@@ -82,7 +95,7 @@ function renderModal() {
           : "";
   root.insertAdjacentHTML(
     "beforeend",
-    `<div class="overlay"><form class="modal" id="edit-form"><h2>编辑 Loop</h2><p class="muted">${esc(loop.retention === "project" ? `Project · ${projectName(editing.session)}` : `Session · ${sessionName(editing.session)}`)}</p><div class="field"><label>名称</label><input name="label" value="${esc(loop.label ?? "")}"></div><div class="field"><label>Prompt</label><textarea name="prompt">${esc(loop.prompt)}</textarea></div><div class="field"><label>完整 Schedule</label><div class="schedule-grid"><select name="kind"><option value="cron" ${kind === "cron" ? "selected" : ""}>Cron</option><option value="interval" ${kind === "interval" ? "selected" : ""}>Interval</option><option value="once" ${kind === "once" ? "selected" : ""}>Once</option><option value="dynamic" ${kind === "dynamic" ? "selected" : ""}>Dynamic</option></select><input name="schedule" value="${esc(value)}" placeholder="cron 表达式或秒数"></div><p class="muted">Retention 不可在此修改；变更所有权需重新创建。</p></div><div class="foot"><button type="button" data-action="cancel">取消</button><button class="primary" type="submit">保存修改</button></div></form></div>`,
+    `<div class="overlay"><div class="modal" id="edit-form"><h2>编辑 Loop</h2><p class="muted">${esc(loop.retention === "project" ? `Project · ${projectName(editing.session)}` : `Session · ${sessionName(editing.session)}`)}</p><div class="field"><label>名称</label><input name="label" value="${esc(loop.label ?? "")}"></div><div class="field"><label>Prompt</label><textarea name="prompt">${esc(loop.prompt)}</textarea></div><div class="field"><label>完整 Schedule</label><div class="schedule-grid"><select name="kind"><option value="cron" ${kind === "cron" ? "selected" : ""}>Cron</option><option value="interval" ${kind === "interval" ? "selected" : ""}>Interval</option><option value="once" ${kind === "once" ? "selected" : ""}>Once</option><option value="dynamic" ${kind === "dynamic" ? "selected" : ""}>Dynamic</option></select><input name="schedule" value="${esc(value)}" placeholder="cron 表达式或秒数"></div><p class="muted">Retention 不可在此修改；变更所有权需重新创建。</p></div><div class="foot"><button type="button" data-action="cancel">取消</button><button class="primary" type="button" data-action="save">保存修改</button></div></div></div>`,
   );
 }
 
@@ -103,6 +116,100 @@ void connectWebSurfaceBrowser({
     render();
   },
 }).then((client) => {
+  const createEditForm = (owned: OwnedLoop) => {
+    const kind = owned.loop.schedule._tag.toLowerCase() as "cron" | "interval" | "once" | "dynamic";
+    const scheduleValue =
+      kind === "cron"
+        ? (owned.loop.schedule.expression ?? "")
+        : kind === "interval"
+          ? String((owned.loop.schedule.periodMs ?? 60000) / 1000)
+          : kind === "once"
+            ? "60"
+            : "";
+    const form = new FormApi({
+      defaultValues: {
+        label: owned.loop.label ?? "",
+        prompt: owned.loop.prompt,
+        kind,
+        schedule: scheduleValue,
+      },
+      validators: { onSubmit: loopEditValidator },
+      onSubmit: ({ value }) => {
+        const schedule =
+          value.kind === "cron"
+            ? { kind: value.kind, expression: value.schedule }
+            : value.kind === "interval"
+              ? { kind: value.kind, periodSeconds: Number(value.schedule), runImmediately: false }
+              : value.kind === "once"
+                ? { kind: value.kind, delaySeconds: Number(value.schedule) }
+                : { kind: "dynamic" as const };
+        return client
+          .dispatch(owned.session.sessionId, {
+            _tag: "Update",
+            id: owned.loop.id,
+            label: value.label || null,
+            prompt: value.prompt,
+            schedule,
+          })
+          .then((outcome) => {
+            if (outcome._tag === "Accepted") {
+              editing = null;
+              client.notify("Loop 已更新");
+              render();
+            } else {
+              client.notify(
+                outcome._tag === "Rejected" ? outcome.reason : outcome.message,
+                "error",
+              );
+            }
+          });
+      },
+    });
+    const fields = {
+      label: new FieldApi({ form, name: "label" }),
+      prompt: new FieldApi({ form, name: "prompt" }),
+      kind: new FieldApi({ form, name: "kind" }),
+      schedule: new FieldApi({ form, name: "schedule" }),
+    };
+    const releases = [form.mount(), ...Object.values(fields).map((field) => field.mount())];
+    return { form, fields, dispose: () => releases.reverse().forEach((release) => release()) };
+  };
+  let editForm: ReturnType<typeof createEditForm> | undefined;
+  const closeEditForm = () => {
+    editForm?.dispose();
+    editForm = undefined;
+  };
+  const submitEditForm = () => {
+    if (!editForm || editForm.form.state.isSubmitting) return;
+    const current = editForm;
+    return current.form.handleSubmit().then(() => {
+      if (current.form.state.errorMap.onSubmit) client.notify("Loop 配置无效", "error");
+    });
+  };
+
+  root.addEventListener("input", (event) => {
+    const input = (event.target as Element).closest<HTMLInputElement | HTMLTextAreaElement>(
+      "#edit-form input[name], #edit-form textarea[name]",
+    );
+    if (!input || !editForm) return;
+    if (input.name === "label") editForm.fields.label.handleChange(input.value);
+    else if (input.name === "prompt") editForm.fields.prompt.handleChange(input.value);
+    else editForm.fields.schedule.handleChange(input.value);
+  });
+  root.addEventListener("change", (event) => {
+    const select = (event.target as Element).closest<HTMLSelectElement>(
+      '#edit-form select[name="kind"]',
+    );
+    if (!select || !editForm) return;
+    editForm.fields.kind.handleChange(select.value as "cron" | "interval" | "once" | "dynamic");
+  });
+  root.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.target instanceof HTMLTextAreaElement) return;
+    if (!(event.target as Element).closest("#edit-form")) return;
+    event.preventDefault();
+    void submitEditForm();
+  });
+
   root.addEventListener("click", (event) => {
     const button = (event.target as Element).closest<HTMLButtonElement>("button[data-action]");
     if (!button || button.disabled) return;
@@ -115,8 +222,13 @@ void connectWebSurfaceBrowser({
       return;
     }
     if (action === "cancel") {
+      closeEditForm();
       editing = null;
       render();
+      return;
+    }
+    if (action === "save") {
+      void submitEditForm();
       return;
     }
     const row = button.closest<HTMLElement>("[data-key]");
@@ -127,7 +239,9 @@ void connectWebSurfaceBrowser({
       return;
     }
     if (action === "edit") {
+      closeEditForm();
       editing = owned;
+      editForm = createEditForm(owned);
       render();
       return;
     }
@@ -150,35 +264,5 @@ void connectWebSurfaceBrowser({
           if (confirmed) void dispatch();
         });
   });
-  root.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (!editing) return;
-    const current = editing;
-    const data = new FormData(event.target as HTMLFormElement);
-    const kind = formText(data, "kind");
-    const raw = formText(data, "schedule");
-    const schedule =
-      kind === "cron"
-        ? { kind, expression: raw }
-        : kind === "interval"
-          ? { kind, periodSeconds: Number(raw), runImmediately: false }
-          : kind === "once"
-            ? { kind, delaySeconds: Number(raw) }
-            : { kind: "dynamic" };
-    void client
-      .dispatch(current.session.sessionId, {
-        _tag: "Update",
-        id: current.loop.id,
-        label: formText(data, "label") || null,
-        prompt: formText(data, "prompt"),
-        schedule,
-      })
-      .then((outcome) => {
-        if (outcome._tag === "Accepted") {
-          editing = null;
-          client.notify("Loop 已更新");
-        } else
-          client.notify(outcome._tag === "Rejected" ? outcome.reason : outcome.message, "error");
-      });
-  });
+  globalThis.addEventListener("pagehide", closeEditForm, { once: true });
 });

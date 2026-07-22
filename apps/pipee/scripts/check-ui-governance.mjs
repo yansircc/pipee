@@ -64,6 +64,12 @@ for (const [path, source] of sources) {
   ) {
     failures.push(`${path}: JSX prop ordering drops either the semantic class or the StyleX class`)
   }
+  if (source.includes("<form") && !source.includes('from "@/ui/interaction/AppForm"')) {
+    failures.push(`${path}: native form bypasses the TanStack AppForm owner`)
+  }
+  if (source.includes("new FormData(")) {
+    failures.push(`${path}: FormData creates a second submission state owner`)
+  }
 }
 
 const governedLayers = [
@@ -81,6 +87,14 @@ for (const [path, token] of governedLayers) {
 }
 if (!sources.get("ui/interaction/Hotkeys.ts")?.includes("@tanstack/react-hotkeys")) {
   failures.push("ui/interaction/Hotkeys.ts: TanStack Hotkeys must own application shortcuts")
+}
+if (!sources.get("ui/interaction/AppForm.tsx")?.includes("@tanstack/react-form")) {
+  failures.push("ui/interaction/AppForm.tsx: TanStack Form must own application submissions")
+}
+for (const [path, source] of sources) {
+  if (path !== "ui/interaction/AppForm.tsx" && source.includes("@tanstack/react-form")) {
+    failures.push(`${path}: TanStack Form import bypasses ui/interaction/AppForm.tsx`)
+  }
 }
 if (/onDocumentKeyDown/.test(sources.get("browser/browser-platform.ts") ?? "")) {
   failures.push("browser/browser-platform.ts: application shortcuts must not have a second listener owner")

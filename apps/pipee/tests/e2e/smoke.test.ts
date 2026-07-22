@@ -615,6 +615,8 @@ test("loads a raw-archive Web Surface through the session runtime and opaque ifr
   const asset = await request.get(catalog.surfaces[0].documentUrl)
   expect(asset.ok()).toBe(true)
   expect(asset.headers()["content-security-policy"]).toContain("connect-src 'none'")
+  expect(asset.headers()["content-security-policy"]).toContain("form-action 'none'")
+  expect(asset.headers()["content-security-policy"]).not.toContain("navigate-to")
   expect(asset.headers()["access-control-allow-origin"]).toBe("*")
   const scriptAsset = await request.get(catalog.surfaces[0].documentUrl.replace(/index\.html$/, "app.js"))
   expect(scriptAsset.ok()).toBe(true)

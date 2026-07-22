@@ -19,6 +19,7 @@ import {
 import { FolderIcon, getFileIcon } from "./FileIcons"
 import { useIsMobile } from "@/hooks/useIsMobile"
 import { useI18n } from "@/lib/i18n"
+import { useAppForm, useFormSelector } from "@/ui/interaction/AppForm"
 import { parseBashCommand } from "@/lib/bash-command"
 import { DEFAULT_TOOL_PRESET, type ToolPreset } from "@/lib/tool-presets"
 import { withApi, runApi, runBrowser } from "@/browser/api-client"
@@ -311,7 +312,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
 ) {
   const { locale, t } = useI18n()
   const isMobile = useIsMobile()
-  const [value, setValue] = useState(() => (draftKey ? (getDraft(draftKey)?.value ?? "") : ""))
+  type SubmitMode = "send" | "steer" | "followup"
+  const submitRef = useRef<(mode: SubmitMode) => void>(() => undefined)
+  const messageForm = useAppForm({
+    defaultValues: { value: draftKey ? (getDraft(draftKey)?.value ?? "") : "" },
+    onSubmitMeta: { mode: "send" as SubmitMode },
+    onSubmit: ({ meta }) => submitRef.current(meta.mode),
+  })
+  const value = useFormSelector(messageForm.store, (state) => state.values.value)
+  const setValue = useCallback(
+    (next: string | ((current: string) => string)) => {
+      const current = messageForm.state.values.value
+      messageForm.reset({ value: typeof next === "function" ? next(current) : next }, { keepDefaultValues: true })
+    },
+    [messageForm],
+  )
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false)
   const [collapsedProviders, setCollapsedProviders] = useState<Set<string>>(() => new Set())
   const [modelDropdownRect, setModelDropdownRect] = useState<{
@@ -512,7 +527,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto"
     }
-  }, [clearFiles, clearImages, draftKey])
+  }, [clearFiles, clearImages, draftKey, setValue])
   useEffect(() => {
     if (!draftKey || draftKeyRef.current !== draftKey) return
     return runBrowser(
@@ -555,7 +570,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     })
     setAttachedFiles([...(draft?.attachments ?? [])])
     setAttachmentError(null)
-  }, [draftKey])
+  }, [draftKey, setValue])
   useEffect(() => {
     const ta = textareaRef.current
     if (!ta) return
@@ -813,7 +828,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
         el.style.height = `${Math.min(el.scrollHeight, 200)}px`
       })
     },
-    [atQuery, value],
+    [atQuery, setValue, value],
   )
   useEffect(() => {
     if (atActiveIndex >= atMatches.length) {
@@ -830,20 +845,23 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
       inline: "nearest",
     })
   }, [atActiveIndex, atMenuOpen])
-  const applySlashCommand = useCallback((command: SlashCommandPaletteItem) => {
-    const nextValue = `/${command.name} `
-    setValue(nextValue)
-    setSlashMenuOpen(false)
-    setSlashActiveIndex(0)
-    onNextAnimationFrame(() => {
-      const ta = textareaRef.current
-      if (!ta) return
-      ta.focus()
-      ta.setSelectionRange(nextValue.length, nextValue.length)
-      ta.style.height = "auto"
-      ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`
-    })
-  }, [])
+  const applySlashCommand = useCallback(
+    (command: SlashCommandPaletteItem) => {
+      const nextValue = `/${command.name} `
+      setValue(nextValue)
+      setSlashMenuOpen(false)
+      setSlashActiveIndex(0)
+      onNextAnimationFrame(() => {
+        const ta = textareaRef.current
+        if (!ta) return
+        ta.focus()
+        ta.setSelectionRange(nextValue.length, nextValue.length)
+        ta.style.height = "auto"
+        ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`
+      })
+    },
+    [setValue],
+  )
   const sendQueued = useCallback(
     (mode: "steer" | "followup") => {
       if (sendDisabled) return
@@ -882,6 +900,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
       sendDisabled,
     ],
   )
+  submitRef.current = (mode) => {
+    if (mode === "send") handleSend()
+    else sendQueued(mode)
+  }
   const getNextSlashIndex = useCallback(
     (direction: "up" | "down" | "left" | "right") => {
       const lastIndex = filteredSlashCommands.length - 1
@@ -987,9 +1009,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
         e.preventDefault()
         if (isStreaming && (onSteer || onFollowUp)) {
           // Default Enter sends as steer if available, else followup
-          sendQueued(onSteer ? "steer" : "followup")
+          void messageForm.handleSubmit({ mode: onSteer ? "steer" : "followup" })
         } else {
-          handleSend()
+          void messageForm.handleSubmit({ mode: "send" })
         }
       }
     },
@@ -1002,8 +1024,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
       filteredSlashCommands,
       slashActiveIndex,
       applySlashCommand,
-      sendQueued,
-      handleSend,
+      messageForm,
       getNextSlashIndex,
       atMenuOpen,
       atQuery,
@@ -1157,7 +1178,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
         updateAtQuery(next, next.length)
       })
     },
-    [updateAtQuery],
+    [setValue, updateAtQuery],
   )
   return (
     <div
@@ -1466,49 +1487,54 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
               } as React.CSSProperties
             }
           >
-            <textarea
-              ref={textareaRef}
-              value={value}
-              disabled={sessionLoading}
-              onChange={(e) => {
-                setValue(e.target.value)
-                updateAtQuery(e.target.value, e.target.selectionStart)
-              }}
-              onSelect={(e) => {
-                const el = e.currentTarget
-                updateAtQuery(el.value, el.selectionStart)
-              }}
-              onKeyDown={handleKeyDown}
-              onCompositionStart={() => {
-                isComposingRef.current = true
-              }}
-              onCompositionEnd={(e) => {
-                isComposingRef.current = false
-                lastCompositionEndAtRef.current = e.timeStamp
-                const el = e.currentTarget
-                updateAtQuery(el.value, el.selectionStart)
-              }}
-              onInput={handleInput}
-              onPaste={handlePaste}
-              placeholder={
-                isBashRunning
-                  ? t("Shell command is running…")
-                  : isStreaming && (onSteer || onFollowUp)
-                    ? t("Steer now / queue follow-up...")
-                    : isStreaming
-                      ? t("Agent is running…")
-                      : t("Message… Type / for commands, @ for files")
-              }
-              rows={1}
-              aria-keyshortcuts={focusComposerAriaKeyshortcuts}
-              {...stylex.props(inlineStyles.inline51)}
-            />
+            <messageForm.Field name="value">
+              {(field) => (
+                <textarea
+                  ref={textareaRef}
+                  value={field.state.value}
+                  disabled={sessionLoading}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => {
+                    field.handleChange(event.target.value)
+                    updateAtQuery(event.target.value, event.target.selectionStart)
+                  }}
+                  onSelect={(event) => {
+                    const element = event.currentTarget
+                    updateAtQuery(element.value, element.selectionStart)
+                  }}
+                  onKeyDown={handleKeyDown}
+                  onCompositionStart={() => {
+                    isComposingRef.current = true
+                  }}
+                  onCompositionEnd={(event) => {
+                    isComposingRef.current = false
+                    lastCompositionEndAtRef.current = event.timeStamp
+                    const element = event.currentTarget
+                    updateAtQuery(element.value, element.selectionStart)
+                  }}
+                  onInput={handleInput}
+                  onPaste={handlePaste}
+                  placeholder={
+                    isBashRunning
+                      ? t("Shell command is running…")
+                      : isStreaming && (onSteer || onFollowUp)
+                        ? t("Steer now / queue follow-up...")
+                        : isStreaming
+                          ? t("Agent is running…")
+                          : t("Message… Type / for commands, @ for files")
+                  }
+                  rows={1}
+                  aria-keyshortcuts={focusComposerAriaKeyshortcuts}
+                  {...stylex.props(inlineStyles.inline51)}
+                />
+              )}
+            </messageForm.Field>
 
             {isStreaming ? (
               <div {...stylex.props(inlineStyles.inline52)}>
                 {onSteer && (
                   <button
-                    onClick={() => sendQueued("steer")}
+                    onClick={() => void messageForm.handleSubmit({ mode: "steer" })}
                     disabled={!canQueueStreamingMessage}
                     title={
                       hasAttachments
@@ -1540,7 +1566,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                 )}
                 {onFollowUp && (
                   <button
-                    onClick={() => sendQueued("followup")}
+                    onClick={() => void messageForm.handleSubmit({ mode: "followup" })}
                     disabled={!canQueueStreamingMessage}
                     title={
                       hasAttachments
@@ -1574,7 +1600,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
               </div>
             ) : (
               <button
-                onClick={handleSend}
+                onClick={() => void messageForm.handleSubmit({ mode: "send" })}
                 disabled={
                   sendDisabled || sessionLoading || (!value.trim() && !hasAttachments) || uploadingAttachments > 0
                 }

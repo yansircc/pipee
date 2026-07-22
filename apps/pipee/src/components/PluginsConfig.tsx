@@ -7,6 +7,7 @@ import { runApi, withApi } from "@/browser/api-client"
 import { PI_COMPANION_PACKAGE_NAMES } from "@/lib/plugin-package-settings"
 import { SettingsToggle as Toggle } from "@/ui/interaction/SettingsToggle"
 import { SettingsWorkspace } from "@/ui/interaction/SettingsWorkspace"
+import { useAppForm } from "@/ui/interaction/AppForm"
 import { useToast } from "@/ui/feedback/Toast"
 type PluginScope = PluginPackageInfo["scope"]
 type PluginAction = "install" | "remove" | "update" | "disable" | "enable"
@@ -237,42 +238,47 @@ function SegmentedScope({
 function AddPluginPanel({
   cwd,
   projectCwds = [],
-  projectCwd,
-  source,
-  scope,
   busy,
   actionError,
-  onSourceChange,
-  onScopeChange,
-  onProjectCwdChange,
   onInstall,
   onClose,
 }: {
   cwd: string | null
   projectCwds?: ReadonlyArray<string>
-  projectCwd?: string | null
-  source: string
-  scope: PluginScope
   busy: boolean
   actionError: string | null
-  onSourceChange: (value: string) => void
-  onScopeChange: (scope: PluginScope) => void
-  onProjectCwdChange?: (cwd: string) => void
-  onInstall: () => void
+  onInstall: (value: { source: string; scope: PluginScope; projectCwd: string | null }) => void
   onClose?: () => void
 }) {
   const { t } = useI18n()
   const inputRef = useRef<HTMLInputElement>(null)
   const examples = ["npm:@scope/pi-plugin", "git:https://github.com/user/repo", "/absolute/path/to/plugin"]
+  const form = useAppForm({
+    defaultValues: {
+      source: "",
+      scope: "global" as PluginScope,
+      projectCwd: projectCwds[0] ?? null,
+    },
+    onSubmit: ({ value }) => onInstall({ ...value, source: value.source.trim() }),
+  })
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
   return (
-    <div {...stylex.props(inlineStyles.inline13)}>
+    <form
+      {...stylex.props(inlineStyles.inline13)}
+      onSubmit={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        void form.handleSubmit()
+      }}
+    >
       <div {...stylex.props(inlineStyles.inline14)}>
         <div {...stylex.props(inlineStyles.addHeaderCopy)}>
           <div {...stylex.props(inlineStyles.inline15)}>{t("Add Plugin")}</div>
-          <div {...stylex.props(inlineStyles.inline16)}>{installLocation(scope, cwd)}</div>
+          <form.Subscribe selector={(state) => state.values.scope}>
+            {(scope) => <div {...stylex.props(inlineStyles.inline16)}>{installLocation(scope, cwd)}</div>}
+          </form.Subscribe>
         </div>
         {onClose && (
           <button {...stylex.props(inlineStyles.pageCloseButton)} onClick={onClose}>
@@ -285,48 +291,67 @@ function AddPluginPanel({
         <label htmlFor="plugin-source" {...stylex.props(inlineStyles.inline18)}>
           {t("Source")}
         </label>
-        <input
-          id="plugin-source"
-          ref={inputRef}
-          value={source}
-          onChange={(e) => onSourceChange(e.target.value)}
-          placeholder="npm:@scope/package"
-          {...stylex.props(inlineStyles.inline19)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && source.trim() && !busy) onInstall()
-          }}
-        />
+        <form.Field name="source">
+          {(field) => (
+            <input
+              id="plugin-source"
+              ref={inputRef}
+              value={field.state.value}
+              onBlur={field.handleBlur}
+              onChange={(event) => field.handleChange(event.target.value)}
+              placeholder="npm:@scope/package"
+              {...stylex.props(inlineStyles.inline19)}
+            />
+          )}
+        </form.Field>
       </div>
 
       <div {...stylex.props(inlineStyles.inline20)}>
-        <SegmentedScope value={scope} onChange={onScopeChange} allowProject={cwd !== null} />
-        {scope === "project" && projectCwds.length > 0 && onProjectCwdChange && (
-          <select
-            aria-label="Project plugin owner"
-            value={projectCwd ?? projectCwds[0]}
-            onChange={(event) => onProjectCwdChange(event.target.value)}
-            {...stylex.props(inlineStyles.pageProjectSelect)}
-          >
-            {projectCwds.map((project) => (
-              <option key={project} value={project}>
-                {shortenPath(project)}
-              </option>
-            ))}
-          </select>
-        )}
-        <button
-          type="button"
-          onClick={onInstall}
-          disabled={busy || !source.trim()}
-          style={{
-            ...buttonStyle(busy || !source.trim()),
-            background: "var(--accent)",
-            color: "white",
-            borderColor: "var(--accent)",
-          }}
-        >
-          {t(busy ? "Installing..." : "Install")}
-        </button>
+        <form.Field name="scope">
+          {(scopeField) => (
+            <>
+              <SegmentedScope
+                value={scopeField.state.value}
+                onChange={scopeField.handleChange}
+                allowProject={cwd !== null}
+              />
+              {scopeField.state.value === "project" && projectCwds.length > 0 && (
+                <form.Field name="projectCwd">
+                  {(projectField) => (
+                    <select
+                      aria-label="Project plugin owner"
+                      value={projectField.state.value ?? projectCwds[0]}
+                      onChange={(event) => projectField.handleChange(event.target.value)}
+                      {...stylex.props(inlineStyles.pageProjectSelect)}
+                    >
+                      {projectCwds.map((project) => (
+                        <option key={project} value={project}>
+                          {shortenPath(project)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </form.Field>
+              )}
+            </>
+          )}
+        </form.Field>
+        <form.Subscribe selector={(state) => [state.values.source, state.canSubmit] as const}>
+          {([source, canSubmit]) => (
+            <button
+              type="submit"
+              disabled={busy || !canSubmit || !source.trim()}
+              style={{
+                ...buttonStyle(busy || !canSubmit || !source.trim()),
+                background: "var(--accent)",
+                color: "white",
+                borderColor: "var(--accent)",
+              }}
+            >
+              {t(busy ? "Installing..." : "Install")}
+            </button>
+          )}
+        </form.Subscribe>
       </div>
 
       <div {...stylex.props(inlineStyles.inline21)}>
@@ -336,7 +361,7 @@ function AddPluginPanel({
             <button
               key={example}
               type="button"
-              onClick={() => onSourceChange(example)}
+              onClick={() => form.reset({ ...form.state.values, source: example }, { keepDefaultValues: true })}
               {...stylex.props(inlineStyles.inline24)}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = "var(--bg-hover)"
@@ -354,7 +379,7 @@ function AddPluginPanel({
       </div>
 
       {actionError && <div {...stylex.props(inlineStyles.inline25)}>{actionError}</div>}
-    </div>
+    </form>
   )
 }
 function PackageDetail({
@@ -510,9 +535,6 @@ export function PluginsConfig({
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [addMode, setAddMode] = useState(false)
-  const [installSource, setInstallSource] = useState("")
-  const [installScope, setInstallScope] = useState<PluginScope>("global")
-  const [installProjectCwd, setInstallProjectCwd] = useState<string | null>(projectCwds[0] ?? null)
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [pageQuery, setPageQuery] = useState("")
@@ -582,11 +604,6 @@ export function PluginsConfig({
     loadPlugins()
     loadUpdates()
   }, [loadPlugins, loadUpdates])
-  useEffect(() => {
-    setInstallProjectCwd((current) =>
-      current !== null && projectCwds.includes(current) ? current : (projectCwds[0] ?? null),
-    )
-  }, [projectCwds])
   const runAction = useCallback(
     (action: PluginAction, pkg: PluginPackageInfo) => {
       const key = packageKey(pkg)
@@ -638,70 +655,60 @@ export function PluginsConfig({
     },
     [cwd, loadPlugins, loadUpdates, onReloaded, presentation, pushToast, t],
   )
-  const installPlugin = useCallback(() => {
-    const source = installSource.trim()
-    if (!source) return
-    const key = `${installScope}\0${source}`
-    setBusyKey(`install:${key}`)
-    setActionError(null)
-    const installCwd = installScope === "project" ? installProjectCwd : presentation === "page" ? null : cwd
-    if (installScope === "project" && installCwd === null) return
-    runApi(
-      withApi((api) =>
-        api.packages.pluginAction({
-          payload: {
-            action: "install",
-            source,
-            scope: installScope,
-            ...(installCwd === null
-              ? {}
-              : {
-                  cwd: installCwd,
-                }),
-          },
-        }),
-      ),
-      {
-        onSuccess: (response) => {
-          if (presentation === "page") {
+  const installPlugin = useCallback(
+    (value: { source: string; scope: PluginScope; projectCwd: string | null }) => {
+      const source = value.source.trim()
+      if (!source) return
+      const key = `${value.scope}\0${source}`
+      setBusyKey(`install:${key}`)
+      setActionError(null)
+      const installCwd = value.scope === "project" ? value.projectCwd : presentation === "page" ? null : cwd
+      if (value.scope === "project" && installCwd === null) return
+      runApi(
+        withApi((api) =>
+          api.packages.pluginAction({
+            payload: {
+              action: "install",
+              source,
+              scope: value.scope,
+              ...(installCwd === null
+                ? {}
+                : {
+                    cwd: installCwd,
+                  }),
+            },
+          }),
+        ),
+        {
+          onSuccess: (response) => {
+            if (presentation === "page") {
+              setAddMode(false)
+              pushToast({ message: t("Package installed."), type: "success" })
+              setBusyKey(null)
+              loadPlugins()
+              loadUpdates()
+              onReloaded?.()
+              return
+            }
+            const next = clonePlugins(response)
+            setData(next)
+            const installed = findInstalledPackage(next.packages, source, value.scope)
+            setSelected(installed ? packageKey(installed) : key)
             setAddMode(false)
-            setInstallSource("")
             pushToast({ message: t("Package installed."), type: "success" })
             setBusyKey(null)
-            loadPlugins()
             loadUpdates()
             onReloaded?.()
-            return
-          }
-          const next = clonePlugins(response)
-          setData(next)
-          const installed = findInstalledPackage(next.packages, source, installScope)
-          setSelected(installed ? packageKey(installed) : key)
-          setAddMode(false)
-          setInstallSource("")
-          pushToast({ message: t("Package installed."), type: "success" })
-          setBusyKey(null)
-          loadUpdates()
-          onReloaded?.()
+          },
+          onFailure: (failure) => {
+            setActionError(failure instanceof Error ? failure.message : String(failure))
+            setBusyKey(null)
+          },
         },
-        onFailure: (failure) => {
-          setActionError(failure instanceof Error ? failure.message : String(failure))
-          setBusyKey(null)
-        },
-      },
-    )
-  }, [
-    cwd,
-    installProjectCwd,
-    installScope,
-    installSource,
-    loadPlugins,
-    loadUpdates,
-    onReloaded,
-    presentation,
-    pushToast,
-    t,
-  ])
+      )
+    },
+    [cwd, loadPlugins, loadUpdates, onReloaded, presentation, pushToast, t],
+  )
   const reloadSession = useCallback(() => {
     if (!sessionId) return
     setBusyKey("reload")
@@ -883,16 +890,10 @@ export function PluginsConfig({
             <div {...stylex.props(inlineStyles.pageAddModal)} onClick={(event) => event.stopPropagation()}>
               <div {...stylex.props(inlineStyles.pageAddBody)}>
                 <AddPluginPanel
-                  cwd={presentation === "page" ? installProjectCwd : cwd}
+                  cwd={presentation === "page" ? (projectCwds[0] ?? null) : cwd}
                   projectCwds={projectCwds}
-                  projectCwd={installProjectCwd}
-                  source={installSource}
-                  scope={installScope}
                   busy={addBusy}
                   actionError={actionError}
-                  onSourceChange={setInstallSource}
-                  onScopeChange={setInstallScope}
-                  onProjectCwdChange={setInstallProjectCwd}
                   onInstall={installPlugin}
                   onClose={() => setAddMode(false)}
                 />
@@ -1028,16 +1029,7 @@ export function PluginsConfig({
 
         <div {...stylex.props(inlineStyles.inline87)}>
           {addMode ? (
-            <AddPluginPanel
-              cwd={cwd}
-              source={installSource}
-              scope={installScope}
-              busy={addBusy}
-              actionError={actionError}
-              onSourceChange={setInstallSource}
-              onScopeChange={setInstallScope}
-              onInstall={installPlugin}
-            />
+            <AddPluginPanel cwd={cwd} busy={addBusy} actionError={actionError} onInstall={installPlugin} />
           ) : loading ? null : selectedPackage ? (
             <PackageDetail
               key={packageKey(selectedPackage)}
