@@ -16,6 +16,10 @@ const materializer = readFileSync(
   resolve(root, "tooling/release/materialize-release-candidate.mjs"),
   "utf8",
 );
+const candidatePipeline = readFileSync(
+  resolve(root, "tooling/release/candidate-pipeline.mjs"),
+  "utf8",
+);
 
 it("runs candidate code only in a manually dispatched read-only witness workflow", () => {
   assert.match(candidate, /workflow_dispatch:/);
@@ -168,6 +172,24 @@ it("has one release entry and no compatibility release path", () => {
     submitter.indexOf('git", ["fetch", "origin", "main"') <
       submitter.indexOf("materialize-release-candidate.mjs"),
   );
+});
+
+it("serializes every local candidate archive writer and reader", () => {
+  const manifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+  for (const script of [
+    "release:build-candidates",
+    "verify:candidates",
+    "verify:consumers",
+    "verify:platform",
+    "verify:chrome-candidate",
+  ]) {
+    assert.match(
+      manifest.scripts[script],
+      /^node tooling\/run-with-checkout-lease\.mjs release-candidates /,
+    );
+  }
+  assert.match(candidatePipeline, /pnpm", \["release:build-candidates"/);
+  assert.doesNotMatch(candidatePipeline, /node", \["tooling\/release\/build-candidates\.mjs"/);
 });
 
 it("reports an ordinary nonzero child exit without dereferencing a null spawn error", () => {

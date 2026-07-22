@@ -3,7 +3,7 @@ import { run } from "./lib.mjs";
 const [phase, releaseSha] = process.argv.slice(2);
 
 const buildCandidate = (release) => {
-  run("node", ["tooling/release/build-candidates.mjs", "--release-sha", release]);
+  run("pnpm", ["release:build-candidates", "--", "--release-sha", release]);
 };
 
 const verifyCandidate = () => {
