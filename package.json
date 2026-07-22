@@ -15,6 +15,7 @@
     "prepare": "effect-tsgo patch --typescript-package typescript",
     "check:brand": "node tooling/release/verify-brand.mjs",
     "check:workspace": "node tooling/release/verify-workspace.mjs",
+    "test:tooling": "node --test tooling/*.test.mjs",
     "test:release": "node --test tooling/release/*.test.mjs",
     "release:build-candidates": "node tooling/release/build-candidates.mjs",
     "verify:candidates": "node tooling/release/verify-candidates.mjs",
@@ -23,7 +24,8 @@
     "verify:chrome-candidate": "node tooling/release/verify-chrome-candidate.mjs",
     "verify:registry": "node tooling/release/verify-registry.mjs",
     "verify:packages": "pnpm -r --if-present run verify",
-    "verify": "pnpm run check:brand && pnpm run check:workspace && pnpm run test:release && pnpm run verify:packages",
+    "verify": "node tooling/verify.mjs",
+    "verify:exclusive": "pnpm run check:brand && pnpm run check:workspace && pnpm run test:tooling && pnpm run test:release && pnpm run verify:packages",
     "release:materialize": "node tooling/release/materialize-release-candidate.mjs",
     "release:submit": "node tooling/release/submit-release-candidate.mjs"
   },
@@ -31,6 +33,7 @@
     "@effect/tsgo": "catalog:",
     "acorn": "8.15.0",
     "cross-spawn": "7.0.6",
+    "proper-lockfile": "4.1.2",
     "tar": "7.5.20",
     "typescript": "catalog:",
     "vite-plus": "catalog:"

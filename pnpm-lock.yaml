@@ -74,6 +74,9 @@ importers:
       cross-spawn:
         specifier: 7.0.6
         version: 7.0.6
+      proper-lockfile:
+        specifier: 4.1.2
+        version: 4.1.2
       tar:
         specifier: 7.5.20
         version: 7.5.20

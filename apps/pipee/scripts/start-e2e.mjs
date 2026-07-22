@@ -5,8 +5,12 @@ import { dirname, join } from "node:path"
 import process from "node:process"
 import { stripVTControlCharacters } from "node:util"
 import { x as extractArchive } from "tar"
+import { acquireCheckoutLease } from "../../../tooling/verify-lease.mjs"
 
 const root = fileURLToPath(new URL("..", import.meta.url))
+console.log("Waiting for the checkout-scoped Pipee E2E lease...")
+const releaseE2eLease = await acquireCheckoutLease(root, "e2e")
+console.log("Acquired the checkout-scoped Pipee E2E lease.")
 const fixtureRoot = join(root, "test-results", "e2e-fixture")
 const home = join(fixtureRoot, "home")
 const workspace = join(fixtureRoot, "workspace")
@@ -546,4 +550,5 @@ const exitCode = await new Promise((resolve, reject) => {
   playwright.once("error", reject)
   playwright.once("exit", (code) => resolve(code ?? 1))
 }).finally(closeServer)
+await releaseE2eLease()
 process.exitCode = exitCode
