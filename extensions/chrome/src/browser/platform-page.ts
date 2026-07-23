@@ -1,8 +1,4 @@
-import {
-  PAGE_HELPERS,
-  installPiChromeInstrumentation,
-  projectEvaluationValue,
-} from "./injected/actions.js";
+import { PAGE_HELPERS, projectEvaluationValue } from "./injected/actions.js";
 import type { WirePageCall } from "../protocol/schema.js";
 import type { JsonValue } from "../protocol/json-value.js";
 import {
@@ -620,10 +616,7 @@ export async function inspectInTab(params: InspectParams) {
 
 // The page boundary owns source composition; the debugger session owner owns registration,
 // navigation generation, and removal as one per-tab lease.
-export function navigationInitScriptSource(userSource?: string): string {
-  const earlyCaptureSource = `(${installPiChromeInstrumentation.toString()})();`;
-  return userSource ? `${earlyCaptureSource}\n${userSource}` : earlyCaptureSource;
-}
+export const navigationInitScriptSource = (userSource?: string): string | undefined => userSource;
 
 export async function takeScreenshot(params: ScreenshotParams) {
   const { tab } = params;

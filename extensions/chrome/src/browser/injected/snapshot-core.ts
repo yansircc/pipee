@@ -8,11 +8,9 @@ import {
   registerFrontier,
   rememberElement,
 } from "./action-core.js";
-import { installPiChromeInstrumentation } from "./action-instrumentation.js";
 
 export {
   getPiChromeState,
-  installPiChromeInstrumentation,
   isElementVisible,
   lookupFrontier,
   lookupPiChromeElement,

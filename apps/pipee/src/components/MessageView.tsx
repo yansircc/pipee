@@ -2299,11 +2299,13 @@ const inlineStyles = stylex.create({
     alignSelf: "flex-start",
     borderRadius: 4,
     color: "#fff",
+    flex: "0 0 auto",
     fontSize: 11,
     fontVariantNumeric: "tabular-nums",
     fontWeight: 500,
     lineHeight: "16px",
     padding: "1px 6px",
+    whiteSpace: "nowrap",
   },
   inline85: {
     display: "flex",

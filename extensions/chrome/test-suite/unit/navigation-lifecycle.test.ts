@@ -672,14 +672,13 @@ it("removes the one-shot init script when Page.navigate rejects", async () => {
     "Page.navigate",
     "Page.removeScriptToEvaluateOnNewDocument",
   ]);
-  expect(cdpCommands[2]?.params.source).toContain("instrumentationInstalled");
   expect(cdpCommands[2]?.params.source).toContain("globalThis.__navigationLifecycle = true");
   expect(cdpCommands.at(-1)?.params).toEqual({ identifier: "init-script-1" });
   expect(cdpCommands.every(({ tabId }) => tabId === 7)).toBe(true);
   expect(targetMocks.getTabByParams).toHaveBeenCalledTimes(1);
 });
 
-it("arms early capture only inside an explicitly dispatched Pi navigation", async () => {
+it("does not inject diagnostics into an ordinary Pi navigation", async () => {
   const command = {
     id: "navigate-with-early-capture",
     domain: "page",
@@ -704,11 +703,8 @@ it("arms early capture only inside an explicitly dispatched Pi navigation", asyn
   expect(cdpCommands.map(({ method }) => method)).toEqual([
     "Page.enable",
     "Page.setLifecycleEventsEnabled",
-    "Page.addScriptToEvaluateOnNewDocument",
     "Page.navigate",
-    "Page.removeScriptToEvaluateOnNewDocument",
   ]);
-  expect(cdpCommands[2]?.params.source).toContain("instrumentationInstalled");
   expect(initScripts.size).toBe(0);
 });
 

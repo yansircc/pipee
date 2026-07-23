@@ -65,7 +65,7 @@ export type NavigateTabRequest = {
   readonly url: string;
   readonly milestone: NavigationMilestone;
   readonly timeoutMs: number;
-  readonly initScriptSource: string;
+  readonly initScriptSource?: string | undefined;
 };
 
 type AttachingDebugger = {
@@ -732,9 +732,10 @@ export const navigateTab = (request: NavigateTabRequest): Promise<NavigationComp
 const installNavigationInitScript = async (
   tabId: number,
   session: AttachedTab,
-  source: string,
+  source: string | undefined,
 ): Promise<void> => {
   await removeNavigationInitScript(tabId);
+  if (source === undefined) return;
   if (attachedSession(tabId) !== session) {
     throw new Error(`Chrome debugger detached before registering an init script for tab ${tabId}`);
   }

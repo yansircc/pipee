@@ -65,8 +65,8 @@ it("prunes thousands of replacements and fails closed for detached or evicted UI
   expect(lookupPiChromeElement(initialUids[0]!)).toBeUndefined();
   expect(lookupPiChromeElement(latestUid)).toBe(latestReplacement);
 
-  state.instrumentationInstalled = true;
   expect(() => inspectTarget(initialUids[0]!, null, false)).toThrow("Take a fresh chrome_snapshot");
+  expect(state.instrumentationInstalled).toBe(false);
 });
 
 it("does one full live sweep per entry instead of one per remembered element", () => {

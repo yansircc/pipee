@@ -2,7 +2,6 @@ import { ACTION_ELEMENT_SELECTOR, actionRefForElementSummary } from "../action-e
 import {
   accessibleLabel,
   getPiChromeState,
-  installPiChromeInstrumentation,
   isElementVisible,
   lookupPiChromeElement,
   lookupFrontier,
@@ -56,7 +55,6 @@ export function snapshotPage(
   maxTextChars: number | null | undefined,
   observationRef: string | null | undefined,
 ): PageSnapshot {
-  installPiChromeInstrumentation();
   const state = getPiChromeState();
   prunePiChromeElements(state);
   mode = (
@@ -260,7 +258,6 @@ export function readPage(
   query: string | null | undefined,
   observationRef: string | null | undefined,
 ): ReadPageResult {
-  installPiChromeInstrumentation();
   const state = getPiChromeState();
   prunePiChromeElements(state);
   let root: Document | Element = document;
@@ -351,7 +348,6 @@ export function inspectTarget(
   selector: string | null | undefined,
   shouldScrollIntoView: boolean,
 ) {
-  installPiChromeInstrumentation();
   const state = getPiChromeState();
   prunePiChromeElements(state);
   let element: Element | null | undefined = null;

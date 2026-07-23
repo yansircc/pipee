@@ -732,6 +732,11 @@ code {
   gap: 8px;
   margin-bottom: 24px !important;
 }
+.turn-telemetry > details {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+}
 .scroll-to-latest {
   bottom: 12px;
   left: 50%;
