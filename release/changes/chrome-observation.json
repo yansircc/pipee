@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "changes": [
+    {
+      "package": "@yansircc/pipee",
+      "bump": "patch"
+    },
+    {
+      "package": "@yansircc/pi-chrome",
+      "bump": "patch"
+    }
+  ]
+}
