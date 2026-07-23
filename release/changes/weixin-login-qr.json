@@ -1,9 +1,0 @@
-{
-  "schemaVersion": 1,
-  "changes": [
-    {
-      "package": "@yansircc/pi-weixin",
-      "bump": "patch"
-    }
-  ]
-}
