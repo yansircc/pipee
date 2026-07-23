@@ -16,6 +16,11 @@ export interface WeixinLoginProjection {
   readonly qrDataUrl?: string;
 }
 
+export const mergeWeixinLoginProjection = (
+  current: WeixinLoginProjection | undefined,
+  update: WeixinLoginProjection,
+): WeixinLoginProjection => ({ ...current, ...update });
+
 export const projectWeixinWebView = (
   status: BridgeStatus | undefined,
   sessionId: string,

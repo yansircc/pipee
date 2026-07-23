@@ -1,6 +1,10 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Schema } from "effect";
-import { projectWeixinWebView, WeixinWebAction } from "../src/web-surface.ts";
+import {
+  mergeWeixinLoginProjection,
+  projectWeixinWebView,
+  WeixinWebAction,
+} from "../src/web-surface.ts";
 
 describe("Weixin Web Surface algebra", () => {
   it("decodes only finite bridge actions", () => {
@@ -38,5 +42,17 @@ describe("Weixin Web Surface algebra", () => {
         "/workspace",
       ),
     ).toMatchObject({ account: "wx-1", phase: "Connected", defaultSessionId: "session-1" });
+  });
+
+  it("preserves the current QR code when a login event advances only the phase", () => {
+    const awaitingScan = mergeWeixinLoginProjection(
+      { phase: "正在获取二维码" },
+      { phase: "等待微信扫码", qrDataUrl: "data:image/png;base64,qr" },
+    );
+
+    expect(mergeWeixinLoginProjection(awaitingScan, { phase: "等待微信扫码" })).toEqual({
+      phase: "等待微信扫码",
+      qrDataUrl: "data:image/png;base64,qr",
+    });
   });
 });

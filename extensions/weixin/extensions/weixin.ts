@@ -31,6 +31,7 @@ import { projectSessionStatus, sameSessionStatus } from "../src/session-status.t
 import { makeStatusSync } from "../src/status-sync.ts";
 import { projectWeixinArtifact, publishWeixinLivePresentation } from "../src/presentation.ts";
 import {
+  mergeWeixinLoginProjection,
   projectWeixinWebView,
   WeixinWebAction,
   type WeixinLoginProjection,
@@ -436,13 +437,13 @@ export default function weixinExtension(pi: ExtensionAPI): void {
                           ),
                         );
                         yield* login(ctx, (projection) => {
-                          loginProjection = projection;
+                          loginProjection = mergeWeixinLoginProjection(loginProjection, projection);
                           surfaceSlot?.replace(
                             projectWeixinWebView(
                               latestStatus,
                               ctx.sessionManager.getSessionId(),
                               ctx.cwd,
-                              projection,
+                              loginProjection,
                             ),
                           );
                         });
