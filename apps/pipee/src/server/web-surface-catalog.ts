@@ -5,6 +5,7 @@ import {
 } from "@pipee/companion-contracts/web-surface"
 import { PiAgentAdapter } from "./pi-agent-adapter"
 import { SessionRepository } from "./session-repository"
+import { SessionRuntimeRegistry } from "./session-runtime-registry"
 import {
   WebSurfaceCandidateError,
   assertUniqueWebSurfaceCandidates,
@@ -39,6 +40,7 @@ export class WebSurfaceCatalog extends Context.Service<
 const live = Effect.gen(function* () {
   const sessions = yield* SessionRepository
   const adapter = yield* PiAgentAdapter
+  const registry = yield* SessionRuntimeRegistry
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const readCandidate = (root: string) =>
@@ -49,7 +51,12 @@ const live = Effect.gen(function* () {
   return WebSurfaceCatalog.of({
     read: (sessionId) =>
       Effect.gen(function* () {
-        const snapshot = yield* sessions.snapshot(sessionId, { limit: 1, deferMedia: true }).pipe(
+        // A newly created Pi session is live before its first entry is persisted.
+        // The registry owns that ephemeral runtime, so it is the only valid fallback
+        // for locating package resources until SessionRepository can read the file.
+        const persisted = yield* sessions.snapshot(sessionId, { limit: 1, deferMedia: true }).pipe(
+          Effect.map((snapshot) => snapshot),
+          Effect.catch((error) => (error.notFoundId === sessionId ? Effect.succeed(null) : Effect.fail(error))),
           Effect.mapError(
             (error) =>
               new WebSurfaceCatalogError({
@@ -59,11 +66,12 @@ const live = Effect.gen(function* () {
               }),
           ),
         )
-        const cwd = snapshot.info?.cwd
+        const active = persisted === null ? yield* registry.activeOption(sessionId) : null
+        const cwd = persisted?.info?.cwd ?? active?.runtime.cwd
         if (cwd === undefined) {
           return yield* new WebSurfaceCatalogError({
             operation: "catalog.session",
-            message: "Session workspace is unavailable",
+            message: "Session is not available",
             notFound: true,
           })
         }

@@ -15,6 +15,7 @@
   },
   "files": [
     "dist/pi",
+    "dist/web",
     "wordpress-plugin",
     "mvp-theme"
   ],
@@ -26,7 +27,9 @@
     "verify": "pnpm run repo:verify && pnpm run pi:verify",
     "repo:verify": "vp run quality",
     "test": "vp test",
-    "pi:build": "node ../../tooling/pi-extension/build.mjs .",
+    "pi:web-build": "node ../../tooling/pi-extension/build-web.mjs .",
+    "pi:assets-build": "pnpm run pi:web-build",
+    "pi:build": "pnpm run pi:assets-build && node ../../tooling/pi-extension/build.mjs .",
     "pi:bundle-check": "node ../../tooling/pi-extension/verify-distribution.mjs . bundle",
     "pi:distribution-check": "node ../../tooling/pi-extension/verify-distribution.mjs . package",
     "pi:verify": "pnpm run pi:build && pnpm run pi:bundle-check"
@@ -60,5 +63,12 @@
     "extensions": [
       "./dist/pi/extension.js"
     ]
+  },
+  "pipee": {
+    "web": {
+      "contract": "pipee/web-surface@2",
+      "document": "./dist/web/index.html",
+      "title": "zeroY Sites"
+    }
   }
 }

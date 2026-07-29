@@ -3,12 +3,12 @@ export default Object.freeze({
   hostModules: Object.freeze(["@earendil-works/pi-coding-agent"]),
   profile: Object.freeze({
     kind: "multi-file",
-    assets: Object.freeze(["wordpress-plugin", "mvp-theme"]),
+    assets: Object.freeze(["dist/web", "wordpress-plugin", "mvp-theme"]),
   }),
   expected: Object.freeze({
     commands: Object.freeze([]),
     tools: Object.freeze(["zeroy_content_apply", "zeroy_inspect", "zeroy_theme_apply"]),
-    handlers: Object.freeze([]),
+    handlers: Object.freeze(["session_shutdown", "session_start"]),
     skills: Object.freeze([]),
   }),
 });

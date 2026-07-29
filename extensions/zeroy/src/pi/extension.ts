@@ -1,184 +1,88 @@
-import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type, type Static } from "@sinclair/typebox";
-import type { PresentationDocument } from "@pipee/companion-contracts/presentation";
-import { withPresentation } from "@pipee/extension-kit";
-import { Config, Data, Effect, Layer, ManagedRuntime, Redacted } from "effect";
+import type {
+  AgentToolResult,
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import type { LivePresentationPort } from "@pipee/companion-contracts/host-capabilities";
+import {
+  livePresentation,
+  webSurface,
+  withPresentation,
+  type WebSurfaceSlot,
+} from "@pipee/extension-kit";
+import { Clock, Data, Effect, Exit, Layer, ManagedRuntime, Scope } from "effect";
+import packageJson from "../../package.json" with { type: "json" };
+import { externalCheckSummary, runExternalCheck, type ExternalCheck } from "../domain/checker.js";
+import {
+  ZeroYConnectionConfigError,
+  connectionFor,
+  loadSiteConnections,
+  type SiteConnection,
+} from "../domain/connection.js";
+import { ZeroYConnectorError, connectorGet, connectorPost } from "../domain/client.js";
+import {
+  ContentApplyParameters,
+  InspectParameters,
+  ThemeApplyParameters,
+  type ContentApplyInput,
+  type InspectInput,
+  type JsonRecord,
+  type ThemeApplyInput,
+} from "../domain/protocol.js";
+import { zeroYPresentation } from "./presentation.js";
+import { failedSiteView, projectZeroYWebView, type ZeroYSiteView } from "./web-surface.js";
 
-const registrations = new WeakSet<object>();
 const runtime = ManagedRuntime.make(Layer.empty);
+const registrations = new WeakSet<object>();
 
-type JsonRecord = Readonly<Record<string, unknown>>;
+type ActiveSession = {
+  readonly context: ExtensionContext;
+  readonly scope: Scope.Closeable;
+  readonly connections: ReadonlyArray<SiteConnection>;
+  readonly presentation: LivePresentationPort | undefined;
+  readonly surface: WebSurfaceSlot;
+  readonly externalChecks: Map<string, ExternalCheck>;
+};
 
-class ZeroYConnectorError extends Data.TaggedError("ZeroYConnectorError")<{
+class ZeroYSessionUnavailable extends Data.TaggedError("ZeroYSessionUnavailable")<{
   readonly message: string;
 }> {}
 
-const InspectParameters = Type.Union([
-  Type.Object({
-    siteId: Type.String({ minLength: 1 }),
-    resource: Type.Literal("site"),
-  }),
-  Type.Object({
-    siteId: Type.String({ minLength: 1 }),
-    resource: Type.Literal("themeFile"),
-    path: Type.String({ minLength: 1 }),
-  }),
-]);
+const sessions = new WeakMap<object, ActiveSession>();
+const emptySurface: WebSurfaceSlot = { replace: () => undefined };
 
-const ThemeApplyParameters = Type.Object({
-  siteId: Type.String({ minLength: 1 }),
-  path: Type.String({ minLength: 1 }),
-  content: Type.String(),
-  expectedHash: Type.String({ minLength: 64, maxLength: 64 }),
-});
+const text = (value: unknown): string => JSON.stringify(value, null, 2);
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
-const ContentApplyParameters = Type.Union([
-  Type.Object({
-    siteId: Type.String({ minLength: 1 }),
-    action: Type.Literal("writeDraft"),
-    objectId: Type.Integer({ minimum: 1 }),
-    locale: Type.String({ minLength: 1 }),
-    schemaId: Type.String({ minLength: 1 }),
-    route: Type.String({ minLength: 1 }),
-    document: Type.Record(Type.String(), Type.String()),
-    expectedRevision: Type.Integer({ minimum: 0 }),
-  }),
-  Type.Object({
-    siteId: Type.String({ minLength: 1 }),
-    action: Type.Literal("publish"),
-    objectId: Type.Integer({ minimum: 1 }),
-    locale: Type.String({ minLength: 1 }),
-    expectedRevision: Type.Integer({ minimum: 0 }),
-  }),
-]);
-
-type InspectInput = Static<typeof InspectParameters>;
-type ThemeApplyInput = Static<typeof ThemeApplyParameters>;
-type ContentApplyInput = Static<typeof ContentApplyParameters>;
-
-const connectorConfig = (): Effect.Effect<
-  { readonly baseUrl: string; readonly key: string },
-  ZeroYConnectorError
-> =>
-  Config.all({
-    baseUrl: Config.string("ZEROY_SITE_URL"),
-    key: Config.redacted("ZEROY_CONNECTION_KEY"),
-  }).pipe(
-    Effect.map(({ baseUrl, key }) => ({
-      baseUrl: baseUrl.trim().replace(/\/+$/, ""),
-      key: Redacted.value(key).trim(),
-    })),
-    Effect.filterOrFail(
-      ({ baseUrl, key }) => baseUrl !== "" && key !== "",
-      () =>
-        new ZeroYConnectorError({
-          message: "Set ZEROY_SITE_URL and ZEROY_CONNECTION_KEY before using zeroY tools.",
-        }),
-    ),
-    Effect.mapError((cause) =>
-      cause instanceof ZeroYConnectorError
-        ? cause
-        : new ZeroYConnectorError({
-            message: "Could not load zeroY Connector configuration: " + String(cause),
-          }),
-    ),
-  );
-
-const stringify = (value: unknown): string => JSON.stringify(value, null, 2);
-
-const connectorErrorMessage = (value: unknown): string | undefined => {
-  if (typeof value !== "object" || value === null || !("message" in value)) return undefined;
-  return typeof value.message === "string" ? value.message : undefined;
-};
-
-const call = (
-  path: string,
-  init: RequestInit,
-  signal: AbortSignal | undefined,
-): Effect.Effect<JsonRecord, ZeroYConnectorError> =>
-  Effect.gen(function* () {
-    const config = yield* connectorConfig();
-    const headers = new Headers(init.headers);
-    headers.set("content-type", "application/json");
-    headers.set("x-zeroy-key", config.key);
-    const response = yield* Effect.tryPromise({
-      try: () =>
-        fetch(config.baseUrl + "/wp-json/zeroy/v1/" + path, {
-          ...init,
-          headers,
-          ...(signal === undefined ? {} : { signal }),
-        }),
-      catch: (cause) =>
-        new ZeroYConnectorError({
-          message: "zeroY Connector request failed: " + String(cause),
-        }),
-    });
-    const text = yield* Effect.tryPromise({
-      try: () => response.text(),
-      catch: (cause) =>
-        new ZeroYConnectorError({
-          message: "zeroY Connector response could not be read: " + String(cause),
-        }),
-    });
-    const payload = yield* Effect.try({
-      try: () => JSON.parse(text) as JsonRecord,
-      catch: () =>
-        new ZeroYConnectorError({
-          message: "zeroY Connector returned invalid JSON: " + text.slice(0, 300),
-        }),
-    });
-    if (!response.ok) {
-      const description = connectorErrorMessage(payload.error) ?? stringify(payload);
-      return yield* new ZeroYConnectorError({
-        message:
-          "zeroY Connector rejected the request (" + String(response.status) + "): " + description,
-      });
-    }
-    return payload;
-  });
-
-const presentation = (
+const result = (
+  content: string,
   title: string,
   summary: string,
   fields: ReadonlyArray<readonly [string, string]>,
-  tone: PresentationDocument["tone"] = "success",
-): PresentationDocument => ({
-  contract: "pipee/presentation@1",
-  title,
-  summary,
-  tone,
-  icon: "extension",
-  body: {
-    type: "group",
-    direction: "column",
-    gap: "small",
-    children: fields.map(([label, value]) => ({ type: "field", label, value })),
-  },
-});
-
-const toolResult = (
-  text: string,
-  title: string,
-  summary: string,
-  fields: ReadonlyArray<readonly [string, string]>,
-  tone: PresentationDocument["tone"] = "success",
+  tone: "success" | "info" | "warning" | "danger" = "success",
 ): AgentToolResult<unknown> => ({
-  content: [{ type: "text", text }],
-  details: withPresentation({}, presentation(title, summary, fields, tone)),
+  content: [{ type: "text", text: content }],
+  details: withPresentation({}, zeroYPresentation(title, summary, fields, tone)),
 });
+
+const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> => runtime.runPromise(effect);
 
 const runTool = (
-  effect: Effect.Effect<AgentToolResult<unknown>, ZeroYConnectorError>,
+  effect: Effect.Effect<
+    AgentToolResult<unknown>,
+    ZeroYConnectorError | ZeroYConnectionConfigError | ZeroYSessionUnavailable
+  >,
 ): Promise<AgentToolResult<unknown>> =>
-  runtime.runPromise(
+  run(
     effect.pipe(
       Effect.catch((error) =>
         Effect.succeed(
-          toolResult(
-            error.message,
+          result(
+            errorMessage(error),
             "zeroY Connector",
             "Request failed",
-            [["Error", error.message]],
+            [["Error", errorMessage(error)]],
             "danger",
           ),
         ),
@@ -186,90 +90,353 @@ const runTool = (
     ),
   );
 
-const inspect = (
+const notifySessionFailure = (context: ExtensionContext, error: unknown) =>
+  Effect.sync(() => {
+    if (context.hasUI) context.ui.notify(`zeroY: ${errorMessage(error)}`, "error");
+  });
+
+const withSession = <A, E>(
+  pi: ExtensionAPI,
+  use: (active: ActiveSession) => Effect.Effect<A, E>,
+): Effect.Effect<A, E | ZeroYSessionUnavailable> =>
+  Effect.gen(function* () {
+    const active = sessions.get(pi as object);
+    if (!active) {
+      return yield* new ZeroYSessionUnavailable({
+        message:
+          "zeroY session is unavailable. Configure ZEROY_SITES before creating the Pipee session.",
+      });
+    }
+    return yield* use(active);
+  });
+
+const connection = (
+  active: ActiveSession,
+  siteId: string,
+): Effect.Effect<SiteConnection, ZeroYConnectionConfigError> => {
+  const selected = connectionFor(active.connections, siteId);
+  return selected instanceof ZeroYConnectionConfigError
+    ? Effect.fail(selected)
+    : Effect.succeed(selected);
+};
+
+const inspectConnection = (
+  active: ActiveSession,
+  site: SiteConnection,
+): Effect.Effect<ZeroYSiteView, never> =>
+  Effect.all(
+    [
+      connectorGet(site, "site"),
+      connectorGet(site, "schema"),
+      connectorGet(site, "inventory?page=1&perPage=100"),
+      connectorGet(site, "acf"),
+      connectorGet(site, "integrity"),
+    ],
+    { concurrency: 5 },
+  ).pipe(
+    Effect.flatMap(([siteView, schema, inventory, acf, integrity]) => {
+      if (siteView.siteId !== site.siteId) {
+        return Effect.fail(
+          new ZeroYConnectorError({
+            message: `Connection ${site.label} expected siteId ${site.siteId}, but the Connector reported ${String(siteView.siteId)}.`,
+          }),
+        );
+      }
+      return Effect.succeed({
+        siteId: site.siteId,
+        label: site.label,
+        endpoint: site.endpoint,
+        state: "ready" as const,
+        error: null,
+        site: siteView,
+        schema,
+        inventory,
+        acf,
+        integrity,
+        externalCheck: active.externalChecks.get(site.siteId) ?? null,
+      });
+    }),
+    Effect.catch((error) => Effect.succeed(failedSiteView(site, errorMessage(error)))),
+  );
+
+const refreshSurface = (active: ActiveSession): Effect.Effect<void, never> =>
+  Effect.gen(function* () {
+    const sites = yield* Effect.forEach(
+      active.connections,
+      (site) => inspectConnection(active, site),
+      {
+        concurrency: 4,
+      },
+    );
+    const observedAt = yield* Clock.currentTimeMillis;
+    yield* Effect.sync(() =>
+      active.surface.replace(projectZeroYWebView(sites, String(observedAt))),
+    );
+  }).pipe(Effect.withSpan("zeroy.web-surface.refresh"));
+
+const withLivePresentation = <A, E>(
+  active: ActiveSession,
+  title: string,
+  summary: string,
+  fields: ReadonlyArray<readonly [string, string]>,
+  effect: Effect.Effect<A, E>,
+): Effect.Effect<A, E> =>
+  Effect.sync(() =>
+    active.presentation?.replace("activity", zeroYPresentation(title, summary, fields)),
+  ).pipe(
+    Effect.andThen(effect),
+    Effect.ensuring(Effect.sync(() => active.presentation?.replace("activity", undefined))),
+  );
+
+const stopSession = (pi: ExtensionAPI, active: ActiveSession): Effect.Effect<void> =>
+  Scope.close(active.scope, Exit.succeed(undefined)).pipe(
+    Effect.ensuring(
+      Effect.sync(() => {
+        active.presentation?.replace("activity", undefined);
+        sessions.delete(pi as object);
+      }),
+    ),
+  );
+
+const startSession = (
+  pi: ExtensionAPI,
+  context: ExtensionContext,
+): Effect.Effect<void, ZeroYConnectionConfigError> =>
+  Effect.gen(function* () {
+    const previous = sessions.get(pi as object);
+    if (previous) yield* stopSession(pi, previous);
+    const scope = yield* Scope.make("sequential");
+    yield* Effect.gen(function* () {
+      const connections = yield* loadSiteConnections();
+      const surface = yield* webSurface(context.ui, packageJson.name, () => ({
+        _tag: "Rejected" as const,
+        reason: "zeroY WebSurface is read-only; ask the Agent to make changes in the conversation.",
+      })).pipe(
+        Effect.catchTag("WebSurfaceCapabilityUnavailable", () => Effect.succeed(emptySurface)),
+      );
+      const active: ActiveSession = {
+        context,
+        scope,
+        connections,
+        presentation: livePresentation(context.ui, packageJson.name),
+        surface,
+        externalChecks: new Map(),
+      };
+      yield* Effect.sync(() => sessions.set(pi as object, active));
+      yield* refreshSurface(active);
+    }).pipe(
+      Effect.provideService(Scope.Scope, scope),
+      Effect.onError(() =>
+        Scope.close(
+          scope,
+          Exit.fail(new ZeroYSessionUnavailable({ message: "zeroY session startup failed." })),
+        ),
+      ),
+    );
+  });
+
+const inspectResource = (
+  active: ActiveSession,
   input: InspectInput,
   signal: AbortSignal | undefined,
-): Effect.Effect<AgentToolResult<unknown>, ZeroYConnectorError> => {
-  const path =
-    input.resource === "site" ? "site" : "theme/file?path=" + encodeURIComponent(input.path);
-  return call(path, { method: "GET" }, signal).pipe(
-    Effect.map((payload) =>
-      toolResult(
-        stringify(payload),
-        "zeroY inspection",
-        input.resource === "site"
-          ? "Read current site and locale inventory"
-          : "Read active theme file",
-        [
+): Effect.Effect<
+  { readonly payload: JsonRecord; readonly summary: string },
+  ZeroYConnectorError | ZeroYConnectionConfigError
+> =>
+  Effect.gen(function* () {
+    const site = yield* connection(active, input.siteId);
+    switch (input.resource) {
+      case "site":
+        return {
+          payload: yield* connectorGet(site, "site", signal),
+          summary: "Read site handshake",
+        };
+      case "schema":
+        return {
+          payload: yield* connectorGet(site, "schema", signal),
+          summary: "Read ThemeSchema",
+        };
+      case "inventory": {
+        const page = input.page ?? 1;
+        const perPage = input.perPage ?? 50;
+        return {
+          payload: yield* connectorGet(site, `inventory?page=${page}&perPage=${perPage}`, signal),
+          summary: "Read canonical inventory",
+        };
+      }
+      case "acf":
+        return {
+          payload: yield* connectorGet(site, "acf", signal),
+          summary: "Read shared ACF structure",
+        };
+      case "themeFiles":
+        return {
+          payload: yield* connectorGet(
+            site,
+            input.path ? `theme-files?path=${encodeURIComponent(input.path)}` : "theme-files",
+            signal,
+          ),
+          summary: input.path ? "Read active-theme file" : "Read active-theme file tree",
+        };
+      case "localeContent":
+        return {
+          payload: yield* connectorGet(
+            site,
+            `locale-content?objectId=${input.objectId}&locale=${encodeURIComponent(input.locale)}`,
+            signal,
+          ),
+          summary: "Read locale content",
+        };
+      case "integrity":
+        return {
+          payload: yield* connectorGet(site, "integrity", signal),
+          summary: "Ran Connector integrity checks",
+        };
+      case "externalCheck": {
+        const inventory = yield* connectorGet(site, "inventory?page=1&perPage=100", signal);
+        const check = yield* runExternalCheck(inventory, signal);
+        yield* Effect.sync(() => active.externalChecks.set(site.siteId, check));
+        yield* refreshSurface(active);
+        return {
+          payload: { inventory, externalCheck: check },
+          summary: `Ran external checks: ${externalCheckSummary(check)}`,
+        };
+      }
+    }
+  });
+
+const inspectTool = (active: ActiveSession, input: InspectInput, signal: AbortSignal | undefined) =>
+  withLivePresentation(
+    active,
+    "zeroY inspection",
+    "Reading a typed Connector resource",
+    [
+      ["Site", input.siteId],
+      ["Resource", input.resource],
+    ],
+    inspectResource(active, input, signal).pipe(
+      Effect.map(({ payload, summary }) =>
+        result(text(payload), "zeroY inspection", summary, [
           ["Site", input.siteId],
           ["Resource", input.resource],
-        ],
+        ]),
       ),
     ),
   );
-};
 
-const applyTheme = (
+const themeApplyTool = (
+  active: ActiveSession,
   input: ThemeApplyInput,
   signal: AbortSignal | undefined,
-): Effect.Effect<AgentToolResult<unknown>, ZeroYConnectorError> =>
-  call(
-    "theme/file",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        path: input.path,
-        content: input.content,
-        expectedHash: input.expectedHash,
-      }),
-    },
-    signal,
-  ).pipe(
-    Effect.map((payload) =>
-      toolResult(stringify(payload), "zeroY theme updated", "Replaced one active-theme file", [
-        ["Site", input.siteId],
-        ["Path", input.path],
-      ]),
-    ),
+) =>
+  withLivePresentation(
+    active,
+    "zeroY theme update",
+    "Writing active-theme files with exact hash preconditions",
+    [
+      ["Site", input.siteId],
+      ["Files", String(input.files.length)],
+    ],
+    Effect.gen(function* () {
+      const site = yield* connection(active, input.siteId);
+      const payload = yield* connectorPost(site, "theme-files", { files: input.files }, signal);
+      yield* refreshSurface(active);
+      const complete = payload.ok === true;
+      return result(
+        text(payload),
+        complete ? "zeroY theme updated" : "zeroY theme partially updated",
+        complete
+          ? "All requested files were atomically replaced."
+          : "Some writes failed; successful files remain changed.",
+        [
+          ["Site", input.siteId],
+          ["Files", String(input.files.length)],
+        ],
+        complete ? "success" : "warning",
+      );
+    }),
   );
 
-const applyContent = (
+const contentPayload = (
   input: ContentApplyInput,
-  signal: AbortSignal | undefined,
-): Effect.Effect<AgentToolResult<unknown>, ZeroYConnectorError> => {
-  const path = input.action === "writeDraft" ? "locale/draft" : "locale/publish";
-  const body =
-    input.action === "writeDraft"
-      ? {
+): { readonly path: string; readonly body: JsonRecord } => {
+  switch (input.action) {
+    case "siteConfig":
+      return {
+        path: "site-config",
+        body: { siteConfig: input.siteConfig, expectedRevision: input.expectedRevision },
+      };
+    case "createCanonical":
+      return {
+        path: "canonical",
+        body: {
+          action: "create",
+          postType: input.postType,
+          schemaId: input.schemaId,
+          postTitle: input.postTitle ?? "",
+        },
+      };
+    case "assignSchema":
+      return {
+        path: "canonical",
+        body: {
+          action: "assignSchema",
+          objectId: input.objectId,
+          schemaId: input.schemaId,
+          expectedRevision: input.expectedRevision,
+        },
+      };
+    case "writeDraft":
+      return {
+        path: "locale-content",
+        body: {
+          action: input.action,
           objectId: input.objectId,
           locale: input.locale,
           schemaId: input.schemaId,
           route: input.route,
           document: input.document,
           expectedRevision: input.expectedRevision,
-        }
-      : {
+        },
+      };
+    case "publish":
+    case "unpublish":
+      return {
+        path: "locale-content",
+        body: {
+          action: input.action,
           objectId: input.objectId,
           locale: input.locale,
           expectedRevision: input.expectedRevision,
-        };
-  return call(path, { method: "POST", body: JSON.stringify(body) }, signal).pipe(
-    Effect.map((payload) =>
-      toolResult(
-        stringify(payload),
-        input.action === "writeDraft" ? "zeroY locale draft saved" : "zeroY locale published",
-        input.action === "writeDraft"
-          ? "Saved " + input.locale + " draft"
-          : "Published " + input.locale + " locale",
-        [
-          ["Site", input.siteId],
-          ["Object", String(input.objectId)],
-          ["Locale", input.locale],
-        ],
-      ),
-    ),
-  );
+        },
+      };
+  }
 };
+
+const contentApplyTool = (
+  active: ActiveSession,
+  input: ContentApplyInput,
+  signal: AbortSignal | undefined,
+) =>
+  withLivePresentation(
+    active,
+    "zeroY content update",
+    `Applying ${input.action} through the typed content port`,
+    [
+      ["Site", input.siteId],
+      ["Action", input.action],
+    ],
+    Effect.gen(function* () {
+      const site = yield* connection(active, input.siteId);
+      const operation = contentPayload(input);
+      const payload = yield* connectorPost(site, operation.path, operation.body, signal);
+      yield* refreshSurface(active);
+      return result(text(payload), "zeroY content updated", `Applied ${input.action}.`, [
+        ["Site", input.siteId],
+        ["Action", input.action],
+      ]);
+    }),
+  );
 
 export default function piZeroY(pi: ExtensionAPI): void {
   if (registrations.has(pi as object)) return;
@@ -278,26 +445,46 @@ export default function piZeroY(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "zeroy_inspect",
     label: "Inspect zeroY site",
-    description: "Read the current zeroY site inventory or an active-theme file.",
+    description: "Read one typed zeroY Connector resource, including external browser checks.",
     parameters: InspectParameters,
-    execute: (_id, input, signal) => runTool(inspect(input as InspectInput, signal)),
+    execute: (_id, input, signal) =>
+      runTool(withSession(pi, (active) => inspectTool(active, input as InspectInput, signal))),
   });
 
   pi.registerTool({
     name: "zeroy_theme_apply",
     label: "Update zeroY theme",
     description:
-      "Replace one existing regular file inside the active WordPress theme using its exact prior SHA-256 hash.",
+      "Apply one or more hash-preconditioned mutations inside one active WordPress theme.",
     parameters: ThemeApplyParameters,
-    execute: (_id, input, signal) => runTool(applyTheme(input as ThemeApplyInput, signal)),
+    execute: (_id, input, signal) =>
+      runTool(
+        withSession(pi, (active) => themeApplyTool(active, input as ThemeApplyInput, signal)),
+      ),
   });
 
   pi.registerTool({
     name: "zeroy_content_apply",
-    label: "Save or publish zeroY locale content",
+    label: "Update zeroY content",
     description:
-      "Write a locale draft or publish a complete locale draft using the exact prior locale revision.",
+      "Update SiteConfig, canonical objects, locale drafts, published pointers, or unpublish a locale.",
     parameters: ContentApplyParameters,
-    execute: (_id, input, signal) => runTool(applyContent(input as ContentApplyInput, signal)),
+    execute: (_id, input, signal) =>
+      runTool(
+        withSession(pi, (active) => contentApplyTool(active, input as ContentApplyInput, signal)),
+      ),
+  });
+
+  pi.on("session_start", (_event, context) =>
+    run(
+      startSession(pi, context).pipe(
+        Effect.catch((error) => notifySessionFailure(context, error)),
+        Effect.asVoid,
+      ),
+    ),
+  );
+  pi.on("session_shutdown", () => {
+    const active = sessions.get(pi as object);
+    return run(active ? stopSession(pi, active) : Effect.void);
   });
 }
