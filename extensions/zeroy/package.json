@@ -1,0 +1,64 @@
+{
+  "name": "@yansircc/pi-zeroy",
+  "version": "0.0.0",
+  "description": "MVP connector for Agent-authored zeroY WordPress themes",
+  "homepage": "https://github.com/yansircc/pipee/tree/main/extensions/zeroy#readme",
+  "bugs": {
+    "url": "https://github.com/yansircc/pipee/issues"
+  },
+  "license": "MIT",
+  "author": "yansircc",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yansircc/pipee.git",
+    "directory": "extensions/zeroy"
+  },
+  "files": [
+    "dist/pi",
+    "wordpress-plugin",
+    "mvp-theme"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "verify": "pnpm run repo:verify && pnpm run pi:verify",
+    "repo:verify": "vp run quality",
+    "test": "vp test",
+    "pi:build": "node ../../tooling/pi-extension/build.mjs .",
+    "pi:bundle-check": "node ../../tooling/pi-extension/verify-distribution.mjs . bundle",
+    "pi:distribution-check": "node ../../tooling/pi-extension/verify-distribution.mjs . package",
+    "pi:verify": "pnpm run pi:build && pnpm run pi:bundle-check"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@pipee/companion-contracts": "workspace:*",
+    "@pipee/extension-kit": "workspace:*",
+    "@sinclair/typebox": "0.34.41",
+    "@types/node": "22.20.1",
+    "@yansircc/effect-scan": "catalog:",
+    "effect": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.11.0"
+  },
+  "packageManager": "pnpm@11.13.1",
+  "pi": {
+    "extensions": [
+      "./dist/pi/extension.js"
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "contract": "zeroy/theme-schema@1",
+  "schemas": {
+    "showcase": {
+      "label": "MVP Showcase",
+      "template": "zeroy-mvp-template.php",
+      "canonicalPostTypes": ["page"],
+      "nodes": {
+        "title": {
+          "kind": "text",
+          "required": true,
+          "searchable": true
+        },
+        "intro": {
+          "kind": "text",
+          "required": true,
+          "searchable": true
+        }
+      }
+    }
+  }
+}

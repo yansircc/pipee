@@ -1,0 +1,13 @@
+{
+  "shape": ["library"],
+  "executableEdges": [],
+  "allowedAdapters": [],
+  "hostTooling": [
+    {
+      "path": "scripts/**",
+      "owner": "@build-tooling",
+      "reason": "Pi bundle build and zero-install verification"
+    }
+  ],
+  "testGlobs": ["test-suite/**/*.test.ts"]
+}
