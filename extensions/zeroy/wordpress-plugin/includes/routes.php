@@ -14,7 +14,9 @@ function zeroy_runtime_request_path(): ?string
         $path = substr($path, strlen(rtrim($home_path, '/')));
     }
     $path = trim(rawurldecode($path), '/');
-    return $path === '' ? null : strtolower($path);
+    // An empty request path is FrontPage, represented by the empty stored route.
+    // It is resolved only when an explicit root reservation exists.
+    return strtolower($path);
 }
 
 function zeroy_runtime_reserved_route_for_request(): ?array
@@ -26,9 +28,6 @@ function zeroy_runtime_reserved_route_for_request(): ?array
     }
     $resolved = true;
     $request_path = zeroy_runtime_request_path();
-    if ($request_path === null) {
-        return null;
-    }
     global $wpdb;
     $config = zeroy_runtime_site_config();
     if (is_wp_error($config)) {

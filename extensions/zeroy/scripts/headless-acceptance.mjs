@@ -29,7 +29,7 @@ let accepted = false;
 
 const prompt = `Work only through the three available zeroY tools against site ${siteId}.
 
-1. Inspect the site handshake, ThemeSchema, canonical inventory, ACF structure, active-theme files and Connector integrity.
+1. List configured zeroY sites, then inspect the selected site's handshake, ThemeSchema, canonical inventory, ACF structure, active-theme files and Connector integrity.
 2. Create the new active-theme file ${cssPath} with exactly this content, then read that exact file back through the Connector and verify it:
 ${cssContent}
 3. Create a new page canonical object using the showcase schema. Give it the meaningful WordPress admin title "zeroY headless acceptance ${token}". Create and publish both zh-CN and en locale content at route ${route}, using the fields required by the ThemeSchema. Re-read both locale records after publishing.
@@ -169,28 +169,40 @@ try {
   }
 
   const inspectResources = new Set([
+    "sites",
     "site",
     "schema",
     "inventory",
     "acf",
+    "adoptionCandidates",
+    "existingPost",
     "themeFiles",
     "localeContent",
+    "themeCopy",
     "integrity",
     "externalCheck",
   ]);
   const contentActions = new Set([
     "siteConfig",
     "createCanonical",
+    "adoptCanonical",
     "assignSchema",
     "writeDraft",
     "publish",
     "unpublish",
+    "writeThemeCopyDraft",
+    "publishThemeCopy",
+    "unpublishThemeCopy",
   ]);
   assert(
     calls
       .filter((call) => call.name === "zeroy_inspect")
       .every((call) => inspectResources.has(call.arguments.resource)),
     "An unknown inspect resource was attempted.",
+  );
+  assert(
+    calls.some((call) => call.name === "zeroy_inspect" && call.arguments.resource === "sites"),
+    "The model did not discover configured sites through the typed sites resource.",
   );
   assert(
     calls
@@ -242,7 +254,7 @@ try {
       `${locale} did not start at revision 0.`,
     );
     assert.equal(writeDraft.arguments.route, route);
-    const localeRevision = resultJson(writeDraft).localeContent?.revision;
+    const localeRevision = resultJson(writeDraft).receipt?.revision;
     assert.equal(typeof localeRevision, "number", `${locale} writeDraft returned no revision.`);
     const publish = publishes.find(
       (call) => call.arguments.locale === locale && call.arguments.objectId === canonical.objectId,
@@ -253,7 +265,7 @@ try {
       localeRevision,
       `${locale} publish did not chain the writeDraft revision.`,
     );
-    const published = resultJson(publish).localeContent;
+    const published = resultJson(publish).receipt;
     assert.equal(published?.state, "published");
     assert.equal(published?.route, route);
     const response = await fetch(published.url, { redirect: "follow" });

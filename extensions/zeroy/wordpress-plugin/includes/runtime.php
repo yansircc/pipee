@@ -82,6 +82,33 @@ function zeroy_runtime_default_site_config(): array
     ];
 }
 
+function zeroy_runtime_content_ownership(): array
+{
+    return [
+        'contract' => 'zeroy/content-ownership@1',
+        'canonical' => [
+            'owner' => 'wordpress',
+            'facts' => ['post fields', 'ACF values'],
+            'rule' => 'zeroY never copies, translates, or overwrites canonical WordPress or ACF facts.',
+        ],
+        'localizedDocuments' => [
+            'owner' => 'zeroy-locale-store',
+            'facts' => ['ThemeSchema-declared localized nodes', 'locale routes', 'draft and published version pointers'],
+            'rule' => 'Theme PHP reads these values explicitly through zeroy_locale_document.',
+        ],
+        'themeCopy' => [
+            'owner' => 'zeroy-locale-store',
+            'facts' => ['themeCopy.nodes declared by the active ThemeSchema'],
+            'rule' => 'Theme PHP reads these values explicitly through zeroy_theme_copy_document.',
+        ],
+        'adoption' => [
+            'mode' => 'identity-only',
+            'precondition' => 'expectedSourceHash from existingPost',
+            'rule' => 'Adoption attaches zeroY canonical identity without migrating existing WordPress or ACF values.',
+        ],
+    ];
+}
+
 function zeroy_runtime_normalize_locale(string $locale): string|WP_Error
 {
     $locale = trim($locale);
@@ -97,9 +124,17 @@ function zeroy_runtime_normalize_route(string $route): string|WP_Error
     if (str_contains($route, "\0")) {
         return zeroy_runtime_error('zeroy_invalid_route', 'Route contains a null byte.', 400);
     }
+    $front_page = $route === '/';
     $route = trim(wp_normalize_path($route), '/');
-    if ($route === '' || !preg_match('/\A[a-z0-9][a-z0-9\-\/]*\z/i', $route)) {
-        return zeroy_runtime_error('zeroy_invalid_route', 'Route must contain path-safe letters, digits, hyphens, and slashes.', 400);
+    if ($route === '') {
+        // The empty stored path is the one explicit representation of FrontPage.
+        // It is never inferred from an arbitrary missing route.
+        return $front_page
+            ? ''
+            : zeroy_runtime_error('zeroy_invalid_route', 'Route must be / for the front page or a non-empty path using letters, digits, hyphens, and slashes.', 400);
+    }
+    if (!preg_match('/\A[a-z0-9][a-z0-9\-\/]*\z/i', $route)) {
+        return zeroy_runtime_error('zeroy_invalid_route', 'Route must be / for the front page or a non-empty path using letters, digits, hyphens, and slashes.', 400);
     }
     return strtolower($route);
 }
@@ -268,6 +303,37 @@ function zeroy_runtime_locale_is_enabled(string $locale): bool
     return zeroy_runtime_locale_config($locale) !== null;
 }
 
+function zeroy_runtime_node_kind_contracts(): array
+{
+    return [
+        'text' => [
+            'kind' => 'text',
+            'valueType' => 'string',
+            'requiredProperties' => ['required' => 'boolean', 'searchable' => 'boolean'],
+            'description' => 'Plain localized text. The theme escapes it with esc_html.',
+        ],
+        'rich-text' => [
+            'kind' => 'rich-text',
+            'valueType' => 'string',
+            'requiredProperties' => ['required' => 'boolean', 'searchable' => 'boolean'],
+            'description' => 'Localized rich text. The theme renders it with its explicit HTML policy.',
+        ],
+    ];
+}
+
+function zeroy_runtime_theme_schema_capabilities(): array
+{
+    return [
+        'contract' => 'zeroy/theme-schema-language@1',
+        'nodeIdPattern' => '^[a-z][a-z0-9_]*(?:\\.(?:[a-z][a-z0-9_]*|\\*))*$',
+        'nodeKinds' => array_values(zeroy_runtime_node_kind_contracts()),
+        'themeCopy' => [
+            'declaration' => 'Optional top-level themeCopy.nodes using the same node language.',
+            'ownership' => 'zeroY LocaleStore owns localized theme copy; WordPress and ACF canonical facts are never copied into it.',
+        ],
+    ];
+}
+
 function zeroy_runtime_node_pattern(string $node_id): array|WP_Error
 {
     if (!preg_match('/\A[a-z][a-z0-9_]*(?:\.(?:[a-z][a-z0-9_]*|\*))*\z/', $node_id)) {
@@ -292,6 +358,171 @@ function zeroy_runtime_patterns_overlap(string $left, string $right): bool
     return true;
 }
 
+function zeroy_runtime_schema_violation(array &$errors, string $code, string $message, array $context = []): void
+{
+    $errors[] = ['code' => $code, 'message' => $message, ...$context];
+}
+
+function zeroy_runtime_normalize_localized_nodes(mixed $nodes, array $context, array &$errors): array
+{
+    if (!is_array($nodes) || array_is_list($nodes)) {
+        zeroy_runtime_schema_violation(
+            $errors,
+            'schema_nodes_invalid',
+            'Localized nodes must be a keyed object.',
+            [...$context, 'field' => 'nodes', 'expected' => 'keyed object']
+        );
+        return [];
+    }
+    $normalized = [];
+    $kinds = zeroy_runtime_node_kind_contracts();
+    foreach ($nodes as $node_id => $node) {
+        $node_context = [...$context, 'nodeId' => is_string($node_id) ? $node_id : null];
+        if (!is_string($node_id) || !is_array($node)) {
+            zeroy_runtime_schema_violation(
+                $errors,
+                'schema_node_invalid',
+                'Every localized node needs a string NodeId and an object definition.',
+                $node_context
+            );
+            continue;
+        }
+        $pattern = zeroy_runtime_node_pattern($node_id);
+        if (is_wp_error($pattern)) {
+            zeroy_runtime_schema_violation(
+                $errors,
+                'schema_node_id_invalid',
+                "Localized NodeId {$node_id} does not match the required NodeId syntax.",
+                [...$node_context, 'expectedPattern' => '^[a-z][a-z0-9_]*(?:\\.(?:[a-z][a-z0-9_]*|\\*))*$']
+            );
+            continue;
+        }
+        $kind = $node['kind'] ?? null;
+        $valid = true;
+        if (!is_string($kind) || !isset($kinds[$kind])) {
+            zeroy_runtime_schema_violation(
+                $errors,
+                'schema_node_kind_invalid',
+                "Localized node {$node_id} must use a supported kind.",
+                [...$node_context, 'field' => 'kind', 'expected' => array_keys($kinds), 'actual' => $kind]
+            );
+            $valid = false;
+        }
+        foreach (['required', 'searchable'] as $field) {
+            if (!array_key_exists($field, $node) || !is_bool($node[$field])) {
+                zeroy_runtime_schema_violation(
+                    $errors,
+                    'schema_node_boolean_required',
+                    "Localized node {$node_id} requires explicit boolean {$field}.",
+                    [...$node_context, 'field' => $field, 'expected' => 'boolean', 'actualType' => array_key_exists($field, $node) ? gettype($node[$field]) : 'missing']
+                );
+                $valid = false;
+            }
+        }
+        if (!$valid) {
+            continue;
+        }
+        $overlaps = false;
+        foreach (array_keys($normalized) as $previous) {
+            if (!zeroy_runtime_patterns_overlap($previous, $node_id)) {
+                continue;
+            }
+            zeroy_runtime_schema_violation(
+                $errors,
+                'schema_node_overlap',
+                "Localized NodeId {$node_id} overlaps {$previous}.",
+                [...$node_context, 'conflictsWith' => $previous]
+            );
+            $overlaps = true;
+        }
+        if ($overlaps) {
+            continue;
+        }
+        $normalized[$node_id] = [
+            'kind' => $kind,
+            'required' => $node['required'],
+            'searchable' => $node['searchable'],
+        ];
+    }
+    if (count($normalized) === 0) {
+        zeroy_runtime_schema_violation(
+            $errors,
+            'schema_nodes_empty',
+            'At least one valid localized node is required.',
+            [...$context, 'field' => 'nodes']
+        );
+    }
+    return $normalized;
+}
+
+function zeroy_runtime_theme_schema_analysis(array $schema): array
+{
+    $errors = [];
+    if (($schema['contract'] ?? null) !== ZEROY_THEME_SCHEMA_CONTRACT) {
+        zeroy_runtime_schema_violation($errors, 'schema_contract_invalid', 'ThemeSchema has an unsupported contract.', ['field' => 'contract', 'expected' => ZEROY_THEME_SCHEMA_CONTRACT, 'actual' => $schema['contract'] ?? null]);
+    }
+    $schemas = $schema['schemas'] ?? null;
+    if (!is_array($schemas) || array_is_list($schemas)) {
+        zeroy_runtime_schema_violation($errors, 'schema_schemas_invalid', 'ThemeSchema requires a keyed schemas object.', ['field' => 'schemas', 'expected' => 'keyed object']);
+        return ['schema' => null, 'errors' => $errors];
+    }
+    $normalized = ['contract' => ZEROY_THEME_SCHEMA_CONTRACT, 'schemas' => []];
+    foreach ($schemas as $schema_id => $definition) {
+        if (!is_string($schema_id) || !preg_match('/\A[a-z][a-z0-9-]{0,95}\z/', $schema_id) || !is_array($definition)) {
+            zeroy_runtime_schema_violation($errors, 'schema_id_invalid', 'Every ThemeSchema entry needs a valid schemaId and object definition.', ['schemaId' => is_string($schema_id) ? $schema_id : null]);
+            continue;
+        }
+        $context = ['schemaId' => $schema_id];
+        $label = trim((string) ($definition['label'] ?? ''));
+        if ($label === '') {
+            zeroy_runtime_schema_violation($errors, 'schema_label_invalid', "Schema {$schema_id} requires a non-empty label.", [...$context, 'field' => 'label']);
+        }
+        $template = $definition['template'] ?? null;
+        $normalized_template = is_string($template) ? ltrim(wp_normalize_path($template), '/') : '';
+        if ($normalized_template === '' || str_contains($normalized_template, '..') || !preg_match('/\A[a-zA-Z0-9_\-\/]+\.php\z/', $normalized_template) || !is_file(get_stylesheet_directory() . '/' . $normalized_template)) {
+            zeroy_runtime_schema_violation($errors, 'schema_template_invalid', "Schema {$schema_id} references a missing or unsafe template.", [...$context, 'field' => 'template', 'actual' => $template]);
+        }
+        $post_types = $definition['canonicalPostTypes'] ?? null;
+        $normalized_post_types = [];
+        if (!is_array($post_types) || !array_is_list($post_types) || count($post_types) === 0) {
+            zeroy_runtime_schema_violation($errors, 'schema_post_types_invalid', "Schema {$schema_id} requires a non-empty canonicalPostTypes list.", [...$context, 'field' => 'canonicalPostTypes']);
+        } else {
+            foreach ($post_types as $post_type) {
+                $post_type = is_string($post_type) ? $post_type : '';
+                if ($post_type === '' || !post_type_exists($post_type) || in_array($post_type, $normalized_post_types, true)) {
+                    zeroy_runtime_schema_violation($errors, 'schema_post_type_invalid', "Schema {$schema_id} has an invalid or duplicate canonical post type.", [...$context, 'field' => 'canonicalPostTypes', 'actual' => $post_type]);
+                    continue;
+                }
+                $normalized_post_types[] = $post_type;
+            }
+        }
+        $normalized_nodes = zeroy_runtime_normalize_localized_nodes($definition['nodes'] ?? null, $context, $errors);
+        if ($label !== '' && $normalized_template !== '' && is_array($post_types) && array_is_list($post_types) && count($normalized_post_types) === count($post_types) && count($normalized_nodes) > 0) {
+            $normalized['schemas'][$schema_id] = [
+                'label' => $label,
+                'template' => $normalized_template,
+                'canonicalPostTypes' => $normalized_post_types,
+                'nodes' => $normalized_nodes,
+            ];
+        }
+    }
+    if (count($schemas) === 0) {
+        zeroy_runtime_schema_violation($errors, 'schema_empty', 'ThemeSchema must declare at least one schema.', ['field' => 'schemas']);
+    }
+    if (array_key_exists('themeCopy', $schema)) {
+        $theme_copy = $schema['themeCopy'];
+        if (!is_array($theme_copy) || array_is_list($theme_copy)) {
+            zeroy_runtime_schema_violation($errors, 'theme_copy_invalid', 'themeCopy must be an object with keyed nodes.', ['field' => 'themeCopy']);
+        } else {
+            $normalized_nodes = zeroy_runtime_normalize_localized_nodes($theme_copy['nodes'] ?? null, ['scope' => 'themeCopy'], $errors);
+            if (count($normalized_nodes) > 0) {
+                $normalized['themeCopy'] = ['nodes' => $normalized_nodes];
+            }
+        }
+    }
+    return ['schema' => count($errors) === 0 ? $normalized : null, 'errors' => $errors];
+}
+
 function zeroy_runtime_schema_diagnostics(): array
 {
     $path = get_stylesheet_directory() . '/zeroy.schema.json';
@@ -303,90 +534,43 @@ function zeroy_runtime_schema_diagnostics(): array
     if (is_wp_error($schema)) {
         return ['valid' => false, 'errors' => [['code' => 'schema_invalid_json', 'message' => $schema->get_error_message()]]];
     }
-    $validated = zeroy_runtime_validate_theme_schema($schema);
-    if (is_wp_error($validated)) {
-        return ['valid' => false, 'errors' => [['code' => $validated->get_error_code(), 'message' => $validated->get_error_message()]]];
+    $analysis = zeroy_runtime_theme_schema_analysis($schema);
+    if (count($analysis['errors']) > 0 || !is_array($analysis['schema'])) {
+        return ['valid' => false, 'errors' => $analysis['errors']];
     }
     return [
         'valid' => true,
-        'schema' => $validated,
-        'contractHash' => zeroy_runtime_hash($validated),
-        'schemaHashes' => zeroy_runtime_schema_hashes($validated),
+        'schema' => $analysis['schema'],
+        'contractHash' => zeroy_runtime_hash($analysis['schema']),
+        'schemaHashes' => zeroy_runtime_schema_hashes($analysis['schema']),
         'errors' => [],
     ];
 }
 
 function zeroy_runtime_validate_theme_schema(array $schema): array|WP_Error
 {
-    if (($schema['contract'] ?? null) !== ZEROY_THEME_SCHEMA_CONTRACT || !is_array($schema['schemas'] ?? null) || array_is_list($schema['schemas'])) {
-        return zeroy_runtime_error('zeroy_schema_invalid', 'ThemeSchema requires contract and a schemas object.', 409);
+    $analysis = zeroy_runtime_theme_schema_analysis($schema);
+    if (count($analysis['errors']) > 0 || !is_array($analysis['schema'])) {
+        return zeroy_runtime_error(
+            'zeroy_schema_invalid',
+            'ThemeSchema has ' . count($analysis['errors']) . ' violation(s).',
+            409,
+            ['violations' => $analysis['errors']]
+        );
     }
-    $normalized = ['contract' => ZEROY_THEME_SCHEMA_CONTRACT, 'schemas' => []];
-    foreach ($schema['schemas'] as $schema_id => $definition) {
-        if (!is_string($schema_id) || !preg_match('/\A[a-z][a-z0-9-]{0,95}\z/', $schema_id) || !is_array($definition)) {
-            return zeroy_runtime_error('zeroy_schema_invalid', 'ThemeSchema has an invalid schemaId.', 409);
-        }
-        $label = trim((string) ($definition['label'] ?? ''));
-        $template = $definition['template'] ?? null;
-        $post_types = $definition['canonicalPostTypes'] ?? null;
-        $nodes = $definition['nodes'] ?? null;
-        if ($label === '' || !is_string($template) || $template === '' || !is_array($post_types) || !array_is_list($post_types) || count($post_types) === 0 || !is_array($nodes) || array_is_list($nodes)) {
-            return zeroy_runtime_error('zeroy_schema_invalid', "Schema {$schema_id} needs label, template, canonicalPostTypes and nodes.", 409);
-        }
-        $template = ltrim(wp_normalize_path($template), '/');
-        if (str_contains($template, '..') || !preg_match('/\A[a-zA-Z0-9_\-\/]+\.php\z/', $template) || !is_file(get_stylesheet_directory() . '/' . $template)) {
-            return zeroy_runtime_error('zeroy_schema_invalid', "Schema {$schema_id} references a missing or unsafe template.", 409);
-        }
-        $normalized_post_types = [];
-        foreach ($post_types as $post_type) {
-            $post_type = (string) $post_type;
-            if ($post_type === '' || !post_type_exists($post_type) || in_array($post_type, $normalized_post_types, true)) {
-                return zeroy_runtime_error('zeroy_schema_invalid', "Schema {$schema_id} has an invalid canonical post type.", 409);
-            }
-            $normalized_post_types[] = $post_type;
-        }
-        $normalized_nodes = [];
-        foreach ($nodes as $node_id => $node) {
-            if (!is_string($node_id) || !is_array($node)) {
-                return zeroy_runtime_error('zeroy_schema_invalid', "Schema {$schema_id} has an invalid localized node.", 409);
-            }
-            $pattern = zeroy_runtime_node_pattern($node_id);
-            if (is_wp_error($pattern) || !in_array($node['kind'] ?? null, ['text', 'rich-text'], true) || !is_bool($node['required'] ?? null) || !is_bool($node['searchable'] ?? null)) {
-                return zeroy_runtime_error('zeroy_schema_invalid', "Schema {$schema_id} has an invalid localized node {$node_id}.", 409);
-            }
-            foreach (array_keys($normalized_nodes) as $previous) {
-                if (zeroy_runtime_patterns_overlap($previous, $node_id)) {
-                    return zeroy_runtime_error('zeroy_schema_invalid', "Schema {$schema_id} has overlapping NodeId patterns.", 409);
-                }
-            }
-            $normalized_nodes[$node_id] = [
-                'kind' => $node['kind'],
-                'required' => $node['required'],
-                'searchable' => $node['searchable'],
-            ];
-        }
-        if (count($normalized_nodes) === 0) {
-            return zeroy_runtime_error('zeroy_schema_invalid', "Schema {$schema_id} must declare localized nodes.", 409);
-        }
-        $normalized['schemas'][$schema_id] = [
-            'label' => $label,
-            'template' => $template,
-            'canonicalPostTypes' => $normalized_post_types,
-            'nodes' => $normalized_nodes,
-        ];
-    }
-    if (count($normalized['schemas']) === 0) {
-        return zeroy_runtime_error('zeroy_schema_invalid', 'ThemeSchema must declare at least one schema.', 409);
-    }
-    return $normalized;
+    return $analysis['schema'];
 }
 
 function zeroy_runtime_theme_schema(): array|WP_Error
 {
     $diagnostics = zeroy_runtime_schema_diagnostics();
     if (!$diagnostics['valid']) {
-        $error = $diagnostics['errors'][0];
-        return zeroy_runtime_error('zeroy_schema_invalid', $error['message'], 409);
+        return zeroy_runtime_error(
+            'zeroy_schema_invalid',
+            'ThemeSchema is invalid.',
+            409,
+            ['violations' => $diagnostics['errors']]
+        );
     }
     return $diagnostics['schema'];
 }
@@ -416,6 +600,34 @@ function zeroy_runtime_schema_definition(string $schema_id): array|WP_Error
         return zeroy_runtime_error('zeroy_schema_not_found', "Unknown ThemeSchema {$schema_id}.", 404);
     }
     return $definition;
+}
+
+function zeroy_runtime_theme_copy_definition(): array|WP_Error
+{
+    $schema = zeroy_runtime_theme_schema();
+    if (is_wp_error($schema)) {
+        return $schema;
+    }
+    $theme_copy = $schema['themeCopy'] ?? null;
+    if (!is_array($theme_copy) || !is_array($theme_copy['nodes'] ?? null)) {
+        return zeroy_runtime_error(
+            'zeroy_theme_copy_not_declared',
+            'The active ThemeSchema does not declare themeCopy.nodes.',
+            409
+        );
+    }
+    return $theme_copy;
+}
+
+function zeroy_runtime_document_definition(int $object_id, string $schema_id): array|WP_Error
+{
+    if ($object_id === ZEROY_RUNTIME_THEME_COPY_OBJECT_ID) {
+        if ($schema_id !== ZEROY_RUNTIME_THEME_COPY_SCHEMA_ID) {
+            return zeroy_runtime_error('zeroy_theme_copy_schema_invalid', 'ThemeCopy must use the reserved ThemeCopy schema.', 409);
+        }
+        return zeroy_runtime_theme_copy_definition();
+    }
+    return zeroy_runtime_schema_definition($schema_id);
 }
 
 function zeroy_runtime_node_matches(string $node_id, string $pattern): bool
@@ -497,6 +709,135 @@ function zeroy_runtime_create_canonical(string $post_type, string $schema_id, st
     update_post_meta((int) $object_id, ZEROY_RUNTIME_SCHEMA_META, $schema_id);
     update_post_meta((int) $object_id, ZEROY_RUNTIME_CANONICAL_REVISION_META, 1);
     return zeroy_runtime_canonical((int) $object_id);
+}
+
+function zeroy_runtime_existing_post_facts(WP_Post $post): array
+{
+    $acf = function_exists('get_fields') ? get_fields($post->ID, false) : [];
+    return [
+        'post' => [
+            'postId' => (int) $post->ID,
+            'postType' => $post->post_type,
+            'postStatus' => $post->post_status,
+            'postTitle' => $post->post_title,
+            'postName' => $post->post_name,
+            'postContent' => $post->post_content,
+            'postExcerpt' => $post->post_excerpt,
+            'modifiedGmt' => $post->post_modified_gmt,
+            'permalink' => get_permalink($post) ?: null,
+        ],
+        'acf' => is_array($acf) ? $acf : [],
+    ];
+}
+
+function zeroy_runtime_existing_post_projection(WP_Post $post): array
+{
+    $facts = zeroy_runtime_existing_post_facts($post);
+    return [
+        ...$facts,
+        'sourceHash' => zeroy_runtime_hash($facts),
+    ];
+}
+
+function zeroy_runtime_adoption_candidate_projection(WP_Post $post): array
+{
+    $facts = zeroy_runtime_existing_post_facts($post);
+    return [
+        'postId' => $facts['post']['postId'],
+        'postType' => $facts['post']['postType'],
+        'postStatus' => $facts['post']['postStatus'],
+        'postTitle' => $facts['post']['postTitle'],
+        'permalink' => $facts['post']['permalink'],
+        'modifiedGmt' => $facts['post']['modifiedGmt'],
+        'acfFieldNames' => array_keys($facts['acf']),
+        'sourceHash' => zeroy_runtime_hash($facts),
+    ];
+}
+
+function zeroy_runtime_adoption_candidates(?string $post_type, ?string $schema_id, int $page = 1, int $per_page = 50): array|WP_Error
+{
+    global $wpdb;
+    $page = max(1, $page);
+    $per_page = min(100, max(1, $per_page));
+    $where = 'schema_meta.post_id IS NULL AND p.post_status NOT IN (\'auto-draft\', \'trash\', \'inherit\') AND p.post_type NOT IN (\'revision\', \'attachment\', \'nav_menu_item\', \'custom_css\', \'customize_changeset\')';
+    $arguments = [ZEROY_RUNTIME_SCHEMA_META];
+    if ($post_type !== null && $post_type !== '') {
+        if (!post_type_exists($post_type)) {
+            return zeroy_runtime_error('zeroy_adoption_post_type_invalid', "Unknown WordPress post type {$post_type}.", 400);
+        }
+        $where .= ' AND p.post_type = %s';
+        $arguments[] = $post_type;
+    }
+    if ($schema_id !== null && $schema_id !== '') {
+        $definition = zeroy_runtime_schema_definition($schema_id);
+        if (is_wp_error($definition)) {
+            return $definition;
+        }
+        $allowed = $definition['canonicalPostTypes'];
+        $placeholders = implode(', ', array_fill(0, count($allowed), '%s'));
+        $where .= " AND p.post_type IN ({$placeholders})";
+        array_push($arguments, ...$allowed);
+    }
+    $from = ' FROM ' . $wpdb->posts . ' p LEFT JOIN ' . $wpdb->postmeta . ' schema_meta ON schema_meta.post_id = p.ID AND schema_meta.meta_key = %s';
+    $count = (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*)' . $from . ' WHERE ' . $where, ...$arguments));
+    $offset = ($page - 1) * $per_page;
+    $rows = $wpdb->get_results(
+        $wpdb->prepare('SELECT p.ID FROM ' . $wpdb->posts . ' p LEFT JOIN ' . $wpdb->postmeta . ' schema_meta ON schema_meta.post_id = p.ID AND schema_meta.meta_key = %s WHERE ' . $where . ' ORDER BY p.ID DESC LIMIT %d OFFSET %d', ...[...$arguments, $per_page, $offset]),
+        ARRAY_A
+    );
+    $items = [];
+    foreach (is_array($rows) ? $rows : [] as $row) {
+        $post = get_post((int) $row['ID']);
+        if ($post instanceof WP_Post) {
+            $items[] = zeroy_runtime_adoption_candidate_projection($post);
+        }
+    }
+    return ['items' => $items, 'page' => $page, 'perPage' => $per_page, 'total' => $count];
+}
+
+function zeroy_runtime_existing_unmanaged_post(int $post_id): array|WP_Error
+{
+    $post = get_post($post_id);
+    if (!$post instanceof WP_Post) {
+        return zeroy_runtime_error('zeroy_existing_post_missing', "WordPress post {$post_id} does not exist.", 404);
+    }
+    if ((string) get_post_meta($post_id, ZEROY_RUNTIME_SCHEMA_META, true) !== '') {
+        return zeroy_runtime_error('zeroy_existing_post_adopted', "WordPress post {$post_id} is already a zeroY canonical object.", 409);
+    }
+    return zeroy_runtime_existing_post_projection($post);
+}
+
+function zeroy_runtime_adopt_canonical(int $post_id, string $schema_id, string $expected_source_hash): array|WP_Error
+{
+    $projection = zeroy_runtime_existing_unmanaged_post($post_id);
+    if (is_wp_error($projection)) {
+        return $projection;
+    }
+    $current_hash = $projection['sourceHash'];
+    if (!hash_equals($current_hash, $expected_source_hash)) {
+        return zeroy_runtime_error(
+            'zeroy_adoption_source_conflict',
+            'WordPress or ACF facts changed after this post was read.',
+            409,
+            ['currentSourceHash' => $current_hash]
+        );
+    }
+    $definition = zeroy_runtime_schema_definition($schema_id);
+    if (is_wp_error($definition)) {
+        return $definition;
+    }
+    $post = get_post($post_id);
+    if (!$post instanceof WP_Post || !in_array($post->post_type, $definition['canonicalPostTypes'], true)) {
+        return zeroy_runtime_error('zeroy_canonical_post_type_invalid', 'The selected ThemeSchema does not allow this WordPress post type.', 400);
+    }
+    if (!add_post_meta($post_id, ZEROY_RUNTIME_SCHEMA_META, $schema_id, true)) {
+        return zeroy_runtime_error('zeroy_canonical_already_adopted', 'WordPress post became a zeroY canonical object before adoption completed.', 409);
+    }
+    if (!add_post_meta($post_id, ZEROY_RUNTIME_CANONICAL_REVISION_META, 1, true)) {
+        delete_post_meta($post_id, ZEROY_RUNTIME_SCHEMA_META, $schema_id);
+        return zeroy_runtime_error('zeroy_canonical_adoption_failed', 'Could not initialize canonical revision during adoption.', 500);
+    }
+    return zeroy_runtime_canonical($post_id);
 }
 
 function zeroy_runtime_assign_canonical_schema(int $object_id, string $schema_id, int $expected_revision): array|WP_Error
@@ -667,9 +1008,6 @@ function zeroy_runtime_write_draft(
     array $document,
     int $expected_revision
 ): array|WP_Error {
-    if (!zeroy_runtime_locale_is_enabled($locale)) {
-        return zeroy_runtime_error('zeroy_locale_disabled', "Locale {$locale} is not enabled for this site.", 400);
-    }
     $canonical = zeroy_runtime_canonical($object_id);
     if (is_wp_error($canonical)) {
         return $canonical;
@@ -677,11 +1015,51 @@ function zeroy_runtime_write_draft(
     if ($canonical['schemaId'] !== $schema_id) {
         return zeroy_runtime_error('zeroy_schema_assignment_mismatch', 'Locale content must use the canonical object\'s assigned ThemeSchema.', 409);
     }
-    $route = zeroy_runtime_normalize_route($route);
-    if (is_wp_error($route)) {
-        return $route;
+    return zeroy_runtime_write_versioned_document(
+        $object_id,
+        $locale,
+        $schema_id,
+        $route,
+        $document,
+        $expected_revision,
+        true
+    );
+}
+
+function zeroy_runtime_write_theme_copy_draft(string $locale, array $document, int $expected_revision): array|WP_Error
+{
+    return zeroy_runtime_write_versioned_document(
+        ZEROY_RUNTIME_THEME_COPY_OBJECT_ID,
+        $locale,
+        ZEROY_RUNTIME_THEME_COPY_SCHEMA_ID,
+        '',
+        $document,
+        $expected_revision,
+        false
+    );
+}
+
+function zeroy_runtime_write_versioned_document(
+    int $object_id,
+    string $locale,
+    string $schema_id,
+    string $route,
+    array $document,
+    int $expected_revision,
+    bool $reserves_route
+): array|WP_Error {
+    if (!zeroy_runtime_locale_is_enabled($locale)) {
+        return zeroy_runtime_error('zeroy_locale_disabled', "Locale {$locale} is not enabled for this site.", 400);
     }
-    $definition = zeroy_runtime_schema_definition($schema_id);
+    if ($reserves_route) {
+        $route = zeroy_runtime_normalize_route($route);
+        if (is_wp_error($route)) {
+            return $route;
+        }
+    } else {
+        $route = '';
+    }
+    $definition = zeroy_runtime_document_definition($object_id, $schema_id);
     if (is_wp_error($definition)) {
         return $definition;
     }
@@ -691,8 +1069,8 @@ function zeroy_runtime_write_draft(
     }
     $schema_hash = zeroy_runtime_schema_hash($definition);
     $locale_config = zeroy_runtime_locale_config($locale);
-    $url_prefix = is_array($locale_config) ? (string) $locale_config['urlPrefix'] : '';
-    $result = zeroy_runtime_transaction(function () use ($object_id, $locale, $schema_id, $route, $document, $expected_revision, $schema_hash, $url_prefix) {
+    $url_prefix = $reserves_route && is_array($locale_config) ? (string) $locale_config['urlPrefix'] : '';
+    $result = zeroy_runtime_transaction(function () use ($object_id, $locale, $schema_id, $route, $document, $expected_revision, $schema_hash, $url_prefix, $reserves_route) {
         global $wpdb;
         $head = zeroy_runtime_locked_head($object_id, $locale);
         $current_revision = $head === null ? 0 : (int) $head['revision'];
@@ -702,9 +1080,11 @@ function zeroy_runtime_write_draft(
         if ($head !== null && $head['schema_id'] !== $schema_id) {
             return zeroy_runtime_error('zeroy_schema_assignment_mismatch', 'LocaleHead ThemeSchema does not match the canonical object.', 409);
         }
-        $reservation = zeroy_runtime_reserve_route($locale, $route, $object_id, $url_prefix);
-        if (is_wp_error($reservation)) {
-            return $reservation;
+        if ($reserves_route) {
+            $reservation = zeroy_runtime_reserve_route($locale, $route, $object_id, $url_prefix);
+            if (is_wp_error($reservation)) {
+                return $reservation;
+            }
         }
         $version_id = zeroy_runtime_insert_version($object_id, $locale, $schema_id, $schema_hash, $document);
         if (is_wp_error($version_id)) {
@@ -748,8 +1128,10 @@ function zeroy_runtime_write_draft(
     if (is_wp_error($result)) {
         return $result;
     }
-    flush_rewrite_rules(false);
-    return zeroy_runtime_project_head($result, true);
+    if ($reserves_route) {
+        flush_rewrite_rules(false);
+    }
+    return zeroy_runtime_project_head($result);
 }
 
 function zeroy_runtime_search_text(array $document, array $definition): array
@@ -771,11 +1153,34 @@ function zeroy_runtime_search_text(array $document, array $definition): array
 
 function zeroy_runtime_publish_draft(int $object_id, string $locale, int $expected_revision): array|WP_Error
 {
+    $canonical = zeroy_runtime_canonical($object_id);
+    if (is_wp_error($canonical)) {
+        return $canonical;
+    }
+    return zeroy_runtime_publish_versioned_document($object_id, $locale, $expected_revision, true);
+}
+
+function zeroy_runtime_publish_theme_copy_draft(string $locale, int $expected_revision): array|WP_Error
+{
+    return zeroy_runtime_publish_versioned_document(
+        ZEROY_RUNTIME_THEME_COPY_OBJECT_ID,
+        $locale,
+        $expected_revision,
+        false
+    );
+}
+
+function zeroy_runtime_publish_versioned_document(
+    int $object_id,
+    string $locale,
+    int $expected_revision,
+    bool $indexes_search
+): array|WP_Error {
     if (!zeroy_runtime_locale_is_enabled($locale)) {
         return zeroy_runtime_error('zeroy_locale_disabled', "Locale {$locale} is not enabled for this site.", 400);
     }
     $old_head = zeroy_runtime_get_head($object_id, $locale);
-    $result = zeroy_runtime_transaction(function () use ($object_id, $locale, $expected_revision) {
+    $result = zeroy_runtime_transaction(function () use ($object_id, $locale, $expected_revision, $indexes_search) {
         global $wpdb;
         $head = zeroy_runtime_locked_head($object_id, $locale);
         if ($head === null) {
@@ -788,7 +1193,7 @@ function zeroy_runtime_publish_draft(int $object_id, string $locale, int $expect
             return zeroy_runtime_error('zeroy_draft_missing', 'No locale draft exists to publish.', 409);
         }
         $version = zeroy_runtime_get_version((int) $head['draft_version_id']);
-        $definition = zeroy_runtime_schema_definition((string) $head['schema_id']);
+        $definition = zeroy_runtime_document_definition($object_id, (string) $head['schema_id']);
         if ($version === null || is_wp_error($definition)) {
             return is_wp_error($definition) ? $definition : zeroy_runtime_error('zeroy_version_missing', 'Locale draft version is missing.', 409);
         }
@@ -819,38 +1224,65 @@ function zeroy_runtime_publish_draft(int $object_id, string $locale, int $expect
         if ($updated !== 1) {
             return zeroy_runtime_error('zeroy_publish_failed', $wpdb->last_error ?: 'Could not update the published pointer.', 409);
         }
-        $search = zeroy_runtime_search_text($document, $definition);
-        $wpdb->replace(
-            zeroy_runtime_table('search_projection'),
-            [
-                'object_id' => $object_id,
-                'locale' => $locale,
-                'published_version_id' => (int) $version['version_id'],
-                'schema_id' => $head['schema_id'],
-                'title' => $search['title'],
-                'searchable_text' => $search['text'],
-                'updated_at' => current_time('mysql', true),
-            ],
-            ['%d', '%s', '%d', '%s', '%s', '%s', '%s']
-        );
+        if ($indexes_search) {
+            $search = zeroy_runtime_search_text($document, $definition);
+            $wpdb->replace(
+                zeroy_runtime_table('search_projection'),
+                [
+                    'object_id' => $object_id,
+                    'locale' => $locale,
+                    'published_version_id' => (int) $version['version_id'],
+                    'schema_id' => $head['schema_id'],
+                    'title' => $search['title'],
+                    'searchable_text' => $search['text'],
+                    'updated_at' => current_time('mysql', true),
+                ],
+                ['%d', '%s', '%d', '%s', '%s', '%s', '%s']
+            );
+        }
         return zeroy_runtime_get_head($object_id, $locale);
     });
     if (is_wp_error($result)) {
         return $result;
     }
     zeroy_runtime_invalidate_document_cache($old_head);
-    $canonical = zeroy_runtime_canonical($object_id);
-    if (is_array($canonical) && $canonical['post']->post_status !== 'publish') {
-        wp_update_post(['ID' => $object_id, 'post_status' => 'publish']);
+    if ($indexes_search) {
+        $canonical = zeroy_runtime_canonical($object_id);
+        if (is_array($canonical) && $canonical['post']->post_status !== 'publish') {
+            wp_update_post(['ID' => $object_id, 'post_status' => 'publish']);
+        }
+        flush_rewrite_rules(false);
     }
-    flush_rewrite_rules(false);
-    return zeroy_runtime_project_head($result, true);
+    return zeroy_runtime_project_head($result);
 }
 
 function zeroy_runtime_unpublish(int $object_id, string $locale, int $expected_revision): array|WP_Error
 {
+    $canonical = zeroy_runtime_canonical($object_id);
+    if (is_wp_error($canonical)) {
+        return $canonical;
+    }
+    return zeroy_runtime_unpublish_versioned_document($object_id, $locale, $expected_revision, true);
+}
+
+function zeroy_runtime_unpublish_theme_copy(string $locale, int $expected_revision): array|WP_Error
+{
+    return zeroy_runtime_unpublish_versioned_document(
+        ZEROY_RUNTIME_THEME_COPY_OBJECT_ID,
+        $locale,
+        $expected_revision,
+        false
+    );
+}
+
+function zeroy_runtime_unpublish_versioned_document(
+    int $object_id,
+    string $locale,
+    int $expected_revision,
+    bool $indexes_search
+): array|WP_Error {
     $old_head = zeroy_runtime_get_head($object_id, $locale);
-    $result = zeroy_runtime_transaction(function () use ($object_id, $locale, $expected_revision) {
+    $result = zeroy_runtime_transaction(function () use ($object_id, $locale, $expected_revision, $indexes_search) {
         global $wpdb;
         $head = zeroy_runtime_locked_head($object_id, $locale);
         if ($head === null) {
@@ -873,22 +1305,28 @@ function zeroy_runtime_unpublish(int $object_id, string $locale, int $expected_r
         if ($updated !== 1) {
             return zeroy_runtime_error('zeroy_unpublish_failed', $wpdb->last_error ?: 'Could not clear the published pointer.', 409);
         }
-        $wpdb->delete(zeroy_runtime_table('search_projection'), ['object_id' => $object_id, 'locale' => $locale], ['%d', '%s']);
+        if ($indexes_search) {
+            $wpdb->delete(zeroy_runtime_table('search_projection'), ['object_id' => $object_id, 'locale' => $locale], ['%d', '%s']);
+        }
         return zeroy_runtime_get_head($object_id, $locale);
     });
     if (is_wp_error($result)) {
         return $result;
     }
     zeroy_runtime_invalidate_document_cache($old_head);
-    flush_rewrite_rules(false);
-    return zeroy_runtime_project_head($result, true);
+    if ($indexes_search) {
+        flush_rewrite_rules(false);
+    }
+    return zeroy_runtime_project_head($result);
 }
 
 function zeroy_runtime_project_head(array $head, bool $include_documents = false): array
 {
+    $object_id = (int) $head['object_id'];
+    $theme_copy = $object_id === ZEROY_RUNTIME_THEME_COPY_OBJECT_ID;
     $draft = $head['draft_version_id'] === null ? null : zeroy_runtime_get_version((int) $head['draft_version_id']);
     $published = $head['published_version_id'] === null ? null : zeroy_runtime_get_version((int) $head['published_version_id']);
-    $definition = zeroy_runtime_schema_definition((string) $head['schema_id']);
+    $definition = zeroy_runtime_document_definition($object_id, (string) $head['schema_id']);
     $schema_hash = is_array($definition) ? zeroy_runtime_schema_hash($definition) : null;
     $published_matches = $published !== null && $schema_hash !== null && hash_equals($schema_hash, (string) $published['schema_hash']);
     $locale_enabled = zeroy_runtime_locale_is_enabled((string) $head['locale']);
@@ -896,11 +1334,13 @@ function zeroy_runtime_project_head(array $head, bool $include_documents = false
         ? 'disabled'
         : ($published === null ? ($draft === null ? 'not-started' : 'draft') : ($published_matches ? 'published' : 'schema-mismatch'));
     $projected = [
-        'objectId' => (int) $head['object_id'],
+        'scope' => $theme_copy ? 'themeCopy' : 'canonical',
+        'objectId' => $theme_copy ? null : $object_id,
         'locale' => $head['locale'],
         'schemaId' => $head['schema_id'],
-        'route' => $head['route_path'],
-        'url' => $locale_enabled ? zeroy_runtime_route_url((string) $head['locale'], (string) $head['route_path']) : null,
+        'schemaHash' => $schema_hash,
+        'route' => $theme_copy ? null : $head['route_path'],
+        'url' => !$theme_copy && $locale_enabled ? zeroy_runtime_route_url((string) $head['locale'], (string) $head['route_path']) : null,
         'revision' => (int) $head['revision'],
         'draftVersionId' => $head['draft_version_id'] === null ? null : (int) $head['draft_version_id'],
         'publishedVersionId' => $head['published_version_id'] === null ? null : (int) $head['published_version_id'],
@@ -933,7 +1373,7 @@ function zeroy_runtime_read_document(int $object_id, string $locale, string $sch
     if ($head === null || $head['schema_id'] !== $schema_id || $head['published_version_id'] === null) {
         return zeroy_runtime_error('zeroy_locale_not_published', 'Locale document is not published.', 404);
     }
-    $definition = zeroy_runtime_schema_definition($schema_id);
+    $definition = zeroy_runtime_document_definition($object_id, $schema_id);
     if (is_wp_error($definition)) {
         return $definition;
     }
@@ -963,6 +1403,19 @@ function zeroy_locale_document(int $object_id, string $locale, string $schema_id
     $document = zeroy_runtime_read_document($object_id, $locale, $schema_id);
     if (is_wp_error($document)) {
         wp_die($document->get_error_message(), 'zeroY locale document unavailable', ['response' => 404]);
+    }
+    return $document;
+}
+
+function zeroy_theme_copy_document(string $locale): array
+{
+    $document = zeroy_runtime_read_document(
+        ZEROY_RUNTIME_THEME_COPY_OBJECT_ID,
+        $locale,
+        ZEROY_RUNTIME_THEME_COPY_SCHEMA_ID
+    );
+    if (is_wp_error($document)) {
+        wp_die($document->get_error_message(), 'zeroY theme copy unavailable', ['response' => 404]);
     }
     return $document;
 }
@@ -1173,18 +1626,25 @@ function zeroy_runtime_integrity(): array
     }
     $heads = $wpdb->get_results('SELECT * FROM ' . zeroy_runtime_table('locale_heads'), ARRAY_A);
     foreach (is_array($heads) ? $heads : [] as $head) {
-        $reservation = $wpdb->get_var(
-            $wpdb->prepare('SELECT object_id FROM ' . zeroy_runtime_table('route_reservations') . ' WHERE locale = %s AND route_path = %s', $head['locale'], $head['route_path'])
-        );
-        if ((int) $reservation !== (int) $head['object_id']) {
-            $issues[] = ['code' => 'route_reservation_missing', 'objectId' => (int) $head['object_id'], 'locale' => $head['locale'], 'message' => 'LocaleHead route is not reserved by its canonical object.'];
+        $theme_copy = (int) $head['object_id'] === ZEROY_RUNTIME_THEME_COPY_OBJECT_ID;
+        if ($theme_copy) {
+            if ((string) $head['schema_id'] !== ZEROY_RUNTIME_THEME_COPY_SCHEMA_ID) {
+                $issues[] = ['code' => 'theme_copy_schema_invalid', 'locale' => $head['locale'], 'message' => 'ThemeCopy LocaleHead does not use the reserved ThemeCopy schema.'];
+            }
+        } else {
+            $reservation = $wpdb->get_var(
+                $wpdb->prepare('SELECT object_id FROM ' . zeroy_runtime_table('route_reservations') . ' WHERE locale = %s AND route_path = %s', $head['locale'], $head['route_path'])
+            );
+            if ((int) $reservation !== (int) $head['object_id']) {
+                $issues[] = ['code' => 'route_reservation_missing', 'objectId' => (int) $head['object_id'], 'locale' => $head['locale'], 'message' => 'LocaleHead route is not reserved by its canonical object.'];
+            }
         }
         foreach (['draft_version_id', 'published_version_id'] as $pointer) {
             if ($head[$pointer] !== null && zeroy_runtime_get_version((int) $head[$pointer]) === null) {
                 $issues[] = ['code' => 'version_pointer_missing', 'objectId' => (int) $head['object_id'], 'locale' => $head['locale'], 'message' => "LocaleHead {$pointer} points at a missing LocaleVersion."];
             }
         }
-        if ($head['published_version_id'] !== null) {
+        if (!$theme_copy && $head['published_version_id'] !== null) {
             $projection = $wpdb->get_row(
                 $wpdb->prepare('SELECT published_version_id FROM ' . zeroy_runtime_table('search_projection') . ' WHERE object_id = %d AND locale = %s', $head['object_id'], $head['locale']),
                 ARRAY_A

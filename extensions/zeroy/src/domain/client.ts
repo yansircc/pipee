@@ -4,6 +4,9 @@ import type { SiteConnection } from "./connection.js";
 
 export class ZeroYConnectorError extends Data.TaggedError("ZeroYConnectorError")<{
   readonly message: string;
+  readonly status?: number;
+  readonly code?: string;
+  readonly data?: JsonRecord;
 }> {}
 
 const asRecord = (value: unknown): JsonRecord | null =>
@@ -11,9 +14,17 @@ const asRecord = (value: unknown): JsonRecord | null =>
     ? (value as JsonRecord)
     : null;
 
-const connectorErrorMessage = (payload: JsonRecord): string | undefined => {
+const connectorError = (
+  payload: JsonRecord,
+): { readonly message: string; readonly code?: string; readonly data?: JsonRecord } | undefined => {
   const error = asRecord(payload.error);
-  return error && typeof error.message === "string" ? error.message : undefined;
+  if (!error || typeof error.message !== "string") return undefined;
+  const data = asRecord(error.data);
+  return {
+    message: error.message,
+    ...(typeof error.code === "string" ? { code: error.code } : {}),
+    ...(data === null ? {} : { data }),
+  };
 };
 
 export const connectorCall = (
@@ -58,12 +69,25 @@ export const connectorCall = (
       });
     }
     if (!response.ok) {
+      const connector = connectorError(payload);
       return yield* new ZeroYConnectorError({
-        message: `${connection.label} rejected the request (${response.status}): ${connectorErrorMessage(payload) ?? JSON.stringify(payload)}`,
+        message:
+          connector?.message ?? `${connection.label} rejected the request (${response.status}).`,
+        status: response.status,
+        ...(connector?.code === undefined ? {} : { code: connector.code }),
+        ...(connector?.data === undefined ? {} : { data: connector.data }),
       });
     }
     return payload;
-  });
+  }).pipe(
+    Effect.withSpan("zeroy.connector.call", {
+      attributes: {
+        "zeroy.site_id": connection.siteId,
+        "http.method": init.method ?? "GET",
+        "http.route": `/wp-json/zeroy/v1/${path.split("?")[0] ?? ""}`,
+      },
+    }),
+  );
 
 export const connectorGet = (connection: SiteConnection, path: string, signal?: AbortSignal) =>
   connectorCall(connection, path, { method: "GET" }, signal);

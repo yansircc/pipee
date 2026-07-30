@@ -14,8 +14,17 @@ const SiteConfig = Type.Object({
   defaultLocale: Locale,
   enabledLocales: Type.Array(LocaleConfig, { minItems: 1 }),
 });
+const SourceHash = Type.String({
+  minLength: 64,
+  maxLength: 64,
+  description:
+    "Exact sourceHash returned by adoptionCandidates or existingPost. It proves the WordPress post and ACF facts have not changed before identity-only adoption.",
+});
 
 export const InspectInputContract = Type.Union([
+  Type.Object({
+    resource: Type.Literal("sites"),
+  }),
   Type.Object({ siteId: SiteId, resource: Type.Literal("site") }),
   Type.Object({ siteId: SiteId, resource: Type.Literal("schema") }),
   Type.Object({
@@ -27,13 +36,40 @@ export const InspectInputContract = Type.Union([
   Type.Object({ siteId: SiteId, resource: Type.Literal("acf") }),
   Type.Object({
     siteId: SiteId,
+    resource: Type.Literal("adoptionCandidates"),
+    postType: Type.Optional(Type.String({ minLength: 1 })),
+    schemaId: Type.Optional(Type.String({ minLength: 1 })),
+    page: Type.Optional(Type.Integer({ minimum: 1 })),
+    perPage: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+  }),
+  Type.Object({
+    siteId: SiteId,
+    resource: Type.Literal("existingPost"),
+    postId: Type.Integer({
+      minimum: 1,
+      description:
+        "An unmanaged WordPress post ID returned by adoptionCandidates. Returns its canonical WordPress fields and current ACF values without creating zeroY content.",
+    }),
+  }),
+  Type.Object({
+    siteId: SiteId,
     resource: Type.Literal("themeFiles"),
-    path: Type.Optional(Type.String()),
+    path: Type.Optional(
+      Type.String({
+        description:
+          "Omit path to list active-theme paths with hash and size. Provide one existing path to read its exact content and hash before a write.",
+      }),
+    ),
   }),
   Type.Object({
     siteId: SiteId,
     resource: Type.Literal("localeContent"),
     objectId: Type.Integer({ minimum: 1 }),
+    locale: Locale,
+  }),
+  Type.Object({
+    siteId: SiteId,
+    resource: Type.Literal("themeCopy"),
     locale: Locale,
   }),
   Type.Object({ siteId: SiteId, resource: Type.Literal("integrity") }),
@@ -81,6 +117,17 @@ export const ContentInputContract = Type.Union([
   }),
   Type.Object({
     siteId: SiteId,
+    action: Type.Literal("adoptCanonical"),
+    postId: Type.Integer({
+      minimum: 1,
+      description:
+        "Existing unmanaged WordPress post ID. Adoption attaches zeroY identity and a ThemeSchema; it does not copy or translate existing ACF values.",
+    }),
+    schemaId: Type.String({ minLength: 1 }),
+    expectedSourceHash: SourceHash,
+  }),
+  Type.Object({
+    siteId: SiteId,
     action: Type.Literal("assignSchema"),
     objectId: Type.Integer({ minimum: 1 }),
     schemaId: Type.String({ minLength: 1 }),
@@ -100,7 +147,7 @@ export const ContentInputContract = Type.Union([
     expectedRevision: Type.Integer({
       minimum: 0,
       description:
-        "The locale revision, independent from the canonical revision. A new LocaleHead always starts at 0; later calls must use the locale revision returned by the previous result.",
+        "The locale revision, independent from the canonical revision. A new LocaleHead always starts at 0; later calls must use the locale revision returned by the previous LocaleMutationReceipt.",
     }),
   }),
   Type.Object({
@@ -121,6 +168,36 @@ export const ContentInputContract = Type.Union([
     expectedRevision: Type.Integer({
       minimum: 0,
       description: "The current locale revision returned by the Connector.",
+    }),
+  }),
+  Type.Object({
+    siteId: SiteId,
+    action: Type.Literal("writeThemeCopyDraft"),
+    locale: Locale,
+    document: Document,
+    expectedRevision: Type.Integer({
+      minimum: 0,
+      description:
+        "The ThemeCopy locale revision. A new ThemeCopy LocaleHead always starts at 0; later calls must use the revision returned by the previous ThemeCopy receipt.",
+    }),
+  }),
+  Type.Object({
+    siteId: SiteId,
+    action: Type.Literal("publishThemeCopy"),
+    locale: Locale,
+    expectedRevision: Type.Integer({
+      minimum: 0,
+      description:
+        "The ThemeCopy locale revision returned by the preceding writeThemeCopyDraft result.",
+    }),
+  }),
+  Type.Object({
+    siteId: SiteId,
+    action: Type.Literal("unpublishThemeCopy"),
+    locale: Locale,
+    expectedRevision: Type.Integer({
+      minimum: 0,
+      description: "The current ThemeCopy locale revision returned by the Connector.",
     }),
   }),
 ]);
@@ -350,6 +427,6 @@ export const decodeContentInput = (input: unknown) =>
   decodeDiscriminated<ContentApplyInput>(ContentInputContract, "action", input);
 
 export const CONTENT_PROMPT_GUIDELINES =
-  "Run mutations one at a time and wait for each result. Standard locale flow: createCanonical with postTitle, then writeDraft with expectedRevision 0 for each new locale, then publish with the locale revision returned by writeDraft. Canonical and locale revisions are independent.";
+  "Begin with zeroy_inspect resource sites, then inspect the selected site. Run mutations one at a time and wait for each receipt. Standard page flow: createCanonical with postTitle, or adoptionCandidates → existingPost → adoptCanonical with expectedSourceHash; then writeDraft with expectedRevision 0 for each new locale, then publish with the returned locale revision. Standard ThemeCopy flow: writeThemeCopyDraft with expectedRevision 0, then publishThemeCopy with its returned revision. WordPress/ACF facts remain canonical and are never copied into zeroY locale documents.";
 
 export type JsonRecord = Readonly<Record<string, unknown>>;

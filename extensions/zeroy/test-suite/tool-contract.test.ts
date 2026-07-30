@@ -24,14 +24,18 @@ type ObjectSchema = TSchema & {
 const siteId = "acceptance";
 
 describe("zeroY exact tool input algebra", () => {
-  it("accepts all eight inspect variants", () => {
+  it("accepts all configured-site and per-site inspect variants", () => {
     const inputs = [
+      { resource: "sites" },
       { siteId, resource: "site" },
       { siteId, resource: "schema" },
       { siteId, resource: "inventory", page: 1, perPage: 50 },
       { siteId, resource: "acf" },
+      { siteId, resource: "adoptionCandidates", schemaId: "showcase", page: 1, perPage: 50 },
+      { siteId, resource: "existingPost", postId: 1 },
       { siteId, resource: "themeFiles", path: "style.css" },
       { siteId, resource: "localeContent", objectId: 1, locale: "zh-CN" },
+      { siteId, resource: "themeCopy", locale: "zh-CN" },
       { siteId, resource: "integrity" },
       { siteId, resource: "externalCheck" },
     ];
@@ -39,7 +43,7 @@ describe("zeroY exact tool input algebra", () => {
     expect(inputs.every((input) => decodeInspectInput(input)._tag === "Success")).toBe(true);
   });
 
-  it("accepts all six content variants", () => {
+  it("accepts all page, adoption, and ThemeCopy content variants", () => {
     const inputs = [
       {
         siteId,
@@ -57,6 +61,13 @@ describe("zeroY exact tool input algebra", () => {
         schemaId: "showcase",
         postTitle: "Acceptance page",
       },
+      {
+        siteId,
+        action: "adoptCanonical",
+        postId: 2,
+        schemaId: "showcase",
+        expectedSourceHash: "a".repeat(64),
+      },
       { siteId, action: "assignSchema", objectId: 1, schemaId: "showcase", expectedRevision: 1 },
       {
         siteId,
@@ -70,6 +81,15 @@ describe("zeroY exact tool input algebra", () => {
       },
       { siteId, action: "publish", objectId: 1, locale: "zh-CN", expectedRevision: 1 },
       { siteId, action: "unpublish", objectId: 1, locale: "zh-CN", expectedRevision: 2 },
+      {
+        siteId,
+        action: "writeThemeCopyDraft",
+        locale: "zh-CN",
+        document: { "nav.home": "首页" },
+        expectedRevision: 0,
+      },
+      { siteId, action: "publishThemeCopy", locale: "zh-CN", expectedRevision: 1 },
+      { siteId, action: "unpublishThemeCopy", locale: "zh-CN", expectedRevision: 2 },
     ];
     expect(inputs.every((input) => Value.Check(ContentInputContract, input))).toBe(true);
     expect(inputs.every((input) => decodeContentInput(input)._tag === "Success")).toBe(true);
@@ -81,16 +101,20 @@ describe("zeroY exact tool input algebra", () => {
       _tag: "Failure",
       error: {
         message:
-          "resource must be one of [site, schema, inventory, acf, themeFiles, localeContent, integrity, externalCheck].",
+          "resource must be one of [sites, site, schema, inventory, acf, adoptionCandidates, existingPost, themeFiles, localeContent, themeCopy, integrity, externalCheck].",
       },
     });
     for (const [action, fields] of [
       ["siteConfig", "siteConfig, expectedRevision"],
       ["createCanonical", "postType, schemaId"],
+      ["adoptCanonical", "postId, schemaId, expectedSourceHash"],
       ["assignSchema", "objectId, schemaId, expectedRevision"],
       ["writeDraft", "objectId, locale, schemaId, route, document, expectedRevision"],
       ["publish", "objectId, locale, expectedRevision"],
       ["unpublish", "objectId, locale, expectedRevision"],
+      ["writeThemeCopyDraft", "locale, document, expectedRevision"],
+      ["publishThemeCopy", "locale, expectedRevision"],
+      ["unpublishThemeCopy", "locale, expectedRevision"],
     ] as const) {
       const incomplete = decodeContentInput({ siteId, action });
       expect(incomplete).toMatchObject({
@@ -107,26 +131,34 @@ describe("provider-safe tool projection", () => {
     if (InspectProviderProjection._tag === "Failure") return;
     const schema = InspectProviderProjection.value as ObjectSchema;
     expect(schema.type).toBe("object");
-    expect(schema.required).toEqual(["siteId", "resource"]);
+    expect(schema.required).toEqual(["resource"]);
     expect(schema.properties.resource?.enum).toEqual([
+      "sites",
       "site",
       "schema",
       "inventory",
       "acf",
+      "adoptionCandidates",
+      "existingPost",
       "themeFiles",
       "localeContent",
+      "themeCopy",
       "integrity",
       "externalCheck",
     ]);
     expect(Object.keys(schema.properties)).toEqual([
-      "siteId",
       "resource",
+      "siteId",
       "page",
       "perPage",
+      "postType",
+      "schemaId",
+      "postId",
       "path",
       "objectId",
       "locale",
     ]);
+    expect(Value.Check(schema, { resource: "sites" })).toBe(true);
     expect(schema.properties.objectId?.description).toContain(
       "Required when resource = localeContent",
     );
@@ -140,10 +172,14 @@ describe("provider-safe tool projection", () => {
     expect(schema.properties.action?.enum).toEqual([
       "siteConfig",
       "createCanonical",
+      "adoptCanonical",
       "assignSchema",
       "writeDraft",
       "publish",
       "unpublish",
+      "writeThemeCopyDraft",
+      "publishThemeCopy",
+      "unpublishThemeCopy",
     ]);
     expect(schema.properties.expectedRevision?.description).toContain(
       "A new LocaleHead always starts at 0",
@@ -153,6 +189,9 @@ describe("provider-safe tool projection", () => {
     );
     expect(schema.properties.postTitle?.description).toContain(
       "meaningful WordPress administrator title",
+    );
+    expect(schema.properties.expectedSourceHash?.description).toContain(
+      "WordPress post and ACF facts have not changed",
     );
     expect(Value.Check(schema, { siteId, action: "writeDraft" })).toBe(true);
     expect(decodeContentInput({ siteId, action: "writeDraft" })._tag).toBe("Failure");
@@ -210,7 +249,7 @@ describe("registered tool definitions", () => {
     expect(tools[1]?.parameters).toBe(ThemeApplyInputContract);
     expect(tools[2]?.parameters).toBe(ContentProviderProjection.value);
     expect(tools[2]?.description).toContain(
-      "createCanonical with postTitle, then writeDraft with expectedRevision 0",
+      "adoptionCandidates → existingPost → adoptCanonical with expectedSourceHash",
     );
   });
 });

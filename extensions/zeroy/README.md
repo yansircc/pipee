@@ -15,7 +15,7 @@ Pipee / Pi Agent
 zeroY Runtime Connector (WordPress)
   ├─ SiteConfig                 language configuration
   ├─ ThemeSchema                localized node contract
-  ├─ WordPress / ACF            canonical and shared facts
+  ├─ WordPress / ACF            canonical business facts
   └─ LocaleStore                immutable versions and publish pointers
 ```
 
@@ -24,9 +24,14 @@ zeroY Runtime Connector (WordPress)
 - Site-local `defaultLocale` and enabled locales, each with an explicit URL
   prefix and CAS revision.
 - `zeroy.schema.json` from the active theme. It declares localized `text` and
-  `rich-text` node IDs; it does not duplicate ACF fields or language config.
-- One canonical WordPress object per business page, then a separate LocaleHead
-  and immutable LocaleVersion for each language.
+  `rich-text` node IDs; its optional `themeCopy` declares global shell copy.
+  It never duplicates ACF fields or language config.
+- WordPress post fields and ACF values are canonical business facts. zeroY
+  LocaleHeads are a separate, explicit localized presentation fact; they never
+  silently copy, translate, or overwrite ACF values.
+- One canonical WordPress object per localized business page, then a separate
+  LocaleHead and immutable LocaleVersion for each language. ThemeCopy uses the
+  same version-pointer algebra but has no WordPress post or route.
 - Locale-first routes, archive/search projections, canonical and `hreflang`.
   Missing, draft, disabled, unpublished or schema-mismatched locales are 404;
   there is no fallback language.
@@ -65,6 +70,9 @@ export ZEROY_SITES='[
 ]'
 ```
 
+The Agent begins with `zeroy_inspect { "resource": "sites" }`; it receives
+only the configured `siteId`, label and endpoint, never a connection key.
+
 Run a local built extension with Pi:
 
 ```sh
@@ -82,6 +90,12 @@ conversation. Optional PageSpeed checks are extension-owned; set
 ```json
 {
   "contract": "zeroy/theme-schema@1",
+  "themeCopy": {
+    "nodes": {
+      "nav.home": { "kind": "text", "required": true, "searchable": false },
+      "cta.quote": { "kind": "text", "required": true, "searchable": false }
+    }
+  },
   "schemas": {
     "case-study": {
       "label": "Case study",
@@ -105,6 +119,49 @@ $document = zeroy_locale_document($post->ID, zeroy_current_locale(), 'case-study
 echo esc_html($document['title']);
 echo wp_kses_post($document['summary']);
 ```
+
+Global shell copy uses its own explicit helper, not PHP string tables or ACF
+prefix conventions:
+
+```php
+$copy = zeroy_theme_copy_document(zeroy_current_locale());
+echo esc_html($copy['nav.home']);
+```
+
+`zeroy_inspect { resource: "schema" }` returns the complete node-language
+capability list. Invalid schemas return every structured violation at once,
+including the schema/node/field, expected constraint and actual type.
+
+## Existing WordPress and ACF sites
+
+Existing content is not invisible, and it is not auto-migrated. The Agent uses
+one explicit identity-only flow:
+
+```text
+adoptionCandidates → existingPost → adoptCanonical(expectedSourceHash)
+```
+
+`adoptionCandidates` lists unmanaged posts and safe summaries. `existingPost`
+returns one post's canonical WordPress fields, current raw ACF values and a
+`sourceHash`. `adoptCanonical` succeeds only while that hash still matches; it
+attaches a ThemeSchema and zeroY canonical revision, without copying or
+translating existing data.
+
+That boundary is intentional: a theme must explicitly choose whether a display
+value comes from ACF or from `zeroy_locale_document`. There is no hidden ACF to
+LocaleStore mapping.
+
+## Routes and mutation receipts
+
+`/` is the explicit FrontPage route. It is stored as the unique empty route
+only after the caller supplied `/`; it resolves to the default locale's site
+root and to each other locale's prefix root. All other routes are non-empty,
+path-safe strings.
+
+`writeDraft`, `publish`, `unpublish` and the three ThemeCopy mutations return a
+compact receipt (scope, locale, revision, version IDs, state, route and URL).
+They never echo documents. Read `localeContent` or `themeCopy` when the full
+document is actually needed.
 
 ## Read-only WebSurface
 

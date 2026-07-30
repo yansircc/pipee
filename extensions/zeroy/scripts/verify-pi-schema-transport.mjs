@@ -127,14 +127,18 @@ try {
 
   const inspect = tools.get("zeroy_inspect")?.input_schema;
   assert.equal(inspect?.type, "object");
-  assert.deepEqual(inspect?.required, ["siteId", "resource"]);
+  assert.deepEqual(inspect?.required, ["resource"]);
   assert.deepEqual(inspect?.properties?.resource?.enum, [
+    "sites",
     "site",
     "schema",
     "inventory",
     "acf",
+    "adoptionCandidates",
+    "existingPost",
     "themeFiles",
     "localeContent",
+    "themeCopy",
     "integrity",
     "externalCheck",
   ]);
@@ -146,10 +150,14 @@ try {
   assert.deepEqual(content?.properties?.action?.enum, [
     "siteConfig",
     "createCanonical",
+    "adoptCanonical",
     "assignSchema",
     "writeDraft",
     "publish",
     "unpublish",
+    "writeThemeCopyDraft",
+    "publishThemeCopy",
+    "unpublishThemeCopy",
   ]);
   assert.match(
     content?.properties?.expectedRevision?.description ?? "",
@@ -157,12 +165,17 @@ try {
   );
   assert.match(content?.properties?.expectedRevision?.description ?? "", /canonical revision/u);
   assert.match(content?.properties?.postTitle?.description ?? "", /WordPress administrator title/u);
+  assert.match(
+    content?.properties?.expectedSourceHash?.description ?? "",
+    /ACF facts have not changed/u,
+  );
 
   const theme = tools.get("zeroy_theme_apply")?.input_schema;
   assert.match(
     theme?.properties?.files?.items?.properties?.expectedHash?.description ?? "",
     /existing file; use null for a new file/u,
   );
+  assert.match(inspect?.properties?.path?.description ?? "", /Omit path to list/u);
 
   process.stdout.write("Pi Anthropic schema transport gate passed.\n");
 } finally {

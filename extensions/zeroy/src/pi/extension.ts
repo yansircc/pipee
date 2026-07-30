@@ -60,6 +60,29 @@ const emptySurface: WebSurfaceSlot = { replace: () => undefined };
 const text = (value: unknown): string => JSON.stringify(value, null, 2);
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+const errorPayload = (error: unknown): JsonRecord => {
+  if (error instanceof ZeroYConnectorError) {
+    return {
+      error: {
+        code: error.code ?? "zeroy_connector_error",
+        message: error.message,
+        ...(error.status === undefined ? {} : { status: error.status }),
+        ...(error.data === undefined ? {} : { data: error.data }),
+      },
+    };
+  }
+  return {
+    error: {
+      code:
+        typeof error === "object" && error !== null && "_tag" in error
+          ? String(error._tag)
+          : "zeroy_request_failed",
+      message: errorMessage(error),
+    },
+  };
+};
+const inspectSiteLabel = (input: InspectInput): string =>
+  input.resource === "sites" ? "Configured zeroY sites" : input.siteId;
 
 const result = (
   content: string,
@@ -89,7 +112,7 @@ const runTool = (
       Effect.catch((error) =>
         Effect.succeed(
           result(
-            errorMessage(error),
+            text(errorPayload(error)),
             "zeroY Connector",
             "Request failed",
             [["Error", errorMessage(error)]],
@@ -279,6 +302,19 @@ const inspectResource = (
   ZeroYConnectorError | ZeroYConnectionConfigError
 > =>
   Effect.gen(function* () {
+    if (input.resource === "sites") {
+      return {
+        payload: {
+          contract: "zeroy/configured-sites@1",
+          sites: active.connections.map(({ siteId, label, endpoint }) => ({
+            siteId,
+            label,
+            endpoint,
+          })),
+        },
+        summary: "Listed configured zeroY sites",
+      };
+    }
     const site = yield* connection(active, input.siteId);
     switch (input.resource) {
       case "site":
@@ -304,6 +340,27 @@ const inspectResource = (
           payload: yield* connectorGet(site, "acf", signal),
           summary: "Read shared ACF structure",
         };
+      case "adoptionCandidates": {
+        const parameters = new URLSearchParams({
+          page: String(input.page ?? 1),
+          perPage: String(input.perPage ?? 50),
+        });
+        if (input.postType !== undefined) parameters.set("postType", input.postType);
+        if (input.schemaId !== undefined) parameters.set("schemaId", input.schemaId);
+        return {
+          payload: yield* connectorGet(
+            site,
+            `adoption-candidates?${parameters.toString()}`,
+            signal,
+          ),
+          summary: "Read unmanaged WordPress adoption candidates",
+        };
+      }
+      case "existingPost":
+        return {
+          payload: yield* connectorGet(site, `existing-post?postId=${input.postId}`, signal),
+          summary: "Read existing WordPress and ACF facts",
+        };
       case "themeFiles":
         return {
           payload: yield* connectorGet(
@@ -321,6 +378,15 @@ const inspectResource = (
             signal,
           ),
           summary: "Read locale content",
+        };
+      case "themeCopy":
+        return {
+          payload: yield* connectorGet(
+            site,
+            `theme-copy?locale=${encodeURIComponent(input.locale)}`,
+            signal,
+          ),
+          summary: "Read theme-level localized copy",
         };
       case "integrity":
         return {
@@ -346,13 +412,13 @@ const inspectTool = (active: ActiveSession, input: InspectInput, signal: AbortSi
     "zeroY inspection",
     "Reading a typed Connector resource",
     [
-      ["Site", input.siteId],
+      ["Site", inspectSiteLabel(input)],
       ["Resource", input.resource],
     ],
     inspectResource(active, input, signal).pipe(
       Effect.map(({ payload, summary }) =>
         result(text(payload), "zeroY inspection", summary, [
-          ["Site", input.siteId],
+          ["Site", inspectSiteLabel(input)],
           ["Resource", input.resource],
         ]),
       ),
@@ -415,6 +481,16 @@ const contentPayload = (
           postTitle: input.postTitle ?? "",
         },
       };
+    case "adoptCanonical":
+      return {
+        path: "canonical",
+        body: {
+          action: "adopt",
+          postId: input.postId,
+          schemaId: input.schemaId,
+          expectedSourceHash: input.expectedSourceHash,
+        },
+      };
     case "assignSchema":
       return {
         path: "canonical",
@@ -445,6 +521,26 @@ const contentPayload = (
         body: {
           action: input.action,
           objectId: input.objectId,
+          locale: input.locale,
+          expectedRevision: input.expectedRevision,
+        },
+      };
+    case "writeThemeCopyDraft":
+      return {
+        path: "theme-copy",
+        body: {
+          action: input.action,
+          locale: input.locale,
+          document: input.document,
+          expectedRevision: input.expectedRevision,
+        },
+      };
+    case "publishThemeCopy":
+    case "unpublishThemeCopy":
+      return {
+        path: "theme-copy",
+        body: {
+          action: input.action,
           locale: input.locale,
           expectedRevision: input.expectedRevision,
         },
