@@ -1,5 +1,169 @@
 {
   "contract": "zeroy/theme-schema@1",
+  "themeCopy": {
+    "nodes": {
+      "nav_solutions": {
+        "kind": "text",
+        "required": true,
+        "searchable": false
+      },
+      "nav_process": {
+        "kind": "text",
+        "required": true,
+        "searchable": false
+      },
+      "nav_industries": {
+        "kind": "text",
+        "required": true,
+        "searchable": false
+      },
+      "nav_contact": {
+        "kind": "text",
+        "required": true,
+        "searchable": false
+      },
+      "cta_primary": {
+        "kind": "text",
+        "required": true,
+        "searchable": false
+      },
+      "cta_explore": {
+        "kind": "text",
+        "required": true,
+        "searchable": false
+      },
+      "cta_consult": {
+        "kind": "text",
+        "required": true,
+        "searchable": false
+      },
+      "step_prefix": {
+        "kind": "text",
+        "required": true,
+        "searchable": false
+      },
+      "footer_tagline": {
+        "kind": "text",
+        "required": true,
+        "searchable": false
+      },
+      "back_home": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_cpt_line": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_cpt_machine": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_cpt_service": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_applicable_products": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_applicable_materials": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_capacity": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_automation": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_project_purpose": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_process": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_specs": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_delivery": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_related_machines": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_purpose": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_video": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_watch_video": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_applicable_projects": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_items": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_deliverables": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "label_steps": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "cta_band_title": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "cta_band_text": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "footer_proof": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      }
+    }
+  },
   "schemas": {
     "showcase": {
       "label": "MVP Showcase",
@@ -17,6 +181,221 @@
           "searchable": true
         }
       }
+    },
+    "home": {
+      "label": "Industrial Home",
+      "template": "zeroy-home-template.php",
+      "canonicalPostTypes": ["page"],
+      "nodes": {
+        "hero_eyebrow": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "hero_title": {
+          "kind": "text",
+          "required": true,
+          "searchable": true
+        },
+        "hero_subtitle": {
+          "kind": "text",
+          "required": true,
+          "searchable": true
+        },
+        "hero_image": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "stat_1_value": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "stat_1_label": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "stat_2_value": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "stat_2_label": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "stat_3_value": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "stat_3_label": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "solutions_eyebrow": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "solutions_title": {
+          "kind": "text",
+          "required": false,
+          "searchable": true
+        },
+        "solutions_subtitle": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "solution_1_title": {
+          "kind": "text",
+          "required": false,
+          "searchable": true
+        },
+        "solution_1_text": {
+          "kind": "text",
+          "required": false,
+          "searchable": true
+        },
+        "solution_1_image": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "solution_2_title": {
+          "kind": "text",
+          "required": false,
+          "searchable": true
+        },
+        "solution_2_text": {
+          "kind": "text",
+          "required": false,
+          "searchable": true
+        },
+        "solution_2_image": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "solution_3_title": {
+          "kind": "text",
+          "required": false,
+          "searchable": true
+        },
+        "solution_3_text": {
+          "kind": "text",
+          "required": false,
+          "searchable": true
+        },
+        "solution_3_image": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "process_eyebrow": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "process_title": {
+          "kind": "text",
+          "required": false,
+          "searchable": true
+        },
+        "process_subtitle": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "step_1_title": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "step_1_text": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "step_2_title": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "step_2_text": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "step_3_title": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "step_3_text": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "step_4_title": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "step_4_text": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "industries_eyebrow": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "industries_title": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        },
+        "industries_text": {
+          "kind": "text",
+          "required": false,
+          "searchable": true
+        },
+        "cta_title": {
+          "kind": "text",
+          "required": true,
+          "searchable": false
+        },
+        "cta_text": {
+          "kind": "text",
+          "required": false,
+          "searchable": false
+        }
+      }
+    },
+    "machine": {
+      "label": "Machine",
+      "template": "zeroy-machine-template.php",
+      "canonicalPostTypes": ["machine"],
+      "nodes": {}
+    },
+    "service": {
+      "label": "Service",
+      "template": "zeroy-service-template.php",
+      "canonicalPostTypes": ["service"],
+      "nodes": {}
+    },
+    "production-line": {
+      "label": "Production Line",
+      "template": "zeroy-line-template.php",
+      "canonicalPostTypes": ["production_line"],
+      "nodes": {}
     }
   }
 }

@@ -340,6 +340,11 @@ const inspectResource = (
           payload: yield* connectorGet(site, "acf", signal),
           summary: "Read shared ACF structure",
         };
+      case "contentTree":
+        return {
+          payload: yield* connectorGet(site, `content-tree?objectId=${input.objectId}`, signal),
+          summary: "Read effective WordPress and ACF content tree",
+        };
       case "adoptionCandidates": {
         const parameters = new URLSearchParams({
           page: String(input.page ?? 1),
@@ -511,7 +516,7 @@ const contentPayload = (
           locale: input.locale,
           schemaId: input.schemaId,
           route: input.route,
-          document: input.document,
+          document: input.localeVersion,
           expectedRevision: input.expectedRevision,
         },
       };
@@ -533,7 +538,7 @@ const contentPayload = (
         body: {
           action: input.action,
           locale: input.locale,
-          document: input.document,
+          document: input.themeCopyVersion,
           expectedRevision: input.expectedRevision,
         },
       };

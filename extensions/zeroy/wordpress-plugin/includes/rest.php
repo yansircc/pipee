@@ -105,6 +105,17 @@ function zeroy_runtime_acf_endpoint(): WP_REST_Response
     return new WP_REST_Response(['contract' => 'zeroy/acf@1', ...zeroy_runtime_acf_projection()]);
 }
 
+function zeroy_runtime_content_tree_endpoint(WP_REST_Request $request): WP_REST_Response
+{
+    $object_id = (int) $request->get_param('objectId');
+    $canonical = zeroy_runtime_canonical($object_id);
+    if (is_wp_error($canonical)) {
+        return zeroy_runtime_response_error($canonical);
+    }
+    $tree = zeroy_runtime_effective_content_tree($object_id);
+    return is_wp_error($tree) ? zeroy_runtime_response_error($tree) : new WP_REST_Response($tree);
+}
+
 function zeroy_runtime_adoption_candidates_endpoint(WP_REST_Request $request): WP_REST_Response
 {
     $post_type = $request->get_param('postType');
@@ -528,6 +539,7 @@ function zeroy_runtime_register_rest_routes(): void
     register_rest_route('zeroy/v1', '/schema', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_runtime_schema_endpoint']);
     register_rest_route('zeroy/v1', '/inventory', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_runtime_inventory_endpoint']);
     register_rest_route('zeroy/v1', '/acf', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_runtime_acf_endpoint']);
+    register_rest_route('zeroy/v1', '/content-tree', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_runtime_content_tree_endpoint']);
     register_rest_route('zeroy/v1', '/adoption-candidates', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_runtime_adoption_candidates_endpoint']);
     register_rest_route('zeroy/v1', '/existing-post', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_runtime_existing_post_endpoint']);
     register_rest_route('zeroy/v1', '/theme-files', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_runtime_theme_files_endpoint']);

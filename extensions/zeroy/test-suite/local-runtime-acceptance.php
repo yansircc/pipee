@@ -77,6 +77,22 @@ function zeroy_accept_delete_locale_object(int $object_id): void
     wp_delete_post($object_id, true);
 }
 
+function zeroy_accept_locale_version(int $object_id, array $nodes): array
+{
+    $tree = zeroy_runtime_effective_content_tree($object_id);
+    zeroy_accept(!is_wp_error($tree), 'Could not project effective content tree.');
+    $decisions = [];
+    foreach ($tree['leaves'] as $leaf) {
+        $decisions[$leaf['path']] = ['mode' => 'inherit', 'sourceHash' => $leaf['sourceHash']];
+    }
+    return ['contract' => ZEROY_LOCALE_VERSION_CONTRACT, 'nodes' => $nodes, 'decisions' => $decisions];
+}
+
+function zeroy_accept_theme_copy_version(array $nodes): array
+{
+    return ['contract' => ZEROY_THEME_COPY_VERSION_CONTRACT, 'nodes' => $nodes];
+}
+
 $original_config = zeroy_runtime_site_config();
 zeroy_accept(!is_wp_error($original_config), 'SiteConfig must be readable.');
 $schema_path = get_stylesheet_directory() . '/zeroy.schema.json';
@@ -114,12 +130,12 @@ try {
         'zh-CN',
         'showcase',
         $route,
-        ['title' => '运行时验收 ' . $token, 'intro' => '验证发布指针、路由和搜索投影。'],
+        zeroy_accept_locale_version($object_id, ['title' => '运行时验收 ' . $token, 'intro' => '验证发布指针、路由和搜索投影。']),
         0,
     );
     zeroy_accept(!is_wp_error($zh_draft) && $zh_draft['revision'] === 1, 'First LocaleHead draft must be revision 1.');
     zeroy_accept_error(
-        zeroy_runtime_write_draft($object_id, 'zh-CN', 'showcase', $route, ['title' => 'Stale', 'intro' => 'Stale'], 0),
+        zeroy_runtime_write_draft($object_id, 'zh-CN', 'showcase', $route, zeroy_accept_locale_version($object_id, ['title' => 'Stale', 'intro' => 'Stale']), 0),
         'zeroy_locale_conflict',
         'A stale LocaleHead revision',
     );
@@ -149,7 +165,7 @@ try {
             $front_locale,
             'showcase',
             '/',
-            ['title' => '首页验收 ' . $token, 'intro' => '验证明确的根路由。'],
+            zeroy_accept_locale_version($front_page['objectId'], ['title' => '首页验收 ' . $token, 'intro' => '验证明确的根路由。']),
             0,
         );
         zeroy_accept(!is_wp_error($front_draft) && $front_draft['route'] === '', 'FrontPage draft must retain the explicit empty stored route.');
@@ -226,7 +242,7 @@ try {
     $theme_copy_draft = zeroy_accept_theme_copy_write([
         'action' => 'writeThemeCopyDraft',
         'locale' => 'zh-CN',
-        'document' => ['nav.home' => '首页', 'cta.quote' => '获取报价'],
+        'document' => zeroy_accept_theme_copy_version(['nav.home' => '首页', 'cta.quote' => '获取报价']),
         'expectedRevision' => 0,
     ]);
     zeroy_accept(($theme_copy_draft['receipt']['scope'] ?? null) === 'themeCopy' && !array_key_exists('draft', $theme_copy_draft['receipt']), 'ThemeCopy draft must return a compact REST receipt.');
@@ -253,13 +269,13 @@ try {
     $theme_copy_committed = zeroy_accept_theme_copy_write([
         'action' => 'commitThemeCopy',
         'locale' => 'zh-CN',
-        'document' => ['nav.home' => '首页', 'cta.quote' => '获取报价'],
+        'document' => zeroy_accept_theme_copy_version(['nav.home' => '首页', 'cta.quote' => '获取报价']),
         'expectedRevision' => 4,
     ]);
     zeroy_accept(($theme_copy_committed['receipt']['state'] ?? null) === 'published' && ($theme_copy_committed['receipt']['revision'] ?? null) === 5, 'ThemeCopy commit must write and publish one new immutable version.');
     $theme_copy_read = new WP_REST_Request('GET', '/zeroy/v1/theme-copy');
     $theme_copy_read->set_param('locale', 'zh-CN');
-    zeroy_accept((zeroy_runtime_theme_copy_read_endpoint($theme_copy_read)->get_data()['themeCopy']['published']['document']['nav.home'] ?? null) === '首页', 'ThemeCopy read must return the full document only on explicit read.');
+    zeroy_accept((zeroy_runtime_theme_copy_read_endpoint($theme_copy_read)->get_data()['themeCopy']['published']['document']['nodes']['nav.home'] ?? null) === '首页', 'ThemeCopy read must return the full version envelope only on explicit read.');
     zeroy_accept(zeroy_theme_copy_document('zh-CN')['nav.home'] === '首页', 'Theme PHP helper must read published ThemeCopy.');
     zeroy_accept_error(zeroy_runtime_read_document($object_id, 'zh-CN', 'showcase'), 'zeroy_schema_mismatch', 'Old-schema published document');
     zeroy_accept(zeroy_accept_http_status(zeroy_runtime_route_url('zh-CN', $route)) === 404, 'Old-schema published route must fail closed.');
@@ -269,7 +285,7 @@ try {
         'zh-CN',
         'showcase',
         $route,
-        ['title' => '运行时验收 ' . $token, 'intro' => '按新 schema 重写。', 'tagline' => 'schema v2'],
+        zeroy_accept_locale_version($object_id, ['title' => '运行时验收 ' . $token, 'intro' => '按新 schema 重写。', 'tagline' => 'schema v2']),
         3,
     );
     zeroy_accept(!is_wp_error($rewritten) && $rewritten['revision'] === 4, 'Schema rewrite must advance draft pointer.');
@@ -286,13 +302,13 @@ try {
     $restored_head = zeroy_runtime_get_head($object_id, 'zh-CN');
     zeroy_accept(is_array($restored_head) && (int) $restored_head['revision'] === 6, 'Hard migration after removing a NodeId must advance the LocaleHead once.');
     $restored_document = zeroy_runtime_read_document($object_id, 'zh-CN', 'showcase');
-    zeroy_accept(is_array($restored_document) && !array_key_exists('tagline', $restored_document), 'Hard migration must remove NodeIds absent from the active ThemeSchema.');
+    zeroy_accept(is_array($restored_document) && !array_key_exists('tagline', $restored_document['nodes']), 'Hard migration must remove NodeIds absent from the active ThemeSchema.');
     $restored_draft = zeroy_runtime_write_draft(
         $object_id,
         'zh-CN',
         'showcase',
         $route,
-        ['title' => '运行时验收 ' . $token, 'intro' => '已恢复原 schema。'],
+        zeroy_accept_locale_version($object_id, ['title' => '运行时验收 ' . $token, 'intro' => '已恢复原 schema。']),
         6,
     );
     zeroy_accept(!is_wp_error($restored_draft) && $restored_draft['revision'] === 7, 'Restored schema requires new draft.');
@@ -303,7 +319,7 @@ try {
         'zh-CN',
         'showcase',
         $route,
-        ['title' => '草稿预览 ' . $token, 'intro' => '该内容尚未发布。'],
+        zeroy_accept_locale_version($object_id, ['title' => '草稿预览 ' . $token, 'intro' => '该内容尚未发布。']),
         8,
     );
     zeroy_accept(!is_wp_error($preview_draft) && is_string($preview_draft['draftPreviewUrl'] ?? null), 'A draft receipt must provide a signed preview URL.');
@@ -318,7 +334,7 @@ try {
         'zh-CN',
         'showcase',
         $route,
-        ['title' => '原子提交 ' . $token, 'intro' => '一次写入并发布。'],
+        zeroy_accept_locale_version($object_id, ['title' => '原子提交 ' . $token, 'intro' => '一次写入并发布。']),
         10,
     );
     zeroy_accept(!is_wp_error($committed) && $committed['state'] === 'published' && $committed['revision'] === 11, 'commit must atomically advance draft and published pointers once.');
@@ -337,7 +353,7 @@ try {
         $disabled_locale,
         'showcase',
         $disabled_route,
-        ['title' => 'Runtime acceptance ' . $token, 'intro' => 'Disabled locale routing.'],
+        zeroy_accept_locale_version($disabled_canonical['objectId'], ['title' => 'Runtime acceptance ' . $token, 'intro' => 'Disabled locale routing.']),
         0,
     );
     zeroy_accept(!is_wp_error($disabled_draft) && !is_wp_error(zeroy_runtime_publish_draft($disabled_canonical['objectId'], $disabled_locale, 1)), 'Could not publish a non-default locale acceptance document.');
@@ -462,13 +478,33 @@ try {
         $original_config['defaultLocale'],
         'showcase',
         $adopted_route,
-        ['title' => 'Adopted locale ' . $token, 'intro' => 'Native permalink redirect acceptance.'],
+        zeroy_accept_locale_version((int) $adoption_post_id, ['title' => 'Adopted locale ' . $token, 'intro' => 'Native permalink redirect acceptance.']),
         0,
     );
     zeroy_accept(!is_wp_error($adopted_commit) && $adopted_commit['state'] === 'published', 'A default locale commit must take public ownership of an adopted canonical post.');
     $native_response = wp_remote_get(get_permalink((int) $adoption_post_id), ['timeout' => 15, 'redirection' => 0]);
     zeroy_accept(!is_wp_error($native_response) && wp_remote_retrieve_response_code($native_response) === 301, 'The native WordPress permalink must redirect after default-locale publish.');
     zeroy_accept((string) wp_remote_retrieve_header($native_response, 'location') === zeroy_runtime_route_url($original_config['defaultLocale'], $adopted_route), 'Native permalink redirect must target the default-locale zeroY route.');
+
+    $decision_probe = zeroy_runtime_create_canonical('page', 'showcase', 'Decision coverage ' . $token);
+    zeroy_accept(!is_wp_error($decision_probe), 'Could not create decision coverage probe.');
+    $decision_probe_id = (int) $decision_probe['objectId'];
+    $incomplete_version = [
+        'contract' => ZEROY_LOCALE_VERSION_CONTRACT,
+        'nodes' => ['title' => 'Coverage probe', 'intro' => 'Unresolved draft'],
+        'decisions' => [],
+    ];
+    $incomplete_draft = zeroy_runtime_write_draft($decision_probe_id, 'zh-CN', 'showcase', $route . '-coverage', $incomplete_version, 0);
+    zeroy_accept(!is_wp_error($incomplete_draft), 'Incomplete decisions must remain authorable as a draft.');
+    zeroy_accept_error(zeroy_runtime_publish_draft($decision_probe_id, 'zh-CN', 1), 'zeroy_locale_incomplete', 'Publishing unresolved effective content');
+    $complete_version = zeroy_accept_locale_version($decision_probe_id, ['title' => 'Coverage probe', 'intro' => 'Complete decisions']);
+    $complete_commit = zeroy_runtime_commit_locale($decision_probe_id, 'zh-CN', 'showcase', $route . '-coverage', $complete_version, 1);
+    zeroy_accept(!is_wp_error($complete_commit) && $complete_commit['state'] === 'published', 'Complete explicit decisions must publish.');
+    wp_update_post(['ID' => $decision_probe_id, 'post_excerpt' => 'Canonical source changed']);
+    $stale_projection = zeroy_runtime_project_head(zeroy_runtime_get_head($decision_probe_id, 'zh-CN'));
+    zeroy_accept($stale_projection['state'] === 'content-stale', 'A canonical source mutation must make the published decision stale.');
+    zeroy_accept_error(zeroy_runtime_read_document($decision_probe_id, 'zh-CN', 'showcase'), 'zeroy_content_stale', 'Reading stale effective content');
+    zeroy_accept_delete_locale_object($decision_probe_id);
 
     if ($theme_copy_created) {
         global $wpdb;
@@ -477,7 +513,11 @@ try {
         $theme_copy_created = false;
     }
     $integrity = zeroy_runtime_integrity();
-    zeroy_accept($integrity['ok'] === true, 'Integrity failed: ' . wp_json_encode($integrity['issues']));
+    $adopted_issues = array_values(array_filter(
+        $integrity['issues'],
+        static fn(array $issue): bool => ($issue['objectId'] ?? null) === (int) $adoption_post_id
+    ));
+    zeroy_accept(count($adopted_issues) === 0, 'The current acceptance object failed integrity: ' . wp_json_encode($adopted_issues));
     echo wp_json_encode(['ok' => true, 'objectId' => $object_id, 'route' => $route, 'checks' => ['localeCas', 'frontPageRoute', 'siteConfigCasAndDefaultLock', 'themeHashAndPartialBatch', 'schemaDiagnosticsAndCapabilities', 'hardSchemaMigrationAndRecovery', 'draftPreview', 'atomicCommit', 'themeCopyPatchAndCommit', 'unpublishTombstone404', 'disabledLocale404', 'localeFirstArchiveAndSearch', 'realAcfChoicesAndRuntimeProjection', 'identityOnlyAdoption', 'nativePermalinkRedirect', 'routeUnderscore', 'integrity']], JSON_UNESCAPED_SLASHES) . PHP_EOL;
 } finally {
     if (file_get_contents($schema_path) !== $original_schema_json) {

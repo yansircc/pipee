@@ -93,8 +93,8 @@ function zeroy_runtime_content_ownership(): array
         ],
         'localizedDocuments' => [
             'owner' => 'zeroy-locale-store',
-            'facts' => ['ThemeSchema-declared localized nodes', 'locale routes', 'draft and published version pointers'],
-            'rule' => 'Theme PHP reads these values explicitly through zeroy_locale_document.',
+            'facts' => ['ThemeSchema-declared localized nodes', 'explicit inherit/override decisions for every effective WordPress/ACF leaf', 'locale routes', 'draft and published version pointers'],
+            'rule' => 'zeroY stores decisions, never translated copies in canonical WordPress/ACF fields. Theme PHP reads the resolved projection through zeroy_locale_content.',
         ],
         'themeCopy' => [
             'owner' => 'zeroy-locale-store',
@@ -363,9 +363,9 @@ function zeroy_runtime_schema_violation(array &$errors, string $code, string $me
     $errors[] = ['code' => $code, 'message' => $message, ...$context];
 }
 
-function zeroy_runtime_normalize_localized_nodes(mixed $nodes, array $context, array &$errors): array
+function zeroy_runtime_normalize_localized_nodes(mixed $nodes, array $context, array &$errors, bool $allow_empty = false): array
 {
-    if (!is_array($nodes) || array_is_list($nodes)) {
+    if (!is_array($nodes) || array_is_list($nodes) && !($allow_empty && count($nodes) === 0)) {
         zeroy_runtime_schema_violation(
             $errors,
             'schema_nodes_invalid',
@@ -444,7 +444,7 @@ function zeroy_runtime_normalize_localized_nodes(mixed $nodes, array $context, a
             'searchable' => $node['searchable'],
         ];
     }
-    if (count($normalized) === 0) {
+    if (!$allow_empty && count($normalized) === 0) {
         zeroy_runtime_schema_violation(
             $errors,
             'schema_nodes_empty',
@@ -496,7 +496,7 @@ function zeroy_runtime_theme_schema_analysis(array $schema): array
                 $normalized_post_types[] = $post_type;
             }
         }
-        $normalized_nodes = zeroy_runtime_normalize_localized_nodes($definition['nodes'] ?? null, $context, $errors);
+        $normalized_nodes = zeroy_runtime_normalize_localized_nodes($definition['nodes'] ?? null, $context, $errors, true);
         $title_node = null;
         if (array_key_exists('titleNode', $definition)) {
             $candidate = $definition['titleNode'];
@@ -516,7 +516,7 @@ function zeroy_runtime_theme_schema_analysis(array $schema): array
                 $title_node = $candidate;
             }
         }
-        if ($label !== '' && $normalized_template !== '' && is_array($post_types) && array_is_list($post_types) && count($normalized_post_types) === count($post_types) && count($normalized_nodes) > 0) {
+        if ($label !== '' && $normalized_template !== '' && is_array($post_types) && array_is_list($post_types) && count($normalized_post_types) === count($post_types)) {
             $normalized['schemas'][$schema_id] = [
                 'label' => $label,
                 'template' => $normalized_template,
@@ -678,7 +678,7 @@ function zeroy_runtime_document_node(array $definition, string $node_id): ?array
 function zeroy_runtime_document_violations(array $document, array $definition, bool $complete): array
 {
     $violations = [];
-    if (array_is_list($document)) {
+    if (array_is_list($document) && count($document) > 0) {
         return [[
             'code' => 'document_not_keyed',
             'message' => 'Locale documents must be keyed by NodeId.',
@@ -749,9 +749,15 @@ function zeroy_runtime_validate_document(array $document, array $definition, boo
  */
 function zeroy_runtime_hard_migrate_document(array $document, array $definition): array
 {
-    $migrated = $document;
+    $theme_copy = ($document['contract'] ?? null) === ZEROY_THEME_COPY_VERSION_CONTRACT;
+    $locale = ($document['contract'] ?? null) === ZEROY_LOCALE_VERSION_CONTRACT;
+    if (!$theme_copy && !$locale) {
+        return ['document' => $document, 'removedNodeIds' => []];
+    }
+    $nodes = is_array($document['nodes'] ?? null) ? $document['nodes'] : [];
+    $migrated = $nodes;
     $removed = [];
-    foreach ($document as $node_id => $_value) {
+    foreach ($nodes as $node_id => $_value) {
         if (!is_string($node_id) || zeroy_runtime_document_node($definition, $node_id) !== null) {
             continue;
         }
@@ -759,7 +765,7 @@ function zeroy_runtime_hard_migrate_document(array $document, array $definition)
         $removed[] = $node_id;
     }
     sort($removed, SORT_STRING);
-    return ['document' => $migrated, 'removedNodeIds' => $removed];
+    return ['document' => [...$document, 'nodes' => $migrated], 'removedNodeIds' => $removed];
 }
 
 function zeroy_runtime_canonical(int $object_id): array|WP_Error
@@ -1193,10 +1199,11 @@ function zeroy_runtime_patch_theme_copy_draft(string $locale, array $changes, in
             if ($version === null) {
                 return zeroy_runtime_error('zeroy_version_missing', 'ThemeCopy base LocaleVersion is missing.', 409);
             }
-            $base = zeroy_runtime_decode_json((string) $version['document_json']);
-            if (is_wp_error($base)) {
+            $stored = zeroy_runtime_decode_json((string) $version['document_json']);
+            if (is_wp_error($stored) || ($stored['contract'] ?? null) !== ZEROY_THEME_COPY_VERSION_CONTRACT || !is_array($stored['nodes'] ?? null)) {
                 return zeroy_runtime_error('zeroy_document_invalid', 'ThemeCopy base JSON is invalid.', 409);
             }
+            $base = $stored['nodes'];
         }
     }
     foreach ($changes as $node_id => $value) {
@@ -1206,7 +1213,10 @@ function zeroy_runtime_patch_theme_copy_draft(string $locale, array $changes, in
             $base[$node_id] = $value;
         }
     }
-    return zeroy_runtime_write_theme_copy_draft($locale, $base, $expected_revision);
+    return zeroy_runtime_write_theme_copy_draft($locale, [
+        'contract' => ZEROY_THEME_COPY_VERSION_CONTRACT,
+        'nodes' => $base,
+    ], $expected_revision);
 }
 
 function zeroy_runtime_write_versioned_document(
@@ -1234,11 +1244,14 @@ function zeroy_runtime_write_versioned_document(
     if (is_wp_error($definition)) {
         return $definition;
     }
-    $document = zeroy_runtime_validate_document($document, $definition, $publish);
+    $document = zeroy_runtime_validate_version_document($object_id, $document, $definition, $publish);
     if (is_wp_error($document)) {
         return $document;
     }
-    $schema_hash = zeroy_runtime_schema_hash($definition);
+    $schema_hash = zeroy_runtime_version_contract_hash($object_id, $definition);
+    if (is_wp_error($schema_hash)) {
+        return $schema_hash;
+    }
     $locale_config = zeroy_runtime_locale_config($locale);
     $url_prefix = $reserves_route && is_array($locale_config) ? (string) $locale_config['urlPrefix'] : '';
     $old_head = zeroy_runtime_get_head($object_id, $locale);
@@ -1320,10 +1333,11 @@ function zeroy_runtime_write_versioned_document(
     return zeroy_runtime_project_head($result);
 }
 
-function zeroy_runtime_search_text(array $document, array $definition, string $canonical_title): array
+function zeroy_runtime_search_text(array $resolved, array $definition, string $canonical_title): array
 {
     $text = [];
-    $title = $canonical_title;
+    $title = trim(wp_strip_all_tags((string) ($resolved['post']['title'] ?? $canonical_title)));
+    $document = $resolved['nodes'];
     $title_node = $definition['titleNode'] ?? null;
     if (is_string($title_node) && isset($document[$title_node]) && trim($document[$title_node]) !== '') {
         $title = trim(wp_strip_all_tags($document[$title_node]));
@@ -1349,13 +1363,13 @@ function zeroy_runtime_replace_search_projection(array $head, array $version, ar
         $wpdb->delete(zeroy_runtime_table('search_projection'), ['object_id' => $head['object_id'], 'locale' => $head['locale']], ['%d', '%s']);
         return;
     }
-    $document = zeroy_runtime_validate_document($document, $definition, true);
-    if (is_wp_error($document)) {
+    $resolved = zeroy_runtime_resolve_locale_envelope((int) $head['object_id'], $document, $definition, true);
+    if (is_wp_error($resolved)) {
         $wpdb->delete(zeroy_runtime_table('search_projection'), ['object_id' => $head['object_id'], 'locale' => $head['locale']], ['%d', '%s']);
         return;
     }
     $post = get_post((int) $head['object_id']);
-    $search = zeroy_runtime_search_text($document, $definition, $post instanceof WP_Post ? $post->post_title : '');
+    $search = zeroy_runtime_search_text($resolved, $definition, $post instanceof WP_Post ? $post->post_title : '');
     $wpdb->replace(
         zeroy_runtime_table('search_projection'),
         [
@@ -1417,15 +1431,18 @@ function zeroy_runtime_publish_versioned_document(
         if ($version === null || is_wp_error($definition)) {
             return is_wp_error($definition) ? $definition : zeroy_runtime_error('zeroy_version_missing', 'Locale draft version is missing.', 409);
         }
-        $current_hash = zeroy_runtime_schema_hash($definition);
+        $current_hash = zeroy_runtime_version_contract_hash($object_id, $definition);
+        if (is_wp_error($current_hash)) {
+            return $current_hash;
+        }
         if (!hash_equals($current_hash, (string) $version['schema_hash'])) {
-            return zeroy_runtime_error('zeroy_schema_changed', 'ThemeSchema changed after this draft was written. Rewrite the draft first.', 409);
+            return zeroy_runtime_error('zeroy_content_contract_changed', 'ThemeSchema or canonical WordPress/ACF source changed after this draft was written. Refresh contentTree and rewrite the draft.', 409);
         }
         $document = zeroy_runtime_decode_json((string) $version['document_json']);
         if (is_wp_error($document)) {
             return zeroy_runtime_error('zeroy_document_invalid', 'Locale draft JSON is invalid.', 409);
         }
-        $document = zeroy_runtime_validate_document($document, $definition, true);
+        $document = zeroy_runtime_validate_version_document($object_id, $document, $definition, true);
         if (is_wp_error($document)) {
             return $document;
         }
@@ -1481,7 +1498,17 @@ function zeroy_runtime_reconcile_schema_head(array $head, array $definition): ar
 {
     $object_id = (int) $head['object_id'];
     $locale = (string) $head['locale'];
-    $target_hash = zeroy_runtime_schema_hash($definition);
+    $target_hash = zeroy_runtime_version_contract_hash($object_id, $definition);
+    if (is_wp_error($target_hash)) {
+        return [
+            'state' => 'error',
+            'objectId' => $object_id === ZEROY_RUNTIME_THEME_COPY_OBJECT_ID ? null : $object_id,
+            'scope' => $object_id === ZEROY_RUNTIME_THEME_COPY_OBJECT_ID ? 'themeCopy' : 'canonical',
+            'locale' => $locale,
+            'code' => $target_hash->get_error_code(),
+            'message' => $target_hash->get_error_message(),
+        ];
+    }
     $result = zeroy_runtime_transaction(function () use ($object_id, $locale, $definition, $target_hash) {
         global $wpdb;
         $locked = zeroy_runtime_locked_head($object_id, $locale);
@@ -1518,14 +1545,17 @@ function zeroy_runtime_reconcile_schema_head(array $head, array $definition): ar
                 ];
             }
             $migration = zeroy_runtime_hard_migrate_document($document, $definition);
-            $violations = zeroy_runtime_document_violations($migration['document'], $definition, $complete);
-            if (count($violations) > 0) {
+            $validated = zeroy_runtime_validate_version_document($object_id, $migration['document'], $definition, $complete);
+            if (is_wp_error($validated)) {
                 return [
                     'state' => 'incompatible',
                     'objectId' => $object_id,
                     'locale' => $locale,
                     'pointer' => $pointer,
-                    'violations' => $violations,
+                    'violations' => $validated->get_error_data()['violations'] ?? [[
+                        'code' => $validated->get_error_code(),
+                        'message' => $validated->get_error_message(),
+                    ]],
                 ];
             }
             $versions[$version_id] = [
@@ -1766,9 +1796,10 @@ function zeroy_runtime_project_head(array $head, bool $include_documents = false
     $draft = $head['draft_version_id'] === null ? null : zeroy_runtime_get_version((int) $head['draft_version_id']);
     $published = $head['published_version_id'] === null ? null : zeroy_runtime_get_version((int) $head['published_version_id']);
     $definition = zeroy_runtime_document_definition($object_id, (string) $head['schema_id']);
-    $schema_hash = is_array($definition) ? zeroy_runtime_schema_hash($definition) : null;
+    $contract_hash = is_array($definition) ? zeroy_runtime_version_contract_hash($object_id, $definition) : null;
+    $schema_hash = is_string($contract_hash) ? $contract_hash : null;
     $published_matches = $published !== null && $schema_hash !== null && hash_equals($schema_hash, (string) $published['schema_hash']);
-    $schema_migration = null;
+    $content_review = null;
     if ($published !== null && !$published_matches) {
         $violations = [];
         if (is_array($definition)) {
@@ -1778,14 +1809,16 @@ function zeroy_runtime_project_head(array $head, bool $include_documents = false
                     'code' => 'document_json_invalid',
                     'message' => 'Stored published LocaleVersion JSON is invalid.',
                 ]]
-                : zeroy_runtime_document_violations($document, $definition, true);
+                : ($theme_copy
+                    ? zeroy_runtime_document_violations(is_array($document['nodes'] ?? null) ? $document['nodes'] : [], $definition, true)
+                    : zeroy_runtime_locale_envelope_violations($document, $definition, $object_id, true));
         } elseif (is_wp_error($definition)) {
             $violations = [[
                 'code' => $definition->get_error_code(),
                 'message' => $definition->get_error_message(),
             ]];
         }
-        $schema_migration = [
+        $content_review = [
             'required' => true,
             'publishedSchemaHash' => $published['schema_hash'],
             'activeSchemaHash' => $schema_hash,
@@ -1793,15 +1826,19 @@ function zeroy_runtime_project_head(array $head, bool $include_documents = false
         ];
     }
     $locale_enabled = zeroy_runtime_locale_is_enabled((string) $head['locale']);
+    $stale_decision = is_array($content_review) && count(array_filter(
+        $content_review['violations'],
+        static fn(array $violation): bool => in_array($violation['code'] ?? null, ['decision_stale', 'decision_unresolved'], true)
+    )) > 0;
     $state = !$locale_enabled
         ? 'disabled'
-        : ($published === null ? ($draft === null ? 'not-started' : 'draft') : ($published_matches ? 'published' : 'schema-mismatch'));
+        : ($published === null ? ($draft === null ? 'not-started' : 'draft') : ($published_matches ? 'published' : ($stale_decision ? 'content-stale' : 'schema-mismatch')));
     $projected = [
         'scope' => $theme_copy ? 'themeCopy' : 'canonical',
         'objectId' => $theme_copy ? null : $object_id,
         'locale' => $head['locale'],
         'schemaId' => $head['schema_id'],
-        'schemaHash' => $schema_hash,
+        'contractHash' => $schema_hash,
         'route' => $theme_copy ? null : $head['route_path'],
         'url' => !$theme_copy && $locale_enabled ? zeroy_runtime_route_url((string) $head['locale'], (string) $head['route_path']) : null,
         'revision' => (int) $head['revision'],
@@ -1811,19 +1848,19 @@ function zeroy_runtime_project_head(array $head, bool $include_documents = false
             : zeroy_runtime_preview_url($object_id, (string) $head['locale'], (int) $head['draft_version_id']),
         'publishedVersionId' => $head['published_version_id'] === null ? null : (int) $head['published_version_id'],
         'state' => $state,
-        'schemaMatchesPublished' => $published === null ? null : $published_matches,
-        'schemaMigration' => $schema_migration,
+        'contractMatchesPublished' => $published === null ? null : $published_matches,
+        'contentReview' => $content_review,
     ];
     if ($include_documents) {
         $projected['draft'] = $draft === null ? null : [
             'versionId' => (int) $draft['version_id'],
-            'schemaHash' => $draft['schema_hash'],
+            'contractHash' => $draft['schema_hash'],
             'document' => zeroy_runtime_decode_json((string) $draft['document_json']),
             'createdAt' => $draft['created_at'],
         ];
         $projected['published'] = $published === null ? null : [
             'versionId' => (int) $published['version_id'],
-            'schemaHash' => $published['schema_hash'],
+            'contractHash' => $published['schema_hash'],
             'document' => zeroy_runtime_decode_json((string) $published['document_json']),
             'createdAt' => $published['created_at'],
         ];
@@ -1845,8 +1882,22 @@ function zeroy_runtime_read_document(int $object_id, string $locale, string $sch
         return $definition;
     }
     $version = zeroy_runtime_get_version((int) $head['published_version_id']);
-    if ($version === null || !hash_equals(zeroy_runtime_schema_hash($definition), (string) $version['schema_hash'])) {
-        return zeroy_runtime_error('zeroy_schema_mismatch', 'Published locale document does not match the active ThemeSchema.', 404);
+    $contract_hash = zeroy_runtime_version_contract_hash($object_id, $definition);
+    if ($version === null || is_wp_error($contract_hash)) {
+        return zeroy_runtime_error('zeroy_schema_mismatch', 'Published locale version does not match the active content contract.', 404);
+    }
+    if (!hash_equals($contract_hash, (string) $version['schema_hash'])) {
+        $stored = zeroy_runtime_decode_json((string) $version['document_json']);
+        $violations = !is_wp_error($stored) && $object_id !== ZEROY_RUNTIME_THEME_COPY_OBJECT_ID
+            ? zeroy_runtime_locale_envelope_violations($stored, $definition, $object_id, true)
+            : [];
+        $content_stale = count(array_filter(
+            $violations,
+            static fn(array $violation): bool => in_array($violation['code'] ?? null, ['decision_stale', 'decision_unresolved'], true)
+        )) > 0;
+        return $content_stale
+            ? zeroy_runtime_error('zeroy_content_stale', 'Canonical WordPress/ACF content changed; refresh contentTree and review locale decisions.', 409, ['violations' => $violations])
+            : zeroy_runtime_error('zeroy_schema_mismatch', 'Published locale version does not match the active ThemeSchema.', 404);
     }
     $cache_key = zeroy_runtime_document_cache_key($object_id, $locale, (int) $version['version_id'], (string) $version['schema_hash']);
     $cached = wp_cache_get($cache_key, 'zeroy-runtime');
@@ -1857,15 +1908,23 @@ function zeroy_runtime_read_document(int $object_id, string $locale, string $sch
     if (is_wp_error($document)) {
         return zeroy_runtime_error('zeroy_document_invalid', 'Published locale document is invalid.', 404);
     }
-    $document = zeroy_runtime_validate_document($document, $definition, true);
-    if (is_wp_error($document)) {
-        return $document;
+    if ($object_id === ZEROY_RUNTIME_THEME_COPY_OBJECT_ID) {
+        $document = zeroy_runtime_validate_version_document($object_id, $document, $definition, true);
+        if (is_wp_error($document)) {
+            return $document;
+        }
+        $resolved = $document['nodes'];
+    } else {
+        $resolved = zeroy_runtime_resolve_locale_envelope($object_id, $document, $definition, true);
+        if (is_wp_error($resolved)) {
+            return $resolved;
+        }
     }
-    wp_cache_set($cache_key, $document, 'zeroy-runtime');
-    return $document;
+    wp_cache_set($cache_key, $resolved, 'zeroy-runtime');
+    return $resolved;
 }
 
-function zeroy_locale_document(int $object_id, string $locale, string $schema_id): array
+function zeroy_locale_content(int $object_id, string $locale, string $schema_id): array
 {
     $override = $GLOBALS['zeroy_runtime_document_override'] ?? null;
     if (
@@ -1980,28 +2039,27 @@ function zeroy_runtime_search_or_archive(string $locale, string $schema_id, ?str
     }
     $page = max(1, $page);
     $per_page = min(100, max(1, $per_page));
-    $hash = zeroy_runtime_schema_hash($definition);
     $heads = zeroy_runtime_table('locale_heads');
-    $versions = zeroy_runtime_table('locale_versions');
     $search = zeroy_runtime_table('search_projection');
-    $where = 'h.locale = %s AND h.schema_id = %s AND h.published_version_id = p.published_version_id AND v.schema_hash = %s';
-    $arguments = [$locale, $schema_id, $hash];
+    $where = 'h.locale = %s AND h.schema_id = %s AND h.published_version_id = p.published_version_id';
+    $arguments = [$locale, $schema_id];
     if ($query !== null && trim($query) !== '') {
         $where .= ' AND (p.title LIKE %s OR p.searchable_text LIKE %s)';
         $like = '%' . $wpdb->esc_like(trim($query)) . '%';
         $arguments[] = $like;
         $arguments[] = $like;
     }
-    $from = " FROM {$heads} h JOIN {$versions} v ON v.version_id = h.published_version_id JOIN {$search} p ON p.object_id = h.object_id AND p.locale = h.locale";
-    $count = (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*)' . $from . ' WHERE ' . $where, ...$arguments));
-    $offset = ($page - 1) * $per_page;
+    $from = " FROM {$heads} h JOIN {$search} p ON p.object_id = h.object_id AND p.locale = h.locale";
     $rows = $wpdb->get_results(
-        $wpdb->prepare('SELECT h.object_id, h.locale, h.route_path, h.schema_id, h.published_version_id, p.title' . $from . ' WHERE ' . $where . ' ORDER BY h.object_id DESC LIMIT %d OFFSET %d', ...[...$arguments, $per_page, $offset]),
+        $wpdb->prepare('SELECT h.object_id, h.locale, h.route_path, h.schema_id, h.published_version_id, p.title' . $from . ' WHERE ' . $where . ' ORDER BY h.object_id DESC', ...$arguments),
         ARRAY_A
     );
-    $items = [];
+    $current = [];
     foreach (is_array($rows) ? $rows : [] as $row) {
-        $items[] = [
+        if (is_wp_error(zeroy_runtime_read_document((int) $row['object_id'], (string) $row['locale'], (string) $row['schema_id']))) {
+            continue;
+        }
+        $current[] = [
             'objectId' => (int) $row['object_id'],
             'locale' => $row['locale'],
             'schemaId' => $row['schema_id'],
@@ -2011,7 +2069,9 @@ function zeroy_runtime_search_or_archive(string $locale, string $schema_id, ?str
             'title' => $row['title'],
         ];
     }
-    return ['items' => $items, 'page' => $page, 'perPage' => $per_page, 'total' => $count];
+    $total = count($current);
+    $items = array_slice($current, ($page - 1) * $per_page, $per_page);
+    return ['items' => $items, 'page' => $page, 'perPage' => $per_page, 'total' => $total];
 }
 
 function zeroy_runtime_inventory(int $page = 1, int $per_page = 50): array
@@ -2053,7 +2113,7 @@ function zeroy_runtime_inventory(int $page = 1, int $per_page = 50): array
                     'draftVersionId' => null,
                     'publishedVersionId' => null,
                     'state' => 'not-started',
-                    'schemaMatchesPublished' => null,
+                    'contractMatchesPublished' => null,
                 ];
             }
         }
@@ -2158,6 +2218,16 @@ function zeroy_runtime_integrity(): array
             }
         }
         if (!$theme_copy && $head['published_version_id'] !== null) {
+            $head_projection = zeroy_runtime_project_head($head);
+            if (in_array($head_projection['state'], ['content-stale', 'schema-mismatch'], true)) {
+                $issues[] = [
+                    'code' => $head_projection['state'],
+                    'objectId' => (int) $head['object_id'],
+                    'locale' => $head['locale'],
+                    'message' => 'Published locale content no longer matches its current ThemeSchema or canonical source.',
+                    'review' => $head_projection['contentReview'],
+                ];
+            }
             $projection = $wpdb->get_row(
                 $wpdb->prepare('SELECT published_version_id FROM ' . zeroy_runtime_table('search_projection') . ' WHERE object_id = %d AND locale = %s', $head['object_id'], $head['locale']),
                 ARRAY_A

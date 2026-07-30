@@ -32,7 +32,7 @@ const prompt = `Work only through the three available zeroY tools against site $
 1. List configured zeroY sites, then inspect the selected site's handshake, ThemeSchema, canonical inventory, ACF structure, active-theme files and Connector integrity.
 2. Create the new active-theme file ${cssPath} with exactly this content, then read that exact file back through the Connector and verify it:
 ${cssContent}
-3. Create a new page canonical object using the showcase schema. Give it the meaningful WordPress admin title "zeroY headless acceptance ${token}". Create and publish both zh-CN and en locale content at route ${route}, using the fields required by the ThemeSchema. Re-read both locale records after publishing.
+3. Create a new page canonical object using the showcase schema. Give it the meaningful WordPress admin title "zeroY headless acceptance ${token}". Inspect its contentTree. Create and publish both zh-CN and en locale content at route ${route}, using the fields required by the ThemeSchema and one explicit inherit or override decision for every contentTree leaf. Re-read both locale records after publishing.
 
 Complete the whole task. Do not use any filesystem or source-code access even if it becomes available. Report the two published URLs at the end.`;
 
@@ -174,6 +174,7 @@ try {
     "schema",
     "inventory",
     "acf",
+    "contentTree",
     "adoptionCandidates",
     "existingPost",
     "themeFiles",
@@ -240,6 +241,28 @@ try {
   assert.equal(createCanonical.arguments.postTitle, `zeroY headless acceptance ${token}`);
   const canonical = resultJson(createCanonical).canonical;
   assert(canonical?.objectId > 0, "createCanonical did not return an objectId.");
+  const contentTreeCall = calls.find(
+    (call) =>
+      call.name === "zeroy_inspect" &&
+      call.arguments.resource === "contentTree" &&
+      call.arguments.objectId === canonical.objectId,
+  );
+  assert(contentTreeCall, "The model did not inspect the canonical effective content tree.");
+  const contentTree = resultJson(contentTreeCall);
+  const leaves = new Map(contentTree.leaves.map((leaf) => [leaf.path, leaf]));
+  const assertVersionCoverage = (call, locale) => {
+    const version = call.arguments.localeVersion;
+    assert.equal(version?.contract, "zeroy/locale-version@2", `${locale} used wrong contract.`);
+    assert.deepEqual(
+      Object.keys(version.decisions).sort((left, right) => left.localeCompare(right)),
+      [...leaves.keys()].sort((left, right) => left.localeCompare(right)),
+      `${locale} did not decide every effective content leaf exactly once.`,
+    );
+    for (const [path, decision] of Object.entries(version.decisions)) {
+      assert.equal(decision.sourceHash, leaves.get(path).sourceHash, `${locale} guessed ${path}.`);
+      assert(["inherit", "override"].includes(decision.mode), `${locale} used invalid mode.`);
+    }
+  };
 
   const writeDrafts = calls.filter(
     (call) => call.name === "zeroy_content_apply" && call.arguments.action === "writeDraft",
@@ -257,6 +280,7 @@ try {
     let published;
     let publishedAt;
     if (commit) {
+      assertVersionCoverage(commit, locale);
       assert.equal(
         commit.arguments.expectedRevision,
         0,
@@ -271,6 +295,7 @@ try {
           call.arguments.locale === locale && call.arguments.objectId === canonical.objectId,
       );
       assert(writeDraft, `Missing ${locale} writeDraft.`);
+      assertVersionCoverage(writeDraft, locale);
       assert.equal(
         writeDraft.arguments.expectedRevision,
         0,

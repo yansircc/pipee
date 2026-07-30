@@ -183,13 +183,32 @@ function zeroy_runtime_render_preview(): void
     if (is_wp_error($definition) || is_wp_error($document)) {
         zeroy_runtime_render_404();
     }
-    $document = zeroy_runtime_validate_document($document, $definition, false);
+    $document = zeroy_runtime_resolve_locale_envelope($object_id, $document, $definition, false);
     if (is_wp_error($document)) {
         zeroy_runtime_render_404();
     }
     zeroy_runtime_render_document($head, $definition, $document, $version_id, true);
 }
 add_action('template_redirect', 'zeroy_runtime_render_preview', 0);
+
+function zeroy_runtime_localized_title_parts(array $parts): array
+{
+    $context = $GLOBALS['zeroy_runtime_route_context'] ?? null;
+    if (!is_array($context)) {
+        return $parts;
+    }
+    $content = zeroy_locale_content(
+        (int) $context['objectId'],
+        (string) $context['locale'],
+        (string) $context['schemaId']
+    );
+    $title = $content['post']['title'] ?? null;
+    if (is_string($title) && trim($title) !== '') {
+        $parts['title'] = $title;
+    }
+    return $parts;
+}
+add_filter('document_title_parts', 'zeroy_runtime_localized_title_parts');
 
 function zeroy_runtime_has_explicit_native_object_reference(): bool
 {

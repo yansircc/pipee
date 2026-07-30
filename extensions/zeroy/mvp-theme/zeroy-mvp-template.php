@@ -7,11 +7,12 @@
 
 defined('ABSPATH') || exit;
 
-$zeroy_document = zeroy_locale_document(
+$zeroy_content = zeroy_locale_content(
     (int) $zeroy_object_id,
     (string) $zeroy_locale,
     (string) $zeroy_schema_id
 );
+$zeroy_document = $zeroy_content['nodes'];
 
 get_header();
 ?>

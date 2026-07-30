@@ -4,7 +4,40 @@ import { Data } from "effect";
 
 const SiteId = Type.String({ minLength: 1, description: "Configured zeroY site identifier." });
 const Locale = Type.String({ minLength: 1 });
-const Document = Type.Record(Type.String({ minLength: 1 }), Type.String());
+const JsonValue = Type.Recursive((Self) =>
+  Type.Union([
+    Type.String(),
+    Type.Number(),
+    Type.Boolean(),
+    Type.Null(),
+    Type.Array(Self),
+    Type.Record(Type.String(), Self),
+  ]),
+);
+const LocalizedNodes = Type.Record(Type.String({ minLength: 1 }), Type.String());
+const LocaleDecision = Type.Union([
+  Type.Object({
+    mode: Type.Literal("inherit"),
+    sourceHash: Type.String({ minLength: 64, maxLength: 64 }),
+  }),
+  Type.Object({
+    mode: Type.Literal("override"),
+    sourceHash: Type.String({ minLength: 64, maxLength: 64 }),
+    value: JsonValue,
+  }),
+]);
+const LocaleVersionDocument = Type.Object({
+  contract: Type.Literal("zeroy/locale-version@2"),
+  nodes: LocalizedNodes,
+  decisions: Type.Record(
+    Type.String({ pattern: "^/", description: "Exact path returned by contentTree.leaves." }),
+    LocaleDecision,
+  ),
+});
+const ThemeCopyVersionDocument = Type.Object({
+  contract: Type.Literal("zeroy/theme-copy-version@2"),
+  nodes: LocalizedNodes,
+});
 const ThemeCopyPatch = Type.Record(
   Type.String({ minLength: 1 }),
   Type.Union([Type.String(), Type.Null()]),
@@ -38,6 +71,15 @@ export const InspectInputContract = Type.Union([
     perPage: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
   }),
   Type.Object({ siteId: SiteId, resource: Type.Literal("acf") }),
+  Type.Object({
+    siteId: SiteId,
+    resource: Type.Literal("contentTree"),
+    objectId: Type.Integer({
+      minimum: 1,
+      description:
+        "Canonical object to inspect. Returns every effective WordPress/ACF leaf and the exact sourceHash required by inherit/override decisions.",
+    }),
+  }),
   Type.Object({
     siteId: SiteId,
     resource: Type.Literal("adoptionCandidates"),
@@ -147,7 +189,7 @@ export const ContentInputContract = Type.Union([
     locale: Locale,
     schemaId: Type.String({ minLength: 1 }),
     route: Type.String({ minLength: 1 }),
-    document: Document,
+    localeVersion: LocaleVersionDocument,
     expectedRevision: Type.Integer({
       minimum: 0,
       description:
@@ -161,7 +203,7 @@ export const ContentInputContract = Type.Union([
     locale: Locale,
     schemaId: Type.String({ minLength: 1 }),
     route: Type.String({ minLength: 1 }),
-    document: Document,
+    localeVersion: LocaleVersionDocument,
     expectedRevision: Type.Integer({
       minimum: 0,
       description:
@@ -192,7 +234,7 @@ export const ContentInputContract = Type.Union([
     siteId: SiteId,
     action: Type.Literal("writeThemeCopyDraft"),
     locale: Locale,
-    document: Document,
+    themeCopyVersion: ThemeCopyVersionDocument,
     expectedRevision: Type.Integer({
       minimum: 0,
       description:
@@ -214,7 +256,7 @@ export const ContentInputContract = Type.Union([
     siteId: SiteId,
     action: Type.Literal("commitThemeCopy"),
     locale: Locale,
-    document: Document,
+    themeCopyVersion: ThemeCopyVersionDocument,
     expectedRevision: Type.Integer({
       minimum: 0,
       description:
@@ -471,6 +513,6 @@ export const decodeContentInput = (input: unknown) =>
   decodeDiscriminated<ContentApplyInput>(ContentInputContract, "action", input);
 
 export const CONTENT_PROMPT_GUIDELINES =
-  "Begin with zeroy_inspect resource sites, then inspect the selected site. Standard page flow: createCanonical with postTitle, or adoptionCandidates → existingPost → adoptCanonical with expectedSourceHash; then commit with expectedRevision 0 when content is ready to publish, or writeDraft → inspect previewUrl → publish when a draft review is needed. Standard ThemeCopy flow: patchThemeCopyDraft for small changes, then publishThemeCopy; use commitThemeCopy when no review is needed. ThemeSchema writes automatically hard-migrate valid stored documents; use reconcileSchema only to request the report again. WordPress/ACF facts remain canonical and are never copied into zeroY locale documents.";
+  "Begin with zeroy_inspect resource sites, then inspect the selected site. Standard page flow: createCanonical with postTitle, or adoptionCandidates → existingPost → adoptCanonical with expectedSourceHash; inspect contentTree for the canonical object; build a zeroy/locale-version@2 document whose decisions contains one explicit inherit or override with the returned sourceHash for every leaf; then commit with expectedRevision 0, or writeDraft → inspect previewUrl → publish. Publishing fails when any effective WordPress/ACF leaf is unresolved or stale. Standard ThemeCopy flow uses a zeroy/theme-copy-version@2 document; patchThemeCopyDraft patches its nodes. ThemeSchema writes hard-migrate only declared nodes. WordPress/ACF facts remain canonical; locale versions store decisions and never overwrite those facts.";
 
 export type JsonRecord = Readonly<Record<string, unknown>>;

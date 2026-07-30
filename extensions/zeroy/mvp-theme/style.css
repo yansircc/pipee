@@ -1,7 +1,7 @@
 /*
 Theme Name: zeroY MVP Theme
 Description: Minimal locale-aware theme fixture for zeroY Runtime Connector.
-Version: 0.1.0
+Version: 0.3.0
 */
 
 :root {
@@ -103,4 +103,627 @@ body {
   border-top: 1px solid #e0ded4;
   color: #738077;
   font-size: 13px;
+}
+
+/* ============================================================
+   Industrial site (home + CPT detail templates)
+   ============================================================ */
+
+.zy-home {
+  color: #17232f;
+  background: #f4f6f5;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.zy-container {
+  width: min(1180px, calc(100% - 48px));
+  margin: 0 auto;
+}
+
+/* --- Top bar --- */
+
+.zy-topbar {
+  background: #0d1926;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.zy-topbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  height: 72px;
+}
+
+.zy-brand {
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+
+.zy-brand span {
+  color: #f5a30b;
+  margin: 0 2px;
+}
+
+.zy-nav {
+  display: flex;
+  gap: 30px;
+}
+
+.zy-nav a {
+  color: #9fb0bf;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.zy-nav a:hover {
+  color: #ffffff;
+}
+
+.zy-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.zy-lang {
+  display: flex;
+  gap: 6px;
+}
+
+.zy-lang a,
+.zy-lang span {
+  display: inline-block;
+  padding: 6px 11px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: #9fb0bf;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.zy-lang a:hover {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.zy-lang span {
+  color: #16202c;
+  background: #f5a30b;
+}
+
+/* --- Buttons --- */
+
+.zy-btn {
+  display: inline-block;
+  padding: 14px 24px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.zy-btn-sm {
+  padding: 10px 16px;
+  font-size: 13px;
+}
+
+.zy-btn-primary {
+  color: #16202c;
+  background: #f5a30b;
+}
+
+.zy-btn-primary:hover {
+  background: #ffc13d;
+}
+
+.zy-btn-outline {
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.zy-btn-outline:hover {
+  border-color: rgba(255, 255, 255, 0.8);
+}
+
+/* --- Hero --- */
+
+.zy-hero {
+  padding: 92px 0 88px;
+  color: #ffffff;
+  background:
+    radial-gradient(1200px 500px at 85% -10%, rgba(245, 163, 11, 0.12), transparent 60%),
+    linear-gradient(180deg, #0d1926 0%, #122539 100%);
+}
+
+.zy-hero-detail {
+  padding: 56px 0 72px;
+}
+
+.zy-hero-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 64px;
+  align-items: center;
+}
+
+.zy-eyebrow {
+  margin: 0;
+  color: #f5a30b;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.zy-hero h1 {
+  margin: 18px 0 22px;
+  font-size: clamp(34px, 4.4vw, 54px);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+}
+
+.zy-hero-detail h1 {
+  font-size: clamp(30px, 3.8vw, 46px);
+}
+
+.zy-lead {
+  max-width: 640px;
+  margin: 0 0 34px;
+  color: #b3c2cf;
+  font-size: 18px;
+  line-height: 1.7;
+}
+
+.zy-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.zy-hero-media img {
+  display: block;
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 16px;
+  box-shadow: 0 32px 90px rgba(0, 0, 0, 0.4);
+}
+
+.zy-hero-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  margin-top: 72px;
+  padding-top: 36px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.zy-stat b {
+  display: block;
+  color: #ffffff;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.zy-stat span {
+  display: block;
+  margin-top: 6px;
+  color: #8ca0b1;
+  font-size: 14px;
+}
+
+/* --- Sections --- */
+
+.zy-section {
+  padding: 96px 0;
+}
+
+.zy-detail .zy-section {
+  padding: 72px 0;
+}
+
+.zy-section-alt {
+  background: #ffffff;
+  border-block: 1px solid #e3e8e6;
+}
+
+.zy-section-head {
+  max-width: 720px;
+  margin-bottom: 56px;
+}
+
+.zy-section-head h2 {
+  margin: 14px 0 14px;
+  font-size: clamp(28px, 3.4vw, 40px);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.zy-section-head p:not(.zy-eyebrow) {
+  margin: 0;
+  color: #5c6b78;
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+/* --- Solution cards --- */
+
+.zy-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 28px;
+}
+
+.zy-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #e3e8e6;
+  border-radius: 16px;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.zy-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 18px 50px rgba(23, 35, 47, 0.1);
+}
+
+.zy-card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+}
+
+.zy-card-body {
+  padding: 26px 26px 30px;
+}
+
+.zy-index {
+  color: #f5a30b;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.zy-card h3 {
+  margin: 10px 0 10px;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.zy-card p {
+  margin: 0;
+  color: #5c6b78;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+/* --- Process steps --- */
+
+.zy-steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+}
+
+.zy-steps-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.zy-step {
+  padding: 26px;
+  background: #f4f6f5;
+  border: 1px solid #e3e8e6;
+  border-radius: 14px;
+}
+
+.zy-num {
+  color: #f5a30b;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.zy-step h3 {
+  margin: 12px 0 8px;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.zy-step p {
+  margin: 0;
+  color: #5c6b78;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+/* --- Industries --- */
+
+.zy-industries .zy-section-head {
+  margin-bottom: 24px;
+}
+
+.zy-industries-list {
+  max-width: 900px;
+  margin: 0;
+  color: #33424f;
+  font-size: clamp(19px, 2.4vw, 26px);
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: -0.01em;
+}
+
+/* --- CTA band --- */
+
+.zy-cta {
+  padding: 100px 0;
+  color: #ffffff;
+  text-align: center;
+  background:
+    radial-gradient(900px 400px at 50% 120%, rgba(245, 163, 11, 0.14), transparent 60%), #0d1926;
+}
+
+.zy-cta h2 {
+  margin: 0 0 16px;
+  font-size: clamp(28px, 3.6vw, 42px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.zy-cta p {
+  max-width: 640px;
+  margin: 0 auto 36px;
+  color: #b3c2cf;
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+.zy-cta-actions {
+  justify-content: center;
+}
+
+/* --- Footer --- */
+
+.zy-footer {
+  padding: 34px 0;
+  color: #71869a;
+  background: #0a141e;
+  font-size: 13px;
+}
+
+.zy-footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+/* --- Detail page components --- */
+
+.zy-back {
+  display: inline-block;
+  margin-bottom: 28px;
+  color: #8ca0b1;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.zy-back:hover {
+  color: #ffffff;
+}
+
+.zy-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.zy-chip {
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  color: #dbe4ec;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.zy-chip-light {
+  color: #33424f;
+  background: #ffffff;
+  border-color: #d8dedb;
+}
+
+.zy-glance {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+}
+
+.zy-glance-card {
+  padding: 28px;
+  background: #ffffff;
+  border: 1px solid #e3e8e6;
+  border-radius: 14px;
+}
+
+.zy-glance-card h3 {
+  margin: 0 0 14px;
+  color: #f5a30b;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.zy-glance-card p {
+  margin: 0;
+  color: #33424f;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.zy-glance-card ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #33424f;
+  font-size: 15px;
+  line-height: 1.9;
+}
+
+.zy-glance-card .zy-btn {
+  margin-top: 18px;
+}
+
+.zy-delivery {
+  margin-top: 24px;
+  padding: 28px;
+  background: #ffffff;
+  border: 1px solid #e3e8e6;
+  border-radius: 14px;
+}
+
+.zy-delivery h3 {
+  margin: 0 0 16px;
+  color: #f5a30b;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.zy-delivery .zy-chips {
+  margin-top: 0;
+}
+
+.zy-spec-table {
+  margin: 0;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #e3e8e6;
+  border-radius: 14px;
+}
+
+.zy-spec-row {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+}
+
+.zy-spec-row + .zy-spec-row {
+  border-top: 1px solid #edf0ee;
+}
+
+.zy-spec-row dt {
+  padding: 18px 24px;
+  color: #5c6b78;
+  background: #f8faf9;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.zy-spec-row dd {
+  margin: 0;
+  padding: 18px 24px;
+  color: #17232f;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.zy-machine-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.zy-machine-links a {
+  padding: 7px 12px;
+  color: #1d3a5f;
+  background: #e9f0f7;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.zy-machine-links a:hover {
+  background: #d7e4f0;
+}
+
+/* --- Responsive --- */
+
+@media (max-width: 960px) {
+  .zy-nav {
+    display: none;
+  }
+
+  .zy-hero-grid {
+    grid-template-columns: 1fr;
+    gap: 44px;
+  }
+
+  .zy-cards,
+  .zy-steps,
+  .zy-steps-3,
+  .zy-glance {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .zy-hero {
+    padding: 64px 0;
+  }
+
+  .zy-hero-stats,
+  .zy-cards,
+  .zy-steps,
+  .zy-steps-3,
+  .zy-glance {
+    grid-template-columns: 1fr;
+  }
+
+  .zy-spec-row {
+    grid-template-columns: 1fr;
+  }
+
+  .zy-section {
+    padding: 64px 0;
+  }
+
+  .zy-detail .zy-section {
+    padding: 48px 0;
+  }
 }

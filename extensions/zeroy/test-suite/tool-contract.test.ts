@@ -22,6 +22,13 @@ type ObjectSchema = TSchema & {
 };
 
 const siteId = "acceptance";
+const localeVersion = {
+  contract: "zeroy/locale-version@2" as const,
+  nodes: { title: "标题", intro: "正文" },
+  decisions: {
+    "/post/title": { mode: "inherit" as const, sourceHash: "a".repeat(64) },
+  },
+};
 
 describe("zeroY exact tool input algebra", () => {
   it("accepts all configured-site and per-site inspect variants", () => {
@@ -31,6 +38,7 @@ describe("zeroY exact tool input algebra", () => {
       { siteId, resource: "schema" },
       { siteId, resource: "inventory", page: 1, perPage: 50 },
       { siteId, resource: "acf" },
+      { siteId, resource: "contentTree", objectId: 1 },
       { siteId, resource: "adoptionCandidates", schemaId: "showcase", page: 1, perPage: 50 },
       { siteId, resource: "existingPost", postId: 1 },
       { siteId, resource: "themeFiles", path: "style.css" },
@@ -76,7 +84,7 @@ describe("zeroY exact tool input algebra", () => {
         locale: "zh-CN",
         schemaId: "showcase",
         route: "acceptance",
-        document: { title: "标题", intro: "正文" },
+        localeVersion,
         expectedRevision: 0,
       },
       {
@@ -86,7 +94,7 @@ describe("zeroY exact tool input algebra", () => {
         locale: "zh-CN",
         schemaId: "showcase",
         route: "acceptance",
-        document: { title: "标题", intro: "正文" },
+        localeVersion,
         expectedRevision: 0,
       },
       { siteId, action: "publish", objectId: 1, locale: "zh-CN", expectedRevision: 1 },
@@ -95,7 +103,10 @@ describe("zeroY exact tool input algebra", () => {
         siteId,
         action: "writeThemeCopyDraft",
         locale: "zh-CN",
-        document: { "nav.home": "首页" },
+        themeCopyVersion: {
+          contract: "zeroy/theme-copy-version@2",
+          nodes: { "nav.home": "首页" },
+        },
         expectedRevision: 0,
       },
       {
@@ -109,7 +120,10 @@ describe("zeroY exact tool input algebra", () => {
         siteId,
         action: "commitThemeCopy",
         locale: "en",
-        document: { "nav.home": "Home" },
+        themeCopyVersion: {
+          contract: "zeroy/theme-copy-version@2",
+          nodes: { "nav.home": "Home" },
+        },
         expectedRevision: 0,
       },
       { siteId, action: "publishThemeCopy", locale: "zh-CN", expectedRevision: 1 },
@@ -126,7 +140,7 @@ describe("zeroY exact tool input algebra", () => {
       _tag: "Failure",
       error: {
         message:
-          "resource must be one of [sites, site, schema, inventory, acf, adoptionCandidates, existingPost, themeFiles, localeContent, themeCopy, integrity, externalCheck].",
+          "resource must be one of [sites, site, schema, inventory, acf, contentTree, adoptionCandidates, existingPost, themeFiles, localeContent, themeCopy, integrity, externalCheck].",
       },
     });
     for (const [action, fields] of [
@@ -134,13 +148,13 @@ describe("zeroY exact tool input algebra", () => {
       ["createCanonical", "postType, schemaId"],
       ["adoptCanonical", "postId, schemaId, expectedSourceHash"],
       ["assignSchema", "objectId, schemaId, expectedRevision"],
-      ["writeDraft", "objectId, locale, schemaId, route, document, expectedRevision"],
-      ["commit", "objectId, locale, schemaId, route, document, expectedRevision"],
+      ["writeDraft", "objectId, locale, schemaId, route, localeVersion, expectedRevision"],
+      ["commit", "objectId, locale, schemaId, route, localeVersion, expectedRevision"],
       ["publish", "objectId, locale, expectedRevision"],
       ["unpublish", "objectId, locale, expectedRevision"],
-      ["writeThemeCopyDraft", "locale, document, expectedRevision"],
+      ["writeThemeCopyDraft", "locale, themeCopyVersion, expectedRevision"],
       ["patchThemeCopyDraft", "locale, changes, expectedRevision"],
-      ["commitThemeCopy", "locale, document, expectedRevision"],
+      ["commitThemeCopy", "locale, themeCopyVersion, expectedRevision"],
       ["publishThemeCopy", "locale, expectedRevision"],
       ["unpublishThemeCopy", "locale, expectedRevision"],
     ] as const) {
@@ -166,6 +180,7 @@ describe("provider-safe tool projection", () => {
       "schema",
       "inventory",
       "acf",
+      "contentTree",
       "adoptionCandidates",
       "existingPost",
       "themeFiles",
@@ -179,16 +194,16 @@ describe("provider-safe tool projection", () => {
       "siteId",
       "page",
       "perPage",
+      "objectId",
       "postType",
       "schemaId",
       "postId",
       "path",
-      "objectId",
       "locale",
     ]);
     expect(Value.Check(schema, { resource: "sites" })).toBe(true);
     expect(schema.properties.objectId?.description).toContain(
-      "Required when resource = localeContent",
+      "Required when resource = contentTree or localeContent",
     );
   });
 

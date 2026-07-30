@@ -116,13 +116,14 @@ conversation. Optional PageSpeed checks are extension-owned; set
 }
 ```
 
-The PHP template reads localized facts through the explicit identity
+The PHP template reads one resolved projection through the explicit identity
 `objectId × locale × schemaId`:
 
 ```php
-$document = zeroy_locale_document($post->ID, zeroy_current_locale(), 'case-study');
-echo esc_html($document['title']);
-echo wp_kses_post($document['summary']);
+$content = zeroy_locale_content($post->ID, zeroy_current_locale(), 'case-study');
+echo esc_html($content['post']['title']);
+echo wp_kses_post($content['nodes']['summary']);
+echo esc_html($content['acf']['machine_capacity']);
 ```
 
 Global shell copy uses its own explicit helper, not PHP string tables or ACF
@@ -158,12 +159,30 @@ also exposes stable choice `value` plus its admin `label`. `adoptCanonical`
 succeeds only while that hash still matches; it attaches a ThemeSchema and
 zeroY canonical revision, without copying or translating existing data.
 
-ACF values are stable business facts. ACF labels are administrator defaults,
-not public localized copy; localized labels belong in ThemeCopy.
+WordPress post fields and raw ACF values remain canonical business facts. For
+each canonical object, `contentTree` automatically projects the post fields and
+every leaf of every currently applicable ACF group. A LocaleVersion stores one
+explicit decision for every projected path:
 
-That boundary is intentional: a theme must explicitly choose whether a display
-value comes from ACF or from `zeroy_locale_document`. There is no hidden ACF to
-LocaleStore mapping.
+```json
+{
+  "contract": "zeroy/locale-version@2",
+  "nodes": {},
+  "decisions": {
+    "/acf/machine_capacity": { "mode": "inherit", "sourceHash": "..." },
+    "/post/title": {
+      "mode": "override",
+      "sourceHash": "...",
+      "value": "本地化标题"
+    }
+  }
+}
+```
+
+No hand-authored translation schema selects ACF fields. Missing decisions are
+unresolved; a decision whose `sourceHash` no longer matches WordPress/ACF is
+stale. Either condition blocks publishing. Overrides affect only the locale
+projection and never write back to canonical WordPress or ACF storage.
 
 ## Routes and mutation receipts
 
@@ -186,8 +205,10 @@ it renders only the current draft.
 return a compact receipt (scope, locale, revision, version IDs, state, route,
 URL, and draft preview URL where applicable). They never echo documents. Use
 `patchThemeCopyDraft` for a small ThemeCopy delta; it materializes a complete
-immutable version server-side. Read `localeContent` or `themeCopy` when the
-full document is actually needed.
+immutable version server-side. Read `contentTree`, `localeContent`, or
+`themeCopy` when the full source tree or version envelope is actually needed.
+ThemeCopy versions use `zeroy/theme-copy-version@2` with a `nodes` object and
+no content decisions.
 
 ## Read-only WebSurface
 
@@ -227,9 +248,10 @@ revision chaining, Connector-only readback and final HTTP 200 responses.
 
 The destructive LocalWP proof requires active ACF and a disposable runtime
 site. It validates revision conflicts, default-language locking, hash guarded
-theme writes, real partial batch results, schema-hash 404/recovery, unpublish
-and disabled-language tombstones, locale-first archive/search, ACF projection,
-and Connector integrity.
+theme writes, real partial batch results, schema/content-hash 404/recovery,
+unresolved-publish rejection, stale-source detection, unpublish and
+disabled-language tombstones, locale-first archive/search, ACF projection, and
+Connector integrity.
 
 ```sh
 locwp wp 10013 -- plugin activate advanced-custom-fields-pro

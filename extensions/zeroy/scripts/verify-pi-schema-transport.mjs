@@ -134,6 +134,7 @@ try {
     "schema",
     "inventory",
     "acf",
+    "contentTree",
     "adoptionCandidates",
     "existingPost",
     "themeFiles",
@@ -143,6 +144,7 @@ try {
     "externalCheck",
   ]);
   assert(Object.keys(inspect?.properties ?? {}).length > 2);
+  assert.match(inspect?.properties?.objectId?.description ?? "", /contentTree/u);
 
   const content = tools.get("zeroy_content_apply")?.input_schema;
   assert.equal(content?.type, "object");
@@ -174,6 +176,14 @@ try {
     /ACF facts have not changed/u,
   );
   assert.match(content?.properties?.changes?.description ?? "", /patchThemeCopyDraft/u);
+  assert.match(
+    JSON.stringify(content?.properties?.localeVersion ?? {}),
+    /zeroy\/locale-version@2/u,
+  );
+  assert.match(
+    JSON.stringify(content?.properties?.themeCopyVersion ?? {}),
+    /zeroy\/theme-copy-version@2/u,
+  );
 
   const theme = tools.get("zeroy_theme_apply")?.input_schema;
   assert.match(
