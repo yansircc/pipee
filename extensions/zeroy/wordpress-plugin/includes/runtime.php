@@ -2217,17 +2217,22 @@ function zeroy_runtime_integrity(): array
                 $issues[] = ['code' => 'version_pointer_missing', 'objectId' => (int) $head['object_id'], 'locale' => $head['locale'], 'message' => "LocaleHead {$pointer} points at a missing LocaleVersion."];
             }
         }
-        if (!$theme_copy && $head['published_version_id'] !== null) {
+        if ($head['published_version_id'] !== null) {
             $head_projection = zeroy_runtime_project_head($head);
             if (in_array($head_projection['state'], ['content-stale', 'schema-mismatch'], true)) {
                 $issues[] = [
                     'code' => $head_projection['state'],
-                    'objectId' => (int) $head['object_id'],
+                    'scope' => $theme_copy ? 'themeCopy' : 'canonical',
+                    'objectId' => $theme_copy ? null : (int) $head['object_id'],
                     'locale' => $head['locale'],
-                    'message' => 'Published locale content no longer matches its current ThemeSchema or canonical source.',
+                    'message' => $theme_copy
+                        ? 'Published ThemeCopy no longer matches the active ThemeSchema.'
+                        : 'Published locale content no longer matches its current ThemeSchema or canonical source.',
                     'review' => $head_projection['contentReview'],
                 ];
             }
+        }
+        if (!$theme_copy && $head['published_version_id'] !== null) {
             $projection = $wpdb->get_row(
                 $wpdb->prepare('SELECT published_version_id FROM ' . zeroy_runtime_table('search_projection') . ' WHERE object_id = %d AND locale = %s', $head['object_id'], $head['locale']),
                 ARRAY_A

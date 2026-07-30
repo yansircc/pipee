@@ -277,6 +277,27 @@ try {
     $theme_copy_read->set_param('locale', 'zh-CN');
     zeroy_accept((zeroy_runtime_theme_copy_read_endpoint($theme_copy_read)->get_data()['themeCopy']['published']['document']['nodes']['nav.home'] ?? null) === '首页', 'ThemeCopy read must return the full version envelope only on explicit read.');
     zeroy_accept(zeroy_theme_copy_document('zh-CN')['nav.home'] === '首页', 'Theme PHP helper must read published ThemeCopy.');
+    $integrity_probe_schema = $changed_schema;
+    $integrity_probe_schema['themeCopy']['nodes']['integrity.probe'] = ['kind' => 'text', 'required' => false, 'searchable' => false];
+    file_put_contents(
+        $schema_path,
+        wp_json_encode($integrity_probe_schema, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
+        LOCK_EX,
+    );
+    $theme_copy_integrity = zeroy_runtime_integrity();
+    $theme_copy_issues = array_values(array_filter(
+        $theme_copy_integrity['issues'],
+        static fn(array $issue): bool => ($issue['scope'] ?? null) === 'themeCopy' && ($issue['locale'] ?? null) === 'zh-CN',
+    ));
+    zeroy_accept(
+        ($theme_copy_integrity['ok'] ?? true) === false && ($theme_copy_issues[0]['code'] ?? null) === 'schema-mismatch',
+        'Integrity must fail closed when published ThemeCopy no longer matches the active ThemeSchema.',
+    );
+    file_put_contents(
+        $schema_path,
+        wp_json_encode($changed_schema, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
+        LOCK_EX,
+    );
     zeroy_accept_error(zeroy_runtime_read_document($object_id, 'zh-CN', 'showcase'), 'zeroy_schema_mismatch', 'Old-schema published document');
     zeroy_accept(zeroy_accept_http_status(zeroy_runtime_route_url('zh-CN', $route)) === 404, 'Old-schema published route must fail closed.');
 
