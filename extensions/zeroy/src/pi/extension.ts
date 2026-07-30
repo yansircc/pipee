@@ -502,6 +502,7 @@ const contentPayload = (
         },
       };
     case "writeDraft":
+    case "commit":
       return {
         path: "locale-content",
         body: {
@@ -526,12 +527,23 @@ const contentPayload = (
         },
       };
     case "writeThemeCopyDraft":
+    case "commitThemeCopy":
       return {
         path: "theme-copy",
         body: {
           action: input.action,
           locale: input.locale,
           document: input.document,
+          expectedRevision: input.expectedRevision,
+        },
+      };
+    case "patchThemeCopyDraft":
+      return {
+        path: "theme-copy",
+        body: {
+          action: input.action,
+          locale: input.locale,
+          changes: input.changes,
           expectedRevision: input.expectedRevision,
         },
       };
@@ -544,6 +556,11 @@ const contentPayload = (
           locale: input.locale,
           expectedRevision: input.expectedRevision,
         },
+      };
+    case "reconcileSchema":
+      return {
+        path: "schema-reconcile",
+        body: {},
       };
   }
 };

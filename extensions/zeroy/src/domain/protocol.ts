@@ -5,6 +5,10 @@ import { Data } from "effect";
 const SiteId = Type.String({ minLength: 1, description: "Configured zeroY site identifier." });
 const Locale = Type.String({ minLength: 1 });
 const Document = Type.Record(Type.String({ minLength: 1 }), Type.String());
+const ThemeCopyPatch = Type.Record(
+  Type.String({ minLength: 1 }),
+  Type.Union([Type.String(), Type.Null()]),
+);
 const LocaleConfig = Type.Object({
   locale: Locale,
   label: Type.String({ minLength: 1 }),
@@ -152,6 +156,20 @@ export const ContentInputContract = Type.Union([
   }),
   Type.Object({
     siteId: SiteId,
+    action: Type.Literal("commit"),
+    objectId: Type.Integer({ minimum: 1 }),
+    locale: Locale,
+    schemaId: Type.String({ minLength: 1 }),
+    route: Type.String({ minLength: 1 }),
+    document: Document,
+    expectedRevision: Type.Integer({
+      minimum: 0,
+      description:
+        "The locale revision returned by the Connector. commit writes one immutable LocaleVersion and advances both draft and published pointers atomically.",
+    }),
+  }),
+  Type.Object({
+    siteId: SiteId,
     action: Type.Literal("publish"),
     objectId: Type.Integer({ minimum: 1 }),
     locale: Locale,
@@ -183,6 +201,28 @@ export const ContentInputContract = Type.Union([
   }),
   Type.Object({
     siteId: SiteId,
+    action: Type.Literal("patchThemeCopyDraft"),
+    locale: Locale,
+    changes: ThemeCopyPatch,
+    expectedRevision: Type.Integer({
+      minimum: 0,
+      description:
+        "The ThemeCopy locale revision. Each string sets one NodeId; null removes one NodeId from the current draft, or published document when no draft exists.",
+    }),
+  }),
+  Type.Object({
+    siteId: SiteId,
+    action: Type.Literal("commitThemeCopy"),
+    locale: Locale,
+    document: Document,
+    expectedRevision: Type.Integer({
+      minimum: 0,
+      description:
+        "The ThemeCopy locale revision. commitThemeCopy writes one immutable ThemeCopy version and advances both draft and published pointers atomically.",
+    }),
+  }),
+  Type.Object({
+    siteId: SiteId,
     action: Type.Literal("publishThemeCopy"),
     locale: Locale,
     expectedRevision: Type.Integer({
@@ -199,6 +239,10 @@ export const ContentInputContract = Type.Union([
       minimum: 0,
       description: "The current ThemeCopy locale revision returned by the Connector.",
     }),
+  }),
+  Type.Object({
+    siteId: SiteId,
+    action: Type.Literal("reconcileSchema"),
   }),
 ]);
 export type ContentApplyInput = Static<typeof ContentInputContract>;
@@ -427,6 +471,6 @@ export const decodeContentInput = (input: unknown) =>
   decodeDiscriminated<ContentApplyInput>(ContentInputContract, "action", input);
 
 export const CONTENT_PROMPT_GUIDELINES =
-  "Begin with zeroy_inspect resource sites, then inspect the selected site. Run mutations one at a time and wait for each receipt. Standard page flow: createCanonical with postTitle, or adoptionCandidates → existingPost → adoptCanonical with expectedSourceHash; then writeDraft with expectedRevision 0 for each new locale, then publish with the returned locale revision. Standard ThemeCopy flow: writeThemeCopyDraft with expectedRevision 0, then publishThemeCopy with its returned revision. WordPress/ACF facts remain canonical and are never copied into zeroY locale documents.";
+  "Begin with zeroy_inspect resource sites, then inspect the selected site. Standard page flow: createCanonical with postTitle, or adoptionCandidates → existingPost → adoptCanonical with expectedSourceHash; then commit with expectedRevision 0 when content is ready to publish, or writeDraft → inspect previewUrl → publish when a draft review is needed. Standard ThemeCopy flow: patchThemeCopyDraft for small changes, then publishThemeCopy; use commitThemeCopy when no review is needed. ThemeSchema writes automatically hard-migrate valid stored documents; use reconcileSchema only to request the report again. WordPress/ACF facts remain canonical and are never copied into zeroY locale documents.";
 
 export type JsonRecord = Readonly<Record<string, unknown>>;

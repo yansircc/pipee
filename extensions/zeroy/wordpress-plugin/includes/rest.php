@@ -292,7 +292,31 @@ function zeroy_runtime_theme_files_write_endpoint(WP_REST_Request $request): WP_
         $results[] = ['index' => $index, 'path' => $path, 'ok' => true, 'hash' => hash('sha256', $content), 'created' => !$file['exists']];
     }
     $ok = !in_array(false, array_column($results, 'ok'), true);
-    return new WP_REST_Response(['contract' => 'zeroy/theme-write@1', 'ok' => $ok, 'results' => $results]);
+    $schema_written = false;
+    foreach ($results as $result) {
+        if (($result['ok'] ?? false) === true && ($result['path'] ?? null) === 'zeroy.schema.json') {
+            $schema_written = true;
+            break;
+        }
+    }
+    $schema_reconciliation = null;
+    if ($schema_written) {
+        $schema_reconciliation = zeroy_runtime_reconcile_active_schema(true);
+        if (is_wp_error($schema_reconciliation)) {
+            $schema_reconciliation = [
+                'state' => 'schema-invalid',
+                'code' => $schema_reconciliation->get_error_code(),
+                'message' => $schema_reconciliation->get_error_message(),
+                'violations' => $schema_reconciliation->get_error_data()['violations'] ?? [],
+            ];
+        }
+    }
+    return new WP_REST_Response([
+        'contract' => 'zeroy/theme-write@1',
+        'ok' => $ok,
+        'results' => $results,
+        ...($schema_reconciliation === null ? [] : ['schemaReconciliation' => $schema_reconciliation]),
+    ]);
 }
 
 function zeroy_runtime_canonical_projection(array $canonical): array
@@ -364,6 +388,14 @@ function zeroy_runtime_locale_read_endpoint(WP_REST_Request $request): WP_REST_R
     return new WP_REST_Response(['contract' => 'zeroy/locale-content@1', 'localeContent' => zeroy_runtime_project_head($head, true)]);
 }
 
+function zeroy_runtime_schema_reconcile_endpoint(): WP_REST_Response
+{
+    $result = zeroy_runtime_reconcile_active_schema(true);
+    return is_wp_error($result)
+        ? zeroy_runtime_response_error($result)
+        : new WP_REST_Response(['contract' => 'zeroy/schema-reconciliation@1', 'reconciliation' => $result]);
+}
+
 function zeroy_runtime_locale_write_endpoint(WP_REST_Request $request): WP_REST_Response
 {
     $payload = zeroy_runtime_payload($request);
@@ -375,6 +407,18 @@ function zeroy_runtime_locale_write_endpoint(WP_REST_Request $request): WP_REST_
         $document = $payload['document'] ?? null;
         $result = is_array($document)
             ? zeroy_runtime_write_draft(
+                (int) ($payload['objectId'] ?? 0),
+                (string) ($payload['locale'] ?? ''),
+                (string) ($payload['schemaId'] ?? ''),
+                (string) ($payload['route'] ?? ''),
+                $document,
+                (int) ($payload['expectedRevision'] ?? -1)
+            )
+            : zeroy_runtime_error('zeroy_document_invalid', 'document must be an object.', 400);
+    } elseif ($action === 'commit') {
+        $document = $payload['document'] ?? null;
+        $result = is_array($document)
+            ? zeroy_runtime_commit_locale(
                 (int) ($payload['objectId'] ?? 0),
                 (string) ($payload['locale'] ?? ''),
                 (string) ($payload['schemaId'] ?? ''),
@@ -396,7 +440,7 @@ function zeroy_runtime_locale_write_endpoint(WP_REST_Request $request): WP_REST_
             (int) ($payload['expectedRevision'] ?? -1)
         );
     } else {
-        $result = zeroy_runtime_error('zeroy_locale_action_invalid', 'Locale action must be writeDraft, publish, or unpublish.', 400);
+        $result = zeroy_runtime_error('zeroy_locale_action_invalid', 'Locale action must be writeDraft, commit, publish, or unpublish.', 400);
     }
     return is_wp_error($result)
         ? zeroy_runtime_response_error($result)
@@ -436,6 +480,24 @@ function zeroy_runtime_theme_copy_write_endpoint(WP_REST_Request $request): WP_R
                 (int) ($payload['expectedRevision'] ?? -1)
             )
             : zeroy_runtime_error('zeroy_document_invalid', 'document must be an object.', 400);
+    } elseif ($action === 'patchThemeCopyDraft') {
+        $changes = $payload['changes'] ?? null;
+        $result = is_array($changes)
+            ? zeroy_runtime_patch_theme_copy_draft(
+                (string) ($payload['locale'] ?? ''),
+                $changes,
+                (int) ($payload['expectedRevision'] ?? -1)
+            )
+            : zeroy_runtime_error('zeroy_theme_copy_patch_invalid', 'changes must be an object.', 400);
+    } elseif ($action === 'commitThemeCopy') {
+        $document = $payload['document'] ?? null;
+        $result = is_array($document)
+            ? zeroy_runtime_commit_theme_copy(
+                (string) ($payload['locale'] ?? ''),
+                $document,
+                (int) ($payload['expectedRevision'] ?? -1)
+            )
+            : zeroy_runtime_error('zeroy_document_invalid', 'document must be an object.', 400);
     } elseif ($action === 'publishThemeCopy') {
         $result = zeroy_runtime_publish_theme_copy_draft(
             (string) ($payload['locale'] ?? ''),
@@ -447,7 +509,7 @@ function zeroy_runtime_theme_copy_write_endpoint(WP_REST_Request $request): WP_R
             (int) ($payload['expectedRevision'] ?? -1)
         );
     } else {
-        $result = zeroy_runtime_error('zeroy_theme_copy_action_invalid', 'ThemeCopy action must be writeThemeCopyDraft, publishThemeCopy, or unpublishThemeCopy.', 400);
+        $result = zeroy_runtime_error('zeroy_theme_copy_action_invalid', 'ThemeCopy action must be writeThemeCopyDraft, patchThemeCopyDraft, commitThemeCopy, publishThemeCopy, or unpublishThemeCopy.', 400);
     }
     return is_wp_error($result)
         ? zeroy_runtime_response_error($result)
@@ -470,6 +532,7 @@ function zeroy_runtime_register_rest_routes(): void
     register_rest_route('zeroy/v1', '/existing-post', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_runtime_existing_post_endpoint']);
     register_rest_route('zeroy/v1', '/theme-files', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_runtime_theme_files_endpoint']);
     register_rest_route('zeroy/v1', '/theme-files', $permission + ['methods' => WP_REST_Server::CREATABLE, 'callback' => 'zeroy_runtime_theme_files_write_endpoint']);
+    register_rest_route('zeroy/v1', '/schema-reconcile', $permission + ['methods' => WP_REST_Server::CREATABLE, 'callback' => 'zeroy_runtime_schema_reconcile_endpoint']);
     register_rest_route('zeroy/v1', '/site-config', $permission + ['methods' => WP_REST_Server::CREATABLE, 'callback' => 'zeroy_runtime_site_config_write_endpoint']);
     register_rest_route('zeroy/v1', '/canonical', $permission + ['methods' => WP_REST_Server::CREATABLE, 'callback' => 'zeroy_runtime_canonical_write_endpoint']);
     register_rest_route('zeroy/v1', '/locale-content', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_runtime_locale_read_endpoint']);

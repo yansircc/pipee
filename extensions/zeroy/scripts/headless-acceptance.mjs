@@ -188,11 +188,15 @@ try {
     "adoptCanonical",
     "assignSchema",
     "writeDraft",
+    "commit",
     "publish",
     "unpublish",
     "writeThemeCopyDraft",
+    "patchThemeCopyDraft",
+    "commitThemeCopy",
     "publishThemeCopy",
     "unpublishThemeCopy",
+    "reconcileSchema",
   ]);
   assert(
     calls
@@ -243,35 +247,56 @@ try {
   const publishes = calls.filter(
     (call) => call.name === "zeroy_content_apply" && call.arguments.action === "publish",
   );
+  const commits = calls.filter(
+    (call) => call.name === "zeroy_content_apply" && call.arguments.action === "commit",
+  );
   for (const locale of ["zh-CN", "en"]) {
-    const writeDraft = writeDrafts.find(
+    const commit = commits.find(
       (call) => call.arguments.locale === locale && call.arguments.objectId === canonical.objectId,
     );
-    assert(writeDraft, `Missing ${locale} writeDraft.`);
-    assert.equal(
-      writeDraft.arguments.expectedRevision,
-      0,
-      `${locale} did not start at revision 0.`,
-    );
-    assert.equal(writeDraft.arguments.route, route);
-    const localeRevision = resultJson(writeDraft).receipt?.revision;
-    assert.equal(typeof localeRevision, "number", `${locale} writeDraft returned no revision.`);
-    const publish = publishes.find(
-      (call) => call.arguments.locale === locale && call.arguments.objectId === canonical.objectId,
-    );
-    assert(publish, `Missing ${locale} publish.`);
-    assert.equal(
-      publish.arguments.expectedRevision,
-      localeRevision,
-      `${locale} publish did not chain the writeDraft revision.`,
-    );
-    const published = resultJson(publish).receipt;
+    let published;
+    let publishedAt;
+    if (commit) {
+      assert.equal(
+        commit.arguments.expectedRevision,
+        0,
+        `${locale} commit did not start at revision 0.`,
+      );
+      assert.equal(commit.arguments.route, route);
+      published = resultJson(commit).receipt;
+      publishedAt = calls.indexOf(commit);
+    } else {
+      const writeDraft = writeDrafts.find(
+        (call) =>
+          call.arguments.locale === locale && call.arguments.objectId === canonical.objectId,
+      );
+      assert(writeDraft, `Missing ${locale} writeDraft.`);
+      assert.equal(
+        writeDraft.arguments.expectedRevision,
+        0,
+        `${locale} did not start at revision 0.`,
+      );
+      assert.equal(writeDraft.arguments.route, route);
+      const localeRevision = resultJson(writeDraft).receipt?.revision;
+      assert.equal(typeof localeRevision, "number", `${locale} writeDraft returned no revision.`);
+      const publish = publishes.find(
+        (call) =>
+          call.arguments.locale === locale && call.arguments.objectId === canonical.objectId,
+      );
+      assert(publish, `Missing ${locale} publish.`);
+      assert.equal(
+        publish.arguments.expectedRevision,
+        localeRevision,
+        `${locale} publish did not chain the writeDraft revision.`,
+      );
+      published = resultJson(publish).receipt;
+      publishedAt = calls.indexOf(publish);
+    }
     assert.equal(published?.state, "published");
     assert.equal(published?.route, route);
     const response = await fetch(published.url, { redirect: "follow" });
     assert.equal(response.status, 200, `${published.url} returned ${response.status}.`);
 
-    const publishedAt = calls.indexOf(publish);
     const localeReadBack = calls.find(
       (call, index) =>
         index > publishedAt &&

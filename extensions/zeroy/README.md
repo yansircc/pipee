@@ -35,6 +35,10 @@ zeroY Runtime Connector (WordPress)
 - Locale-first routes, archive/search projections, canonical and `hreflang`.
   Missing, draft, disabled, unpublished or schema-mismatched locales are 404;
   there is no fallback language.
+- ThemeSchema changes are hard cuts. The runtime writes new immutable versions
+  under the active schema hash, dropping NodeIds removed by the new schema.
+  It never reads an old schema. New required NodeIds that have no factual value
+  remain an explicit `schema-mismatch` until the Agent writes them.
 - Active-theme regular files only. Each write requires the hash that was read;
   a multi-file request reports its actual per-file partial outcome.
 
@@ -101,6 +105,7 @@ conversation. Optional PageSpeed checks are extension-owned; set
       "label": "Case study",
       "template": "single-case-study.php",
       "canonicalPostTypes": ["case_study"],
+      "titleNode": "title",
       "nodes": {
         "title": { "kind": "text", "required": true, "searchable": true },
         "summary": { "kind": "rich-text", "required": true, "searchable": true },
@@ -132,6 +137,10 @@ echo esc_html($copy['nav.home']);
 capability list. Invalid schemas return every structured violation at once,
 including the schema/node/field, expected constraint and actual type.
 
+`titleNode` is optional. When declared, it is the localized title used by the
+search projection; otherwise that projection uses the canonical WordPress post
+title. There is no magic `_title` field convention.
+
 ## Existing WordPress and ACF sites
 
 Existing content is not invisible, and it is not auto-migrated. The Agent uses
@@ -142,10 +151,15 @@ adoptionCandidates → existingPost → adoptCanonical(expectedSourceHash)
 ```
 
 `adoptionCandidates` lists unmanaged posts and safe summaries. `existingPost`
-returns one post's canonical WordPress fields, current raw ACF values and a
-`sourceHash`. `adoptCanonical` succeeds only while that hash still matches; it
-attaches a ThemeSchema and zeroY canonical revision, without copying or
-translating existing data.
+returns one post's canonical WordPress fields, current ACF runtime values (the
+same field-name shape PHP receives from `get_fields()`), and a `sourceHash`.
+For select, radio, checkbox and button-group definitions, the ACF projection
+also exposes stable choice `value` plus its admin `label`. `adoptCanonical`
+succeeds only while that hash still matches; it attaches a ThemeSchema and
+zeroY canonical revision, without copying or translating existing data.
+
+ACF values are stable business facts. ACF labels are administrator defaults,
+not public localized copy; localized labels belong in ThemeCopy.
 
 That boundary is intentional: a theme must explicitly choose whether a display
 value comes from ACF or from `zeroy_locale_document`. There is no hidden ACF to
@@ -156,12 +170,24 @@ LocaleStore mapping.
 `/` is the explicit FrontPage route. It is stored as the unique empty route
 only after the caller supplied `/`; it resolves to the default locale's site
 root and to each other locale's prefix root. All other routes are non-empty,
-path-safe strings.
+path-safe strings, including ordinary WordPress-style underscore segments.
 
-`writeDraft`, `publish`, `unpublish` and the three ThemeCopy mutations return a
-compact receipt (scope, locale, revision, version IDs, state, route and URL).
-They never echo documents. Read `localeContent` or `themeCopy` when the full
-document is actually needed.
+After a default-locale document is published, its native WordPress permalink
+301 redirects to the zeroY locale URL. A reserved zeroY path remains owned by
+zeroY; an explicit native object URL such as `?page_id=42` still redirects even
+when plain WordPress permalinks make its path `/`.
+
+Use `commit` to write and publish a page LocaleVersion atomically. Use
+`writeDraft → draftPreviewUrl → publish` when a human or Agent must review the
+rendered draft first. `draftPreviewUrl` is signed, uncacheable and `noindex`;
+it renders only the current draft.
+
+`writeDraft`, `commit`, `publish`, `unpublish`, and all ThemeCopy mutations
+return a compact receipt (scope, locale, revision, version IDs, state, route,
+URL, and draft preview URL where applicable). They never echo documents. Use
+`patchThemeCopyDraft` for a small ThemeCopy delta; it materializes a complete
+immutable version server-side. Read `localeContent` or `themeCopy` when the
+full document is actually needed.
 
 ## Read-only WebSurface
 

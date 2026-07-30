@@ -79,6 +79,16 @@ describe("zeroY exact tool input algebra", () => {
         document: { title: "标题", intro: "正文" },
         expectedRevision: 0,
       },
+      {
+        siteId,
+        action: "commit",
+        objectId: 1,
+        locale: "zh-CN",
+        schemaId: "showcase",
+        route: "acceptance",
+        document: { title: "标题", intro: "正文" },
+        expectedRevision: 0,
+      },
       { siteId, action: "publish", objectId: 1, locale: "zh-CN", expectedRevision: 1 },
       { siteId, action: "unpublish", objectId: 1, locale: "zh-CN", expectedRevision: 2 },
       {
@@ -88,8 +98,23 @@ describe("zeroY exact tool input algebra", () => {
         document: { "nav.home": "首页" },
         expectedRevision: 0,
       },
+      {
+        siteId,
+        action: "patchThemeCopyDraft",
+        locale: "zh-CN",
+        changes: { "nav.home": "首页", "legacy.key": null },
+        expectedRevision: 1,
+      },
+      {
+        siteId,
+        action: "commitThemeCopy",
+        locale: "en",
+        document: { "nav.home": "Home" },
+        expectedRevision: 0,
+      },
       { siteId, action: "publishThemeCopy", locale: "zh-CN", expectedRevision: 1 },
       { siteId, action: "unpublishThemeCopy", locale: "zh-CN", expectedRevision: 2 },
+      { siteId, action: "reconcileSchema" },
     ];
     expect(inputs.every((input) => Value.Check(ContentInputContract, input))).toBe(true);
     expect(inputs.every((input) => decodeContentInput(input)._tag === "Success")).toBe(true);
@@ -110,9 +135,12 @@ describe("zeroY exact tool input algebra", () => {
       ["adoptCanonical", "postId, schemaId, expectedSourceHash"],
       ["assignSchema", "objectId, schemaId, expectedRevision"],
       ["writeDraft", "objectId, locale, schemaId, route, document, expectedRevision"],
+      ["commit", "objectId, locale, schemaId, route, document, expectedRevision"],
       ["publish", "objectId, locale, expectedRevision"],
       ["unpublish", "objectId, locale, expectedRevision"],
       ["writeThemeCopyDraft", "locale, document, expectedRevision"],
+      ["patchThemeCopyDraft", "locale, changes, expectedRevision"],
+      ["commitThemeCopy", "locale, document, expectedRevision"],
       ["publishThemeCopy", "locale, expectedRevision"],
       ["unpublishThemeCopy", "locale, expectedRevision"],
     ] as const) {
@@ -175,11 +203,15 @@ describe("provider-safe tool projection", () => {
       "adoptCanonical",
       "assignSchema",
       "writeDraft",
+      "commit",
       "publish",
       "unpublish",
       "writeThemeCopyDraft",
+      "patchThemeCopyDraft",
+      "commitThemeCopy",
       "publishThemeCopy",
       "unpublishThemeCopy",
+      "reconcileSchema",
     ]);
     expect(schema.properties.expectedRevision?.description).toContain(
       "A new LocaleHead always starts at 0",

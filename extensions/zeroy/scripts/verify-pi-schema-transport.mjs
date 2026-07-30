@@ -153,11 +153,15 @@ try {
     "adoptCanonical",
     "assignSchema",
     "writeDraft",
+    "commit",
     "publish",
     "unpublish",
     "writeThemeCopyDraft",
+    "patchThemeCopyDraft",
+    "commitThemeCopy",
     "publishThemeCopy",
     "unpublishThemeCopy",
+    "reconcileSchema",
   ]);
   assert.match(
     content?.properties?.expectedRevision?.description ?? "",
@@ -169,6 +173,7 @@ try {
     content?.properties?.expectedSourceHash?.description ?? "",
     /ACF facts have not changed/u,
   );
+  assert.match(content?.properties?.changes?.description ?? "", /patchThemeCopyDraft/u);
 
   const theme = tools.get("zeroy_theme_apply")?.input_schema;
   assert.match(
