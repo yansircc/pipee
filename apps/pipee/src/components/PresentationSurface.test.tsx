@@ -22,6 +22,10 @@ test("interprets one document in artifact and live modes", () => {
     expect(html).toContain("Shared semantics")
     expect(html).toContain("Ready")
   }
-  expect(artifact).toContain("fixture")
+  expect(artifact).not.toContain("fixture")
   expect(live).not.toContain("fixture")
+  expect(artifact).toContain('class="presentation-receipt"')
+  expect(artifact).toContain('aria-expanded="false"')
+  expect(artifact).not.toContain("Session event")
+  expect(live).toContain('class="presentation-live"')
 })

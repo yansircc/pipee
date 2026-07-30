@@ -23,7 +23,7 @@
     "verify:platform": "node tooling/run-with-checkout-lease.mjs release-candidates node tooling/release/verify-platform.mjs",
     "verify:chrome-candidate": "node tooling/run-with-checkout-lease.mjs release-candidates node tooling/release/verify-chrome-candidate.mjs",
     "verify:registry": "node tooling/release/verify-registry.mjs",
-    "verify:packages": "pnpm -r --if-present run verify",
+    "verify:packages": "pnpm --filter @yansircc/pipee run verify && pnpm -r --filter '!@yansircc/pipee' --if-present run verify",
     "verify": "node tooling/verify.mjs",
     "verify:exclusive": "pnpm run check:brand && pnpm run check:workspace && pnpm run test:tooling && pnpm run test:release && pnpm run verify:packages",
     "release:materialize": "node tooling/release/materialize-release-candidate.mjs",

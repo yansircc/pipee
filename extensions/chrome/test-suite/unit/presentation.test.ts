@@ -13,13 +13,12 @@ it("projects a Chrome status card from the extension-owned status fact", () => {
     }),
   ).toMatchObject({
     contract: "pipee/presentation@1",
-    title: "Chrome",
-    summary: "Primary profile",
+    title: "Browser connected",
+    summary: "Chrome · Primary profile",
     tone: "success",
     status: { text: "Ready", tone: "success" },
     body: {
       children: [
-        { text: "Browser connection" },
         { children: [{ value: "running" }, { value: "Primary profile" }, { value: "Connected" }] },
       ],
     },

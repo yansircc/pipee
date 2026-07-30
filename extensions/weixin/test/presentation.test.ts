@@ -15,13 +15,12 @@ it("projects a readable Weixin connection card", () => {
     }),
   ).toMatchObject({
     contract: "pipee/presentation@1",
-    title: "Weixin",
-    summary: "wx-fixture",
+    title: "微信已连接",
+    summary: "Weixin · wx-fixture",
     tone: "success",
     status: { text: "运行中", tone: "success" },
     body: {
       children: [
-        { text: "微信连接" },
         { children: [{ value: "wx-fixture" }, { value: "session-1" }, { value: "可用" }] },
       ],
     },

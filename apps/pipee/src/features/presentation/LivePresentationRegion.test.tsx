@@ -23,7 +23,7 @@ test("renders owner-bound live presentations through one compact interpreter", (
       presentations={[presentation('["alpha","status"]', "Alpha"), presentation('["beta","status"]', "Beta")]}
     />,
   )
-  expect(html).toContain('class="companion-status-grid"')
+  expect(html).toContain('class="presentation-status-rail"')
   expect(html.match(/data-presentation-contract="pipee\/presentation@1"/g)).toHaveLength(2)
   expect(html).toContain("Alpha summary")
   expect(html).toContain("Beta summary")

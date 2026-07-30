@@ -44,32 +44,47 @@ export function PresentationSurface({
   readonly mode: "artifact" | "live"
 }) {
   const [expanded, setExpanded] = useState(false)
-  const zh = useI18n().locale === "zh-CN"
+  const { t } = useI18n()
+  const detailsLabel = expanded ? t("Hide details") : t("Show details")
   if (mode === "artifact") {
     return (
       <article
-        className="conversation-view"
+        className="presentation-receipt"
         data-presentation={document.title}
         data-presentation-contract={document.contract}
         data-presentation-mode={mode}
         data-tone={document.tone}
       >
-        <header className="conversation-view-header">
+        <header className="presentation-receipt-header">
           <PresentationMark icon={document.icon} tone={document.tone} />
-          <div className="conversation-view-label">{document.title}</div>
+          <div className="presentation-receipt-copy">
+            <div className="presentation-receipt-title">{document.title}</div>
+            <div className="presentation-receipt-summary">{document.summary}</div>
+          </div>
           {document.status && (
-            <span className="conversation-view-badge" data-tone={document.status.tone}>
+            <span className="presentation-receipt-status" data-tone={document.status.tone}>
+              <span aria-hidden="true" />
               {document.status.text}
             </span>
           )}
-          <div className="conversation-view-event-mark" aria-hidden="true">
-            {zh ? "会话事件" : "Session event"}
-          </div>
+          {document.body && (
+            <button
+              type="button"
+              className="presentation-receipt-toggle"
+              aria-expanded={expanded}
+              aria-label={detailsLabel}
+              onClick={() => setExpanded((value) => !value)}
+            >
+              <span>{detailsLabel}</span>
+              <Chevron />
+            </button>
+          )}
         </header>
-        <div className="conversation-view-content">
-          <div className="conversation-view-text is-caption">{document.summary}</div>
-          {document.body && <PresentationTree root={document.body} />}
-        </div>
+        {expanded && document.body && (
+          <div className="presentation-receipt-details">
+            <PresentationTree root={document.body} />
+          </div>
+        )}
       </article>
     )
   }
@@ -86,16 +101,12 @@ export function PresentationSurface({
           {document.status.text}
         </span>
       )}
-      {document.body && (
-        <svg className="extension-status-chevron" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="m4 6 4 4 4-4" />
-        </svg>
-      )}
+      {document.body && <Chevron className="presentation-live-chevron" />}
     </>
   )
   return (
     <section
-      className="extension-status-card"
+      className="presentation-live"
       data-presentation-contract={document.contract}
       data-presentation-mode={mode}
       data-expanded={expanded || undefined}
@@ -104,21 +115,29 @@ export function PresentationSurface({
       {document.body ? (
         <button
           type="button"
-          className="extension-status-trigger"
+          className="presentation-live-trigger"
           aria-expanded={expanded}
           onClick={() => setExpanded((value) => !value)}
         >
           {content}
         </button>
       ) : (
-        <div className="extension-status-trigger">{content}</div>
+        <div className="presentation-live-trigger">{content}</div>
       )}
       {expanded && document.body && (
-        <div className="extension-status-details">
+        <div className="presentation-live-details">
           <PresentationTree root={document.body} />
         </div>
       )}
     </section>
+  )
+}
+
+function Chevron({ className }: { readonly className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" aria-hidden="true">
+      <path d="m4 6 4 4 4-4" />
+    </svg>
   )
 }
 

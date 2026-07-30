@@ -10,10 +10,21 @@ const phaseText: Record<WeixinStatusProjection["phase"], string> = {
   ReauthenticationRequired: "需要重新登录",
 };
 
+const artifactTitle = (status: WeixinStatusProjection): string => {
+  if (status.error) return "微信连接失败";
+  if (status.connected) return "微信已连接";
+  if (status.phase === "ReauthenticationRequired") return "微信需要重新登录";
+  if (status.enabled) return "微信正在连接";
+  return "微信已停止";
+};
+
+const artifactSummary = (status: WeixinStatusProjection): string =>
+  `Weixin · ${status.accountId ?? phaseText[status.phase]}`;
+
 export const projectWeixinArtifact = (status: WeixinStatusProjection): PresentationDocument => ({
   contract: "pipee/presentation@1",
-  title: "Weixin",
-  summary: status.error ?? status.accountId ?? "尚未登录",
+  title: artifactTitle(status),
+  summary: artifactSummary(status),
   tone: status.error
     ? "danger"
     : status.connected
@@ -31,7 +42,6 @@ export const projectWeixinArtifact = (status: WeixinStatusProjection): Presentat
     direction: "column",
     gap: "medium",
     children: [
-      { type: "text", text: "微信连接", variant: "title" },
       {
         type: "group",
         direction: "row",

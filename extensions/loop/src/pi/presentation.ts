@@ -21,8 +21,8 @@ const dueText = (loop: Loop): string =>
 
 export const projectLoopArtifact = (loop: Loop, event: string): PresentationDocument => ({
   contract: "pipee/presentation@1",
-  title: "Loop automation",
-  summary: event,
+  title: event,
+  summary: `${loop.label ?? "Automation"} · ${scheduleText(loop)}`,
   tone: loop.enabled ? "info" : "warning",
   icon: "automation",
   status: {
@@ -34,7 +34,6 @@ export const projectLoopArtifact = (loop: Loop, event: string): PresentationDocu
     direction: "column",
     gap: "medium",
     children: [
-      { type: "text", text: loop.label ?? event, variant: "title" },
       { type: "text", text: loop.prompt, variant: "body" },
       {
         type: "group",

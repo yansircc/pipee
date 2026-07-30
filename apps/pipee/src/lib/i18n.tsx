@@ -45,6 +45,8 @@ const zhCN: Record<string, string> = {
   "Total cost": "总成本",
   "Last call": "最后一次调用",
   "Show turn usage details": "查看本轮用量明细",
+  "Show details": "查看详情",
+  "Hide details": "收起详情",
   "Send a message or run /session to load session info": "发送消息或运行 /session 以加载会话信息",
   "Select a session from the sidebar": "从侧边栏选择一个会话",
   "Get Started": "开始使用",

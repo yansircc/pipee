@@ -8,13 +8,21 @@ const stateText: Record<ChromeStatusProjection["state"], string> = {
   error: "Error",
 };
 
+const artifactTitle = (status: ChromeStatusProjection): string => {
+  if (status.errorMessage) return "Browser connection failed";
+  if (status.state === "ready") return "Browser connected";
+  if (status.state === "waiting-for-extension") return "Browser extension needed";
+  if (status.state === "offline") return "Browser is offline";
+  return "Browser needs attention";
+};
+
+const statusSummary = (status: ChromeStatusProjection): string =>
+  `Chrome · ${status.connector?.label ?? (status.bridge === "running" ? "Bridge running" : "Bridge stopped")}`;
+
 export const projectChromeArtifact = (status: ChromeStatusProjection): PresentationDocument => ({
   contract: "pipee/presentation@1",
-  title: "Chrome",
-  summary:
-    status.errorMessage ??
-    status.connector?.label ??
-    (status.bridge === "running" ? "Bridge running" : "Bridge stopped"),
+  title: artifactTitle(status),
+  summary: statusSummary(status),
   tone: status.state === "ready" ? "success" : status.state === "error" ? "danger" : "warning",
   icon: "browser",
   status: {
@@ -26,7 +34,6 @@ export const projectChromeArtifact = (status: ChromeStatusProjection): Presentat
     direction: "column",
     gap: "medium",
     children: [
-      { type: "text", text: "Browser connection", variant: "title" },
       {
         type: "group",
         direction: "row",

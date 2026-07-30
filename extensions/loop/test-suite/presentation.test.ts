@@ -18,15 +18,14 @@ it("projects an extension-owned loop card without runtime state", () => {
   const document = projectLoopArtifact(loop, "Loop created");
   expect(document).toMatchObject({
     contract: "pipee/presentation@1",
-    title: "Loop automation",
-    summary: "Loop created",
+    title: "Loop created",
+    summary: "Build monitor · Every 60 seconds",
     tone: "info",
     icon: "automation",
     status: { text: "Active", tone: "success" },
   });
   if (document.body?.type !== "group") throw new Error("expected body group");
-  expect(document.body.children[0]).toMatchObject({ text: "Build monitor" });
-  expect(document.body.children[1]).toMatchObject({ text: "Inspect the build" });
+  expect(document.body.children[0]).toMatchObject({ text: "Inspect the build" });
 });
 
 it("projects a generic companion surface without a host-owned Loop renderer", () => {
