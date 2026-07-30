@@ -10,7 +10,7 @@ import {
   withPresentation,
   type WebSurfaceSlot,
 } from "@pipee/extension-kit";
-import { Clock, Data, Effect, Exit, Layer, ManagedRuntime, Scope } from "effect";
+import { Clock, Data, Effect, Exit, Layer, ManagedRuntime, Scope, Semaphore } from "effect";
 import packageJson from "../../package.json" with { type: "json" };
 import { externalCheckSummary, runExternalCheck, type ExternalCheck } from "../domain/checker.js";
 import {
@@ -21,9 +21,14 @@ import {
 } from "../domain/connection.js";
 import { ZeroYConnectorError, connectorGet, connectorPost } from "../domain/client.js";
 import {
-  ContentApplyParameters,
-  InspectParameters,
-  ThemeApplyParameters,
+  CONTENT_PROMPT_GUIDELINES,
+  ContentProviderProjection,
+  InspectProviderProjection,
+  ThemeApplyInputContract,
+  type ProviderSchemaProjectionError,
+  type ToolInputValidationError,
+  decodeContentInput,
+  decodeInspectInput,
   type ContentApplyInput,
   type InspectInput,
   type JsonRecord,
@@ -42,6 +47,7 @@ type ActiveSession = {
   readonly presentation: LivePresentationPort | undefined;
   readonly surface: WebSurfaceSlot;
   readonly externalChecks: Map<string, ExternalCheck>;
+  readonly mutationGates: ReadonlyMap<string, Semaphore.Semaphore>;
 };
 
 class ZeroYSessionUnavailable extends Data.TaggedError("ZeroYSessionUnavailable")<{
@@ -71,7 +77,11 @@ const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> => runtime.runPromis
 const runTool = (
   effect: Effect.Effect<
     AgentToolResult<unknown>,
-    ZeroYConnectorError | ZeroYConnectionConfigError | ZeroYSessionUnavailable
+    | ZeroYConnectorError
+    | ZeroYConnectionConfigError
+    | ZeroYSessionUnavailable
+    | ProviderSchemaProjectionError
+    | ToolInputValidationError
   >,
 ): Promise<AgentToolResult<unknown>> =>
   run(
@@ -188,6 +198,25 @@ const withLivePresentation = <A, E>(
     Effect.ensuring(Effect.sync(() => active.presentation?.replace("activity", undefined))),
   );
 
+const withSiteMutationGate = <A, E>(
+  active: ActiveSession,
+  siteId: string,
+  effect: Effect.Effect<A, E>,
+): Effect.Effect<A, E | ZeroYSessionUnavailable> =>
+  Effect.gen(function* () {
+    const gate = active.mutationGates.get(siteId);
+    if (!gate) {
+      return yield* new ZeroYSessionUnavailable({
+        message: `zeroY write gate is unavailable for site ${siteId}.`,
+      });
+    }
+    return yield* gate.withPermits(1)(effect);
+  }).pipe(
+    Effect.withSpan("zeroy.mutation.site-serialized", {
+      attributes: { "zeroy.site_id": siteId },
+    }),
+  );
+
 const stopSession = (pi: ExtensionAPI, active: ActiveSession): Effect.Effect<void> =>
   Scope.close(active.scope, Exit.succeed(undefined)).pipe(
     Effect.ensuring(
@@ -208,6 +237,11 @@ const startSession = (
     const scope = yield* Scope.make("sequential");
     yield* Effect.gen(function* () {
       const connections = yield* loadSiteConnections();
+      const mutationGates = new Map(
+        yield* Effect.forEach(connections, (site) =>
+          Semaphore.make(1).pipe(Effect.map((gate) => [site.siteId, gate] as const)),
+        ),
+      );
       const surface = yield* webSurface(context.ui, packageJson.name, () => ({
         _tag: "Rejected" as const,
         reason: "zeroY WebSurface is read-only; ask the Agent to make changes in the conversation.",
@@ -221,6 +255,7 @@ const startSession = (
         presentation: livePresentation(context.ui, packageJson.name),
         surface,
         externalChecks: new Map(),
+        mutationGates,
       };
       yield* Effect.sync(() => sessions.set(pi as object, active));
       yield* refreshSurface(active);
@@ -329,32 +364,36 @@ const themeApplyTool = (
   input: ThemeApplyInput,
   signal: AbortSignal | undefined,
 ) =>
-  withLivePresentation(
+  withSiteMutationGate(
     active,
-    "zeroY theme update",
-    "Writing active-theme files with exact hash preconditions",
-    [
-      ["Site", input.siteId],
-      ["Files", String(input.files.length)],
-    ],
-    Effect.gen(function* () {
-      const site = yield* connection(active, input.siteId);
-      const payload = yield* connectorPost(site, "theme-files", { files: input.files }, signal);
-      yield* refreshSurface(active);
-      const complete = payload.ok === true;
-      return result(
-        text(payload),
-        complete ? "zeroY theme updated" : "zeroY theme partially updated",
-        complete
-          ? "All requested files were atomically replaced."
-          : "Some writes failed; successful files remain changed.",
-        [
-          ["Site", input.siteId],
-          ["Files", String(input.files.length)],
-        ],
-        complete ? "success" : "warning",
-      );
-    }),
+    input.siteId,
+    withLivePresentation(
+      active,
+      "zeroY theme update",
+      "Writing active-theme files with exact hash preconditions",
+      [
+        ["Site", input.siteId],
+        ["Files", String(input.files.length)],
+      ],
+      Effect.gen(function* () {
+        const site = yield* connection(active, input.siteId);
+        const payload = yield* connectorPost(site, "theme-files", { files: input.files }, signal);
+        yield* refreshSurface(active);
+        const complete = payload.ok === true;
+        return result(
+          text(payload),
+          complete ? "zeroY theme updated" : "zeroY theme partially updated",
+          complete
+            ? "All requested files were atomically replaced."
+            : "Some writes failed; successful files remain changed.",
+          [
+            ["Site", input.siteId],
+            ["Files", String(input.files.length)],
+          ],
+          complete ? "success" : "warning",
+        );
+      }),
+    ),
   );
 
 const contentPayload = (
@@ -418,37 +457,68 @@ const contentApplyTool = (
   input: ContentApplyInput,
   signal: AbortSignal | undefined,
 ) =>
-  withLivePresentation(
+  withSiteMutationGate(
     active,
-    "zeroY content update",
-    `Applying ${input.action} through the typed content port`,
-    [
-      ["Site", input.siteId],
-      ["Action", input.action],
-    ],
-    Effect.gen(function* () {
-      const site = yield* connection(active, input.siteId);
-      const operation = contentPayload(input);
-      const payload = yield* connectorPost(site, operation.path, operation.body, signal);
-      yield* refreshSurface(active);
-      return result(text(payload), "zeroY content updated", `Applied ${input.action}.`, [
+    input.siteId,
+    withLivePresentation(
+      active,
+      "zeroY content update",
+      `Applying ${input.action} through the typed content port`,
+      [
         ["Site", input.siteId],
         ["Action", input.action],
-      ]);
-    }),
+      ],
+      Effect.gen(function* () {
+        const site = yield* connection(active, input.siteId);
+        const operation = contentPayload(input);
+        const payload = yield* connectorPost(site, operation.path, operation.body, signal);
+        yield* refreshSurface(active);
+        return result(text(payload), "zeroY content updated", `Applied ${input.action}.`, [
+          ["Site", input.siteId],
+          ["Action", input.action],
+        ]);
+      }),
+    ),
   );
 
 export default function piZeroY(pi: ExtensionAPI): void {
   if (registrations.has(pi as object)) return;
   registrations.add(pi as object);
 
+  if (InspectProviderProjection._tag === "Failure") {
+    const error = InspectProviderProjection.error;
+    pi.on("session_start", (_event, context) => run(notifySessionFailure(context, error)));
+    return;
+  }
+  const inspectParameters = InspectProviderProjection.value;
+  if (ContentProviderProjection._tag === "Failure") {
+    const error = ContentProviderProjection.error;
+    pi.on("session_start", (_event, context) => run(notifySessionFailure(context, error)));
+    return;
+  }
+  const contentParameters = ContentProviderProjection.value;
+
   pi.registerTool({
     name: "zeroy_inspect",
     label: "Inspect zeroY site",
     description: "Read one typed zeroY Connector resource, including external browser checks.",
-    parameters: InspectParameters,
+    parameters: inspectParameters,
     execute: (_id, input, signal) =>
-      runTool(withSession(pi, (active) => inspectTool(active, input as InspectInput, signal))),
+      runTool(
+        withSession<
+          AgentToolResult<unknown>,
+          | ZeroYConnectorError
+          | ZeroYConnectionConfigError
+          | ZeroYSessionUnavailable
+          | ProviderSchemaProjectionError
+          | ToolInputValidationError
+        >(pi, (active) => {
+          const decoded = decodeInspectInput(input);
+          return decoded._tag === "Failure"
+            ? Effect.fail(decoded.error)
+            : inspectTool(active, decoded.value, signal);
+        }),
+      ),
   });
 
   pi.registerTool({
@@ -456,7 +526,7 @@ export default function piZeroY(pi: ExtensionAPI): void {
     label: "Update zeroY theme",
     description:
       "Apply one or more hash-preconditioned mutations inside one active WordPress theme.",
-    parameters: ThemeApplyParameters,
+    parameters: ThemeApplyInputContract,
     execute: (_id, input, signal) =>
       runTool(
         withSession(pi, (active) => themeApplyTool(active, input as ThemeApplyInput, signal)),
@@ -466,12 +536,23 @@ export default function piZeroY(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "zeroy_content_apply",
     label: "Update zeroY content",
-    description:
-      "Update SiteConfig, canonical objects, locale drafts, published pointers, or unpublish a locale.",
-    parameters: ContentApplyParameters,
+    description: `Update SiteConfig, canonical objects, locale drafts, published pointers, or unpublish a locale. ${CONTENT_PROMPT_GUIDELINES}`,
+    parameters: contentParameters,
     execute: (_id, input, signal) =>
       runTool(
-        withSession(pi, (active) => contentApplyTool(active, input as ContentApplyInput, signal)),
+        withSession<
+          AgentToolResult<unknown>,
+          | ZeroYConnectorError
+          | ZeroYConnectionConfigError
+          | ZeroYSessionUnavailable
+          | ProviderSchemaProjectionError
+          | ToolInputValidationError
+        >(pi, (active) => {
+          const decoded = decodeContentInput(input);
+          return decoded._tag === "Failure"
+            ? Effect.fail(decoded.error)
+            : contentApplyTool(active, decoded.value, signal);
+        }),
       ),
   });
 

@@ -10,3 +10,5 @@ playwright-report/
 test-results/
 .DS_Store
 .worktrees/
+extensions/zeroy/mvp-theme/zeroy-agent-acceptance.css
+extensions/zeroy/mvp-theme/zeroy-headless-*.css

@@ -1,8 +1,9 @@
-import { Type, type Static } from "@sinclair/typebox";
+import { Type, type Static, type TSchema } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
+import { Data } from "effect";
 
-const SiteId = Type.String({ minLength: 1 });
+const SiteId = Type.String({ minLength: 1, description: "Configured zeroY site identifier." });
 const Locale = Type.String({ minLength: 1 });
-const Revision = Type.Integer({ minimum: 0 });
 const Document = Type.Record(Type.String({ minLength: 1 }), Type.String());
 const LocaleConfig = Type.Object({
   locale: Locale,
@@ -14,7 +15,7 @@ const SiteConfig = Type.Object({
   enabledLocales: Type.Array(LocaleConfig, { minItems: 1 }),
 });
 
-export const InspectParameters = Type.Union([
+export const InspectInputContract = Type.Union([
   Type.Object({ siteId: SiteId, resource: Type.Literal("site") }),
   Type.Object({ siteId: SiteId, resource: Type.Literal("schema") }),
   Type.Object({
@@ -38,41 +39,55 @@ export const InspectParameters = Type.Union([
   Type.Object({ siteId: SiteId, resource: Type.Literal("integrity") }),
   Type.Object({ siteId: SiteId, resource: Type.Literal("externalCheck") }),
 ]);
-export type InspectInput = Static<typeof InspectParameters>;
+export type InspectInput = Static<typeof InspectInputContract>;
 
-export const ThemeApplyParameters = Type.Object({
+export const ThemeApplyInputContract = Type.Object({
   siteId: SiteId,
   files: Type.Array(
     Type.Object({
       path: Type.String({ minLength: 1 }),
       content: Type.String(),
-      expectedHash: Type.Union([Type.String({ minLength: 64, maxLength: 64 }), Type.Null()]),
+      expectedHash: Type.Union([Type.String({ minLength: 64, maxLength: 64 }), Type.Null()], {
+        description:
+          "Use the hash returned by themeFiles for an existing file; use null for a new file.",
+      }),
     }),
     { minItems: 1, maxItems: 100 },
   ),
 });
-export type ThemeApplyInput = Static<typeof ThemeApplyParameters>;
+export type ThemeApplyInput = Static<typeof ThemeApplyInputContract>;
 
-export const ContentApplyParameters = Type.Union([
+export const ContentInputContract = Type.Union([
   Type.Object({
     siteId: SiteId,
     action: Type.Literal("siteConfig"),
     siteConfig: SiteConfig,
-    expectedRevision: Revision,
+    expectedRevision: Type.Integer({
+      minimum: 0,
+      description: "The current SiteConfig revision returned by the Connector.",
+    }),
   }),
   Type.Object({
     siteId: SiteId,
     action: Type.Literal("createCanonical"),
     postType: Type.String({ minLength: 1 }),
     schemaId: Type.String({ minLength: 1 }),
-    postTitle: Type.Optional(Type.String()),
+    postTitle: Type.Optional(
+      Type.String({
+        description:
+          "Provide a meaningful WordPress administrator title instead of leaving the generated canonical object unnamed.",
+      }),
+    ),
   }),
   Type.Object({
     siteId: SiteId,
     action: Type.Literal("assignSchema"),
     objectId: Type.Integer({ minimum: 1 }),
     schemaId: Type.String({ minLength: 1 }),
-    expectedRevision: Revision,
+    expectedRevision: Type.Integer({
+      minimum: 0,
+      description: "The canonical revision returned by createCanonical or the inventory.",
+    }),
   }),
   Type.Object({
     siteId: SiteId,
@@ -82,23 +97,259 @@ export const ContentApplyParameters = Type.Union([
     schemaId: Type.String({ minLength: 1 }),
     route: Type.String({ minLength: 1 }),
     document: Document,
-    expectedRevision: Revision,
+    expectedRevision: Type.Integer({
+      minimum: 0,
+      description:
+        "The locale revision, independent from the canonical revision. A new LocaleHead always starts at 0; later calls must use the locale revision returned by the previous result.",
+    }),
   }),
   Type.Object({
     siteId: SiteId,
     action: Type.Literal("publish"),
     objectId: Type.Integer({ minimum: 1 }),
     locale: Locale,
-    expectedRevision: Revision,
+    expectedRevision: Type.Integer({
+      minimum: 0,
+      description: "The locale revision returned by the preceding writeDraft result.",
+    }),
   }),
   Type.Object({
     siteId: SiteId,
     action: Type.Literal("unpublish"),
     objectId: Type.Integer({ minimum: 1 }),
     locale: Locale,
-    expectedRevision: Revision,
+    expectedRevision: Type.Integer({
+      minimum: 0,
+      description: "The current locale revision returned by the Connector.",
+    }),
   }),
 ]);
-export type ContentApplyInput = Static<typeof ContentApplyParameters>;
+export type ContentApplyInput = Static<typeof ContentInputContract>;
+
+type JsonSchema = TSchema & {
+  readonly anyOf?: ReadonlyArray<JsonSchema>;
+  readonly const?: unknown;
+  readonly properties?: Readonly<Record<string, JsonSchema>>;
+  readonly required?: ReadonlyArray<string>;
+};
+
+type Variant = {
+  readonly value: string;
+  readonly schema: JsonSchema;
+  readonly properties: Readonly<Record<string, JsonSchema>>;
+  readonly required: ReadonlySet<string>;
+};
+
+const plainSchema = (schema: JsonSchema): unknown => {
+  if (Array.isArray(schema)) return schema.map((item) => plainSchema(item as JsonSchema));
+  if (typeof schema !== "object" || schema === null) return schema;
+  return Object.fromEntries(
+    Object.entries(schema)
+      .filter(([key]) => key !== "description")
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => [key, plainSchema(value as JsonSchema)]),
+  );
+};
+
+export class ProviderSchemaProjectionError extends Data.TaggedError(
+  "ProviderSchemaProjectionError",
+)<{
+  readonly message: string;
+}> {}
+
+export type ProtocolResult<Success, Failure> =
+  | { readonly _tag: "Success"; readonly value: Success }
+  | { readonly _tag: "Failure"; readonly error: Failure };
+
+const success = <Success>(value: Success): ProtocolResult<Success, never> => ({
+  _tag: "Success",
+  value,
+});
+const failure = <Failure>(error: Failure): ProtocolResult<never, Failure> => ({
+  _tag: "Failure",
+  error,
+});
+
+const variantsOf = (
+  contract: JsonSchema,
+  discriminator: string,
+): ReadonlyArray<Variant> | ProviderSchemaProjectionError => {
+  if (!Array.isArray(contract.anyOf) || contract.anyOf.length === 0) {
+    return new ProviderSchemaProjectionError({
+      message: "Provider-safe projection requires a non-empty discriminated union.",
+    });
+  }
+  const seen = new Set<string>();
+  const variants: Variant[] = [];
+  for (const schema of contract.anyOf) {
+    const properties = schema.properties;
+    const value = properties?.[discriminator]?.const;
+    if (!properties || typeof value !== "string") {
+      return new ProviderSchemaProjectionError({
+        message: `Every union member must define literal discriminator ${discriminator}.`,
+      });
+    }
+    if (seen.has(value)) {
+      return new ProviderSchemaProjectionError({
+        message: `Duplicate ${discriminator} value: ${value}.`,
+      });
+    }
+    seen.add(value);
+    variants.push({
+      value,
+      schema,
+      properties,
+      required: new Set(schema.required ?? []),
+    });
+  }
+  return variants;
+};
+
+const conditionalDescription = (
+  field: string,
+  discriminator: string,
+  variants: ReadonlyArray<Variant>,
+): string | undefined => {
+  const users = variants.filter((variant) => field in variant.properties);
+  const requiredBy = users
+    .filter((variant) => variant.required.has(field))
+    .map(({ value }) => value);
+  const parts: string[] = [];
+  if (requiredBy.length > 0 && requiredBy.length < variants.length) {
+    parts.push(`Required when ${discriminator} = ${requiredBy.join(" or ")}.`);
+  }
+  const guidance = new Map<string, string[]>();
+  for (const variant of users) {
+    const description = variant.properties[field]?.description;
+    if (typeof description !== "string" || description.length === 0) continue;
+    const values = guidance.get(description) ?? [];
+    values.push(variant.value);
+    guidance.set(description, values);
+  }
+  for (const [description, values] of guidance) {
+    parts.push(
+      users.length === 1 || values.length === variants.length
+        ? description
+        : `When ${discriminator} = ${values.join(" or ")}: ${description}`,
+    );
+  }
+  return parts.length > 0 ? parts.join(" ") : undefined;
+};
+
+/**
+ * Projects one exact discriminated union into the top-level object shape required by
+ * providers whose tool transport drops root anyOf. The union remains the only source
+ * of discriminator values, field constraints, and conditional requirements.
+ */
+export const providerSafeParameters = (
+  contract: TSchema,
+  discriminator: "resource" | "action",
+): ProtocolResult<TSchema, ProviderSchemaProjectionError> => {
+  const variantsResult = variantsOf(contract as JsonSchema, discriminator);
+  if (variantsResult instanceof ProviderSchemaProjectionError) return failure(variantsResult);
+  const variants = variantsResult;
+  const fields = new Map<string, JsonSchema[]>();
+  for (const variant of variants) {
+    for (const [field, schema] of Object.entries(variant.properties)) {
+      const definitions = fields.get(field) ?? [];
+      definitions.push(schema);
+      fields.set(field, definitions);
+    }
+  }
+
+  const properties: Record<string, TSchema> = {};
+  for (const [field, definitions] of fields) {
+    if (field === discriminator) {
+      properties[field] = Type.String({
+        enum: variants.map(({ value }) => value),
+        description: `One of: ${variants.map(({ value }) => value).join(", ")}.`,
+      });
+      continue;
+    }
+    const baseline = JSON.stringify(plainSchema(definitions[0] as JsonSchema));
+    if (definitions.some((schema) => JSON.stringify(plainSchema(schema)) !== baseline)) {
+      return failure(
+        new ProviderSchemaProjectionError({
+          message: `Conflicting definitions for field ${field} in ${discriminator} union.`,
+        }),
+      );
+    }
+    const description = conditionalDescription(field, discriminator, variants);
+    properties[field] = description
+      ? ({ ...definitions[0], description } as TSchema)
+      : (definitions[0] as TSchema);
+  }
+
+  const universallyRequired = new Set(
+    [...fields.keys()].filter((field) => variants.every((variant) => variant.required.has(field))),
+  );
+  return success(
+    Type.Object(
+      Object.fromEntries(
+        Object.entries(properties).map(([field, schema]) => [
+          field,
+          universallyRequired.has(field) ? schema : Type.Optional(schema),
+        ]),
+      ),
+      { additionalProperties: false },
+    ),
+  );
+};
+
+export class ToolInputValidationError extends Data.TaggedError("ToolInputValidationError")<{
+  readonly message: string;
+}> {}
+
+const decodeDiscriminated = <Output>(
+  contract: TSchema,
+  discriminator: "resource" | "action",
+  input: unknown,
+): ProtocolResult<Output, ToolInputValidationError | ProviderSchemaProjectionError> => {
+  const variantsResult = variantsOf(contract as JsonSchema, discriminator);
+  if (variantsResult instanceof ProviderSchemaProjectionError) return failure(variantsResult);
+  const variants = variantsResult;
+  const value =
+    typeof input === "object" && input !== null
+      ? (input as Readonly<Record<string, unknown>>)[discriminator]
+      : undefined;
+  const selected = variants.find((variant) => variant.value === value);
+  if (!selected) {
+    return failure(
+      new ToolInputValidationError({
+        message: `${discriminator} must be one of [${variants.map((variant) => variant.value).join(", ")}].`,
+      }),
+    );
+  }
+  if (Value.Check(selected.schema, input)) return success(input as Output);
+  const missing = [...selected.required].filter(
+    (field) => typeof input !== "object" || input === null || !(field in input),
+  );
+  if (missing.length > 0) {
+    return failure(
+      new ToolInputValidationError({
+        message: `${discriminator} ${selected.value} requires fields: ${missing.join(", ")}.`,
+      }),
+    );
+  }
+  const issues = [...Value.Errors(selected.schema, input)]
+    .map((issue) => `${issue.path || "input"}: ${issue.message}`)
+    .join("; ");
+  return failure(
+    new ToolInputValidationError({
+      message: `Invalid ${discriminator} ${selected.value} input: ${issues}`,
+    }),
+  );
+};
+
+export const InspectProviderProjection = providerSafeParameters(InspectInputContract, "resource");
+export const ContentProviderProjection = providerSafeParameters(ContentInputContract, "action");
+
+export const decodeInspectInput = (input: unknown) =>
+  decodeDiscriminated<InspectInput>(InspectInputContract, "resource", input);
+export const decodeContentInput = (input: unknown) =>
+  decodeDiscriminated<ContentApplyInput>(ContentInputContract, "action", input);
+
+export const CONTENT_PROMPT_GUIDELINES =
+  "Run mutations one at a time and wait for each result. Standard locale flow: createCanonical with postTitle, then writeDraft with expectedRevision 0 for each new locale, then publish with the locale revision returned by writeDraft. Canonical and locale revisions are independent.";
 
 export type JsonRecord = Readonly<Record<string, unknown>>;

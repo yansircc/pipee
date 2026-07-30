@@ -124,6 +124,24 @@ pnpm --filter @yansircc/pi-zeroy run repo:verify
 pnpm --filter @yansircc/pi-zeroy run pi:verify
 ```
 
+`pi:verify` includes a deterministic real-Pi transport gate. It sends the built
+extension through Pi's Anthropic Messages adapter to a local fake provider and
+asserts the exact `input_schema` received by that provider.
+
+The destructive real-model headless acceptance is intentionally separate from
+normal CI. It creates a CSS file and a published bilingual page on the selected
+disposable site:
+
+```sh
+export ZEROY_ACCEPTANCE_SITE_ID='the-connector-site-id'
+export ZEROY_ACCEPTANCE_MODEL='anthropic/your-model'
+pnpm --filter @yansircc/pi-zeroy run acceptance:headless
+```
+
+It disables built-in tools, implicit extensions, skills and context files, then
+audits the Pi session JSONL for probes, validation failures, unknown actions,
+revision chaining, Connector-only readback and final HTTP 200 responses.
+
 The destructive LocalWP proof requires active ACF and a disposable runtime
 site. It validates revision conflicts, default-language locking, hash guarded
 theme writes, real partial batch results, schema-hash 404/recovery, unpublish

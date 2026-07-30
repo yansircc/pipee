@@ -32,7 +32,9 @@
     "pi:build": "pnpm run pi:assets-build && node ../../tooling/pi-extension/build.mjs .",
     "pi:bundle-check": "node ../../tooling/pi-extension/verify-distribution.mjs . bundle",
     "pi:distribution-check": "node ../../tooling/pi-extension/verify-distribution.mjs . package",
-    "pi:verify": "pnpm run pi:build && pnpm run pi:bundle-check"
+    "pi:schema-transport-check": "node scripts/verify-pi-schema-transport.mjs",
+    "pi:verify": "pnpm run pi:build && pnpm run pi:bundle-check && pnpm run pi:schema-transport-check",
+    "acceptance:headless": "pnpm run pi:build && node scripts/headless-acceptance.mjs"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "catalog:",
