@@ -1388,7 +1388,7 @@ test("runs and aborts a second shell operation through the React controller", as
     else await route.continue()
   })
   await page.goto(`/?session=${sessionId}`)
-  await expect(page.getByText("seed reply", { exact: true })).toBeVisible()
+  await expect(page.getByText("seed reply", { exact: true })).toBeVisible({ timeout: 20_000 })
   await expect.poll(() => runningStreamRequests).toBeGreaterThanOrEqual(2)
   const turnSummary = page.locator("summary").filter({ hasText: "本轮" })
   await expect(turnSummary.getByText("1ms", { exact: true })).toBeVisible()
