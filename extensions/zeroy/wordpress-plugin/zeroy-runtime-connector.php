@@ -15,7 +15,7 @@ define('ZEROY_RUNTIME_CONNECTION_KEY_OPTION', 'zeroy_runtime_connection_key');
 define('ZEROY_RUNTIME_SCHEMA_META', '_zeroy_runtime_schema_id');
 define('ZEROY_RUNTIME_CANONICAL_REVISION_META', '_zeroy_runtime_canonical_revision');
 define('ZEROY_RUNTIME_TEMPLATE_CONTENT_META', '_zeroy_runtime_template_content');
-define('ZEROY_RUNTIME_DATABASE_VERSION', '4.3.0');
+define('ZEROY_RUNTIME_DATABASE_VERSION', '4.4.0');
 define('ZEROY_RUNTIME_DATABASE_VERSION_OPTION', 'zeroy_runtime_database_version');
 
 require_once __DIR__ . '/includes/runtime.php';

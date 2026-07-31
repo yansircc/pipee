@@ -85,8 +85,16 @@ function zeroy_runtime_schema_is_current(): bool
 function zeroy_runtime_drop_removed_runtime_tables(): void
 {
     global $wpdb;
-    foreach (['schema_state', 'route_reservations', 'collection_route_reservations', 'search_projection', 'locale_heads', 'locale_versions'] as $table) {
+    foreach (['schema_state', 'route_reservations', 'collection_route_reservations', 'search_projection'] as $table) {
         $wpdb->query('DROP TABLE IF EXISTS ' . zeroy_runtime_table($table));
+    }
+    // Legacy locale tables are read only by the one-shot bootstrap importer.
+    // DDL would auto-commit on MySQL, so retire them only after its transaction
+    // has made the new Overlay and ThemeDeployment facts active.
+    if (zeroy_runtime_active_theme_state() !== null) {
+        foreach (['locale_heads', 'locale_versions'] as $table) {
+            $wpdb->query('DROP TABLE IF EXISTS ' . zeroy_runtime_table($table));
+        }
     }
 }
 

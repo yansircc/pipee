@@ -4,8 +4,8 @@ defined('ABSPATH') || exit;
 
 /**
  * Creates the first immutable ThemeDeployment for a site that has not yet
- * adopted the Stable Shell. It accepts only a current ThemeArtifact; retired
- * LocaleVersion and ThemeCopy facts are outside this boundary.
+ * adopted the Stable Shell. Legacy LocaleVersion/ThemeCopy facts are consumed
+ * exactly once by the migration writer during the activation transaction.
  */
 function zeroy_runtime_bootstrap_required(): bool
 {
@@ -47,7 +47,9 @@ function zeroy_runtime_bootstrap_theme_deployment_from_artifact(string $artifact
     }
     $plan = zeroy_runtime_plan_theme_deployment($schema['schema']);
     $diagnostics['migrationPlan'] = $plan;
-    if (!$plan['ok']) {
+    $legacy_plan = zeroy_localization_legacy_migration_plan($schema['schema']);
+    $diagnostics['legacyMigrationPlan'] = $legacy_plan;
+    if (!$plan['ok'] || !$legacy_plan['ok']) {
         return zeroy_runtime_create_failed_deployment($artifact_id, null, $provenance, $diagnostics);
     }
     $shell = zeroy_runtime_install_stable_shell();
@@ -71,6 +73,10 @@ function zeroy_runtime_bootstrap_theme_deployment_from_artifact(string $artifact
         if ($wpdb->update(zeroy_runtime_table('theme_artifacts'), ['schema_json' => zeroy_runtime_json($schema['schema']), 'schema_hash' => $schema['contractHash']], ['artifact_id' => $artifact_id]) !== 1) {
             return zeroy_runtime_error('zeroy_theme_bootstrap_failed', 'Could not attach the candidate ThemeSchema to the bootstrap Artifact.', 500);
         }
+        $migration = zeroy_localization_apply_legacy_migration($schema['schema']);
+        if (is_wp_error($migration)) {
+            return $migration;
+        }
         $deployment_id = wp_generate_uuid4();
         $now = current_time('mysql', true);
         $written = $wpdb->insert(zeroy_runtime_table('theme_deployments'), [
@@ -79,7 +85,7 @@ function zeroy_runtime_bootstrap_theme_deployment_from_artifact(string $artifact
             'expected_active_artifact_id' => null,
             'state' => 'active',
             'provenance_json' => zeroy_runtime_json($provenance),
-            'diagnostics_json' => zeroy_runtime_json($diagnostics),
+            'diagnostics_json' => zeroy_runtime_json([...$diagnostics, 'legacyMigrationResult' => $migration]),
             'created_at' => $now,
             'activated_at' => $now,
         ]);
@@ -98,6 +104,7 @@ function zeroy_runtime_bootstrap_theme_deployment_from_artifact(string $artifact
         return zeroy_runtime_theme_deployment_receipt($deployment_id);
     });
     if (!is_wp_error($result)) {
+        zeroy_runtime_drop_removed_runtime_tables();
         wp_clean_themes_cache(true);
         flush_rewrite_rules(false);
     }

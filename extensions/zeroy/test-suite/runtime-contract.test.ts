@@ -31,22 +31,43 @@ describe("zeroY localization runtime contract", () => {
     const runtime = readFixture("../wordpress-plugin/includes/runtime.php");
     expect(runtime).toContain("theme/schema-runtime.php");
     expect(runtime).toContain("localization/template-content.php");
-    expect(runtime).not.toContain("localization/migration.php");
+    expect(runtime).toContain("localization/migration.php");
     expect(runtime).not.toMatch(/\bfunction\s+zeroy_/);
   });
 
-  it("keeps retired locale documents outside the deployed runtime", () => {
-    const runtime = [
-      "../wordpress-plugin/includes/runtime.php",
-      "../wordpress-plugin/includes/lifecycle.php",
+  it("confines retired locale documents to the one-shot bootstrap importer", () => {
+    const requestReaders = [
+      "../wordpress-plugin/includes/localization/locale-resolver.php",
+      "../wordpress-plugin/includes/localization/translation-job.php",
+      "../wordpress-plugin/includes/routes.php",
       "../wordpress-plugin/includes/theme/activation.php",
-      "../wordpress-plugin/includes/theme/initial-deployment.php",
     ]
       .map(readFixture)
       .join("\n");
-    expect(runtime).not.toContain("zeroy_localization_legacy_");
-    expect(runtime).not.toContain("locale-version@2");
-    expect(runtime).not.toContain("theme-copy-version@2");
+    expect(requestReaders).not.toContain("zeroy_localization_legacy_");
+    expect(requestReaders).not.toContain("locale_heads");
+    expect(requestReaders).not.toContain("locale_versions");
+
+    const transition = [
+      "../wordpress-plugin/includes/theme/initial-deployment.php",
+      "../wordpress-plugin/includes/localization/migration.php",
+      "../wordpress-plugin/includes/localization/migration/post-overlays.php",
+    ]
+      .map(readFixture)
+      .join("\n");
+    expect(transition).toContain("zeroy_localization_apply_legacy_migration");
+    expect(transition).toContain("locale_heads");
+    expect(transition).not.toContain("locale-version@2");
+    expect(transition).not.toContain("theme-copy-version@2");
+  });
+
+  it("has one first-deployment writer for imported and uploaded Artifacts", () => {
+    const bootstrap = readFixture("../wordpress-plugin/includes/theme/bootstrap.php");
+    const initial = readFixture("../wordpress-plugin/includes/theme/initial-deployment.php");
+    expect(bootstrap).toContain("zeroy_runtime_bootstrap_theme_deployment_from_artifact");
+    expect(bootstrap).not.toContain("zeroy_runtime_table('theme_state')");
+    expect(initial).toContain("zeroy_runtime_table('theme_state')");
+    expect(initial).toContain("zeroy_localization_apply_legacy_migration");
   });
 
   it("runs content-writing upgrades only after WordPress functionality is initialized", () => {

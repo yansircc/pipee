@@ -65,25 +65,7 @@ function zeroy_runtime_import_initial_theme(string $theme_root): array|WP_Error
     if (is_wp_error($archive)) {
         return $archive;
     }
-    $deployment_id = wp_generate_uuid4();
-    $now = current_time('mysql', true);
-    $wpdb->insert(zeroy_runtime_table('theme_deployments'), [
-        'deployment_id' => $deployment_id,
-        'artifact_id' => $artifact_id,
-        'expected_active_artifact_id' => null,
-        'state' => 'active',
-        'provenance_json' => zeroy_runtime_json(['message' => 'Initial active theme import']),
-        'diagnostics_json' => zeroy_runtime_json(['ok' => true, 'source' => 'initial-import']),
-        'created_at' => $now,
-        'activated_at' => $now,
-    ], ['%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s']);
-    $wpdb->replace(zeroy_runtime_table('theme_state'), [
-        'singleton' => 1,
-        'active_deployment_id' => $deployment_id,
-        'revision' => 1,
-        'activated_at' => $now,
-    ], ['%d', '%s', '%d', '%s']);
-    return ['artifactId' => $artifact_id, 'deploymentId' => $deployment_id];
+    return ['artifactId' => $artifact_id];
 }
 
 function zeroy_runtime_bootstrap_theme_deployment(): true|WP_Error
@@ -98,12 +80,21 @@ function zeroy_runtime_bootstrap_theme_deployment(): true|WP_Error
     if (is_wp_error($imported)) {
         return $imported;
     }
-    $shell = zeroy_runtime_install_stable_shell();
-    if (is_wp_error($shell)) {
-        return $shell;
+    $activated = zeroy_runtime_bootstrap_theme_deployment_from_artifact(
+        (string) $imported['artifactId'],
+        ['message' => 'Initial active theme import'],
+    );
+    if (is_wp_error($activated)) {
+        return $activated;
     }
-    switch_theme('zeroy-shell');
-    return true;
+    return ($activated['state'] ?? null) === 'active'
+        ? true
+        : zeroy_runtime_error(
+            'zeroy_theme_bootstrap_failed',
+            'The initial ThemeDeployment did not activate.',
+            409,
+            ['deploymentId' => $activated['deploymentId'] ?? null, 'diagnostics' => $activated['diagnostics'] ?? null],
+        );
 }
 
 function zeroy_runtime_hard_cut_migrate_active_artifact_schema(): true|WP_Error

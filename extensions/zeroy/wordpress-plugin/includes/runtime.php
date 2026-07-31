@@ -28,6 +28,7 @@ require_once __DIR__ . '/localization/subject-media.php';
 require_once __DIR__ . '/localization/locale-overlay-store.php';
 require_once __DIR__ . '/localization/locale-resolver.php';
 require_once __DIR__ . '/localization/translation-job.php';
+require_once __DIR__ . '/localization/migration.php';
 require_once __DIR__ . '/localization/coverage.php';
 require_once __DIR__ . '/query.php';
 require_once __DIR__ . '/inspection.php';
