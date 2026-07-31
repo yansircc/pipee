@@ -62,6 +62,15 @@ const sessionFiles = async (directory) => {
   return files;
 };
 
+const providerFailure = (events) => {
+  const messages = events
+    .flatMap((event) => [event?.message, ...(event?.messages ?? [])])
+    .filter((message) => message?.role === "assistant" && typeof message.errorMessage === "string")
+    .map((message) => message.errorMessage);
+  const unique = [...new Set(messages)];
+  return unique.length === 0 ? null : unique.join("\n");
+};
+
 const assertLedger = (events, output) => {
   const entries = readToolLedger(events);
   assert(entries.length > 0, "Pi session contains no tool calls.");
@@ -214,6 +223,7 @@ const assertLedger = (events, output) => {
   );
 };
 
+let passed = false;
 try {
   const child = spawn(
     pi,
@@ -273,8 +283,19 @@ try {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line));
+  const providerError = providerFailure(events);
+  assert.equal(
+    providerError,
+    null,
+    `Pi provider failed before acceptance completed:\n${providerError}`,
+  );
   assertLedger(events, output);
+  passed = true;
   process.stdout.write(`zeroY translation headless acceptance passed: ${token}\n`);
 } finally {
-  await rm(temporary, { recursive: true, force: true });
+  if (passed) {
+    await rm(temporary, { recursive: true, force: true });
+  } else {
+    process.stderr.write(`zeroY translation acceptance evidence retained: ${temporary}\n`);
+  }
 }

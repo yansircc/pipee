@@ -128,4 +128,17 @@ describe("zeroY localization runtime contract", () => {
     ]);
     expect(handlers).toEqual(["session_start", "session_shutdown"]);
   });
+
+  it("keeps Pi registration as composition rather than a tool implementation bucket", () => {
+    const registration = readFixture("../src/pi/extension.ts");
+    expect(registration.split("\n").length).toBeLessThan(180);
+    expect(registration).toContain('from "./session.js"');
+    expect(registration).toContain('from "./inspect-tools.js"');
+    expect(registration).toContain('from "./theme-tools.js"');
+    expect(registration).toContain('from "./content-tools.js"');
+    expect(registration).not.toContain("connectorGet(");
+    expect(registration).not.toContain("connectorPost(");
+    expect(registration).not.toContain("prepareThemePush(");
+    expect(registration).not.toContain("contentPayload");
+  });
 });
