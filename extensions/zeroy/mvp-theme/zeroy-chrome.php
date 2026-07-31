@@ -2,8 +2,8 @@
 /**
  * Shared theme chrome: top bar, CTA band, footer.
  *
- * Chrome strings are ThemeCopy documents read through
- * zeroy_theme_copy_document(). Templates pass the current locale and route.
+ * Chrome strings resolve from the SiteCopy LocalizableSubject. Templates never
+ * interpret version documents or inherit decisions.
  */
 
 defined('ABSPATH') || exit;
@@ -11,9 +11,10 @@ defined('ABSPATH') || exit;
 if (!function_exists('zeroy_copy_reader')) {
     function zeroy_copy_reader(string $locale): callable
     {
-        $copy = function_exists('zeroy_theme_copy_document')
-            ? (array) zeroy_theme_copy_document($locale)
+        $resolved = function_exists('zeroy_localization_site_copy')
+            ? zeroy_localization_site_copy($locale)
             : array();
+        $copy = is_array($resolved) ? ($resolved['siteCopy'] ?? array()) : array();
 
         return static function (string $key, string $fallback = '') use ($copy): string {
             $value = $copy[$key] ?? $fallback;

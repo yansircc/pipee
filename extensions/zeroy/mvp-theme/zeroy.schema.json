@@ -1,181 +1,78 @@
 {
   "contract": "zeroy/theme-schema@1",
-  "themeCopy": {
-    "nodes": {
-      "nav_solutions": {
-        "kind": "text",
-        "required": true,
-        "searchable": false
-      },
-      "nav_process": {
-        "kind": "text",
-        "required": true,
-        "searchable": false
-      },
-      "nav_industries": {
-        "kind": "text",
-        "required": true,
-        "searchable": false
-      },
-      "nav_contact": {
-        "kind": "text",
-        "required": true,
-        "searchable": false
-      },
-      "cta_primary": {
-        "kind": "text",
-        "required": true,
-        "searchable": false
-      },
-      "cta_explore": {
-        "kind": "text",
-        "required": true,
-        "searchable": false
-      },
-      "cta_consult": {
-        "kind": "text",
-        "required": true,
-        "searchable": false
-      },
-      "step_prefix": {
-        "kind": "text",
-        "required": true,
-        "searchable": false
-      },
-      "footer_tagline": {
-        "kind": "text",
-        "required": true,
-        "searchable": false
-      },
-      "back_home": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_cpt_line": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_cpt_machine": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_cpt_service": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_applicable_products": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_applicable_materials": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_capacity": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_automation": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_project_purpose": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_process": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_specs": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_delivery": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_related_machines": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_purpose": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_video": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_watch_video": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_applicable_projects": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_items": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_deliverables": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "label_steps": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "cta_band_title": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "cta_band_text": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "footer_proof": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "archive_line_title": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "archive_machine_title": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
-      },
-      "archive_service_title": {
-        "kind": "text",
-        "required": false,
-        "searchable": false
+  "localizationSubjects": {
+    "siteCopy": {
+      "localization": {
+        "contract": "zeroy/localization-policy@1",
+        "rules": [
+          {
+            "fieldPattern": "/site-copy/*",
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
+        ],
+        "repeaterItemKeys": {}
+      }
+    },
+    "term": {
+      "localization": {
+        "contract": "zeroy/localization-policy@1",
+        "rules": [
+          {
+            "fieldPattern": "/term/name",
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          },
+          {
+            "fieldPattern": "/term/description",
+            "mode": "overridable",
+            "required": false,
+            "contextWeight": "supporting"
+          }
+        ],
+        "repeaterItemKeys": {}
+      }
+    },
+    "menu": {
+      "localization": {
+        "contract": "zeroy/localization-policy@1",
+        "rules": [
+          {
+            "fieldPattern": "/menu/*/label",
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          },
+          {
+            "fieldPattern": "/menu/*/url",
+            "mode": "overridable",
+            "required": false,
+            "contextWeight": "supporting"
+          }
+        ],
+        "repeaterItemKeys": {}
+      }
+    },
+    "media": {
+      "localization": {
+        "contract": "zeroy/localization-policy@1",
+        "rules": [
+          {
+            "fieldPattern": "/media/alt",
+            "mode": "overridable",
+            "required": false,
+            "contextWeight": "supporting"
+          },
+          {
+            "fieldPattern": "/media/caption",
+            "mode": "overridable",
+            "required": false,
+            "contextWeight": "supporting"
+          }
+        ],
+        "repeaterItemKeys": {}
       }
     }
   },
@@ -185,24 +82,29 @@
       "label": "Production Lines",
       "route": "production-line",
       "template": "zeroy-collection-template.php",
-      "schemaId": "production-line",
-      "titleNode": "archive_line_title"
+      "schemaId": "production-line"
     },
     "machines": {
       "kind": "post-archive",
       "label": "Machines",
       "route": "machine",
       "template": "zeroy-collection-template.php",
-      "schemaId": "machine",
-      "titleNode": "archive_machine_title"
+      "schemaId": "machine"
     },
     "services": {
       "kind": "post-archive",
       "label": "Services",
       "route": "service",
       "template": "zeroy-collection-template.php",
-      "schemaId": "service",
-      "titleNode": "archive_service_title"
+      "schemaId": "service"
+    },
+    "categories": {
+      "kind": "taxonomy",
+      "label": "Categories",
+      "route": "category",
+      "template": "zeroy-collection-template.php",
+      "schemaId": "showcase",
+      "taxonomy": "category"
     }
   },
   "schemas": {
@@ -210,16 +112,54 @@
       "label": "MVP Showcase",
       "template": "zeroy-mvp-template.php",
       "canonicalPostTypes": ["page"],
-      "nodes": {
+      "localization": {
+        "contract": "zeroy/localization-policy@1",
+        "rules": [
+          {
+            "fieldPattern": "/post/title",
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          },
+          {
+            "fieldPattern": "/post/content",
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          },
+          {
+            "fieldPattern": "/post/excerpt",
+            "mode": "overridable",
+            "required": false,
+            "contextWeight": "supporting"
+          },
+          {
+            "fieldPattern": "/acf/**",
+            "mode": "overridable",
+            "required": false,
+            "contextWeight": "supporting"
+          }
+        ],
+        "repeaterItemKeys": {}
+      },
+      "templateContent": {
         "title": {
           "kind": "text",
-          "required": true,
-          "searchable": true
+          "searchable": true,
+          "localization": {
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          }
         },
         "intro": {
           "kind": "text",
-          "required": true,
-          "searchable": true
+          "searchable": true,
+          "localization": {
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          }
         }
       }
     },
@@ -227,196 +167,379 @@
       "label": "Industrial Home",
       "template": "zeroy-home-template.php",
       "canonicalPostTypes": ["page"],
-      "nodes": {
+      "route": "/",
+      "localization": {
+        "contract": "zeroy/localization-policy@1",
+        "rules": [
+          {
+            "fieldPattern": "/post/title",
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          },
+          {
+            "fieldPattern": "/post/content",
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          },
+          {
+            "fieldPattern": "/post/excerpt",
+            "mode": "overridable",
+            "required": false,
+            "contextWeight": "supporting"
+          },
+          {
+            "fieldPattern": "/acf/**",
+            "mode": "overridable",
+            "required": false,
+            "contextWeight": "supporting"
+          }
+        ],
+        "repeaterItemKeys": {}
+      },
+      "templateContent": {
         "hero_eyebrow": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "hero_title": {
           "kind": "text",
-          "required": true,
-          "searchable": true
+          "searchable": true,
+          "localization": {
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          }
         },
         "hero_subtitle": {
           "kind": "text",
-          "required": true,
-          "searchable": true
+          "searchable": true,
+          "localization": {
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          }
         },
         "hero_image": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "stat_1_value": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "stat_1_label": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "stat_2_value": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "stat_2_label": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "stat_3_value": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "stat_3_label": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "solutions_eyebrow": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "solutions_title": {
           "kind": "text",
-          "required": false,
-          "searchable": true
+          "searchable": true,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "solutions_subtitle": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "solution_1_title": {
           "kind": "text",
-          "required": false,
-          "searchable": true
+          "searchable": true,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "solution_1_text": {
           "kind": "text",
-          "required": false,
-          "searchable": true
+          "searchable": true,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "solution_1_image": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "solution_2_title": {
           "kind": "text",
-          "required": false,
-          "searchable": true
+          "searchable": true,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "solution_2_text": {
           "kind": "text",
-          "required": false,
-          "searchable": true
+          "searchable": true,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "solution_2_image": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "solution_3_title": {
           "kind": "text",
-          "required": false,
-          "searchable": true
+          "searchable": true,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "solution_3_text": {
           "kind": "text",
-          "required": false,
-          "searchable": true
+          "searchable": true,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "solution_3_image": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "process_eyebrow": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "process_title": {
           "kind": "text",
-          "required": false,
-          "searchable": true
+          "searchable": true,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "process_subtitle": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "step_1_title": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "step_1_text": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "step_2_title": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "step_2_text": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "step_3_title": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "step_3_text": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "step_4_title": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "step_4_text": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "industries_eyebrow": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "industries_title": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "industries_text": {
           "kind": "text",
-          "required": false,
-          "searchable": true
+          "searchable": true,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         },
         "cta_title": {
           "kind": "text",
-          "required": true,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          }
         },
         "cta_text": {
           "kind": "text",
-          "required": false,
-          "searchable": false
+          "searchable": false,
+          "localization": {
+            "mode": "translated",
+            "required": false,
+            "contextWeight": "supporting"
+          }
         }
       }
     },
@@ -424,19 +547,106 @@
       "label": "Machine",
       "template": "zeroy-machine-template.php",
       "canonicalPostTypes": ["machine"],
-      "nodes": {}
+      "localization": {
+        "contract": "zeroy/localization-policy@1",
+        "rules": [
+          {
+            "fieldPattern": "/post/title",
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          },
+          {
+            "fieldPattern": "/post/content",
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          },
+          {
+            "fieldPattern": "/post/excerpt",
+            "mode": "overridable",
+            "required": false,
+            "contextWeight": "supporting"
+          },
+          {
+            "fieldPattern": "/acf/**",
+            "mode": "overridable",
+            "required": false,
+            "contextWeight": "supporting"
+          }
+        ],
+        "repeaterItemKeys": {}
+      }
     },
     "service": {
       "label": "Service",
       "template": "zeroy-service-template.php",
       "canonicalPostTypes": ["service"],
-      "nodes": {}
+      "localization": {
+        "contract": "zeroy/localization-policy@1",
+        "rules": [
+          {
+            "fieldPattern": "/post/title",
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          },
+          {
+            "fieldPattern": "/post/content",
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          },
+          {
+            "fieldPattern": "/post/excerpt",
+            "mode": "overridable",
+            "required": false,
+            "contextWeight": "supporting"
+          },
+          {
+            "fieldPattern": "/acf/**",
+            "mode": "overridable",
+            "required": false,
+            "contextWeight": "supporting"
+          }
+        ],
+        "repeaterItemKeys": {}
+      }
     },
     "production-line": {
       "label": "Production Line",
       "template": "zeroy-line-template.php",
       "canonicalPostTypes": ["production_line"],
-      "nodes": {}
+      "localization": {
+        "contract": "zeroy/localization-policy@1",
+        "rules": [
+          {
+            "fieldPattern": "/post/title",
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          },
+          {
+            "fieldPattern": "/post/content",
+            "mode": "translated",
+            "required": true,
+            "contextWeight": "primary"
+          },
+          {
+            "fieldPattern": "/post/excerpt",
+            "mode": "overridable",
+            "required": false,
+            "contextWeight": "supporting"
+          },
+          {
+            "fieldPattern": "/acf/**",
+            "mode": "overridable",
+            "required": false,
+            "contextWeight": "supporting"
+          }
+        ],
+        "repeaterItemKeys": {}
+      }
     }
   }
 }

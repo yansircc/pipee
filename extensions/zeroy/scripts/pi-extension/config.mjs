@@ -7,7 +7,12 @@ export default Object.freeze({
   }),
   expected: Object.freeze({
     commands: Object.freeze([]),
-    tools: Object.freeze(["zeroy_content_apply", "zeroy_inspect", "zeroy_theme_apply"]),
+    tools: Object.freeze([
+      "zeroy_content_apply",
+      "zeroy_inspect",
+      "zeroy_theme_checkout",
+      "zeroy_theme_push",
+    ]),
     handlers: Object.freeze(["session_shutdown", "session_start"]),
     skills: Object.freeze([]),
   }),

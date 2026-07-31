@@ -7,64 +7,104 @@ import piZeroY from "../src/pi/extension.js";
 const readFixture = (relative: string): string =>
   readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8");
 
-describe("zeroY runtime contract", () => {
-  it("keeps localized node structure in non-executable JSON rather than theme PHP", () => {
+describe("zeroY localization runtime contract", () => {
+  it("puts localization responsibility in ThemeSchema, not in locale documents", () => {
     const schema = JSON.parse(readFixture("../mvp-theme/zeroy.schema.json")) as {
       readonly contract: string;
-      readonly collections: Record<
-        string,
-        { readonly kind: string; readonly route: string; readonly schemaId: string }
-      >;
       readonly schemas: Record<
         string,
-        { readonly nodes: Record<string, { readonly kind: string; readonly required: boolean }> }
+        { readonly localization: { readonly contract: string; readonly rules: readonly unknown[] } }
       >;
+      readonly localizationSubjects: Record<string, unknown>;
     };
-
     expect(schema.contract).toBe("zeroy/theme-schema@1");
-    expect(schema.schemas.showcase?.nodes).toMatchObject({
-      title: { kind: "text", required: true },
-      intro: { kind: "text", required: true },
-    });
-    expect(schema.collections).toMatchObject({
-      machines: { kind: "post-archive", route: "machine", schemaId: "machine" },
-      services: { kind: "post-archive", route: "service", schemaId: "service" },
-    });
+    const home = schema.schemas.home;
+    expect(home?.localization.contract).toBe("zeroy/localization-policy@1");
+    expect(home?.localization.rules.length).toBeGreaterThan(0);
+    expect(home).toHaveProperty("templateContent");
+    expect(schema.localizationSubjects).toHaveProperty("siteCopy");
+    expect(JSON.stringify(schema)).not.toContain("themeCopy");
+    expect(JSON.stringify(schema)).not.toContain("nodes");
   });
 
-  it("owns locale history as version pointers and exposes only constrained Connector ports", () => {
-    const plugin =
-      readFixture("../wordpress-plugin/includes/runtime.php") +
-      readFixture("../wordpress-plugin/includes/rest.php");
+  it("keeps the connector runtime as a composition root, not an implementation bucket", () => {
+    const runtime = readFixture("../wordpress-plugin/includes/runtime.php");
+    expect(runtime).toContain("theme/schema-runtime.php");
+    expect(runtime).toContain("localization/template-content.php");
+    expect(runtime).not.toContain("localization/migration.php");
+    expect(runtime).not.toMatch(/\bfunction\s+zeroy_/);
+  });
 
-    expect(plugin).toContain("locale_versions");
-    expect(plugin).toContain("locale_heads");
-    expect(plugin).toContain("route_reservations");
-    expect(plugin).toContain("collection_route_reservations");
-    expect(plugin).toContain("schema_state");
-    expect(plugin).toContain("zeroy_runtime_deploy_candidate_schema");
-    expect(plugin).toContain("zeroy_locale_entities");
-    expect(plugin).toContain("zeroy_collection_items");
-    expect(plugin).toContain("search_projection");
-    expect(plugin).toContain("register_rest_route('zeroy/v1', '/site'");
-    expect(plugin).toContain("register_rest_route('zeroy/v1', '/theme-files'");
-    expect(plugin).toContain("register_rest_route('zeroy/v1', '/locale-content'");
-    expect(plugin).toContain("register_rest_route('zeroy/v1', '/integrity'");
+  it("keeps retired locale documents outside the deployed runtime", () => {
+    const runtime = [
+      "../wordpress-plugin/includes/runtime.php",
+      "../wordpress-plugin/includes/lifecycle.php",
+      "../wordpress-plugin/includes/theme/activation.php",
+      "../wordpress-plugin/includes/theme/initial-deployment.php",
+    ]
+      .map(readFixture)
+      .join("\n");
+    expect(runtime).not.toContain("zeroy_localization_legacy_");
+    expect(runtime).not.toContain("locale-version@2");
+    expect(runtime).not.toContain("theme-copy-version@2");
+  });
+
+  it("runs content-writing upgrades only after WordPress functionality is initialized", () => {
+    const connector = readFixture("../wordpress-plugin/zeroy-runtime-connector.php");
+    expect(connector).toContain("add_action('init', 'zeroy_runtime_maybe_upgrade', 1)");
+    expect(connector).not.toContain("add_action('plugins_loaded', 'zeroy_runtime_maybe_upgrade'");
+  });
+
+  it("repairs the one additive Overlay column without replaying dbDelta against existing tables", () => {
+    const lifecycle = readFixture("../wordpress-plugin/includes/lifecycle.php");
+    expect(lifecycle).toContain("if (!zeroy_runtime_table_exists(zeroy_runtime_table($name))) {");
+    expect(lifecycle).toContain(
+      "ALTER TABLE ' . zeroy_runtime_table('locale_overlay_heads') . ' ADD COLUMN published_at DATETIME NULL",
+    );
+    expect(lifecycle).toContain("zeroy_runtime_schema_is_current()");
+    expect(lifecycle).toContain("zeroy_runtime_locale_overlay_heads_has_published_at()");
+  });
+
+  it("owns immutable Overlay history and exposes only generic ports", () => {
+    const plugin = [
+      "../wordpress-plugin/includes/runtime.php",
+      "../wordpress-plugin/includes/lifecycle.php",
+      "../wordpress-plugin/includes/localization/policy-contract.php",
+      "../wordpress-plugin/includes/localization/locale-overlay-store.php",
+      "../wordpress-plugin/includes/localization/translation-job.php",
+      "../wordpress-plugin/includes/localization/locale-resolver.php",
+      "../wordpress-plugin/includes/rest/routes.php",
+      "../wordpress-plugin/includes/theme/activation.php",
+    ]
+      .map(readFixture)
+      .join("\n");
+    expect(plugin).toContain("locale_overlay_versions");
+    expect(plugin).toContain("locale_overlay_heads");
+    expect(plugin).toContain("zeroy/localization-policy@1");
+    expect(plugin).toContain("zeroy/locale-overlay@1");
+    expect(plugin).toContain("zeroy/translation-job@1");
+    expect(plugin).toContain("/translation-job");
+    expect(plugin).toContain("/translation");
+    expect(plugin).toContain("theme_artifacts");
+    expect(plugin).not.toMatch(/zeroy\/locale-version@2/);
+    expect(plugin).not.toMatch(/zeroy\/theme-copy-version@2/);
     expect(plugin).not.toMatch(/eval\s*\(/);
-    expect(plugin).not.toContain("zeroy_mvp_");
   });
 
-  it("registers exactly the read, code-write, and content-write agent boundaries", () => {
+  it("registers exactly the read, checkout, deploy, and content agent boundaries", () => {
     const tools: string[] = [];
     const handlers: string[] = [];
     const pi = {
       registerTool: (tool: { readonly name: string }) => tools.push(tool.name),
       on: (event: string) => handlers.push(event),
     } as unknown as ExtensionAPI;
-
     piZeroY(pi);
-
-    expect(tools).toEqual(["zeroy_inspect", "zeroy_theme_apply", "zeroy_content_apply"]);
+    expect(tools).toEqual([
+      "zeroy_inspect",
+      "zeroy_theme_checkout",
+      "zeroy_theme_push",
+      "zeroy_content_apply",
+    ]);
     expect(handlers).toEqual(["session_start", "session_shutdown"]);
   });
 });

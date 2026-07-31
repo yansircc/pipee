@@ -33,11 +33,12 @@
     "pi:bundle-check": "node ../../tooling/pi-extension/verify-distribution.mjs . bundle",
     "pi:distribution-check": "node ../../tooling/pi-extension/verify-distribution.mjs . package",
     "pi:schema-transport-check": "node scripts/verify-pi-schema-transport.mjs",
-    "pi:verify": "pnpm run pi:build && pnpm run pi:bundle-check && pnpm run pi:schema-transport-check",
+    "pi:verify": "pnpm run pi:build && pnpm run pi:bundle-check && pnpm run pi:schema-transport-check && node scripts/verify-headless-ledger.mjs",
     "acceptance:headless": "pnpm run pi:build && node scripts/headless-acceptance.mjs"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "catalog:",
+    "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@pipee/companion-contracts": "workspace:*",
     "@pipee/extension-kit": "workspace:*",

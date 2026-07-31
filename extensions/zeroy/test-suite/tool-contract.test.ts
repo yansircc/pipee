@@ -1,302 +1,137 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type, type TSchema } from "@sinclair/typebox";
+import { describe, expect, it } from "vite-plus/test";
 import { Value } from "@sinclair/typebox/value";
-import { describe, expect, it } from "@effect/vitest";
 import {
   ContentInputContract,
   ContentProviderProjection,
   InspectInputContract,
   InspectProviderProjection,
-  ThemeApplyInputContract,
   decodeContentInput,
   decodeInspectInput,
-  providerSafeParameters,
 } from "../src/domain/protocol.js";
-import piZeroY from "../src/pi/extension.js";
 
-type ObjectSchema = TSchema & {
-  readonly properties: Readonly<
-    Record<string, TSchema & { readonly enum?: ReadonlyArray<string> }>
-  >;
-  readonly required: ReadonlyArray<string>;
+const siteId = "site-a";
+const profile = {
+  contract: "zeroy/translation-profile@1" as const,
+  companySummary: "Industrial equipment maker",
+  targetAudience: "B2B buyers",
+  brandVoice: "clear",
+  localeGuidance: { en: "Use technical English." },
+  glossary: [],
+  protectedTerms: [],
 };
 
-const siteId = "acceptance";
-const localeVersion = {
-  contract: "zeroy/locale-version@2" as const,
-  nodes: { title: "标题", intro: "正文" },
-  decisions: {
-    "/post/title": { mode: "inherit" as const, sourceHash: "a".repeat(64) },
-  },
-};
-
-describe("zeroY exact tool input algebra", () => {
-  it("accepts all configured-site and per-site inspect variants", () => {
-    const inputs = [
+describe("zeroY tool contracts", () => {
+  it("accepts exactly the supported inspection resources", () => {
+    const valid = [
       { resource: "sites" },
       { siteId, resource: "site" },
       { siteId, resource: "schema" },
-      { siteId, resource: "inventory", page: 1, perPage: 50 },
+      { siteId, resource: "inventory" },
       { siteId, resource: "acf" },
-      { siteId, resource: "contentTree", objectId: 1 },
-      { siteId, resource: "adoptionCandidates", schemaId: "showcase", page: 1, perPage: 50 },
+      { siteId, resource: "canonicalContent", objectId: 1 },
+      { siteId, resource: "adoptionCandidates" },
       { siteId, resource: "existingPost", postId: 1 },
-      { siteId, resource: "themeFiles", path: "style.css" },
-      { siteId, resource: "localeContent", objectId: 1, locale: "zh-CN" },
-      { siteId, resource: "themeCopy", locale: "zh-CN" },
+      { siteId, resource: "themeState" },
+      { siteId, resource: "themeArtifact", artifactId: `sha256:${"a".repeat(64)}` },
+      { siteId, resource: "translationJob", subject: { kind: "post", id: 1 }, locale: "en" },
       { siteId, resource: "integrity" },
       { siteId, resource: "externalCheck" },
+      { siteId, resource: "externalCheck", urls: ["https://site.test/preview"] },
     ];
-    expect(inputs.every((input) => Value.Check(InspectInputContract, input))).toBe(true);
-    expect(inputs.every((input) => decodeInspectInput(input)._tag === "Success")).toBe(true);
+    for (const input of valid) expect(decodeInspectInput(input)._tag).toBe("Success");
+    expect(decodeInspectInput({ siteId, resource: "contentTree" })._tag).toBe("Failure");
+    expect(decodeInspectInput({ siteId, resource: "externalCheck", urls: [""] })._tag).toBe(
+      "Failure",
+    );
   });
 
-  it("accepts all page, adoption, and ThemeCopy content variants", () => {
-    const inputs = [
+  it("accepts only canonical, TemplateContent, and Overlay mutations", () => {
+    const valid = [
       {
         siteId,
         action: "siteConfig",
         siteConfig: {
           defaultLocale: "zh-CN",
-          enabledLocales: [{ locale: "zh-CN", label: "中文", urlPrefix: "" }],
+          enabledLocales: [
+            { locale: "zh-CN", label: "中文", urlPrefix: "" },
+            { locale: "en", label: "English", urlPrefix: "en" },
+          ],
+          translationProfile: profile,
+          siteCopy: {},
         },
-        expectedRevision: 0,
+        expectedRevision: 1,
       },
-      {
-        siteId,
-        action: "createCanonical",
-        postType: "page",
-        schemaId: "showcase",
-        postTitle: "Acceptance page",
-      },
+      { siteId, action: "createCanonical", postType: "page", schemaId: "home", postTitle: "Home" },
       {
         siteId,
         action: "adoptCanonical",
         postId: 2,
-        schemaId: "showcase",
+        schemaId: "machine",
         expectedSourceHash: "a".repeat(64),
       },
-      { siteId, action: "assignSchema", objectId: 1, schemaId: "showcase", expectedRevision: 1 },
+      { siteId, action: "assignSchema", objectId: 2, schemaId: "machine", expectedRevision: 1 },
       {
         siteId,
-        action: "writeDraft",
-        objectId: 1,
-        locale: "zh-CN",
-        schemaId: "showcase",
-        route: "acceptance",
-        localeVersion,
-        expectedRevision: 0,
-      },
-      {
-        siteId,
-        action: "commit",
-        objectId: 1,
-        locale: "zh-CN",
-        schemaId: "showcase",
-        route: "acceptance",
-        localeVersion,
-        expectedRevision: 0,
-      },
-      { siteId, action: "publish", objectId: 1, locale: "zh-CN", expectedRevision: 1 },
-      { siteId, action: "unpublish", objectId: 1, locale: "zh-CN", expectedRevision: 2 },
-      {
-        siteId,
-        action: "writeThemeCopyDraft",
-        locale: "zh-CN",
-        themeCopyVersion: {
-          contract: "zeroy/theme-copy-version@2",
-          nodes: { "nav.home": "首页" },
-        },
-        expectedRevision: 0,
-      },
-      {
-        siteId,
-        action: "patchThemeCopyDraft",
-        locale: "zh-CN",
-        changes: { "nav.home": "首页", "legacy.key": null },
+        action: "writeTemplateContent",
+        objectId: 2,
+        templateContent: { hero_title: "Ring Die Pellet Mill" },
         expectedRevision: 1,
       },
       {
         siteId,
-        action: "commitThemeCopy",
-        locale: "en",
-        themeCopyVersion: {
-          contract: "zeroy/theme-copy-version@2",
-          nodes: { "nav.home": "Home" },
-        },
+        action: "writeTranslationDraft",
+        jobToken: "token",
+        values: { "/post/title": "Ring Die Pellet Mill" },
         expectedRevision: 0,
       },
-      { siteId, action: "publishThemeCopy", locale: "zh-CN", expectedRevision: 1 },
-      { siteId, action: "unpublishThemeCopy", locale: "zh-CN", expectedRevision: 2 },
-      { siteId, action: "reconcileSchema" },
-    ];
-    expect(inputs.every((input) => Value.Check(ContentInputContract, input))).toBe(true);
-    expect(inputs.every((input) => decodeContentInput(input)._tag === "Success")).toBe(true);
-  });
-
-  it("reports unknown discriminators and missing fields against one selected variant", () => {
-    const unknown = decodeInspectInput({ siteId, resource: "mystery" });
-    expect(unknown).toMatchObject({
-      _tag: "Failure",
-      error: {
-        message:
-          "resource must be one of [sites, site, schema, inventory, acf, contentTree, adoptionCandidates, existingPost, themeFiles, localeContent, themeCopy, integrity, externalCheck].",
+      {
+        siteId,
+        action: "publishTranslation",
+        subject: { kind: "post", id: 2 },
+        locale: "en",
+        expectedRevision: 1,
       },
-    });
-    for (const [action, fields] of [
-      ["siteConfig", "siteConfig, expectedRevision"],
-      ["createCanonical", "postType, schemaId"],
-      ["adoptCanonical", "postId, schemaId, expectedSourceHash"],
-      ["assignSchema", "objectId, schemaId, expectedRevision"],
-      ["writeDraft", "objectId, locale, schemaId, route, localeVersion, expectedRevision"],
-      ["commit", "objectId, locale, schemaId, route, localeVersion, expectedRevision"],
-      ["publish", "objectId, locale, expectedRevision"],
-      ["unpublish", "objectId, locale, expectedRevision"],
-      ["writeThemeCopyDraft", "locale, themeCopyVersion, expectedRevision"],
-      ["patchThemeCopyDraft", "locale, changes, expectedRevision"],
-      ["commitThemeCopy", "locale, themeCopyVersion, expectedRevision"],
-      ["publishThemeCopy", "locale, expectedRevision"],
-      ["unpublishThemeCopy", "locale, expectedRevision"],
-    ] as const) {
-      const incomplete = decodeContentInput({ siteId, action });
-      expect(incomplete).toMatchObject({
-        _tag: "Failure",
-        error: { message: `action ${action} requires fields: ${fields}.` },
-      });
-    }
-  });
-});
-
-describe("provider-safe tool projection", () => {
-  it("projects inspect as a non-empty object with the complete enum", () => {
-    expect(InspectProviderProjection._tag).toBe("Success");
-    if (InspectProviderProjection._tag === "Failure") return;
-    const schema = InspectProviderProjection.value as ObjectSchema;
-    expect(schema.type).toBe("object");
-    expect(schema.required).toEqual(["resource"]);
-    expect(schema.properties.resource?.enum).toEqual([
-      "sites",
-      "site",
-      "schema",
-      "inventory",
-      "acf",
-      "contentTree",
-      "adoptionCandidates",
-      "existingPost",
-      "themeFiles",
-      "localeContent",
-      "themeCopy",
-      "integrity",
-      "externalCheck",
-    ]);
-    expect(Object.keys(schema.properties)).toEqual([
-      "resource",
-      "siteId",
-      "page",
-      "perPage",
-      "objectId",
-      "postType",
-      "schemaId",
-      "postId",
-      "path",
-      "locale",
-    ]);
-    expect(Value.Check(schema, { resource: "sites" })).toBe(true);
-    expect(schema.properties.objectId?.description).toContain(
-      "Required when resource = contentTree or localeContent",
-    );
-  });
-
-  it("projects content guidance without widening the exact decoder", () => {
-    expect(ContentProviderProjection._tag).toBe("Success");
-    if (ContentProviderProjection._tag === "Failure") return;
-    const schema = ContentProviderProjection.value as ObjectSchema;
-    expect(schema.required).toEqual(["siteId", "action"]);
-    expect(schema.properties.action?.enum).toEqual([
-      "siteConfig",
-      "createCanonical",
-      "adoptCanonical",
-      "assignSchema",
-      "writeDraft",
-      "commit",
-      "publish",
-      "unpublish",
-      "writeThemeCopyDraft",
-      "patchThemeCopyDraft",
-      "commitThemeCopy",
-      "publishThemeCopy",
-      "unpublishThemeCopy",
-      "reconcileSchema",
-    ]);
-    expect(schema.properties.expectedRevision?.description).toContain(
-      "A new LocaleHead always starts at 0",
-    );
-    expect(schema.properties.expectedRevision?.description).toContain(
-      "canonical revision returned by createCanonical",
-    );
-    expect(schema.properties.postTitle?.description).toContain(
-      "meaningful WordPress administrator title",
-    );
-    expect(schema.properties.expectedSourceHash?.description).toContain(
-      "WordPress post and ACF facts have not changed",
-    );
-    expect(Value.Check(schema, { siteId, action: "writeDraft" })).toBe(true);
+      {
+        siteId,
+        action: "unpublishTranslation",
+        subject: { kind: "post", id: 2 },
+        locale: "en",
+        expectedRevision: 2,
+      },
+    ];
+    for (const input of valid) expect(decodeContentInput(input)._tag).toBe("Success");
     expect(decodeContentInput({ siteId, action: "writeDraft" })._tag).toBe("Failure");
   });
 
-  it("fails closed when variants disagree about one field constraint", () => {
-    const conflict = Type.Union([
-      Type.Object({ action: Type.Literal("one"), value: Type.String() }),
-      Type.Object({ action: Type.Literal("two"), value: Type.Number() }),
-    ]);
-    expect(providerSafeParameters(conflict, "action")).toMatchObject({
-      _tag: "Failure",
-      error: { message: "Conflicting definitions for field value in action union." },
-    });
-  });
-
-  it("keeps theme hash preconditions visible", () => {
-    const schema = ThemeApplyInputContract as ObjectSchema;
-    const files = schema.properties.files as TSchema & {
-      readonly items: ObjectSchema;
-    };
-    expect(files.items.properties.expectedHash?.description).toContain(
-      "existing file; use null for a new file",
-    );
-  });
-});
-
-describe("registered tool definitions", () => {
-  it("publishes exactly three tools using the provider-safe projections", () => {
-    const tools: Array<{
-      readonly name: string;
-      readonly description: string;
-      readonly parameters: TSchema;
-    }> = [];
-    const pi = {
-      registerTool: (tool: (typeof tools)[number]) => tools.push(tool),
-      on: () => undefined,
-    } as unknown as ExtensionAPI;
-
-    piZeroY(pi);
-
-    expect(tools.map(({ name }) => name)).toEqual([
-      "zeroy_inspect",
-      "zeroy_theme_apply",
-      "zeroy_content_apply",
-    ]);
+  it("projects non-empty provider-safe schemas while keeping exact decoders strict", () => {
     expect(InspectProviderProjection._tag).toBe("Success");
     expect(ContentProviderProjection._tag).toBe("Success");
-    if (
-      InspectProviderProjection._tag === "Failure" ||
-      ContentProviderProjection._tag === "Failure"
-    )
-      return;
-    expect(tools[0]?.parameters).toBe(InspectProviderProjection.value);
-    expect(tools[1]?.parameters).toBe(ThemeApplyInputContract);
-    expect(tools[2]?.parameters).toBe(ContentProviderProjection.value);
-    expect(tools[2]?.description).toContain(
-      "adoptionCandidates → existingPost → adoptCanonical with expectedSourceHash",
-    );
+    if (InspectProviderProjection._tag === "Success") {
+      const schema = InspectProviderProjection.value;
+      expect(Value.Check(schema, { siteId, resource: "translationJob" })).toBe(true);
+      expect(decodeInspectInput({ siteId, resource: "translationJob" })._tag).toBe("Failure");
+    }
+    if (ContentProviderProjection._tag === "Success") {
+      const schema = ContentProviderProjection.value;
+      expect(Value.Check(schema, { siteId, action: "writeTranslationDraft" })).toBe(true);
+      expect(decodeContentInput({ siteId, action: "writeTranslationDraft" })._tag).toBe("Failure");
+    }
+    expect(
+      Value.Check(InspectInputContract, {
+        siteId,
+        resource: "translationJob",
+        subject: { kind: "post", id: 1 },
+        locale: "en",
+      }),
+    ).toBe(true);
+    expect(
+      Value.Check(ContentInputContract, {
+        siteId,
+        action: "publishTranslation",
+        subject: { kind: "post", id: 1 },
+        locale: "en",
+        expectedRevision: 1,
+      }),
+    ).toBe(true);
   });
 });

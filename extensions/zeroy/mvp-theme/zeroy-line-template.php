@@ -2,8 +2,7 @@
 /**
  * zeroY production line detail template.
  *
- * Effective WordPress/ACF content comes from explicit locale decisions;
- * authored page nodes and labels come from LocaleVersion and ThemeCopy.
+ * WordPress/ACF facts resolve through the LocaleOverlay runtime.
  */
 
 defined('ABSPATH') || exit;
@@ -15,8 +14,6 @@ $zeroy_locale = (string) $zeroy_locale;
 $zeroy_route = (string) $zeroy_route;
 
 $zeroy_content = zeroy_locale_content($zeroy_object_id, $zeroy_locale, (string) $zeroy_schema_id);
-$zeroy_document = $zeroy_content['nodes'];
-
 $zyu = zeroy_copy_reader($zeroy_locale);
 
 $zy_field = static function (string $name) use ($zeroy_content) {

@@ -3,6 +3,8 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { fileURLToPath } from "node:url";
+import { layer as nodeServicesLayer, type NodeServices } from "@effect/platform-node/NodeServices";
 import type { LivePresentationPort } from "@pipee/companion-contracts/host-capabilities";
 import {
   livePresentation,
@@ -10,9 +12,14 @@ import {
   withPresentation,
   type WebSurfaceSlot,
 } from "@pipee/extension-kit";
-import { Clock, Data, Effect, Exit, Layer, ManagedRuntime, Scope, Semaphore } from "effect";
+import { Clock, Data, Effect, Exit, ManagedRuntime, Scope, Semaphore } from "effect";
 import packageJson from "../../package.json" with { type: "json" };
-import { externalCheckSummary, runExternalCheck, type ExternalCheck } from "../domain/checker.js";
+import {
+  externalCheckSummary,
+  runExternalCheck,
+  sameOriginExternalCheckUrls,
+  type ExternalCheck,
+} from "../domain/checker.js";
 import {
   ZeroYConnectionConfigError,
   connectionFor,
@@ -24,7 +31,8 @@ import {
   CONTENT_PROMPT_GUIDELINES,
   ContentProviderProjection,
   InspectProviderProjection,
-  ThemeApplyInputContract,
+  ThemeCheckoutInputContract,
+  ThemePushInputContract,
   type ProviderSchemaProjectionError,
   type ToolInputValidationError,
   decodeContentInput,
@@ -32,13 +40,23 @@ import {
   type ContentApplyInput,
   type InspectInput,
   type JsonRecord,
-  type ThemeApplyInput,
+  type ThemeCheckoutInput,
+  type ThemePushInput,
 } from "../domain/protocol.js";
+import {
+  createThemeCheckout,
+  listThemeCheckouts,
+  prepareThemeSeed,
+  prepareThemePush,
+  type ThemeManifest,
+  type ThemePolicy,
+} from "../domain/theme-checkout.js";
 import { zeroYPresentation } from "./presentation.js";
 import { failedSiteView, projectZeroYWebView, type ZeroYSiteView } from "./web-surface.js";
 
-const runtime = ManagedRuntime.make(Layer.empty);
+const runtime = ManagedRuntime.make(nodeServicesLayer);
 const registrations = new WeakSet<object>();
+const bundledThemeSeed = fileURLToPath(new URL("../../mvp-theme/", import.meta.url));
 
 type ActiveSession = {
   readonly context: ExtensionContext;
@@ -99,7 +117,8 @@ const result = (
   details: withPresentation({}, zeroYPresentation(title, summary, fields, tone)),
 });
 
-const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> => runtime.runPromise(effect);
+const run = <A, E>(effect: Effect.Effect<A, E, NodeServices>): Promise<A> =>
+  runtime.runPromise(effect);
 
 const runTool = (
   effect: Effect.Effect<
@@ -108,7 +127,8 @@ const runTool = (
     | ZeroYConnectionConfigError
     | ZeroYSessionUnavailable
     | ProviderSchemaProjectionError
-    | ToolInputValidationError
+    | ToolInputValidationError,
+    NodeServices
   >,
 ): Promise<AgentToolResult<unknown>> =>
   run(
@@ -132,10 +152,10 @@ const notifySessionFailure = (context: ExtensionContext, error: unknown) =>
     if (context.hasUI) context.ui.notify(`zeroY: ${errorMessage(error)}`, "error");
   });
 
-const withSession = <A, E>(
+const withSession = <A, E, R = NodeServices>(
   pi: ExtensionAPI,
-  use: (active: ActiveSession) => Effect.Effect<A, E>,
-): Effect.Effect<A, E | ZeroYSessionUnavailable> =>
+  use: (active: ActiveSession) => Effect.Effect<A, E, R>,
+): Effect.Effect<A, E | ZeroYSessionUnavailable, R> =>
   Effect.gen(function* () {
     const active = sessions.get(pi as object);
     if (!active) {
@@ -160,7 +180,7 @@ const connection = (
 const inspectConnection = (
   active: ActiveSession,
   site: SiteConnection,
-): Effect.Effect<ZeroYSiteView, never> =>
+): Effect.Effect<ZeroYSiteView, never, NodeServices> =>
   Effect.all(
     [
       connectorGet(site, "site"),
@@ -168,35 +188,50 @@ const inspectConnection = (
       connectorGet(site, "inventory?page=1&perPage=100"),
       connectorGet(site, "acf"),
       connectorGet(site, "integrity"),
+      connectorGet(site, "theme/state"),
+      connectorGet(site, "theme/deployments?limit=20"),
+      listThemeCheckouts(site.siteId).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ZeroYConnectorError({
+              message: `Could not list local ThemeArtifact checkouts: ${cause.message}`,
+            }),
+        ),
+      ),
     ],
-    { concurrency: 5 },
+    { concurrency: 7 },
   ).pipe(
-    Effect.flatMap(([siteView, schema, inventory, acf, integrity]) => {
-      if (siteView.siteId !== site.siteId) {
-        return Effect.fail(
-          new ZeroYConnectorError({
-            message: `Connection ${site.label} expected siteId ${site.siteId}, but the Connector reported ${String(siteView.siteId)}.`,
-          }),
-        );
-      }
-      return Effect.succeed({
-        siteId: site.siteId,
-        label: site.label,
-        endpoint: site.endpoint,
-        state: "ready" as const,
-        error: null,
-        site: siteView,
-        schema,
-        inventory,
-        acf,
-        integrity,
-        externalCheck: active.externalChecks.get(site.siteId) ?? null,
-      });
-    }),
+    Effect.flatMap(
+      ([siteView, schema, inventory, acf, integrity, themeState, deployments, checkouts]) => {
+        if (siteView.siteId !== site.siteId) {
+          return Effect.fail(
+            new ZeroYConnectorError({
+              message: `Connection ${site.label} expected siteId ${site.siteId}, but the Connector reported ${String(siteView.siteId)}.`,
+            }),
+          );
+        }
+        return Effect.succeed({
+          siteId: site.siteId,
+          label: site.label,
+          endpoint: site.endpoint,
+          state: "ready" as const,
+          error: null,
+          site: siteView,
+          schema,
+          inventory,
+          acf,
+          integrity,
+          themeState,
+          deployments,
+          checkouts,
+          externalCheck: active.externalChecks.get(site.siteId) ?? null,
+        });
+      },
+    ),
     Effect.catch((error) => Effect.succeed(failedSiteView(site, errorMessage(error)))),
   );
 
-const refreshSurface = (active: ActiveSession): Effect.Effect<void, never> =>
+const refreshSurface = (active: ActiveSession): Effect.Effect<void, never, NodeServices> =>
   Effect.gen(function* () {
     const sites = yield* Effect.forEach(
       active.connections,
@@ -211,13 +246,13 @@ const refreshSurface = (active: ActiveSession): Effect.Effect<void, never> =>
     );
   }).pipe(Effect.withSpan("zeroy.web-surface.refresh"));
 
-const withLivePresentation = <A, E>(
+const withLivePresentation = <A, E, R>(
   active: ActiveSession,
   title: string,
   summary: string,
   fields: ReadonlyArray<readonly [string, string]>,
-  effect: Effect.Effect<A, E>,
-): Effect.Effect<A, E> =>
+  effect: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> =>
   Effect.sync(() =>
     active.presentation?.replace("activity", zeroYPresentation(title, summary, fields)),
   ).pipe(
@@ -225,11 +260,11 @@ const withLivePresentation = <A, E>(
     Effect.ensuring(Effect.sync(() => active.presentation?.replace("activity", undefined))),
   );
 
-const withSiteMutationGate = <A, E>(
+const withSiteMutationGate = <A, E, R>(
   active: ActiveSession,
   siteId: string,
-  effect: Effect.Effect<A, E>,
-): Effect.Effect<A, E | ZeroYSessionUnavailable> =>
+  effect: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E | ZeroYSessionUnavailable, R> =>
   Effect.gen(function* () {
     const gate = active.mutationGates.get(siteId);
     if (!gate) {
@@ -244,6 +279,70 @@ const withSiteMutationGate = <A, E>(
     }),
   );
 
+const activeThemeState = (
+  site: SiteConnection,
+  signal: AbortSignal | undefined,
+): Effect.Effect<JsonRecord, ZeroYConnectorError, NodeServices> =>
+  Effect.gen(function* () {
+    const state = yield* connectorGet(site, "theme/state", signal);
+    if (state.state === "active") return state;
+    if (state.state !== "bootstrap-required") {
+      return yield* new ZeroYConnectorError({
+        message: "zeroY Stable Shell is active without a recoverable ThemeDeployment.",
+        code: "zeroy_theme_recovery_required",
+      });
+    }
+    const policy = asRecord(state.policy);
+    if (policy === null) {
+      return yield* new ZeroYConnectorError({
+        message: "Connector did not provide a ThemeArtifact policy for bootstrap.",
+      });
+    }
+    const seed = yield* prepareThemeSeed({
+      sourceDirectory: bundledThemeSeed,
+      policy: policy as unknown as ThemePolicy,
+    }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ZeroYConnectorError({
+            message: `Could not prepare the bundled zeroY seed Artifact: ${cause.message}`,
+          }),
+      ),
+    );
+    const uploaded = yield* connectorPost(
+      site,
+      "theme/artifacts",
+      { manifest: seed.manifest, archiveBase64: seed.archiveBase64 },
+      signal,
+    );
+    const artifactId = asString(uploaded, "artifactId");
+    if (!artifactId) {
+      return yield* new ZeroYConnectorError({
+        message: "Connector did not return the bootstrap Artifact identity.",
+      });
+    }
+    yield* connectorPost(
+      site,
+      "theme/bootstrap",
+      {
+        artifactId,
+        provenance: {
+          source: "bundled-seed",
+          sourceCommit: seed.sourceCommit,
+          message: "one-time hard-cut ThemeBootstrap",
+        },
+      },
+      signal,
+    );
+    const active = yield* connectorGet(site, "theme/state", signal);
+    if (active.state !== "active") {
+      return yield* new ZeroYConnectorError({
+        message: "ThemeBootstrap completed without an active ThemeDeployment.",
+      });
+    }
+    return active;
+  }).pipe(Effect.withSpan("zeroy.theme-bootstrap"));
+
 const stopSession = (pi: ExtensionAPI, active: ActiveSession): Effect.Effect<void> =>
   Scope.close(active.scope, Exit.succeed(undefined)).pipe(
     Effect.ensuring(
@@ -257,7 +356,7 @@ const stopSession = (pi: ExtensionAPI, active: ActiveSession): Effect.Effect<voi
 const startSession = (
   pi: ExtensionAPI,
   context: ExtensionContext,
-): Effect.Effect<void, ZeroYConnectionConfigError> =>
+): Effect.Effect<void, ZeroYConnectionConfigError, NodeServices> =>
   Effect.gen(function* () {
     const previous = sessions.get(pi as object);
     if (previous) yield* stopSession(pi, previous);
@@ -303,7 +402,8 @@ const inspectResource = (
   signal: AbortSignal | undefined,
 ): Effect.Effect<
   { readonly payload: JsonRecord; readonly summary: string },
-  ZeroYConnectorError | ZeroYConnectionConfigError
+  ZeroYConnectorError | ZeroYConnectionConfigError,
+  NodeServices
 > =>
   Effect.gen(function* () {
     if (input.resource === "sites") {
@@ -344,10 +444,14 @@ const inspectResource = (
           payload: yield* connectorGet(site, "acf", signal),
           summary: "Read shared ACF structure",
         };
-      case "contentTree":
+      case "canonicalContent":
         return {
-          payload: yield* connectorGet(site, `content-tree?objectId=${input.objectId}`, signal),
-          summary: "Read effective WordPress and ACF content tree",
+          payload: yield* connectorGet(
+            site,
+            `canonical-content?objectId=${input.objectId}`,
+            signal,
+          ),
+          summary: "Read canonical content projection",
         };
       case "adoptionCandidates": {
         const parameters = new URLSearchParams({
@@ -370,32 +474,24 @@ const inspectResource = (
           payload: yield* connectorGet(site, `existing-post?postId=${input.postId}`, signal),
           summary: "Read existing WordPress and ACF facts",
         };
-      case "themeFiles":
+      case "themeState":
         return {
-          payload: yield* connectorGet(
-            site,
-            input.path ? `theme-files?path=${encodeURIComponent(input.path)}` : "theme-files",
-            signal,
-          ),
-          summary: input.path ? "Read active-theme file" : "Read active-theme file tree",
+          payload: yield* connectorGet(site, "theme/state", signal),
+          summary: "Read active ThemeDeployment state",
         };
-      case "localeContent":
+      case "themeArtifact":
         return {
-          payload: yield* connectorGet(
-            site,
-            `locale-content?objectId=${input.objectId}&locale=${encodeURIComponent(input.locale)}`,
-            signal,
-          ),
-          summary: "Read locale content",
+          payload: yield* connectorGet(site, `theme/artifacts/${input.artifactId}`, signal),
+          summary: "Read immutable ThemeArtifact manifest",
         };
-      case "themeCopy":
+      case "translationJob":
         return {
           payload: yield* connectorGet(
             site,
-            `theme-copy?locale=${encodeURIComponent(input.locale)}`,
+            `translation-job?subject=${encodeURIComponent(JSON.stringify(input.subject))}&locale=${encodeURIComponent(input.locale)}`,
             signal,
           ),
-          summary: "Read theme-level localized copy",
+          summary: "Read derived TranslationJob",
         };
       case "integrity":
         return {
@@ -404,7 +500,15 @@ const inspectResource = (
         };
       case "externalCheck": {
         const inventory = yield* connectorGet(site, "inventory?page=1&perPage=100", signal);
-        const check = yield* runExternalCheck(inventory, signal);
+        const urls = sameOriginExternalCheckUrls(site.endpoint, input.urls ?? []);
+        if ("code" in urls) {
+          return yield* new ZeroYConnectorError({
+            code: urls.code,
+            status: 400,
+            message: urls.message,
+          });
+        }
+        const check = yield* runExternalCheck(inventory, urls, signal);
         yield* Effect.sync(() => active.externalChecks.set(site.siteId, check));
         yield* refreshSurface(active);
         return {
@@ -434,9 +538,106 @@ const inspectTool = (active: ActiveSession, input: InspectInput, signal: AbortSi
     ),
   );
 
-const themeApplyTool = (
+const asString = (record: JsonRecord, key: string): string | undefined =>
+  typeof record[key] === "string" ? record[key] : undefined;
+const asNumber = (record: JsonRecord | null, key: string): number =>
+  typeof record?.[key] === "number" ? record[key] : 0;
+
+const contentResultPresentation = (
+  input: ContentApplyInput,
+  payload: JsonRecord,
+): {
+  readonly title: string;
+  readonly summary: string;
+  readonly fields: ReadonlyArray<readonly [string, string]>;
+} => {
+  if (
+    input.action !== "writeTranslationDraft" &&
+    input.action !== "publishTranslation" &&
+    input.action !== "unpublishTranslation"
+  ) {
+    return {
+      title: "zeroY content updated",
+      summary: `Applied ${input.action}.`,
+      fields: [
+        ["Site", input.siteId],
+        ["Action", input.action],
+      ],
+    };
+  }
+  const summary = asRecord(payload.summary);
+  const pending =
+    asNumber(summary, "missing") + asNumber(summary, "stale") + asNumber(summary, "reviewNeeded");
+  const revision = asNumber(payload, "revision");
+  const state = asString(payload, "state") ?? input.action;
+  const locale = asString(payload, "locale") ?? "translation";
+  const previewReady = typeof payload.previewUrl === "string";
+  const sentence =
+    state === "draft"
+      ? `${asNumber(summary, "current")} current · ${pending} need attention${previewReady ? " · preview ready" : ""}`
+      : state === "published"
+        ? `${asNumber(summary, "current")} current · published`
+        : "Public locale route removed; immutable Overlay history is retained.";
+  return {
+    title: `${locale} translation`,
+    summary: sentence,
+    fields: [
+      ["Site", input.siteId],
+      ["State", state],
+      ["Revision", String(revision)],
+    ],
+  };
+};
+
+const previewThemeDeployment = (
+  previewUrl: string,
+  signal: AbortSignal | undefined,
+): Effect.Effect<void, ZeroYConnectorError> =>
+  Effect.tryPromise({
+    try: () => fetch(previewUrl, signal === undefined ? {} : { signal }),
+    catch: (cause) =>
+      new ZeroYConnectorError({
+        message: `Could not load candidate ThemeDeployment preview: ${String(cause)}`,
+      }),
+  }).pipe(
+    Effect.flatMap((response) => {
+      if (!response.ok) {
+        return Effect.fail(
+          new ZeroYConnectorError({
+            message: `Candidate ThemeDeployment preview returned HTTP ${response.status}.`,
+            status: response.status,
+          }),
+        );
+      }
+      const robots = response.headers.get("x-robots-tag") ?? "";
+      if (!robots.toLowerCase().includes("noindex")) {
+        return Effect.fail(
+          new ZeroYConnectorError({
+            message: "Candidate ThemeDeployment preview did not declare noindex.",
+          }),
+        );
+      }
+      return Effect.tryPromise({
+        try: () => response.text(),
+        catch: (cause) =>
+          new ZeroYConnectorError({
+            message: `Could not read candidate ThemeDeployment preview: ${String(cause)}`,
+          }),
+      });
+    }),
+    Effect.flatMap((html) =>
+      html.trim() === ""
+        ? Effect.fail(
+            new ZeroYConnectorError({ message: "Candidate ThemeDeployment preview was empty." }),
+          )
+        : Effect.void,
+    ),
+    Effect.withSpan("zeroy.theme-deployment.preview"),
+  );
+
+const themeCheckoutTool = (
   active: ActiveSession,
-  input: ThemeApplyInput,
+  input: ThemeCheckoutInput,
   signal: AbortSignal | undefined,
 ) =>
   withSiteMutationGate(
@@ -444,34 +645,152 @@ const themeApplyTool = (
     input.siteId,
     withLivePresentation(
       active,
-      "zeroY theme update",
-      "Writing active-theme files with exact hash preconditions",
+      "zeroY theme checkout",
+      "Materializing the active immutable ThemeArtifact into a local Git checkout",
+      [["Site", input.siteId]],
+      Effect.gen(function* () {
+        const site = yield* connection(active, input.siteId);
+        const state = yield* activeThemeState(site, signal);
+        const artifactId = asString(state, "activeArtifactId");
+        const deploymentId = asString(state, "activeDeploymentId");
+        const policy = asRecord(state.policy);
+        if (!artifactId || !deploymentId || policy === null) {
+          return yield* new ZeroYConnectorError({
+            message: "Connector returned an incomplete ThemeDeployment state.",
+          });
+        }
+        const artifact = yield* connectorGet(site, `theme/artifacts/${artifactId}`, signal);
+        const archive = yield* connectorGet(site, `theme/artifacts/${artifactId}/archive`, signal);
+        const manifest = artifact.manifest as ThemeManifest | undefined;
+        const archiveBase64 = asString(archive, "archiveBase64");
+        if (!manifest || !archiveBase64) {
+          return yield* new ZeroYConnectorError({
+            message: "Connector returned an incomplete ThemeArtifact checkout payload.",
+          });
+        }
+        const checkout = yield* createThemeCheckout({
+          siteId: input.siteId,
+          artifactId,
+          deploymentId,
+          manifest,
+          archiveBase64,
+          policy: policy as unknown as ThemePolicy,
+        }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new ZeroYConnectorError({
+                message: `Could not create local ThemeArtifact checkout: ${cause.message}`,
+              }),
+          ),
+        );
+        return result(
+          text(checkout),
+          "zeroY theme checked out",
+          "The active Artifact is now a local Git working copy. Edit, commit, then push the commit.",
+          [
+            ["Site", input.siteId],
+            ["Checkout", checkout.checkoutId],
+          ],
+        );
+      }),
+    ),
+  );
+
+const themePushTool = (
+  active: ActiveSession,
+  input: ThemePushInput,
+  signal: AbortSignal | undefined,
+) =>
+  withSiteMutationGate(
+    active,
+    input.siteId,
+    withLivePresentation(
+      active,
+      "zeroY theme deployment",
+      "Uploading committed Git HEAD as one immutable ThemeArtifact",
       [
         ["Site", input.siteId],
-        ["Files", String(input.files.length)],
+        ["Checkout", input.checkoutId],
       ],
       Effect.gen(function* () {
         const site = yield* connection(active, input.siteId);
-        const payload = yield* connectorPost(site, "theme-files", { files: input.files }, signal);
+        const push = yield* prepareThemePush(input.checkoutId).pipe(
+          Effect.mapError(
+            (cause) =>
+              new ZeroYConnectorError({
+                message: `Could not prepare ThemeArtifact push: ${cause.message}`,
+              }),
+          ),
+        );
+        if (push.checkout.siteId !== input.siteId) {
+          return yield* new ZeroYConnectorError({
+            message: "checkoutId belongs to a different zeroY site.",
+          });
+        }
+        const uploaded = yield* connectorPost(
+          site,
+          "theme/artifacts",
+          {
+            manifest: push.manifest,
+            archiveBase64: push.archiveBase64,
+          },
+          signal,
+        );
+        const artifactId = asString(uploaded, "artifactId");
+        if (!artifactId)
+          return yield* new ZeroYConnectorError({
+            message: "Connector did not return an uploaded artifactId.",
+          });
+        const prepared = yield* connectorPost(
+          site,
+          "theme/deployments/prepare",
+          {
+            artifactId,
+            expectedActiveArtifactId: push.checkout.baseArtifactId,
+            provenance: {
+              checkoutId: push.checkout.checkoutId,
+              sourceCommit: push.sourceCommit,
+              message: input.message ?? "",
+            },
+          },
+          signal,
+        );
+        if (prepared.state !== "prepared") {
+          yield* refreshSurface(active);
+          return result(
+            text(prepared),
+            "zeroY deployment rejected",
+            "The active theme was not changed; inspect the deployment diagnostics.",
+            [
+              ["Site", input.siteId],
+              ["Checkout", input.checkoutId],
+            ],
+            "warning",
+          );
+        }
+        const deploymentId = asString(prepared, "deploymentId");
+        const previewUrl = asString(prepared, "previewUrl");
+        if (!deploymentId || !previewUrl)
+          return yield* new ZeroYConnectorError({
+            message: "Connector did not return a prepared ThemeDeployment preview.",
+          });
+        yield* previewThemeDeployment(previewUrl, signal);
+        const activated = yield* connectorPost(
+          site,
+          `theme/deployments/${deploymentId}/activate`,
+          {},
+          signal,
+        );
         yield* refreshSurface(active);
-        const deployment = asRecord(payload.schemaDeployment);
-        const filesWritten = payload.ok === true;
-        const deploymentReady = deployment === null || deployment.state === "ready";
-        const complete = filesWritten && deploymentReady;
-        const summary = !filesWritten
-          ? "Some writes failed; successful files remain changed."
-          : deploymentReady
-            ? "All requested files were atomically replaced."
-            : "Theme files were written, but the active schema has incompatible heads or route conflicts.";
         return result(
-          text(payload),
-          complete ? "zeroY theme updated" : "zeroY theme needs attention",
-          summary,
+          text(activated),
+          "zeroY theme deployed",
+          "Activated one complete immutable ThemeArtifact.",
           [
             ["Site", input.siteId],
-            ["Files", String(input.files.length)],
+            ["Artifact", artifactId],
           ],
-          complete ? "success" : "warning",
+          "success",
         );
       }),
     ),
@@ -516,66 +835,45 @@ const contentPayload = (
           expectedRevision: input.expectedRevision,
         },
       };
-    case "writeDraft":
-    case "commit":
+    case "writeTemplateContent":
       return {
-        path: "locale-content",
+        path: "canonical",
         body: {
-          action: input.action,
+          action: "writeTemplateContent",
           objectId: input.objectId,
-          locale: input.locale,
-          schemaId: input.schemaId,
-          route: input.route,
-          document: input.localeVersion,
+          templateContent: input.templateContent,
           expectedRevision: input.expectedRevision,
         },
       };
-    case "publish":
-    case "unpublish":
+    case "writeTranslationDraft":
       return {
-        path: "locale-content",
+        path: "translation",
         body: {
-          action: input.action,
-          objectId: input.objectId,
-          locale: input.locale,
+          action: "writeTranslationDraft",
+          jobToken: input.jobToken,
+          values: input.values,
           expectedRevision: input.expectedRevision,
         },
       };
-    case "writeThemeCopyDraft":
-    case "commitThemeCopy":
+    case "publishTranslation":
       return {
-        path: "theme-copy",
+        path: "translation",
         body: {
-          action: input.action,
+          action: "publishTranslation",
+          subject: input.subject,
           locale: input.locale,
-          document: input.themeCopyVersion,
           expectedRevision: input.expectedRevision,
         },
       };
-    case "patchThemeCopyDraft":
+    case "unpublishTranslation":
       return {
-        path: "theme-copy",
+        path: "translation",
         body: {
-          action: input.action,
-          locale: input.locale,
-          changes: input.changes,
-          expectedRevision: input.expectedRevision,
-        },
-      };
-    case "publishThemeCopy":
-    case "unpublishThemeCopy":
-      return {
-        path: "theme-copy",
-        body: {
-          action: input.action,
+          action: "unpublishTranslation",
+          subject: input.subject,
           locale: input.locale,
           expectedRevision: input.expectedRevision,
         },
-      };
-    case "reconcileSchema":
-      return {
-        path: "schema-reconcile",
-        body: {},
       };
   }
 };
@@ -601,10 +899,8 @@ const contentApplyTool = (
         const operation = contentPayload(input);
         const payload = yield* connectorPost(site, operation.path, operation.body, signal);
         yield* refreshSurface(active);
-        return result(text(payload), "zeroY content updated", `Applied ${input.action}.`, [
-          ["Site", input.siteId],
-          ["Action", input.action],
-        ]);
+        const presentation = contentResultPresentation(input, payload);
+        return result(text(payload), presentation.title, presentation.summary, presentation.fields);
       }),
     ),
   );
@@ -650,21 +946,30 @@ export default function piZeroY(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "zeroy_theme_apply",
-    label: "Update zeroY theme",
-    description:
-      "Apply one or more hash-preconditioned mutations inside one active WordPress theme.",
-    parameters: ThemeApplyInputContract,
+    name: "zeroy_theme_checkout",
+    label: "Checkout zeroY theme",
+    description: "Download the active immutable ThemeArtifact into a local Git checkout.",
+    parameters: ThemeCheckoutInputContract,
     execute: (_id, input, signal) =>
       runTool(
-        withSession(pi, (active) => themeApplyTool(active, input as ThemeApplyInput, signal)),
+        withSession(pi, (active) => themeCheckoutTool(active, input as ThemeCheckoutInput, signal)),
       ),
+  });
+
+  pi.registerTool({
+    name: "zeroy_theme_push",
+    label: "Deploy zeroY theme",
+    description:
+      "Upload committed checkout Git HEAD as one Artifact, prepare it, and activate only on CAS success.",
+    parameters: ThemePushInputContract,
+    execute: (_id, input, signal) =>
+      runTool(withSession(pi, (active) => themePushTool(active, input as ThemePushInput, signal))),
   });
 
   pi.registerTool({
     name: "zeroy_content_apply",
     label: "Update zeroY content",
-    description: `Update SiteConfig, canonical objects, locale drafts, published pointers, or unpublish a locale. ${CONTENT_PROMPT_GUIDELINES}`,
+    description: `Update SiteConfig, canonical objects, or immutable LocaleOverlay drafts and published pointers. ${CONTENT_PROMPT_GUIDELINES}`,
     parameters: contentParameters,
     execute: (_id, input, signal) =>
       runTool(

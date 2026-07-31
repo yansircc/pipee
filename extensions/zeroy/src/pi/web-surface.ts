@@ -2,6 +2,7 @@ import type { JsonValue } from "@pipee/companion-contracts/web-surface";
 import type { ExternalCheck } from "../domain/checker.js";
 import type { SiteConnection } from "../domain/connection.js";
 import type { JsonRecord } from "../domain/protocol.js";
+import type { ThemeCheckoutStatus } from "../domain/theme-checkout.js";
 
 export type ZeroYSiteView = {
   readonly siteId: string;
@@ -14,6 +15,9 @@ export type ZeroYSiteView = {
   readonly inventory: JsonRecord | null;
   readonly acf: JsonRecord | null;
   readonly integrity: JsonRecord | null;
+  readonly themeState: JsonRecord | null;
+  readonly deployments: JsonRecord | null;
+  readonly checkouts: ReadonlyArray<ThemeCheckoutStatus>;
   readonly externalCheck: ExternalCheck | null;
 };
 
@@ -40,5 +44,8 @@ export const failedSiteView = (connection: SiteConnection, error: string): ZeroY
   inventory: null,
   acf: null,
   integrity: null,
+  themeState: null,
+  deployments: null,
+  checkouts: [],
   externalCheck: null,
 });

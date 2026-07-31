@@ -1,41 +1,36 @@
 <?php
 /**
- * zeroY industrial home template.
- *
- * Page content comes from zeroy_locale_content(); theme chrome is shared
- * via zeroy-chrome.php and reads ThemeCopy documents.
+ * Industrial home template.  PHP owns its layout; TemplateContent only
+ * supplies the explicitly declared localized values it elects to render.
  */
 
 defined('ABSPATH') || exit;
 
 require_once get_stylesheet_directory() . '/zeroy-chrome.php';
-
 $zeroy_content = zeroy_locale_content(
     (int) $zeroy_object_id,
     (string) $zeroy_locale,
     (string) $zeroy_schema_id
 );
-$zeroy_document = $zeroy_content['nodes'];
+$zeroy_document = is_array($zeroy_content['templateContent'] ?? null) ? $zeroy_content['templateContent'] : [];
 
 $zy = static function (string $key, string $fallback = '') use ($zeroy_document): string {
     $value = $zeroy_document[$key] ?? $fallback;
     return is_string($value) ? $value : $fallback;
 };
-
 $zyu = zeroy_copy_reader((string) $zeroy_locale);
 
 get_header();
 ?>
 <main class="zy-home">
   <?php zeroy_render_topbar((string) $zeroy_locale, (string) $zeroy_route); ?>
-
   <section class="zy-hero">
     <div class="zy-container">
       <div class="zy-hero-grid">
         <div class="zy-hero-copy">
           <p class="zy-eyebrow"><?php echo esc_html($zy('hero_eyebrow')); ?></p>
-          <h1><?php echo esc_html($zy('hero_title')); ?></h1>
-          <p class="zy-lead"><?php echo esc_html($zy('hero_subtitle')); ?></p>
+          <h1><?php echo esc_html($zy('hero_title', (string) ($zeroy_content['post']['title'] ?? ''))); ?></h1>
+          <p class="zy-lead"><?php echo esc_html($zy('hero_subtitle', (string) ($zeroy_content['post']['content'] ?? ''))); ?></p>
           <div class="zy-hero-actions">
             <a class="zy-btn zy-btn-primary" href="#contact"><?php echo esc_html($zyu('cta_primary', 'Request a Proposal')); ?></a>
             <a class="zy-btn zy-btn-outline" href="#solutions"><?php echo esc_html($zyu('cta_explore', 'Explore Solutions')); ?></a>
@@ -55,7 +50,6 @@ get_header();
       </div>
     </div>
   </section>
-
   <section class="zy-section" id="solutions">
     <div class="zy-container">
       <div class="zy-section-head">
@@ -77,7 +71,6 @@ get_header();
       </div>
     </div>
   </section>
-
   <section class="zy-section zy-section-alt" id="process">
     <div class="zy-container">
       <div class="zy-section-head">
@@ -96,7 +89,6 @@ get_header();
       </div>
     </div>
   </section>
-
   <section class="zy-section zy-industries" id="industries">
     <div class="zy-container">
       <div class="zy-section-head">
@@ -106,7 +98,6 @@ get_header();
       <p class="zy-industries-list"><?php echo esc_html($zy('industries_text')); ?></p>
     </div>
   </section>
-
   <section class="zy-cta" id="contact">
     <div class="zy-container">
       <h2><?php echo esc_html($zy('cta_title')); ?></h2>
@@ -117,7 +108,6 @@ get_header();
       </div>
     </div>
   </section>
-
   <?php zeroy_render_footer((string) $zeroy_locale); ?>
 </main>
 <?php

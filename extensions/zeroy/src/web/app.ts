@@ -18,6 +18,9 @@ type Site = {
   readonly inventory: RecordValue | null;
   readonly acf: RecordValue | null;
   readonly integrity: RecordValue | null;
+  readonly themeState: RecordValue | null;
+  readonly deployments: RecordValue | null;
+  readonly checkouts: ReadonlyArray<RecordValue>;
   readonly externalCheck: RecordValue | null;
 };
 
@@ -50,6 +53,8 @@ const string = (value: JsonValue | null | undefined, fallback = "—"): string =
   typeof value === "string" ? value : fallback;
 const number = (value: JsonValue | null | undefined, fallback = "0"): string =>
   typeof value === "number" ? String(value) : fallback;
+const asNumber = (record: RecordValue, key: string): number =>
+  typeof record[key] === "number" ? record[key] : 0;
 const sessionName = (session: WebSurfaceSessionContext) => session.name || session.sessionId;
 
 const asView = (value: JsonValue | null): View | null => {
@@ -106,6 +111,60 @@ const schemaRows = (site: Site): string => {
   return documents + collectionRows;
 };
 
+const translationSummary = (locale: RecordValue): string => {
+  const summary = asRecord(locale.translation);
+  if (!summary) return "";
+  const facts = [
+    ["missing", "待译"],
+    ["stale", "待复核"],
+    ["reviewNeeded", "需确认"],
+  ] as const;
+  const attention = facts
+    .map(([key, label]) => {
+      const count = asNumber(summary, key);
+      return count > 0 ? `${count} ${label}` : "";
+    })
+    .filter(Boolean);
+  return attention.length > 0 ? attention.join(" · ") : `${asNumber(summary, "current")} 已就绪`;
+};
+
+const translationCoverageRows = (site: Site): string => {
+  const coverage = new Map<
+    string,
+    { missing: number; stale: number; reviewNeeded: number; current: number; publishedAt: string }
+  >();
+  for (const itemValue of asArray(site.inventory?.items)) {
+    const item = asRecord(itemValue);
+    for (const localeValue of asArray(item?.locales)) {
+      const locale = asRecord(localeValue);
+      if (!locale || typeof locale.locale !== "string") continue;
+      const summary = asRecord(locale.translation);
+      if (!summary) continue;
+      const existing = coverage.get(locale.locale) ?? {
+        missing: 0,
+        stale: 0,
+        reviewNeeded: 0,
+        current: 0,
+        publishedAt: "",
+      };
+      coverage.set(locale.locale, {
+        missing: existing.missing + asNumber(summary, "missing"),
+        stale: existing.stale + asNumber(summary, "stale"),
+        reviewNeeded: existing.reviewNeeded + asNumber(summary, "reviewNeeded"),
+        current: existing.current + asNumber(summary, "current"),
+        publishedAt: [existing.publishedAt, string(locale.lastPublishedAt, "")].sort().at(-1) ?? "",
+      });
+    }
+  }
+  if (coverage.size === 0) return '<div class="empty">还没有可统计的语言内容。</div>';
+  return `<div class="facts">${[...coverage.entries()]
+    .map(
+      ([locale, value]) =>
+        `<div><span>${esc(locale)}</span><b>${value.missing + value.stale + value.reviewNeeded} 待处理 · ${value.current} 就绪</b><small>${value.publishedAt ? `最近发布 ${esc(value.publishedAt)}` : "尚未发布"}</small></div>`,
+    )
+    .join("")}</div>`;
+};
+
 const inventoryRows = (site: Site): string => {
   const items = asArray(site.inventory?.items);
   if (items.length === 0) return '<div class="empty">还没有 canonical 页面。</div>';
@@ -123,7 +182,8 @@ const inventoryRows = (site: Site): string => {
             typeof locale.url === "string"
               ? `<a href="${esc(locale.url)}" target="_blank" rel="noreferrer">${esc(locale.locale)} ↗</a>`
               : esc(locale.locale);
-          return `<span class="locale-state ${esc(state)}"><b>${route}</b><small>${esc(state)}${locale.revision !== undefined ? ` · r${esc(number(locale.revision))}` : ""}</small></span>`;
+          const publishedAt = string(locale.lastPublishedAt, "");
+          return `<span class="locale-state ${esc(state)}"><b>${route}</b><small>${esc(state)}${locale.revision !== undefined ? ` · r${esc(number(locale.revision))}` : ""}${translationSummary(locale) ? ` · ${esc(translationSummary(locale))}` : ""}${publishedAt ? ` · 发布 ${esc(publishedAt)}` : ""}</small></span>`;
         })
         .join("")}</div></div>`;
     })
@@ -162,7 +222,11 @@ const externalRows = (site: Site): string => {
       const page = asRecord(value);
       if (!page) return "";
       const failures = asArray(page.brokenLinks).length;
-      return `<div><a href="${esc(string(page.url))}" target="_blank" rel="noreferrer">${esc(string(page.locale))} · #${esc(number(page.objectId))} ↗</a><span class="${page.status === 200 ? "healthy" : "unhealthy"}">${esc(number(page.status, "failed"))}</span><span>${page.canonical ? "canonical" : "no canonical"}</span><span>${asArray(page.hreflang).length} hreflang</span><span>${failures} broken links</span></div>`;
+      const subject =
+        typeof page.locale === "string" && typeof page.objectId === "number"
+          ? `${page.locale} · #${page.objectId}`
+          : "requested URL";
+      return `<div><a href="${esc(string(page.url))}" target="_blank" rel="noreferrer">${esc(subject)} ↗</a><span class="${page.status === 200 ? "healthy" : "unhealthy"}">${esc(number(page.status, "failed"))}</span><span>${page.canonical ? "canonical" : "no canonical"}</span><span>${asArray(page.hreflang).length} hreflang</span><span>${failures} broken links</span></div>`;
     })
     .join("")}</div>`;
 };
@@ -181,13 +245,41 @@ const integrityRows = (site: Site): string => {
     .join("")}</div>`;
 };
 
+const themeDeploymentRows = (site: Site): string => {
+  const state = site.themeState;
+  const deployments = asArray(site.deployments?.deployments);
+  const active = string(state?.activeArtifactId, "unavailable");
+  const integrity = asRecord(state?.integrity);
+  const history = deployments
+    .slice(0, 8)
+    .map((value) => {
+      const deployment = asRecord(value);
+      if (!deployment) return "";
+      const diagnostics = asRecord(deployment.diagnostics);
+      const migrationPlan = asRecord(diagnostics?.migrationPlan);
+      return `<div class="inventory-row"><div class="object"><b>${esc(string(deployment.state))}</b><span><code>${esc(string(deployment.artifactId).slice(0, 20))}</code> · ${esc(string(deployment.createdAt))}</span></div><div class="locale-states"><span class="locale-state ${esc(string(deployment.state))}"><b>${esc(number(deployment.migratedHeads))} heads</b><small>${esc(number(asArray(migrationPlan?.affectedHeads).length))} affected</small></span></div></div>`;
+    })
+    .join("");
+  return `<div class="facts"><div><span>Active Artifact</span><code>${esc(active.slice(0, 20))}</code></div><div><span>Deployment</span><code>${esc(string(state?.activeDeploymentId).slice(0, 12))}</code></div><div><span>Tree integrity</span><b>${integrity?.ok === true ? "ok" : esc(string(integrity?.code, "unknown"))}</b></div><div><span>Revision</span><b>${esc(number(state?.revision))}</b></div></div>${history || '<div class="empty">尚无 deployment history。</div>'}`;
+};
+
+const checkoutRows = (site: Site): string => {
+  if (site.checkouts.length === 0) return '<div class="empty">此设备上还没有本地 checkout。</div>';
+  return site.checkouts
+    .map(
+      (checkout) =>
+        `<div class="inventory-row"><div class="object"><b>${esc(string(checkout.checkoutId).slice(0, 12))}</b><span><code>${esc(string(checkout.head).slice(0, 12))}</code> · ${esc(string(checkout.localPath))}</span></div><div class="locale-states"><span class="locale-state ${checkout.dirty === true ? "content-stale" : "published"}"><b>${checkout.dirty === true ? "dirty" : "clean"}</b><small>${esc(string(checkout.baseArtifactId).slice(0, 20))}</small></span></div></div>`,
+    )
+    .join("");
+};
+
 const siteCard = (site: Site): string => {
   const theme = asRecord(site.site?.activeTheme);
   const schema = asRecord(site.site?.themeSchema);
   if (site.state === "failed") {
     return `<section class="site-card failed"><header><div><h2>${esc(site.label)}</h2><p>${esc(site.endpoint)}</p></div><span class="status">连接失败</span></header><div class="error">${esc(site.error)}</div></section>`;
   }
-  return `<section class="site-card"><header><div><div class="eyebrow">${esc(site.siteId)}</div><h2>${esc(site.label)}</h2><p>${esc(site.endpoint)}</p></div><span class="status ready">已连接</span></header><div class="facts"><div><span>Runtime</span><b>${esc(string(site.site?.runtimeVersion))}</b></div><div><span>Active theme</span><b>${esc(string(theme?.name))}</b></div><div><span>Contract hash</span><code>${esc(string(schema?.contractHash).slice(0, 12))}</code></div><div><span>Schema deployment</span><b>${esc(string(schema?.deploymentState, schema?.valid === true ? "active" : "invalid"))}</b></div></div><section class="block"><div class="block-head"><h3>语言</h3><span>WordPress SiteConfig</span></div><div class="chips">${localeChips(site)}</div></section><section class="block"><div class="block-head"><h3>ThemeSchema</h3><span>documents · collections · active snapshot</span></div>${schemaRows(site)}</section><section class="block"><div class="block-head"><h3>Canonical pages</h3><span>LocaleHead 状态与 route</span></div><div class="inventory">${inventoryRows(site)}</div></section><section class="block two-column"><div><div class="block-head"><h3>Shared ACF</h3><span>read-only</span></div>${acfRows(site)}</div><div><div class="block-head"><h3>Connector integrity</h3><span>read-only</span></div>${integrityRows(site)}</div></section><section class="block"><div class="block-head"><h3>前台检查</h3><span>HTTP · HTML · canonical · hreflang · links · PageSpeed</span></div>${externalRows(site)}</section></section>`;
+  return `<section class="site-card"><header><div><div class="eyebrow">${esc(site.siteId)}</div><h2>${esc(site.label)}</h2><p>${esc(site.endpoint)}</p></div><span class="status ready">已连接</span></header><div class="facts"><div><span>Runtime</span><b>${esc(string(site.site?.runtimeVersion))}</b></div><div><span>Shell</span><b>${esc(string(theme?.name))}</b></div><div><span>Contract hash</span><code>${esc(string(schema?.contractHash).slice(0, 12))}</code></div><div><span>Schema</span><b>${esc(string(schema?.deploymentState, schema?.valid === true ? "active" : "invalid"))}</b></div></div><section class="block"><div class="block-head"><h3>Theme deployment</h3><span>immutable Artifact · read-only</span></div>${themeDeploymentRows(site)}</section><section class="block"><div class="block-head"><h3>Local checkouts</h3><span>this device only</span></div>${checkoutRows(site)}</section><section class="block"><div class="block-head"><h3>语言</h3><span>WordPress SiteConfig</span></div><div class="chips">${localeChips(site)}</div></section><section class="block"><div class="block-head"><h3>语言覆盖</h3><span>missing · stale · review · recent publish</span></div>${translationCoverageRows(site)}</section><section class="block"><div class="block-head"><h3>ThemeSchema</h3><span>documents · collections · active Artifact</span></div>${schemaRows(site)}</section><section class="block"><div class="block-head"><h3>Canonical pages</h3><span>LocaleHead 状态与 route</span></div><div class="inventory">${inventoryRows(site)}</div></section><section class="block two-column"><div><div class="block-head"><h3>Shared ACF</h3><span>read-only</span></div>${acfRows(site)}</div><div><div class="block-head"><h3>Connector integrity</h3><span>read-only</span></div>${integrityRows(site)}</div></section><section class="block"><div class="block-head"><h3>前台检查</h3><span>HTTP · HTML · canonical · hreflang · links · PageSpeed</span></div>${externalRows(site)}</section></section>`;
 };
 
 const render = () => {

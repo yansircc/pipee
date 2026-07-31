@@ -6,8 +6,8 @@ export class ZeroYExternalCheckError extends Data.TaggedError("ZeroYExternalChec
 }> {}
 
 export type PageCheck = {
-  readonly objectId: number;
-  readonly locale: string;
+  readonly objectId: number | null;
+  readonly locale: string | null;
   readonly url: string;
   readonly finalUrl: string | null;
   readonly status: number | null;
@@ -19,6 +19,42 @@ export type PageCheck = {
   readonly checkedLinks: number;
   readonly brokenLinks: ReadonlyArray<{ readonly url: string; readonly status: number | null }>;
   readonly error: string | null;
+};
+
+export type ExternalCheckTarget = {
+  readonly objectId: number | null;
+  readonly locale: string | null;
+  readonly url: string;
+};
+
+export type ExternalCheckUrlError = {
+  readonly code: "zeroy_external_check_url_invalid" | "zeroy_external_check_url_origin_invalid";
+  readonly message: string;
+};
+
+export const sameOriginExternalCheckUrls = (
+  endpoint: string,
+  urls: ReadonlyArray<string>,
+): ReadonlyArray<string> | ExternalCheckUrlError => {
+  const origin = new URL(endpoint).origin;
+  const checked: string[] = [];
+  for (const raw of urls) {
+    if (!URL.canParse(raw)) {
+      return {
+        code: "zeroy_external_check_url_invalid",
+        message: "External checks require absolute same-origin URLs.",
+      };
+    }
+    const url = new URL(raw);
+    if (url.origin !== origin) {
+      return {
+        code: "zeroy_external_check_url_origin_invalid",
+        message: "External checks may only load URLs from the configured zeroY site origin.",
+      };
+    }
+    checked.push(url.href);
+  }
+  return checked;
 };
 
 export type ExternalCheck = {
@@ -76,12 +112,9 @@ const links = (html: string, base: URL): ReadonlyArray<string> => {
   return [...values];
 };
 
-const publishedPages = (
-  inventory: JsonRecord,
-): ReadonlyArray<{ readonly objectId: number; readonly locale: string; readonly url: string }> => {
+const publishedPages = (inventory: JsonRecord): ReadonlyArray<ExternalCheckTarget> => {
   const items = Array.isArray(inventory.items) ? inventory.items : [];
-  const pages: Array<{ readonly objectId: number; readonly locale: string; readonly url: string }> =
-    [];
+  const pages: ExternalCheckTarget[] = [];
   for (const item of items) {
     const object = record(item);
     const objectId = object ? object.objectId : null;
@@ -129,10 +162,7 @@ const responseJson = (response: Response): Effect.Effect<unknown, ZeroYExternalC
       new ZeroYExternalCheckError({ message: `Could not read PageSpeed JSON: ${String(cause)}` }),
   });
 
-const failedPage = (
-  page: { readonly objectId: number; readonly locale: string; readonly url: string },
-  error: ZeroYExternalCheckError,
-): PageCheck => ({
+const failedPage = (page: ExternalCheckTarget, error: ZeroYExternalCheckError): PageCheck => ({
   objectId: page.objectId,
   locale: page.locale,
   url: page.url,
@@ -149,7 +179,7 @@ const failedPage = (
 });
 
 const checkPage = (
-  page: { readonly objectId: number; readonly locale: string; readonly url: string },
+  page: ExternalCheckTarget,
   signal?: AbortSignal,
 ): Effect.Effect<PageCheck, never> =>
   Effect.gen(function* () {
@@ -254,9 +284,15 @@ const errorMessage = (error: unknown): string =>
 
 export const runExternalCheck = (
   inventory: JsonRecord,
+  requestedUrls: ReadonlyArray<string> = [],
   signal?: AbortSignal,
 ): Effect.Effect<ExternalCheck, never> => {
-  const pages = publishedPages(inventory);
+  const pages = [
+    ...publishedPages(inventory),
+    ...requestedUrls.map((url) => ({ objectId: null, locale: null, url })),
+  ].filter(
+    (page, index, all) => all.findIndex((candidate) => candidate.url === page.url) === index,
+  );
   return Clock.currentTimeMillis.pipe(
     Effect.flatMap((checkedAt) =>
       Effect.all(

@@ -79,7 +79,7 @@ try {
       "--print",
       "--no-builtin-tools",
       "--tools",
-      "zeroy_inspect,zeroy_theme_apply,zeroy_content_apply",
+      "zeroy_inspect,zeroy_theme_checkout,zeroy_theme_push,zeroy_content_apply",
       "--extension",
       extension,
       "--no-extensions",
@@ -122,7 +122,7 @@ try {
   const tools = new Map(captured.tools.map((tool) => [tool.name, tool]));
   assert.deepEqual(
     [...tools.keys()],
-    ["zeroy_inspect", "zeroy_theme_apply", "zeroy_content_apply"],
+    ["zeroy_inspect", "zeroy_theme_checkout", "zeroy_theme_push", "zeroy_content_apply"],
   );
 
   const inspect = tools.get("zeroy_inspect")?.input_schema;
@@ -134,17 +134,17 @@ try {
     "schema",
     "inventory",
     "acf",
-    "contentTree",
+    "canonicalContent",
     "adoptionCandidates",
     "existingPost",
-    "themeFiles",
-    "localeContent",
-    "themeCopy",
+    "themeState",
+    "themeArtifact",
+    "translationJob",
     "integrity",
     "externalCheck",
   ]);
   assert(Object.keys(inspect?.properties ?? {}).length > 2);
-  assert.match(inspect?.properties?.objectId?.description ?? "", /contentTree/u);
+  assert.match(inspect?.properties?.subject?.description ?? "", /translationJob/u);
 
   const content = tools.get("zeroy_content_apply")?.input_schema;
   assert.equal(content?.type, "object");
@@ -154,20 +154,14 @@ try {
     "createCanonical",
     "adoptCanonical",
     "assignSchema",
-    "writeDraft",
-    "commit",
-    "publish",
-    "unpublish",
-    "writeThemeCopyDraft",
-    "patchThemeCopyDraft",
-    "commitThemeCopy",
-    "publishThemeCopy",
-    "unpublishThemeCopy",
-    "reconcileSchema",
+    "writeTemplateContent",
+    "writeTranslationDraft",
+    "publishTranslation",
+    "unpublishTranslation",
   ]);
   assert.match(
     content?.properties?.expectedRevision?.description ?? "",
-    /LocaleHead always starts at 0/u,
+    /LocaleOverlay starts at 0/u,
   );
   assert.match(content?.properties?.expectedRevision?.description ?? "", /canonical revision/u);
   assert.match(content?.properties?.postTitle?.description ?? "", /WordPress administrator title/u);
@@ -175,22 +169,20 @@ try {
     content?.properties?.expectedSourceHash?.description ?? "",
     /ACF facts have not changed/u,
   );
-  assert.match(content?.properties?.changes?.description ?? "", /patchThemeCopyDraft/u);
-  assert.match(
-    JSON.stringify(content?.properties?.localeVersion ?? {}),
-    /zeroy\/locale-version@2/u,
-  );
-  assert.match(
-    JSON.stringify(content?.properties?.themeCopyVersion ?? {}),
-    /zeroy\/theme-copy-version@2/u,
-  );
+  assert.match(content?.properties?.jobToken?.description ?? "", /translationJob/u);
+  assert.match(JSON.stringify(content?.properties?.values ?? {}), /\^\//u);
 
-  const theme = tools.get("zeroy_theme_apply")?.input_schema;
+  const checkout = tools.get("zeroy_theme_checkout")?.input_schema;
+  assert.equal(checkout?.type, "object");
+  assert.deepEqual(checkout?.required, ["siteId"]);
+  const push = tools.get("zeroy_theme_push")?.input_schema;
+  assert.equal(push?.type, "object");
+  assert.deepEqual(push?.required, ["siteId", "checkoutId"]);
   assert.match(
-    theme?.properties?.files?.items?.properties?.expectedHash?.description ?? "",
-    /existing file; use null for a new file/u,
+    push?.properties?.checkoutId?.description ?? "",
+    /returned by zeroy_theme_checkout/u,
   );
-  assert.match(inspect?.properties?.path?.description ?? "", /Omit path to list/u);
+  assert.match(inspect?.properties?.artifactId?.pattern ?? "", /^\^sha256/u);
 
   process.stdout.write("Pi Anthropic schema transport gate passed.\n");
 } finally {

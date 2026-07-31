@@ -14,34 +14,109 @@ const JsonValue = Type.Recursive((Self) =>
     Type.Record(Type.String(), Self),
   ]),
 );
-const LocalizedNodes = Type.Record(Type.String({ minLength: 1 }), Type.String());
-const LocaleDecision = Type.Union([
-  Type.Object({
-    mode: Type.Literal("inherit"),
-    sourceHash: Type.String({ minLength: 64, maxLength: 64 }),
-  }),
-  Type.Object({
-    mode: Type.Literal("override"),
-    sourceHash: Type.String({ minLength: 64, maxLength: 64 }),
-    value: JsonValue,
-  }),
+export const SubjectRef = Type.Union(
+  [
+    Type.Object({ kind: Type.Literal("post"), id: Type.Integer({ minimum: 1 }) }),
+    Type.Object({
+      kind: Type.Literal("term"),
+      taxonomy: Type.String({ minLength: 1 }),
+      id: Type.Integer({ minimum: 1 }),
+    }),
+    Type.Object({ kind: Type.Literal("menu"), id: Type.Integer({ minimum: 1 }) }),
+    Type.Object({ kind: Type.Literal("site-copy"), id: Type.Literal("default") }),
+    Type.Object({ kind: Type.Literal("media"), id: Type.Integer({ minimum: 1 }) }),
+  ],
+  { description: "The LocalizableSubject for translationJob or publishTranslation." },
+);
+export const TranslationProfileContract = Type.Object({
+  contract: Type.Literal("zeroy/translation-profile@1"),
+  companySummary: Type.String({ maxLength: 12000 }),
+  targetAudience: Type.String({ maxLength: 12000 }),
+  brandVoice: Type.String({ maxLength: 12000 }),
+  localeGuidance: Type.Record(Type.String(), Type.String({ maxLength: 12000 })),
+  glossary: Type.Array(
+    Type.Object({
+      source: Type.String(),
+      translations: Type.Record(Type.String(), Type.String()),
+      note: Type.Optional(Type.String()),
+    }),
+  ),
+  protectedTerms: Type.Array(Type.String()),
+});
+export const LocalizationModeContract = Type.Union([
+  Type.Literal("shared"),
+  Type.Literal("translated"),
+  Type.Literal("overridable"),
+  Type.Literal("derived"),
 ]);
-const LocaleVersionDocument = Type.Object({
-  contract: Type.Literal("zeroy/locale-version@2"),
-  nodes: LocalizedNodes,
-  decisions: Type.Record(
-    Type.String({ pattern: "^/", description: "Exact path returned by contentTree.leaves." }),
-    LocaleDecision,
+export const LocalizationPolicyContract = Type.Object({
+  contract: Type.Literal("zeroy/localization-policy@1"),
+  rules: Type.Array(
+    Type.Object({
+      fieldPattern: Type.String({ minLength: 1 }),
+      mode: LocalizationModeContract,
+      required: Type.Optional(Type.Boolean()),
+      contextWeight: Type.Optional(
+        Type.Union([Type.Literal("primary"), Type.Literal("supporting"), Type.Literal("hidden")]),
+      ),
+    }),
   ),
 });
-const ThemeCopyVersionDocument = Type.Object({
-  contract: Type.Literal("zeroy/theme-copy-version@2"),
-  nodes: LocalizedNodes,
+const LocaleValueContract = Type.Object({
+  sourceHash: Type.String({ minLength: 64, maxLength: 64 }),
+  value: JsonValue,
 });
-const ThemeCopyPatch = Type.Record(
-  Type.String({ minLength: 1 }),
-  Type.Union([Type.String(), Type.Null()]),
-);
+export const LocaleOverlayContract = Type.Object({
+  contract: Type.Literal("zeroy/locale-overlay@1"),
+  subject: SubjectRef,
+  locale: Locale,
+  policyHash: Type.String({ minLength: 64, maxLength: 64 }),
+  values: Type.Record(Type.String({ pattern: "^/" }), LocaleValueContract),
+  createdAt: Type.String({ minLength: 1 }),
+});
+export const TranslationJobContract = Type.Object({
+  contract: Type.Literal("zeroy/translation-job@1"),
+  subject: SubjectRef,
+  locale: Locale,
+  policyHash: Type.String({ minLength: 64, maxLength: 64 }),
+  jobToken: Type.String({ minLength: 1 }),
+  expectedRevision: Type.Integer({ minimum: 0 }),
+  profile: TranslationProfileContract,
+  fields: Type.Array(
+    Type.Object({
+      fieldId: Type.String({ pattern: "^/" }),
+      label: Type.String({ minLength: 1 }),
+      mode: Type.Union([Type.Literal("translated"), Type.Literal("overridable")]),
+      sourceValue: JsonValue,
+      sourceHash: Type.String({ minLength: 64, maxLength: 64 }),
+      currentValue: Type.Optional(JsonValue),
+      status: Type.Union([
+        Type.Literal("missing"),
+        Type.Literal("current"),
+        Type.Literal("stale"),
+        Type.Literal("review-needed"),
+      ]),
+      required: Type.Boolean(),
+      context: Type.Optional(Type.Record(Type.String(), JsonValue)),
+    }),
+  ),
+  contextFacts: Type.Array(
+    Type.Object({
+      fieldId: Type.String({ pattern: "^/" }),
+      label: Type.String({ minLength: 1 }),
+      value: JsonValue,
+    }),
+  ),
+  summary: Type.Object({
+    missing: Type.Integer({ minimum: 0 }),
+    stale: Type.Integer({ minimum: 0 }),
+    reviewNeeded: Type.Integer({ minimum: 0 }),
+    current: Type.Integer({ minimum: 0 }),
+    shared: Type.Integer({ minimum: 0 }),
+    derived: Type.Integer({ minimum: 0 }),
+  }),
+  previewUrl: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+});
 const LocaleConfig = Type.Object({
   locale: Locale,
   label: Type.String({ minLength: 1 }),
@@ -50,6 +125,8 @@ const LocaleConfig = Type.Object({
 const SiteConfig = Type.Object({
   defaultLocale: Locale,
   enabledLocales: Type.Array(LocaleConfig, { minItems: 1 }),
+  translationProfile: TranslationProfileContract,
+  siteCopy: Type.Record(Type.String({ minLength: 1 }), Type.String({ maxLength: 12000 })),
 });
 const SourceHash = Type.String({
   minLength: 64,
@@ -73,11 +150,11 @@ export const InspectInputContract = Type.Union([
   Type.Object({ siteId: SiteId, resource: Type.Literal("acf") }),
   Type.Object({
     siteId: SiteId,
-    resource: Type.Literal("contentTree"),
+    resource: Type.Literal("canonicalContent"),
     objectId: Type.Integer({
       minimum: 1,
       description:
-        "Canonical object to inspect. Returns every effective WordPress/ACF leaf and the exact sourceHash required by inherit/override decisions.",
+        "Canonical object ID. Returns its current default-locale resolved projection and canonical revision before a TemplateContent write.",
     }),
   }),
   Type.Object({
@@ -97,47 +174,49 @@ export const InspectInputContract = Type.Union([
         "An unmanaged WordPress post ID returned by adoptionCandidates. Returns its canonical WordPress fields and current ACF values without creating zeroY content.",
     }),
   }),
+  Type.Object({ siteId: SiteId, resource: Type.Literal("themeState") }),
   Type.Object({
     siteId: SiteId,
-    resource: Type.Literal("themeFiles"),
-    path: Type.Optional(
-      Type.String({
-        description:
-          "Omit path to list active-theme paths with hash and size. Provide one existing path to read its exact content and hash before a write.",
-      }),
-    ),
+    resource: Type.Literal("themeArtifact"),
+    artifactId: Type.String({ pattern: "^sha256:[0-9a-f]{64}$" }),
   }),
   Type.Object({
     siteId: SiteId,
-    resource: Type.Literal("localeContent"),
-    objectId: Type.Integer({ minimum: 1 }),
-    locale: Locale,
-  }),
-  Type.Object({
-    siteId: SiteId,
-    resource: Type.Literal("themeCopy"),
+    resource: Type.Literal("translationJob"),
+    subject: SubjectRef,
     locale: Locale,
   }),
   Type.Object({ siteId: SiteId, resource: Type.Literal("integrity") }),
-  Type.Object({ siteId: SiteId, resource: Type.Literal("externalCheck") }),
+  Type.Object({
+    siteId: SiteId,
+    resource: Type.Literal("externalCheck"),
+    urls: Type.Optional(
+      Type.Array(Type.String({ minLength: 1, maxLength: 2048 }), {
+        maxItems: 20,
+        description:
+          "Optional same-origin URLs to check in addition to published inventory pages. Use this for a draft preview or a just-published route; URLs outside the configured site origin are rejected.",
+      }),
+    ),
+  }),
 ]);
 export type InspectInput = Static<typeof InspectInputContract>;
 
-export const ThemeApplyInputContract = Type.Object({
+export const ThemeCheckoutInputContract = Type.Object({
   siteId: SiteId,
-  files: Type.Array(
-    Type.Object({
-      path: Type.String({ minLength: 1 }),
-      content: Type.String(),
-      expectedHash: Type.Union([Type.String({ minLength: 64, maxLength: 64 }), Type.Null()], {
-        description:
-          "Use the hash returned by themeFiles for an existing file; use null for a new file.",
-      }),
-    }),
-    { minItems: 1, maxItems: 100 },
+});
+export type ThemeCheckoutInput = Static<typeof ThemeCheckoutInputContract>;
+
+export const ThemePushInputContract = Type.Object({
+  siteId: SiteId,
+  checkoutId: Type.String({
+    minLength: 1,
+    description: "The checkoutId returned by zeroy_theme_checkout.",
+  }),
+  message: Type.Optional(
+    Type.String({ maxLength: 500, description: "Optional deployment provenance message." }),
   ),
 });
-export type ThemeApplyInput = Static<typeof ThemeApplyInputContract>;
+export type ThemePushInput = Static<typeof ThemePushInputContract>;
 
 export const ContentInputContract = Type.Union([
   Type.Object({
@@ -184,107 +263,57 @@ export const ContentInputContract = Type.Union([
   }),
   Type.Object({
     siteId: SiteId,
-    action: Type.Literal("writeDraft"),
+    action: Type.Literal("writeTemplateContent"),
     objectId: Type.Integer({ minimum: 1 }),
-    locale: Locale,
-    schemaId: Type.String({ minLength: 1 }),
-    route: Type.String({ minLength: 1 }),
-    localeVersion: LocaleVersionDocument,
+    templateContent: Type.Record(
+      Type.String({ pattern: "^[a-z][a-z0-9_]{0,95}$" }),
+      Type.String({ maxLength: 12000 }),
+      {
+        description:
+          "A partial patch of ThemeSchema-declared templateContent text fields. Read canonicalContent first; undeclared keys are rejected.",
+      },
+    ),
     expectedRevision: Type.Integer({
       minimum: 0,
       description:
-        "The locale revision, independent from the canonical revision. A new LocaleHead always starts at 0; later calls must use the locale revision returned by the previous LocaleMutationReceipt.",
+        "The canonical revision returned by canonicalContent. TemplateContent is default-locale WordPress post-meta and uses canonical optimistic concurrency.",
     }),
   }),
   Type.Object({
     siteId: SiteId,
-    action: Type.Literal("commit"),
-    objectId: Type.Integer({ minimum: 1 }),
-    locale: Locale,
-    schemaId: Type.String({ minLength: 1 }),
-    route: Type.String({ minLength: 1 }),
-    localeVersion: LocaleVersionDocument,
+    action: Type.Literal("writeTranslationDraft"),
+    jobToken: Type.String({
+      minLength: 1,
+      description:
+        "The exact jobToken from translationJob; it proves the canonical revision, policy and locale revision are current.",
+    }),
+    values: Type.Record(Type.String({ pattern: "^/" }), Type.Union([JsonValue, Type.Null()])),
     expectedRevision: Type.Integer({
       minimum: 0,
       description:
-        "The locale revision returned by the Connector. commit writes one immutable LocaleVersion and advances both draft and published pointers atomically.",
+        "The expectedRevision returned by translationJob. A new LocaleOverlay starts at 0 and is independent from canonical revision.",
     }),
   }),
   Type.Object({
     siteId: SiteId,
-    action: Type.Literal("publish"),
-    objectId: Type.Integer({ minimum: 1 }),
+    action: Type.Literal("publishTranslation"),
+    subject: SubjectRef,
     locale: Locale,
     expectedRevision: Type.Integer({
       minimum: 0,
-      description: "The locale revision returned by the preceding writeDraft result.",
+      description: "The locale revision returned by writeTranslationDraft.",
     }),
   }),
   Type.Object({
     siteId: SiteId,
-    action: Type.Literal("unpublish"),
-    objectId: Type.Integer({ minimum: 1 }),
-    locale: Locale,
-    expectedRevision: Type.Integer({
-      minimum: 0,
-      description: "The current locale revision returned by the Connector.",
-    }),
-  }),
-  Type.Object({
-    siteId: SiteId,
-    action: Type.Literal("writeThemeCopyDraft"),
-    locale: Locale,
-    themeCopyVersion: ThemeCopyVersionDocument,
-    expectedRevision: Type.Integer({
-      minimum: 0,
-      description:
-        "The ThemeCopy locale revision. A new ThemeCopy LocaleHead always starts at 0; later calls must use the revision returned by the previous ThemeCopy receipt.",
-    }),
-  }),
-  Type.Object({
-    siteId: SiteId,
-    action: Type.Literal("patchThemeCopyDraft"),
-    locale: Locale,
-    changes: ThemeCopyPatch,
-    expectedRevision: Type.Integer({
-      minimum: 0,
-      description:
-        "The ThemeCopy locale revision. Each string sets one NodeId; null removes one NodeId from the current draft, or published document when no draft exists.",
-    }),
-  }),
-  Type.Object({
-    siteId: SiteId,
-    action: Type.Literal("commitThemeCopy"),
-    locale: Locale,
-    themeCopyVersion: ThemeCopyVersionDocument,
-    expectedRevision: Type.Integer({
-      minimum: 0,
-      description:
-        "The ThemeCopy locale revision. commitThemeCopy writes one immutable ThemeCopy version and advances both draft and published pointers atomically.",
-    }),
-  }),
-  Type.Object({
-    siteId: SiteId,
-    action: Type.Literal("publishThemeCopy"),
+    action: Type.Literal("unpublishTranslation"),
+    subject: SubjectRef,
     locale: Locale,
     expectedRevision: Type.Integer({
       minimum: 0,
       description:
-        "The ThemeCopy locale revision returned by the preceding writeThemeCopyDraft result.",
+        "The current locale revision. Unpublishing only removes the public pointer and preserves immutable draft history.",
     }),
-  }),
-  Type.Object({
-    siteId: SiteId,
-    action: Type.Literal("unpublishThemeCopy"),
-    locale: Locale,
-    expectedRevision: Type.Integer({
-      minimum: 0,
-      description: "The current ThemeCopy locale revision returned by the Connector.",
-    }),
-  }),
-  Type.Object({
-    siteId: SiteId,
-    action: Type.Literal("reconcileSchema"),
   }),
 ]);
 export type ContentApplyInput = Static<typeof ContentInputContract>;
@@ -513,6 +542,6 @@ export const decodeContentInput = (input: unknown) =>
   decodeDiscriminated<ContentApplyInput>(ContentInputContract, "action", input);
 
 export const CONTENT_PROMPT_GUIDELINES =
-  "Begin with zeroy_inspect resource sites, then inspect the selected site. Standard page flow: createCanonical with postTitle, or adoptionCandidates → existingPost → adoptCanonical with expectedSourceHash; inspect contentTree for the canonical object; build a zeroy/locale-version@2 document whose decisions contains one explicit inherit or override with the returned sourceHash for every leaf; then commit with expectedRevision 0, or writeDraft → inspect previewUrl → publish. Publishing fails when any effective WordPress/ACF leaf is unresolved or stale. Standard ThemeCopy flow uses a zeroy/theme-copy-version@2 document; patchThemeCopyDraft patches its nodes. ThemeSchema writes hard-migrate only declared nodes. WordPress/ACF facts remain canonical; locale versions store decisions and never overwrite those facts.";
+  "Begin with zeroy_inspect resource sites, then inspect the selected site. Standard page flow: createCanonical with postTitle, or adoptionCandidates → existingPost → adoptCanonical with expectedSourceHash. If the active ThemeSchema declares templateContent, read canonicalContent and writeTemplateContent with its canonical revision. Standard translation flow: inspect translationJob for a subject and target locale, writeTranslationDraft with only the returned writable field values and expectedRevision 0 for a new Overlay, inspect previewUrl, then publishTranslation with the returned revision. Use unpublishTranslation only to remove a published locale route while preserving immutable drafts. Never submit inherit decisions, source hashes, raw ACF trees, or shared facts: ThemeSchema owns that policy and LocaleOverlay stores only language-owned values.";
 
 export type JsonRecord = Readonly<Record<string, unknown>>;
