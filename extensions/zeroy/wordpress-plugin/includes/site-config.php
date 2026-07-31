@@ -239,6 +239,14 @@ function zeroy_runtime_update_site_config_locked(array $input, int $expected_rev
             'currentRevision' => is_array($fresh) ? $fresh['revision'] : null,
         ]);
     }
+    $schema = zeroy_runtime_theme_schema();
+    if (is_wp_error($schema)) {
+        return $schema;
+    }
+    $reconciled = zeroy_localization_reconcile_subject_overlay_heads(['kind' => 'site-copy', 'id' => 'default'], $schema);
+    if (is_wp_error($reconciled)) {
+        return $reconciled;
+    }
     $next['revision'] = $next_revision;
     return $next;
 }

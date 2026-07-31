@@ -35,6 +35,12 @@ function zeroy_localization_resolve(array $subject, string $locale, string $poin
             return zeroy_runtime_error('zeroy_locale_not_published', 'LocaleOverlay is not published for this subject.', 404);
         }
         $overlay = zeroy_localization_overlay_for_head($head, $pointer, $subject, $locale, $compiled['policy']['hash']);
+        // Candidate preview never writes LocaleHead state. It projects the
+        // same deterministic reconciliation activation will commit, so a
+        // preview observes one candidate Artifact plus matching Overlay facts.
+        if (is_wp_error($overlay) && $overlay->get_error_code() === 'zeroy_localization_policy_changed' && zeroy_runtime_is_candidate_artifact_request()) {
+            $overlay = zeroy_localization_candidate_overlay_for_head($head, $pointer, $subject, $locale, $compiled);
+        }
         if (is_wp_error($overlay)) {
             return $overlay;
         }

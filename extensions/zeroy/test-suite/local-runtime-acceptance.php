@@ -147,6 +147,8 @@ $repair = zeroy_runtime_repair_active_theme_artifact();
 zeroy_accept(!is_wp_error($repair) && ($repair['repaired'] ?? false) === true, 'Repair must restore the active Artifact from its authoritative archive.');
 $repaired = zeroy_runtime_artifact_integrity($candidate_artifact);
 zeroy_accept(!is_wp_error($repaired) && ($repaired['ok'] ?? false) === true, 'Repair must restore Artifact integrity.');
+$repaired_runtime = zeroy_runtime_integrity();
+zeroy_accept(($repaired_runtime['ok'] ?? false) === true, 'Repair must preserve the active ThemeSchema snapshot and runtime integrity.');
 
 $invalid_artifact = zeroy_accept_candidate(zeroy_runtime_active_theme_state(), 'zeroy.schema.json', '{"contract":"invalid"}');
 $invalid = zeroy_runtime_prepare_theme_deployment($invalid_artifact, $candidate_artifact, ['message' => 'invalid schema acceptance']);

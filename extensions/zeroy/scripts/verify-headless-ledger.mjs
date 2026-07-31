@@ -13,6 +13,12 @@ const calls = readToolLedger([
           toolName: "zeroy_inspect",
           input: { resource: "sites" },
         },
+        {
+          type: "toolCall",
+          id: "call-2",
+          name: "zeroy_content_apply",
+          arguments: { action: "publishTranslation", expectedRevision: 1 },
+        },
       ],
     },
   },
@@ -39,6 +45,13 @@ assert.deepEqual(calls, [
       text: '{"contract":"zeroy/configured-sites@1"}',
       payload: { contract: "zeroy/configured-sites@1" },
     },
+  },
+  {
+    index: 0,
+    id: "call-2",
+    name: "zeroy_content_apply",
+    input: { action: "publishTranslation", expectedRevision: 1 },
+    result: null,
   },
 ]);
 process.stdout.write("Pi JSONL headless ledger gate passed.\n");

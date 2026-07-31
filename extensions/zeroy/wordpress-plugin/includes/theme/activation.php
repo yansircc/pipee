@@ -30,34 +30,9 @@ function zeroy_runtime_artifact_php_diagnostics(string $artifact_id): array
 
 function zeroy_runtime_plan_theme_deployment(array $schema): array
 {
-    global $wpdb;
-    $affected = [];
-    foreach ($wpdb->get_results('SELECT * FROM ' . zeroy_runtime_table('locale_overlay_heads'), ARRAY_A) ?: [] as $head) {
-        $subject = zeroy_runtime_decode_json((string) $head['subject_json']);
-        $definition = is_wp_error($subject) ? null : ($subject['kind'] === 'post' ? ($schema['schemas'][$head['schema_id']] ?? null) : ($schema['localizationSubjects'][$subject['kind'] === 'site-copy' ? 'siteCopy' : $subject['kind']] ?? null));
-        if (!is_array($definition)) {
-            $affected[] = ['state' => 'incompatible', 'subjectKey' => $head['subject_key'], 'locale' => $head['locale'], 'code' => 'localization_definition_missing'];
-            continue;
-        }
-        $policy = zeroy_localization_compiled_policy($definition);
-        if (is_wp_error($policy)) {
-            $affected[] = ['state' => 'incompatible', 'subjectKey' => $head['subject_key'], 'locale' => $head['locale'], 'code' => $policy->get_error_code(), 'message' => $policy->get_error_message()];
-            continue;
-        }
-        foreach (['draft_version_id', 'published_version_id'] as $pointer) {
-            if ($head[$pointer] === null) {
-                continue;
-            }
-            $version = zeroy_localization_overlay_version((int) $head[$pointer]);
-            $overlay = $version === null ? zeroy_runtime_error('zeroy_locale_overlay_corrupt', 'Overlay version is missing.', 409) : zeroy_localization_decode_overlay($version);
-            if (is_wp_error($overlay) || !hash_equals($policy['hash'], (string) ($overlay['policyHash'] ?? ''))) {
-                $affected[] = ['state' => 'incompatible', 'subjectKey' => $head['subject_key'], 'locale' => $head['locale'], 'pointer' => $pointer, 'code' => is_wp_error($overlay) ? $overlay->get_error_code() : 'localization_policy_changed'];
-            }
-        }
-    }
+    $reconciliation = zeroy_localization_plan_overlay_reconciliation($schema);
     $route_conflicts = zeroy_runtime_collection_route_conflicts($schema);
-    $blockers = array_values(array_filter($affected, static fn(array $item): bool => $item['state'] === 'incompatible'));
-    return ['affectedHeads' => $affected, 'blockingHeads' => $blockers, 'routeConflicts' => $route_conflicts, 'migratedHeads' => 0, 'ok' => $blockers === [] && $route_conflicts === []];
+    return [...$reconciliation, 'routeConflicts' => $route_conflicts, 'ok' => $reconciliation['ok'] && $route_conflicts === []];
 }
 
 function zeroy_runtime_create_failed_deployment(string $artifact_id, ?string $expected_active_artifact_id, array $provenance, array $diagnostics): array|WP_Error
@@ -112,7 +87,8 @@ function zeroy_runtime_activate_theme_deployment(string $deployment_id): array|W
     $result = zeroy_runtime_transaction(function () use ($deployment_id) {
         global $wpdb;
         $lease = zeroy_runtime_acquire_theme_deployment_lease();
-        $deployment = $lease === true ? zeroy_runtime_deployment_row($deployment_id) : $lease;
+        $content_lease = $lease === true ? zeroy_runtime_acquire_content_lease() : $lease;
+        $deployment = $content_lease === true ? zeroy_runtime_deployment_row($deployment_id) : $content_lease;
         if (is_wp_error($deployment) || $deployment === null || $deployment['state'] !== 'prepared') {
             return is_wp_error($deployment) ? $deployment : zeroy_runtime_error('zeroy_deployment_not_prepared', 'ThemeDeployment is not prepared.', 409);
         }
@@ -126,14 +102,25 @@ function zeroy_runtime_activate_theme_deployment(string $deployment_id): array|W
         if (!$plan['ok']) {
             return zeroy_runtime_error('zeroy_deployment_plan_changed', 'ThemeDeployment is no longer compatible with current LocaleOverlay state.', 409, $plan);
         }
-        // This seam sits after every candidate fact has been validated and
-        // before either live pointer is touched.  A transaction rollback here
-        // proves that readers cannot observe a new Artifact with old heads.
+        $migration = zeroy_localization_apply_overlay_reconciliation($schema);
+        if (is_wp_error($migration)) {
+            return $migration;
+        }
+        // This seam is deliberately after LocaleHead movement. A rollback here
+        // proves readers cannot observe a new Artifact with old Overlay facts.
         $fault = zeroy_runtime_fail_if_theme_deployment_fault('activation.before-active-pointer');
         if (is_wp_error($fault)) {
             return $fault;
         }
         $now = current_time('mysql', true);
+        $diagnostics = zeroy_runtime_decode_json((string) $deployment['diagnostics_json']);
+        if (is_wp_error($diagnostics)) {
+            return zeroy_runtime_error('zeroy_deployment_diagnostics_corrupt', 'ThemeDeployment diagnostics are invalid.', 409);
+        }
+        $diagnostics['migrationPlan'] = [...$plan, ...$migration];
+        if ($wpdb->update(zeroy_runtime_table('theme_deployments'), ['diagnostics_json' => zeroy_runtime_json($diagnostics)], ['deployment_id' => $deployment_id]) !== 1) {
+            return zeroy_runtime_error('zeroy_deployment_activation_failed', $wpdb->last_error ?: 'Could not record ThemeDeployment migration results.', 500);
+        }
         $wpdb->update(zeroy_runtime_table('theme_deployments'), ['state' => 'superseded'], ['deployment_id' => $active['active_deployment_id']]);
         if ($wpdb->update(zeroy_runtime_table('theme_deployments'), ['state' => 'active', 'activated_at' => $now], ['deployment_id' => $deployment_id, 'state' => 'prepared']) !== 1 || $wpdb->update(zeroy_runtime_table('theme_state'), ['active_deployment_id' => $deployment_id, 'revision' => (int) $active['revision'] + 1, 'activated_at' => $now], ['singleton' => 1, 'active_deployment_id' => $active['active_deployment_id'], 'revision' => $active['revision']]) !== 1) {
             return zeroy_runtime_error('zeroy_deployment_activation_failed', 'Could not atomically activate ThemeDeployment.', 409);

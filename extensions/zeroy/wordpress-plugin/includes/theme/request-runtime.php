@@ -29,7 +29,7 @@ function zeroy_runtime_candidate_deployment_from_request(): ?array
 function zeroy_runtime_is_candidate_artifact_request(): bool
 {
     $request = $GLOBALS['zeroy_runtime_request_artifact'] ?? null;
-    return is_array($request) && is_array($request['candidate'] ?? null);
+    return is_array($request) && ($request['candidate'] ?? false) === true;
 }
 
 function zeroy_runtime_boot_theme_artifact(): void

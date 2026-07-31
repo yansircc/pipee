@@ -17,10 +17,23 @@ const jsonPayload = (content) => {
 };
 
 /**
- * Pi session JSONL is the acceptance truth. These names deliberately match
- * Pi's persisted tool-call envelope (`toolName` / `input`), not provider API
- * field names or a second test-only event model.
+ * Pi session JSONL is the acceptance truth. Pi persists tool calls in either
+ * host-normalized (`toolCallId` / `toolName` / `input`) or provider-native
+ * (`id` / `name` / `arguments`) blocks. Both describe one Pi tool call; the
+ * ledger normalizes the block at the read boundary without storing another
+ * event model.
  */
+const toolCall = (value) => {
+  const call = record(value);
+  if (call?.type !== "toolCall") return null;
+  const id = typeof call.toolCallId === "string" ? call.toolCallId : call.id;
+  const name = typeof call.toolName === "string" ? call.toolName : call.name;
+  const input = record(call.input) ?? record(call.arguments);
+  return typeof id === "string" && typeof name === "string" && input !== null
+    ? { id, name, input }
+    : null;
+};
+
 export const readToolLedger = (events) => {
   const results = new Map();
   for (const event of events) {
@@ -42,14 +55,12 @@ export const readToolLedger = (events) => {
     const message = record(event)?.message;
     if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
     for (const content of message.content) {
-      const call = record(content);
-      if (call?.type !== "toolCall" || typeof call.toolCallId !== "string") continue;
+      const call = toolCall(content);
+      if (call === null) continue;
       calls.push({
         index,
-        id: call.toolCallId,
-        name: typeof call.toolName === "string" ? call.toolName : "",
-        input: record(call.input),
-        result: results.get(call.toolCallId) ?? null,
+        ...call,
+        result: results.get(call.id) ?? null,
       });
     }
   }

@@ -20,7 +20,7 @@ const extension = resolve(packageRoot, "dist/pi/extension.js");
 const temporary = await mkdtemp(resolve(tmpdir(), "zeroy-translation-acceptance-"));
 const sessionDirectory = resolve(temporary, "sessions");
 const token = `translation-${Date.now().toString(36)}`;
-const prompt = `You are validating the zeroY Connector. Do not inspect extension source code, use shell tools, or use the local filesystem. First inspect configured sites and the selected site's ThemeSchema. Use configured site ${selectedSiteId}. Create a meaningful showcase page named "${token}". If its ThemeSchema declares template content, read that canonical projection and write useful source copy before translating. Then derive the English translation job for that exact page and create its English draft using only its writable fields. Use zeroY's same-origin external check to validate the returned draft preview URL, then publish using the draft receipt revision. Use the same external check to validate both public language versions. Next change exactly one canonical template text field, read the translation job again, repair only the stale English field, publish it, and report the two final public URLs.`;
+const prompt = `You are validating the zeroY Connector. Do not inspect extension source code, use shell tools, or use the local filesystem. First inspect configured sites and the selected site's ThemeSchema. Use configured site ${selectedSiteId}. Create a meaningful showcase page named "${token}". If its ThemeSchema declares template content, read that canonical projection and write useful source copy before translating. Then inspect the site's locale configuration, choose one enabled locale that is not the default locale, and derive the translation job for that exact page in that locale. Create its draft using only its writable fields. Use zeroY's same-origin external check to validate the returned draft preview URL before publishing with the draft receipt revision. Use the same external check to validate both public language versions. Next change exactly one canonical template text field, read the translation job again, repair only the stale field in the selected non-default locale, validate that new draft preview too, publish it, and report the two final public URLs.`;
 
 const inspectResources = new Set([
   "sites",
@@ -178,7 +178,7 @@ const assertLedger = (events, output) => {
   for (const url of publishedUrls) {
     assert(externallyCheckedUrls.has(url), `Published route was not checked: ${url}`);
   }
-  const canonicalId = payload(create)?.objectId;
+  const canonicalId = payload(create)?.canonical?.objectId;
   const checkedLocales = new Set(
     externalChecks.flatMap((entry) => {
       const check = recordValue(payload(entry)?.externalCheck);

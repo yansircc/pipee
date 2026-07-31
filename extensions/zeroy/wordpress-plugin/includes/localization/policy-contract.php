@@ -45,6 +45,18 @@ function zeroy_localization_patterns_overlap(array $left, array $right): bool
 }
 
 /**
+ * Broad defaults and narrow exceptions belong to one pattern algebra. Literal
+ * segments are more specific than wildcards; a finite path is more specific
+ * than a trailing recursive suffix. Equal rank remains ambiguous by design.
+ */
+function zeroy_localization_policy_specificity(array $parts): array
+{
+    $literals = count(array_filter($parts, static fn(string $part): bool => $part !== '*' && $part !== '**'));
+    $recursive = end($parts) === '**';
+    return [$literals, $recursive ? 0 : 1, count($parts)];
+}
+
+/**
  * A field policy is the indivisible classification of one localizable fact.
  * Pattern policies reuse this decoder; TemplateContent uses it directly
  * because its fields are declared one-by-one by the authored template.
@@ -96,8 +108,8 @@ function zeroy_localization_normalize_policy(mixed $input, array &$errors, array
             continue;
         }
         foreach ($normalized_rules as $previous) {
-            if (zeroy_localization_patterns_overlap($pattern, $previous['parts'])) {
-                zeroy_runtime_schema_violation($errors, 'localization_rule_overlap', "Localization pattern {$rule['fieldPattern']} overlaps {$previous['fieldPattern']}.", $rule_context + ['conflictsWith' => $previous['fieldPattern']]);
+            if (zeroy_localization_patterns_overlap($pattern, $previous['parts']) && zeroy_localization_policy_specificity($pattern) === zeroy_localization_policy_specificity($previous['parts'])) {
+                zeroy_runtime_schema_violation($errors, 'localization_rule_ambiguous', "Localization pattern {$rule['fieldPattern']} overlaps equally with {$previous['fieldPattern']}.", $rule_context + ['conflictsWith' => $previous['fieldPattern']]);
             }
         }
         $normalized_rules[] = [

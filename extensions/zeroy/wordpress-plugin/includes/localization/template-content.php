@@ -57,10 +57,16 @@ function zeroy_localization_template_content_field(string $key, string $value, a
     $field_id = '/template-content/' . zeroy_localization_pointer_segment($key);
     return [
         ...zeroy_localization_field($field_id, $key, 'template-content:text', $value, ['templateContent', $key]),
-        // Template content is language-owned. Its locale validity depends on
-        // the authored field contract, not on a change to another locale's
-        // value, so its source identity excludes the default-locale text.
-        'sourceHash' => zeroy_runtime_hash(['fieldId' => $field_id, 'declaration' => $declaration]),
+        // A translation is current only when both the declared contract and
+        // the canonical source text it translated are unchanged. This keeps
+        // TemplateContent on the same source-integrity algebra as post and
+        // ACF fields: a canonical edit makes exactly its locale field stale.
+        'sourceHash' => zeroy_runtime_hash([
+            'fieldId' => $field_id,
+            'kind' => 'template-content:text',
+            'value' => $value,
+            'declaration' => $declaration,
+        ]),
         'localization' => $declaration['localization'],
         'searchable' => $declaration['searchable'],
     ];

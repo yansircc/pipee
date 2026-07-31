@@ -231,8 +231,12 @@ function zeroy_runtime_materialize_artifact_archive(array $manifest, string $arc
         $wpdb->replace(zeroy_runtime_table('theme_artifacts'), [
             'artifact_id' => $artifact_id,
             'manifest_json' => zeroy_runtime_json($manifest),
-            'schema_json' => '',
-            'schema_hash' => '',
+            // Re-materializing an existing immutable Artifact is repair of its
+            // bytes, never a replacement of its already-validated schema
+            // snapshot. Clearing it would make an otherwise successful repair
+            // leave the active deployment unreadable.
+            'schema_json' => $existing['schema_json'] ?? '',
+            'schema_hash' => $existing['schema_hash'] ?? '',
             'file_count' => count($manifest['entries']),
             'total_bytes' => array_sum(array_column($manifest['entries'], 'bytes')),
             'created_at' => $existing['created_at'] ?? current_time('mysql', true),

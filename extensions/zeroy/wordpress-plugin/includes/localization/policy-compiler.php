@@ -61,18 +61,37 @@ function zeroy_localization_rule_for_field(array $policy, string $field_id): arr
             $matches[] = $rule;
         }
     }
-    if (count($matches) !== 1) {
+    if ($matches === []) {
         return zeroy_runtime_error(
-            count($matches) === 0 ? 'zeroy_localization_field_unclassified' : 'zeroy_localization_field_ambiguous',
-            count($matches) === 0
-                ? "Canonical field {$field_id} has no LocalizationPolicy rule."
-                : "Canonical field {$field_id} matches multiple LocalizationPolicy rules.",
+            'zeroy_localization_field_unclassified',
+            "Canonical field {$field_id} has no LocalizationPolicy rule.",
             409,
-            ['fieldId' => $field_id, 'matches' => array_column($matches, 'fieldPattern')]
+            ['fieldId' => $field_id]
         );
     }
-    return $matches[0];
+    usort($matches, static function (array $left, array $right): int {
+        $left_rank = zeroy_localization_policy_specificity($left['parts']);
+        $right_rank = zeroy_localization_policy_specificity($right['parts']);
+        foreach ($left_rank as $index => $value) {
+            if ($value !== $right_rank[$index]) {
+                return $right_rank[$index] <=> $value;
+            }
+        }
+        return 0;
+    });
+    $winner = $matches[0];
+    $winner_rank = zeroy_localization_policy_specificity($winner['parts']);
+    $ties = array_values(array_filter($matches, static fn(array $rule): bool => zeroy_localization_policy_specificity($rule['parts']) === $winner_rank));
+    return count($ties) === 1
+        ? $winner
+        : zeroy_runtime_error(
+            'zeroy_localization_field_ambiguous',
+            "Canonical field {$field_id} matches equally-specific LocalizationPolicy rules.",
+            409,
+            ['fieldId' => $field_id, 'matches' => array_column($ties, 'fieldPattern')]
+        );
 }
+
 
 function zeroy_localization_compile_subject_policy(array $subject, array $definition): array|WP_Error
 {
