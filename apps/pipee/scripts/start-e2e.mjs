@@ -88,7 +88,7 @@ await writeFile(join(workspace, "hello.txt"), "hello from the isolated e2e works
 await writeFile(join(workspace, "long.txt"), Array.from({ length: 240 }, (_, index) => `line ${index + 1}`).join("\n"))
 await mkdir(join(workspace, "nested"), { recursive: true })
 await writeFile(join(workspace, "nested", "deep-result.ts"), "export const deepResult = 42\n")
-const fixtureSkillDirectory = join(workspace, ".agents", "skills", "e2e-skill")
+const fixtureSkillDirectory = join(workspace, ".pi", "skills", "e2e-skill")
 await mkdir(fixtureSkillDirectory, { recursive: true })
 await writeFile(
   join(fixtureSkillDirectory, "SKILL.md"),
@@ -96,6 +96,12 @@ await writeFile(
 )
 await mkdir(join(fixtureSkillDirectory, "references"), { recursive: true })
 await writeFile(join(fixtureSkillDirectory, "references", "guide.md"), "# Guide\n\nSkill-owned reference.\n")
+const ambientSkillDirectory = join(workspace, ".agents", "skills", "ambient-skill")
+await mkdir(ambientSkillDirectory, { recursive: true })
+await writeFile(
+  join(ambientSkillDirectory, "SKILL.md"),
+  "---\nname: ambient-skill\ndescription: ambient projection fixture\n---\n\n# Ambient skill\n",
+)
 const readOnlySkillDirectory = join(workspace, ".agents", "skills", "read-only-skill")
 const readOnlySkillFile = join(readOnlySkillDirectory, "SKILL.md")
 await mkdir(readOnlySkillDirectory, { recursive: true })
