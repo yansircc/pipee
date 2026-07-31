@@ -51,9 +51,45 @@ function zeroy_runtime_reserved_route_for_request(): ?array
     return null;
 }
 
+function zeroy_runtime_reserved_collection_for_request(): ?array
+{
+    static $resolved = false;
+    static $reservation = null;
+    if ($resolved) {
+        return $reservation;
+    }
+    $resolved = true;
+    $request_path = zeroy_runtime_request_path();
+    if ($request_path === null) {
+        return null;
+    }
+    global $wpdb;
+    $rows = $wpdb->get_results(
+        'SELECT locale, route_path, url_prefix, collection_id, kind FROM ' . zeroy_runtime_table('collection_route_reservations') . ' ORDER BY CHAR_LENGTH(route_path) DESC',
+        ARRAY_A
+    );
+    foreach (is_array($rows) ? $rows : [] as $row) {
+        $base = trim(($row['url_prefix'] === '' ? '' : $row['url_prefix'] . '/') . $row['route_path'], '/');
+        if ($row['kind'] === 'post-archive' && $request_path === $base) {
+            $reservation = [...$row, 'termSlug' => null];
+            return $reservation;
+        }
+        if ($row['kind'] === 'taxonomy' && str_starts_with($request_path, $base . '/')) {
+            $term_slug = substr($request_path, strlen($base) + 1);
+            if ($term_slug !== '' && !str_contains($term_slug, '/')) {
+                $reservation = [...$row, 'termSlug' => $term_slug];
+                return $reservation;
+            }
+        }
+    }
+    return null;
+}
+
 function zeroy_runtime_disable_canonical_redirect(mixed $redirect): mixed
 {
-    return zeroy_runtime_reserved_route_for_request() === null ? $redirect : false;
+    return zeroy_runtime_reserved_route_for_request() === null && zeroy_runtime_reserved_collection_for_request() === null
+        ? $redirect
+        : false;
 }
 add_filter('redirect_canonical', 'zeroy_runtime_disable_canonical_redirect', 1);
 
@@ -101,6 +137,7 @@ function zeroy_runtime_render_document(
         header('X-Robots-Tag: noindex, nofollow, noarchive', true);
     }
     $GLOBALS['zeroy_runtime_route_context'] = [
+        'kind' => 'canonical',
         'objectId' => (int) $head['object_id'],
         'locale' => $head['locale'],
         'schemaId' => $head['schema_id'],
@@ -128,6 +165,111 @@ function zeroy_runtime_render_document(
     unset($GLOBALS['zeroy_runtime_route_context']);
     exit;
 }
+
+function zeroy_runtime_collection_locale_links(array $definition, ?string $term_slug): array
+{
+    $links = [];
+    $config = zeroy_runtime_site_config();
+    if (is_wp_error($config)) {
+        return [];
+    }
+    $route = $definition['route'] . ($term_slug === null ? '' : '/' . $term_slug);
+    foreach ($config['enabledLocales'] as $locale) {
+        $links[] = [
+            'locale' => $locale['locale'],
+            'available' => true,
+            'url' => zeroy_runtime_route_url($locale['locale'], $route),
+        ];
+    }
+    return $links;
+}
+
+function zeroy_runtime_collection_title(array $definition, string $locale, ?WP_Term $term): string|WP_Error
+{
+    if ($term instanceof WP_Term) {
+        return $term->name;
+    }
+    $title_node = $definition['titleNode'] ?? null;
+    if (!is_string($title_node)) {
+        return (string) $definition['label'];
+    }
+    $copy = zeroy_runtime_read_document(
+        ZEROY_RUNTIME_THEME_COPY_OBJECT_ID,
+        $locale,
+        ZEROY_RUNTIME_THEME_COPY_SCHEMA_ID
+    );
+    if (is_wp_error($copy)) {
+        // Collection identity is available for every enabled locale, including
+        // an empty site before ThemeCopy exists. The schema label is its
+        // canonical title; optional ThemeCopy only localizes that title.
+        return (string) $definition['label'];
+    }
+    $title = $copy[$title_node] ?? null;
+    return is_string($title) && trim($title) !== '' ? $title : (string) $definition['label'];
+}
+
+function zeroy_runtime_render_collection_route(): void
+{
+    $reservation = zeroy_runtime_reserved_collection_for_request();
+    if ($reservation === null) {
+        return;
+    }
+    if (!zeroy_runtime_locale_is_enabled((string) $reservation['locale'])) {
+        zeroy_runtime_render_404();
+    }
+    $collections = zeroy_runtime_collection_definitions();
+    if (is_wp_error($collections)) {
+        zeroy_runtime_render_404();
+    }
+    $definition = $collections[$reservation['collection_id']] ?? null;
+    if (
+        !is_array($definition) ||
+        $definition['kind'] !== $reservation['kind'] ||
+        $definition['route'] !== $reservation['route_path']
+    ) {
+        // Historic collection reservations never fall through to WordPress.
+        zeroy_runtime_render_404();
+    }
+    $term = null;
+    if ($definition['kind'] === 'taxonomy') {
+        $term = get_term_by('slug', (string) $reservation['termSlug'], (string) $definition['taxonomy']);
+        if (!$term instanceof WP_Term) {
+            zeroy_runtime_render_404();
+        }
+    }
+    $title = zeroy_runtime_collection_title($definition, (string) $reservation['locale'], $term);
+    if (is_wp_error($title)) {
+        zeroy_runtime_render_404();
+    }
+    $relative_route = $definition['route'] . ($term instanceof WP_Term ? '/' . $term->slug : '');
+    $links = zeroy_runtime_collection_locale_links($definition, $term instanceof WP_Term ? $term->slug : null);
+    $context = [
+        'kind' => 'collection',
+        'collectionId' => $reservation['collection_id'],
+        'collectionKind' => $definition['kind'],
+        'locale' => $reservation['locale'],
+        'route' => $relative_route,
+        'schemaId' => $definition['schemaId'],
+        'title' => $title,
+        'term' => $term,
+        'links' => $links,
+    ];
+    $template = get_stylesheet_directory() . '/' . $definition['template'];
+    if (!is_file($template) || is_link($template)) {
+        zeroy_runtime_render_404();
+    }
+    global $wp_query;
+    if ($wp_query instanceof WP_Query) {
+        $wp_query->is_404 = false;
+    }
+    status_header(200);
+    $GLOBALS['zeroy_runtime_route_context'] = $context;
+    $zeroy_collection = $context;
+    include $template;
+    unset($GLOBALS['zeroy_runtime_route_context']);
+    exit;
+}
+add_action('template_redirect', 'zeroy_runtime_render_collection_route', 1);
 
 function zeroy_runtime_render_route(): void
 {
@@ -195,6 +337,10 @@ function zeroy_runtime_localized_title_parts(array $parts): array
 {
     $context = $GLOBALS['zeroy_runtime_route_context'] ?? null;
     if (!is_array($context)) {
+        return $parts;
+    }
+    if (($context['kind'] ?? null) === 'collection') {
+        $parts['title'] = (string) $context['title'];
         return $parts;
     }
     $content = zeroy_locale_content(
@@ -279,10 +425,12 @@ add_action('template_redirect', 'zeroy_runtime_redirect_native_canonical', 0);
 function zeroy_runtime_emit_seo_links(): void
 {
     $context = $GLOBALS['zeroy_runtime_route_context'] ?? null;
-    if (!is_array($context) || $context['previewVersionId'] !== null) {
+    if (!is_array($context) || ($context['previewVersionId'] ?? null) !== null) {
         return;
     }
-    $links = zeroy_runtime_published_locale_links((int) $context['objectId'], (string) $context['schemaId']);
+    $links = ($context['kind'] ?? null) === 'collection'
+        ? $context['links']
+        : zeroy_runtime_published_locale_links((int) $context['objectId'], (string) $context['schemaId']);
     foreach ($links as $link) {
         if ($link['locale'] === $context['locale']) {
             echo '<link rel="canonical" href="' . esc_url($link['url']) . "\" />\n";

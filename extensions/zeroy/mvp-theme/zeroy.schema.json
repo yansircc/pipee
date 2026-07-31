@@ -161,7 +161,48 @@
         "kind": "text",
         "required": false,
         "searchable": false
+      },
+      "archive_line_title": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "archive_machine_title": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
+      },
+      "archive_service_title": {
+        "kind": "text",
+        "required": false,
+        "searchable": false
       }
+    }
+  },
+  "collections": {
+    "production-lines": {
+      "kind": "post-archive",
+      "label": "Production Lines",
+      "route": "production-line",
+      "template": "zeroy-collection-template.php",
+      "schemaId": "production-line",
+      "titleNode": "archive_line_title"
+    },
+    "machines": {
+      "kind": "post-archive",
+      "label": "Machines",
+      "route": "machine",
+      "template": "zeroy-collection-template.php",
+      "schemaId": "machine",
+      "titleNode": "archive_machine_title"
+    },
+    "services": {
+      "kind": "post-archive",
+      "label": "Services",
+      "route": "service",
+      "template": "zeroy-collection-template.php",
+      "schemaId": "service",
+      "titleNode": "archive_service_title"
     }
   },
   "schemas": {

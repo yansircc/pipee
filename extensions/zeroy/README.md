@@ -23,22 +23,25 @@ zeroY Runtime Connector (WordPress)
 
 - Site-local `defaultLocale` and enabled locales, each with an explicit URL
   prefix and CAS revision.
-- `zeroy.schema.json` from the active theme. It declares localized `text` and
-  `rich-text` node IDs; its optional `themeCopy` declares global shell copy.
-  It never duplicates ACF fields or language config.
+- `zeroy.schema.json` is the Agent-authored ThemeSchema candidate. A successful
+  Connector apply transaction reconciles every LocaleHead, reserves declared
+  collection routes and atomically replaces one active database snapshot.
+  Readers never inspect the candidate file directly.
 - WordPress post fields and ACF values are canonical business facts. zeroY
   LocaleHeads are a separate, explicit localized presentation fact; they never
   silently copy, translate, or overwrite ACF values.
 - One canonical WordPress object per localized business page, then a separate
   LocaleHead and immutable LocaleVersion for each language. ThemeCopy uses the
   same version-pointer algebra but has no WordPress post or route.
-- Locale-first routes, archive/search projections, canonical and `hreflang`.
+- Locale-first object and CollectionRoutes, archive/search projections,
+  canonical and `hreflang`.
   Missing, draft, disabled, unpublished or schema-mismatched locales are 404;
   there is no fallback language.
-- ThemeSchema changes are hard cuts. The runtime writes new immutable versions
-  under the active schema hash, dropping NodeIds removed by the new schema.
-  It never reads an old schema. New required NodeIds that have no factual value
-  remain an explicit `schema-mismatch` until the Agent writes them.
+- ThemeSchema activation is a hard-cut transaction. Lossless migrations create
+  new immutable versions and switch the active snapshot in the same commit. If
+  any head or route is incompatible, the transaction rolls back and the old
+  snapshot remains live; the apply receipt lists every affected head. Directly
+  editing the candidate file only produces `schema_candidate_not_active`.
 - Active-theme regular files only. Each write requires the hash that was read;
   a multi-file request reports its actual per-file partial outcome.
 
@@ -97,7 +100,18 @@ conversation. Optional PageSpeed checks are extension-owned; set
   "themeCopy": {
     "nodes": {
       "nav.home": { "kind": "text", "required": true, "searchable": false },
-      "cta.quote": { "kind": "text", "required": true, "searchable": false }
+      "cta.quote": { "kind": "text", "required": true, "searchable": false },
+      "archive.case_studies": { "kind": "text", "required": false, "searchable": false }
+    }
+  },
+  "collections": {
+    "case-studies": {
+      "kind": "post-archive",
+      "label": "Case studies",
+      "route": "case-studies",
+      "template": "collection-case-studies.php",
+      "schemaId": "case-study",
+      "titleNode": "archive.case_studies"
     }
   },
   "schemas": {
@@ -114,6 +128,26 @@ conversation. Optional PageSpeed checks are extension-owned; set
     }
   }
 }
+```
+
+CollectionRoutes are available for every enabled locale even when empty. The
+Connector owns locale prefixes, permanent route reservations, canonical and
+alternate links; the template owns only markup:
+
+```php
+$collection = zeroy_collection_context();
+$page = zeroy_collection_items(['url', '/post/title', '/post/excerpt']);
+```
+
+Relationship fields stay as canonical IDs. Resolve cards explicitly and in a
+batch so ordinary content reads never hide I/O or recursive hydration:
+
+```php
+$related = zeroy_locale_entities(
+    $content['acf']['related_machines'],
+    zeroy_current_locale(),
+    ['url', '/post/title', '/acf/machine_capacity']
+);
 ```
 
 The PHP template reads one resolved projection through the explicit identity
@@ -247,10 +281,10 @@ audits the Pi session JSONL for probes, validation failures, unknown actions,
 revision chaining, Connector-only readback and final HTTP 200 responses.
 
 The destructive LocalWP proof requires active ACF and a disposable runtime
-site. It validates revision conflicts, default-language locking, hash guarded
-theme writes, real partial batch results, schema/content-hash 404/recovery,
-unresolved-publish rejection, stale-source detection, unpublish and
-disabled-language tombstones, locale-first archive/search, ACF projection, and
+site. It validates revision conflicts, transactional schema activation,
+staged-candidate reader continuity, CollectionRoute/taxonomy tombstones,
+batch entity URLs, default-language locking, hash guarded theme writes,
+unresolved-publish rejection, stale-source detection, ACF projection and
 Connector integrity.
 
 ```sh
@@ -260,12 +294,22 @@ locwp wp 10013 -- eval-file "$PWD/extensions/zeroy/test-suite/local-runtime-acce
 
 ## V1 boundary
 
-This version intentionally permits direct writes to a live active theme. It
-has no staging, approval, rollback, multi-file transaction, full production
-authorization model, arbitrary PHP execution, direct SQL, cross-site fleet,
-or manual WordPress translation UI. The Connector itself, WordPress core,
-other plugins and inactive themes are outside the writable boundary.
+This version intentionally permits direct writes to a live active theme.
+ThemeSchema activation is staged and transactional, but arbitrary PHP/CSS/JS
+files in one `theme_apply` request are still independent hash-guarded writes,
+not a versioned theme release. It has no approval, whole-theme rollback, full
+production authorization model, arbitrary command execution, direct SQL,
+cross-site fleet, or manual WordPress translation UI.
 
-When a product needs all-or-nothing releases, unattended customer writes or
-multi-tenant access, this must move to a staging/release-pointer model rather
-than grow conditional safety branches in the direct-write port.
+When templates and assets must switch atomically with ThemeSchema, the active
+theme itself must move to immutable release directories plus one release
+pointer. Do not simulate that guarantee with file-ordering or fallback reads.
+
+### Removing pre-CollectionRoute stopgaps
+
+When migrating an existing theme, delete its archive rewrite rules, locale
+query variable, manual language-URL builder, archive canonical/hreflang hooks,
+and route-to-post-type configuration table. Replace `have_posts()`/manual
+`zeroy_locale_content()` loops with `zeroy_collection_context()` and
+`zeroy_collection_items()`. Historic Connector reservations remain 404
+tombstones; theme rewrites never regain those paths.

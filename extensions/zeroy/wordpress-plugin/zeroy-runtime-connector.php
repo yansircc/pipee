@@ -2,13 +2,13 @@
 /**
  * Plugin Name: zeroY Runtime Connector
  * Description: Locale runtime kernel and typed Connector for Agent-authored WordPress themes.
- * Version: 1.3.0
+ * Version: 1.4.0
  * Requires PHP: 8.1
  */
 
 defined('ABSPATH') || exit;
 
-define('ZEROY_RUNTIME_VERSION', '1.3.0');
+define('ZEROY_RUNTIME_VERSION', '1.4.0');
 define('ZEROY_THEME_SCHEMA_CONTRACT', 'zeroy/theme-schema@1');
 define('ZEROY_LOCALE_VERSION_CONTRACT', 'zeroy/locale-version@2');
 define('ZEROY_THEME_COPY_VERSION_CONTRACT', 'zeroy/theme-copy-version@2');
@@ -16,9 +16,8 @@ define('ZEROY_RUNTIME_SITE_ID_OPTION', 'zeroy_runtime_site_id');
 define('ZEROY_RUNTIME_CONNECTION_KEY_OPTION', 'zeroy_runtime_connection_key');
 define('ZEROY_RUNTIME_SCHEMA_META', '_zeroy_runtime_schema_id');
 define('ZEROY_RUNTIME_CANONICAL_REVISION_META', '_zeroy_runtime_canonical_revision');
-define('ZEROY_RUNTIME_DATABASE_VERSION', '1.3.0');
+define('ZEROY_RUNTIME_DATABASE_VERSION', '1.4.0');
 define('ZEROY_RUNTIME_DATABASE_VERSION_OPTION', 'zeroy_runtime_database_version');
-define('ZEROY_RUNTIME_RECONCILED_SCHEMA_HASH_OPTION', 'zeroy_runtime_reconciled_schema_hash');
 define('ZEROY_RUNTIME_THEME_COPY_OBJECT_ID', 0);
 define('ZEROY_RUNTIME_THEME_COPY_SCHEMA_ID', 'theme-copy');
 

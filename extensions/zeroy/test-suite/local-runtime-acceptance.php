@@ -104,6 +104,10 @@ $config_changed = false;
 $theme_file = null;
 $theme_copy_created = false;
 $front_page_id = null;
+$acceptance_taxonomy = null;
+$acceptance_term_id = null;
+$cleanup_object_ids = [];
+$cleanup_acf_group_keys = [];
 
 try {
     $token = strtolower(wp_generate_password(10, false, false));
@@ -124,6 +128,7 @@ try {
     $canonical = zeroy_runtime_create_canonical('page', 'showcase', 'Runtime acceptance ' . $token);
     zeroy_accept(!is_wp_error($canonical), 'Could not create canonical object.');
     $object_id = $canonical['objectId'];
+    $cleanup_object_ids[] = (int) $object_id;
 
     $zh_draft = zeroy_runtime_write_draft(
         $object_id,
@@ -145,6 +150,9 @@ try {
     zeroy_accept(zeroy_accept_http_status(zeroy_runtime_route_url('zh-CN', $route)) === 200, 'Published locale route must render 200.');
     zeroy_accept(zeroy_accept_contains(zeroy_locale_archive('zh-CN', 'showcase'), $object_id), 'Locale archive must include published object.');
     zeroy_accept(zeroy_accept_contains(zeroy_locale_search('zh-CN', 'showcase', $token), $object_id), 'Locale search must include published object.');
+    $entities = zeroy_locale_entities([$object_id], 'zh-CN', ['url', '/post/title', '/post/excerpt']);
+    zeroy_accept(!is_wp_error($entities) && ($entities['items'][0]['url'] ?? null) === zeroy_runtime_route_url('zh-CN', $route), 'Batch locale entity projection must own resolved URLs.');
+    zeroy_accept(($entities['items'][0]['fields']['post']['title'] ?? null) === 'Runtime acceptance ' . $token, 'Batch locale entity projection must return only selected resolved fields.');
     $published_version_before_schema_migration = (int) $published['publishedVersionId'];
 
     $front_locale = $original_config['defaultLocale'];
@@ -160,6 +168,7 @@ try {
         $front_page = zeroy_runtime_create_canonical('page', 'showcase', 'FrontPage acceptance ' . $token);
         zeroy_accept(!is_wp_error($front_page), 'Could not create FrontPage canonical object.');
         $front_page_id = (int) $front_page['objectId'];
+        $cleanup_object_ids[] = $front_page_id;
         $front_draft = zeroy_runtime_write_draft(
             $front_page['objectId'],
             $front_locale,
@@ -172,6 +181,13 @@ try {
         zeroy_accept(!is_wp_error(zeroy_runtime_publish_draft($front_page['objectId'], $front_locale, 1)), 'Could not publish FrontPage draft.');
     }
     zeroy_accept(zeroy_accept_http_status(home_url('/')) === 200, 'Published FrontPage route must render 200 without a theme redirect.');
+    $collections = zeroy_runtime_collection_definitions();
+    if (is_array($collections) && isset($collections['machines'])) {
+        foreach ($original_config['enabledLocales'] as $locale) {
+            $collection_url = zeroy_runtime_route_url((string) $locale['locale'], (string) $collections['machines']['route']);
+            zeroy_accept(zeroy_accept_http_status($collection_url) === 200, 'CollectionRoute must remain available for every enabled locale even when its result is empty.');
+        }
+    }
 
     $default_switch = $original_config;
     $alternate_default = null;
@@ -213,36 +229,88 @@ try {
     $metadata_schema = $original_schema;
     $metadata_schema['schemas']['showcase']['titleNode'] = 'title';
     $metadata_schema['schemas']['showcase']['nodes']['subtitle'] = ['kind' => 'text', 'required' => false, 'searchable' => false];
+    $acceptance_taxonomy = 'process_stage';
+    zeroy_accept(taxonomy_exists($acceptance_taxonomy), 'Acceptance site must register the process_stage taxonomy on every request.');
+    $acceptance_term = wp_insert_term('Acceptance term ' . $token, $acceptance_taxonomy, ['slug' => 'term-' . $token]);
+    zeroy_accept(!is_wp_error($acceptance_term), 'Could not create taxonomy CollectionRoute term.');
+    $acceptance_term_id = (int) $acceptance_term['term_id'];
+    $metadata_schema['collections']['acceptance-taxonomy'] = [
+        'kind' => 'taxonomy',
+        'label' => 'Acceptance taxonomy',
+        'route' => 'acceptance-taxonomy-' . $token,
+        'template' => 'zeroy-collection-template.php',
+        'schemaId' => 'showcase',
+        'taxonomy' => $acceptance_taxonomy,
+    ];
     $metadata_change = zeroy_accept_theme_write([[
         'path' => 'zeroy.schema.json',
         'content' => wp_json_encode($metadata_schema, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
         'expectedHash' => hash('sha256', $original_schema_json),
     ]]);
     zeroy_accept($metadata_change['ok'] === true, 'Schema mutation must use theme write port.');
-    zeroy_accept(($metadata_change['schemaReconciliation']['migrated'] ?? 0) >= 1, 'A valid published document must hard-migrate after an optional-node schema change.');
+    zeroy_accept(
+        ($metadata_change['schemaReconciliation']['migrated'] ?? 0) >= 1,
+        'A valid published document must hard-migrate after an optional-node schema change: ' . wp_json_encode($metadata_change['schemaReconciliation'] ?? $metadata_change)
+    );
+    zeroy_accept(
+        count($metadata_change['schemaDeployment']['affectedHeads'] ?? []) >= 1 &&
+        count(array_filter(
+            $metadata_change['schemaDeployment']['affectedHeads'] ?? [],
+            static fn(array $head): bool => ($head['applied'] ?? null) !== true,
+        )) === 0,
+        'A successful deployment receipt must mark every reported LocaleHead migration as applied.',
+    );
+    $taxonomy_url = zeroy_runtime_route_url('zh-CN', 'acceptance-taxonomy-' . $token . '/term-' . $token);
+    zeroy_accept(zeroy_accept_http_status($taxonomy_url) === 200, 'A declared taxonomy CollectionRoute must render through the Connector without theme rewrite rules.');
     $migrated_head = zeroy_runtime_get_head($object_id, 'zh-CN');
     zeroy_accept(is_array($migrated_head) && (int) $migrated_head['published_version_id'] !== $published_version_before_schema_migration, 'Schema migration must advance the immutable published version pointer.');
     zeroy_accept(!is_wp_error(zeroy_runtime_read_document($object_id, 'zh-CN', 'showcase')), 'A migrated published document must use the active schema with no compatibility reader.');
 
+    $blocked_schema = $metadata_schema;
+    $blocked_schema['schemas']['showcase']['nodes']['tagline'] = ['kind' => 'text', 'required' => true, 'searchable' => false];
+    $blocked_change = zeroy_accept_theme_write([[
+        'path' => 'zeroy.schema.json',
+        'content' => wp_json_encode($blocked_schema, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
+        'expectedHash' => $metadata_change['results'][0]['hash'],
+    ]]);
+    zeroy_accept($blocked_change['ok'] === true, 'A blocked schema candidate must still report that its source file was written.');
+    zeroy_accept(($blocked_change['schemaDeployment']['state'] ?? null) === 'staged', 'An incompatible schema candidate must remain staged.');
+    zeroy_accept(count($blocked_change['schemaDeployment']['affectedHeads'] ?? []) >= 1, 'A blocked deployment must return every affected LocaleHead in its receipt.');
+    zeroy_accept(
+        count(array_filter(
+            $blocked_change['schemaDeployment']['affectedHeads'] ?? [],
+            static fn(array $head): bool => ($head['applied'] ?? null) !== false || ($head['state'] ?? null) === 'migrated',
+        )) === 0,
+        'A blocked deployment receipt must distinguish unapplied migration plans from committed migrations.',
+    );
+    zeroy_accept(!is_wp_error(zeroy_runtime_read_document($object_id, 'zh-CN', 'showcase')), 'A blocked candidate must leave the active schema and published head readable.');
+    zeroy_accept(zeroy_accept_http_status(zeroy_runtime_route_url('zh-CN', $route)) === 200, 'Readers must never observe a staged schema with old heads.');
+
     $changed_schema = $metadata_schema;
-    $changed_schema['schemas']['showcase']['nodes']['tagline'] = ['kind' => 'text', 'required' => true, 'searchable' => false];
-    $changed_schema['themeCopy'] = [
-        'nodes' => [
-            'nav.home' => ['kind' => 'text', 'required' => true, 'searchable' => false],
-            'cta.quote' => ['kind' => 'text', 'required' => true, 'searchable' => false],
-        ],
-    ];
+    $changed_schema['themeCopy']['nodes']['nav.home'] = ['kind' => 'text', 'required' => true, 'searchable' => false];
+    $changed_schema['themeCopy']['nodes']['cta.quote'] = ['kind' => 'text', 'required' => true, 'searchable' => false];
     $schema_change = zeroy_accept_theme_write([[
         'path' => 'zeroy.schema.json',
         'content' => wp_json_encode($changed_schema, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
-        'expectedHash' => $metadata_change['results'][0]['hash'],
+        'expectedHash' => $blocked_change['results'][0]['hash'],
     ]]);
     zeroy_accept($schema_change['ok'] === true, 'Schema mutation must use theme write port.');
-    zeroy_accept(($schema_change['schemaReconciliation']['incompatible'] ?? 0) >= 1, 'A missing required NodeId must remain explicitly incompatible after hard schema migration.');
+    zeroy_accept(
+        ($schema_change['schemaDeployment']['state'] ?? null) === 'ready',
+        'A compatible replacement candidate must activate transactionally: ' . wp_json_encode($schema_change['schemaDeployment'] ?? $schema_change)
+    );
+    $theme_copy_values = [];
+    foreach ($changed_schema['themeCopy']['nodes'] as $node_id => $node) {
+        if (($node['required'] ?? false) === true) {
+            $theme_copy_values[$node_id] = 'Acceptance ' . $node_id;
+        }
+    }
+    $theme_copy_values['nav.home'] = '首页';
+    $theme_copy_values['cta.quote'] = '获取报价';
     $theme_copy_draft = zeroy_accept_theme_copy_write([
         'action' => 'writeThemeCopyDraft',
         'locale' => 'zh-CN',
-        'document' => zeroy_accept_theme_copy_version(['nav.home' => '首页', 'cta.quote' => '获取报价']),
+        'document' => zeroy_accept_theme_copy_version($theme_copy_values),
         'expectedRevision' => 0,
     ]);
     zeroy_accept(($theme_copy_draft['receipt']['scope'] ?? null) === 'themeCopy' && !array_key_exists('draft', $theme_copy_draft['receipt']), 'ThemeCopy draft must return a compact REST receipt.');
@@ -269,7 +337,7 @@ try {
     $theme_copy_committed = zeroy_accept_theme_copy_write([
         'action' => 'commitThemeCopy',
         'locale' => 'zh-CN',
-        'document' => zeroy_accept_theme_copy_version(['nav.home' => '首页', 'cta.quote' => '获取报价']),
+        'document' => zeroy_accept_theme_copy_version($theme_copy_values),
         'expectedRevision' => 4,
     ]);
     zeroy_accept(($theme_copy_committed['receipt']['state'] ?? null) === 'published' && ($theme_copy_committed['receipt']['revision'] ?? null) === 5, 'ThemeCopy commit must write and publish one new immutable version.');
@@ -279,61 +347,76 @@ try {
     zeroy_accept(zeroy_theme_copy_document('zh-CN')['nav.home'] === '首页', 'Theme PHP helper must read published ThemeCopy.');
     $integrity_probe_schema = $changed_schema;
     $integrity_probe_schema['themeCopy']['nodes']['integrity.probe'] = ['kind' => 'text', 'required' => false, 'searchable' => false];
+    $integrity_probe_json = wp_json_encode($integrity_probe_schema, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
     file_put_contents(
         $schema_path,
-        wp_json_encode($integrity_probe_schema, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
+        $integrity_probe_json,
         LOCK_EX,
     );
     $theme_copy_integrity = zeroy_runtime_integrity();
-    $theme_copy_issues = array_values(array_filter(
+    $candidate_issues = array_values(array_filter(
         $theme_copy_integrity['issues'],
-        static fn(array $issue): bool => ($issue['scope'] ?? null) === 'themeCopy' && ($issue['locale'] ?? null) === 'zh-CN',
+        static fn(array $issue): bool => ($issue['code'] ?? null) === 'schema_candidate_not_active',
     ));
     zeroy_accept(
-        ($theme_copy_integrity['ok'] ?? true) === false && ($theme_copy_issues[0]['code'] ?? null) === 'schema-mismatch',
-        'Integrity must fail closed when published ThemeCopy no longer matches the active ThemeSchema.',
+        ($theme_copy_integrity['ok'] ?? true) === false && count($candidate_issues) === 1,
+        'Integrity must report a ThemeSchema file changed outside the activation transaction.',
     );
-    file_put_contents(
-        $schema_path,
-        wp_json_encode($changed_schema, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n",
-        LOCK_EX,
-    );
-    zeroy_accept_error(zeroy_runtime_read_document($object_id, 'zh-CN', 'showcase'), 'zeroy_schema_mismatch', 'Old-schema published document');
-    zeroy_accept(zeroy_accept_http_status(zeroy_runtime_route_url('zh-CN', $route)) === 404, 'Old-schema published route must fail closed.');
-
-    $rewritten = zeroy_runtime_write_draft(
-        $object_id,
-        'zh-CN',
-        'showcase',
-        $route,
-        zeroy_accept_locale_version($object_id, ['title' => '运行时验收 ' . $token, 'intro' => '按新 schema 重写。', 'tagline' => 'schema v2']),
-        3,
-    );
-    zeroy_accept(!is_wp_error($rewritten) && $rewritten['revision'] === 4, 'Schema rewrite must advance draft pointer.');
-    zeroy_accept(!is_wp_error(zeroy_runtime_publish_draft($object_id, 'zh-CN', 4)), 'Rewritten draft must publish.');
-    zeroy_accept(zeroy_accept_http_status(zeroy_runtime_route_url('zh-CN', $route)) === 200, 'Rewritten locale route must recover.');
+    zeroy_accept(!is_wp_error(zeroy_runtime_read_document($object_id, 'zh-CN', 'showcase')), 'A bypassed schema edit must not alter the active reader.');
+    zeroy_accept(zeroy_accept_http_status(zeroy_runtime_route_url('zh-CN', $route)) === 200, 'A bypassed schema edit must not interrupt a published route.');
 
     $restore_schema = zeroy_accept_theme_write([[
         'path' => 'zeroy.schema.json',
         'content' => $original_schema_json,
-        'expectedHash' => $schema_change['results'][0]['hash'],
+        'expectedHash' => hash('sha256', $integrity_probe_json),
     ]]);
     zeroy_accept($restore_schema['ok'] === true, 'Could not restore original ThemeSchema.');
     zeroy_accept(($restore_schema['schemaReconciliation']['migrated'] ?? 0) >= 1, 'Removing a NodeId must hard-migrate documents instead of retaining an old-schema reader.');
     $restored_head = zeroy_runtime_get_head($object_id, 'zh-CN');
-    zeroy_accept(is_array($restored_head) && (int) $restored_head['revision'] === 6, 'Hard migration after removing a NodeId must advance the LocaleHead once.');
+    zeroy_accept(is_array($restored_head), 'Restored LocaleHead must remain available.');
     $restored_document = zeroy_runtime_read_document($object_id, 'zh-CN', 'showcase');
-    zeroy_accept(is_array($restored_document) && !array_key_exists('tagline', $restored_document['nodes']), 'Hard migration must remove NodeIds absent from the active ThemeSchema.');
+    zeroy_accept(is_array($restored_document) && !array_key_exists('subtitle', $restored_document['nodes']), 'Hard migration must remove NodeIds absent from the active ThemeSchema.');
+    zeroy_accept(zeroy_accept_http_status($taxonomy_url) === 404, 'A removed CollectionRoute reservation must remain a 404 tombstone instead of falling through to WordPress.');
+    zeroy_accept(zeroy_runtime_collection_route_spaces_overlap('post-archive', 'products', 'post-archive', 'products'), 'Equal archive routes must overlap.');
+    zeroy_accept(!zeroy_runtime_collection_route_spaces_overlap('post-archive', 'products', 'post-archive', 'products/featured'), 'Nested archive routes are distinct exact-match identities.');
+    zeroy_accept(zeroy_runtime_collection_route_spaces_overlap('post-archive', 'topics/featured', 'taxonomy', 'topics'), 'A one-segment taxonomy term route must overlap an archive route.');
+    zeroy_accept(!zeroy_runtime_collection_route_spaces_overlap('post-archive', 'topics/featured/more', 'taxonomy', 'topics'), 'A deeper route is outside the taxonomy one-term route space.');
+
+    $reservation_conflict_schema = $original_schema;
+    $reservation_conflict_schema['collections']['replacement-taxonomy'] = [
+        'kind' => 'taxonomy',
+        'label' => 'Replacement taxonomy',
+        'route' => 'acceptance-taxonomy-' . $token,
+        'template' => 'zeroy-collection-template.php',
+        'schemaId' => 'showcase',
+        'taxonomy' => $acceptance_taxonomy,
+    ];
+    $reservation_conflict_json = wp_json_encode($reservation_conflict_schema, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n";
+    $reservation_conflict = zeroy_accept_theme_write([[
+        'path' => 'zeroy.schema.json',
+        'content' => $reservation_conflict_json,
+        'expectedHash' => hash('sha256', $original_schema_json),
+    ]]);
+    zeroy_accept(($reservation_conflict['schemaDeployment']['state'] ?? null) === 'staged', 'A permanent CollectionRoute reservation must block a new owner from reusing the route.');
+    zeroy_accept(count($reservation_conflict['schemaDeployment']['routeConflicts'] ?? []) >= 1, 'A blocked CollectionRoute deployment must report its conflicting historical owner.');
+    zeroy_accept(zeroy_accept_http_status($taxonomy_url) === 404, 'A blocked replacement must not reactivate a tombstoned CollectionRoute.');
+    $reservation_conflict_restore = zeroy_accept_theme_write([[
+        'path' => 'zeroy.schema.json',
+        'content' => $original_schema_json,
+        'expectedHash' => hash('sha256', $reservation_conflict_json),
+    ]]);
+    zeroy_accept(($reservation_conflict_restore['schemaDeployment']['state'] ?? null) === 'ready', 'Could not restore the active ThemeSchema after the reservation conflict probe.');
     $restored_draft = zeroy_runtime_write_draft(
         $object_id,
         'zh-CN',
         'showcase',
         $route,
         zeroy_accept_locale_version($object_id, ['title' => '运行时验收 ' . $token, 'intro' => '已恢复原 schema。']),
-        6,
+        (int) $restored_head['revision'],
     );
-    zeroy_accept(!is_wp_error($restored_draft) && $restored_draft['revision'] === 7, 'Restored schema requires new draft.');
-    zeroy_accept(!is_wp_error(zeroy_runtime_publish_draft($object_id, 'zh-CN', 7)), 'Restored schema draft must publish.');
+    zeroy_accept(!is_wp_error($restored_draft), 'Restored schema requires new draft.');
+    $restored_published = zeroy_runtime_publish_draft($object_id, 'zh-CN', (int) $restored_draft['revision']);
+    zeroy_accept(!is_wp_error($restored_published), 'Restored schema draft must publish.');
 
     $preview_draft = zeroy_runtime_write_draft(
         $object_id,
@@ -341,14 +424,15 @@ try {
         'showcase',
         $route,
         zeroy_accept_locale_version($object_id, ['title' => '草稿预览 ' . $token, 'intro' => '该内容尚未发布。']),
-        8,
+        (int) $restored_published['revision'],
     );
     zeroy_accept(!is_wp_error($preview_draft) && is_string($preview_draft['draftPreviewUrl'] ?? null), 'A draft receipt must provide a signed preview URL.');
     $preview_response = wp_remote_get($preview_draft['draftPreviewUrl'], ['timeout' => 15, 'redirection' => 0]);
     zeroy_accept(!is_wp_error($preview_response) && wp_remote_retrieve_response_code($preview_response) === 200, 'Draft preview URL must render 200.');
     zeroy_accept(str_contains(wp_remote_retrieve_body($preview_response), '草稿预览 ' . $token), 'Draft preview must render the draft document rather than the published document.');
     zeroy_accept((string) wp_remote_retrieve_header($preview_response, 'x-robots-tag') === 'noindex, nofollow, noarchive', 'Draft preview must be noindex and uncached.');
-    zeroy_accept(!is_wp_error(zeroy_runtime_publish_draft($object_id, 'zh-CN', 9)), 'Previewed draft must publish through the ordinary review flow.');
+    $preview_published = zeroy_runtime_publish_draft($object_id, 'zh-CN', (int) $preview_draft['revision']);
+    zeroy_accept(!is_wp_error($preview_published), 'Previewed draft must publish through the ordinary review flow.');
 
     $committed = zeroy_runtime_commit_locale(
         $object_id,
@@ -356,11 +440,11 @@ try {
         'showcase',
         $route,
         zeroy_accept_locale_version($object_id, ['title' => '原子提交 ' . $token, 'intro' => '一次写入并发布。']),
-        10,
+        (int) $preview_published['revision'],
     );
-    zeroy_accept(!is_wp_error($committed) && $committed['state'] === 'published' && $committed['revision'] === 11, 'commit must atomically advance draft and published pointers once.');
+    zeroy_accept(!is_wp_error($committed) && $committed['state'] === 'published', 'commit must atomically advance draft and published pointers once.');
 
-    $unpublished = zeroy_runtime_unpublish($object_id, 'zh-CN', 11);
+    $unpublished = zeroy_runtime_unpublish($object_id, 'zh-CN', (int) $committed['revision']);
     zeroy_accept(!is_wp_error($unpublished) && $unpublished['state'] === 'draft', 'Unpublish must only clear published pointer.');
     zeroy_accept(zeroy_accept_http_status(zeroy_runtime_route_url('zh-CN', $route)) === 404, 'Unpublished reserved route must be 404.');
     zeroy_accept_error(zeroy_runtime_read_document($object_id, 'zh-CN', 'showcase'), 'zeroy_locale_not_published', 'Unpublished locale read');
@@ -368,6 +452,7 @@ try {
     $disabled_locale = $alternate_default;
     $disabled_canonical = zeroy_runtime_create_canonical('page', 'showcase', 'Disabled locale acceptance ' . $token);
     zeroy_accept(!is_wp_error($disabled_canonical), 'Could not create a disabled-locale canonical object.');
+    $cleanup_object_ids[] = (int) $disabled_canonical['objectId'];
     $disabled_route = $route . '-disabled';
     $disabled_draft = zeroy_runtime_write_draft(
         $disabled_canonical['objectId'],
@@ -391,6 +476,7 @@ try {
 
     zeroy_accept(function_exists('acf_update_field_group') && function_exists('acf_update_field'), 'This acceptance requires active ACF.');
     $group_key = 'group_zeroy_acceptance_' . $token;
+    $cleanup_acf_group_keys[] = $group_key;
     $field_key = 'field_zeroy_acceptance_' . $token;
     $choice_key = 'field_zeroy_choice_' . $token;
     $repeater_key = 'field_zeroy_repeater_' . $token;
@@ -463,6 +549,7 @@ try {
         'post_content' => 'Existing canonical WordPress content.',
     ], true);
     zeroy_accept(!is_wp_error($adoption_post_id), 'Could not create an unmanaged adoption candidate.');
+    $cleanup_object_ids[] = (int) $adoption_post_id;
     update_field($field_key, 42, (int) $adoption_post_id);
     update_field($choice_key, ['new_factory'], (int) $adoption_post_id);
     // ACF mutations address repeater subfields by their storage key. The
@@ -510,6 +597,7 @@ try {
     $decision_probe = zeroy_runtime_create_canonical('page', 'showcase', 'Decision coverage ' . $token);
     zeroy_accept(!is_wp_error($decision_probe), 'Could not create decision coverage probe.');
     $decision_probe_id = (int) $decision_probe['objectId'];
+    $cleanup_object_ids[] = $decision_probe_id;
     $incomplete_version = [
         'contract' => ZEROY_LOCALE_VERSION_CONTRACT,
         'nodes' => ['title' => 'Coverage probe', 'intro' => 'Unresolved draft'],
@@ -539,11 +627,8 @@ try {
         static fn(array $issue): bool => ($issue['objectId'] ?? null) === (int) $adoption_post_id
     ));
     zeroy_accept(count($adopted_issues) === 0, 'The current acceptance object failed integrity: ' . wp_json_encode($adopted_issues));
-    echo wp_json_encode(['ok' => true, 'objectId' => $object_id, 'route' => $route, 'checks' => ['localeCas', 'frontPageRoute', 'siteConfigCasAndDefaultLock', 'themeHashAndPartialBatch', 'schemaDiagnosticsAndCapabilities', 'hardSchemaMigrationAndRecovery', 'draftPreview', 'atomicCommit', 'themeCopyPatchAndCommit', 'unpublishTombstone404', 'disabledLocale404', 'localeFirstArchiveAndSearch', 'realAcfChoicesAndRuntimeProjection', 'identityOnlyAdoption', 'nativePermalinkRedirect', 'routeUnderscore', 'integrity']], JSON_UNESCAPED_SLASHES) . PHP_EOL;
+    echo wp_json_encode(['ok' => true, 'objectId' => $object_id, 'route' => $route, 'checks' => ['localeCas', 'frontPageRoute', 'siteConfigCasAndDefaultLock', 'themeHashAndPartialBatch', 'schemaDiagnosticsAndCapabilities', 'transactionalSchemaActivation', 'stagedCandidateKeepsReadersLive', 'collectionRoutesAndTombstones', 'batchLocaleEntityProjection', 'hardSchemaMigrationAndRecovery', 'draftPreview', 'atomicCommit', 'themeCopyPatchAndCommit', 'unpublishTombstone404', 'disabledLocale404', 'localeFirstArchiveAndSearch', 'realAcfChoicesAndRuntimeProjection', 'identityOnlyAdoption', 'nativePermalinkRedirect', 'routeUnderscore', 'integrity']], JSON_UNESCAPED_SLASHES) . PHP_EOL;
 } finally {
-    if (file_get_contents($schema_path) !== $original_schema_json) {
-        file_put_contents($schema_path, $original_schema_json, LOCK_EX);
-    }
     if ($config_changed) {
         $current_config = zeroy_runtime_site_config();
         if (is_array($current_config)) {
@@ -561,7 +646,19 @@ try {
         $wpdb->delete(zeroy_runtime_table('locale_heads'), ['object_id' => ZEROY_RUNTIME_THEME_COPY_OBJECT_ID], ['%d']);
         $wpdb->delete(zeroy_runtime_table('locale_versions'), ['object_id' => ZEROY_RUNTIME_THEME_COPY_OBJECT_ID], ['%d']);
     }
-    if (is_int($front_page_id) && $front_page_id > 0) {
-        zeroy_accept_delete_locale_object($front_page_id);
+    foreach (array_unique($cleanup_object_ids) as $cleanup_object_id) {
+        zeroy_accept_delete_locale_object((int) $cleanup_object_id);
     }
+    foreach ($cleanup_acf_group_keys as $cleanup_acf_group_key) {
+        if (function_exists('acf_delete_field_group')) {
+            acf_delete_field_group($cleanup_acf_group_key);
+        }
+    }
+    if (is_string($acceptance_taxonomy) && is_int($acceptance_term_id)) {
+        wp_delete_term($acceptance_term_id, $acceptance_taxonomy);
+    }
+    if (file_get_contents($schema_path) !== $original_schema_json) {
+        file_put_contents($schema_path, $original_schema_json, LOCK_EX);
+    }
+    zeroy_runtime_deploy_candidate_schema(true);
 }

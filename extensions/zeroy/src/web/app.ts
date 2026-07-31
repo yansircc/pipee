@@ -82,7 +82,7 @@ const schemaRows = (site: Site): string => {
   const schema = asRecord(site.schema?.schema);
   const schemas = asRecord(schema?.schemas);
   if (!schemas) return '<div class="empty">ThemeSchema 不可用。</div>';
-  return Object.entries(schemas)
+  const documents = Object.entries(schemas)
     .map(([id, raw]) => {
       const definition = asRecord(raw);
       const nodes = asRecord(definition?.nodes);
@@ -96,6 +96,14 @@ const schemaRows = (site: Site): string => {
         .join("")}</div></section>`;
     })
     .join("");
+  const collections = asRecord(schema?.collections);
+  const collectionRows = Object.entries(collections ?? {})
+    .map(([id, raw]) => {
+      const collection = asRecord(raw);
+      return `<section class="subcard"><div class="subhead"><b>${esc(id)}</b><span>${esc(string(collection?.kind))} · /${esc(string(collection?.route))}</span></div><div class="nodes"><div><code>${esc(string(collection?.schemaId))}</code><span>${esc(string(collection?.template))}</span><span>collection</span><span></span></div></div></section>`;
+    })
+    .join("");
+  return documents + collectionRows;
 };
 
 const inventoryRows = (site: Site): string => {
@@ -179,7 +187,7 @@ const siteCard = (site: Site): string => {
   if (site.state === "failed") {
     return `<section class="site-card failed"><header><div><h2>${esc(site.label)}</h2><p>${esc(site.endpoint)}</p></div><span class="status">连接失败</span></header><div class="error">${esc(site.error)}</div></section>`;
   }
-  return `<section class="site-card"><header><div><div class="eyebrow">${esc(site.siteId)}</div><h2>${esc(site.label)}</h2><p>${esc(site.endpoint)}</p></div><span class="status ready">已连接</span></header><div class="facts"><div><span>Runtime</span><b>${esc(string(site.site?.runtimeVersion))}</b></div><div><span>Active theme</span><b>${esc(string(theme?.name))}</b></div><div><span>Contract hash</span><code>${esc(string(schema?.contractHash).slice(0, 12))}</code></div><div><span>Schema</span><b>${schema?.valid === true ? "valid" : "invalid"}</b></div></div><section class="block"><div class="block-head"><h3>语言</h3><span>WordPress SiteConfig</span></div><div class="chips">${localeChips(site)}</div></section><section class="block"><div class="block-head"><h3>ThemeSchema</h3><span>localized node contract</span></div>${schemaRows(site)}</section><section class="block"><div class="block-head"><h3>Canonical pages</h3><span>LocaleHead 状态与 route</span></div><div class="inventory">${inventoryRows(site)}</div></section><section class="block two-column"><div><div class="block-head"><h3>Shared ACF</h3><span>read-only</span></div>${acfRows(site)}</div><div><div class="block-head"><h3>Connector integrity</h3><span>read-only</span></div>${integrityRows(site)}</div></section><section class="block"><div class="block-head"><h3>前台检查</h3><span>HTTP · HTML · canonical · hreflang · links · PageSpeed</span></div>${externalRows(site)}</section></section>`;
+  return `<section class="site-card"><header><div><div class="eyebrow">${esc(site.siteId)}</div><h2>${esc(site.label)}</h2><p>${esc(site.endpoint)}</p></div><span class="status ready">已连接</span></header><div class="facts"><div><span>Runtime</span><b>${esc(string(site.site?.runtimeVersion))}</b></div><div><span>Active theme</span><b>${esc(string(theme?.name))}</b></div><div><span>Contract hash</span><code>${esc(string(schema?.contractHash).slice(0, 12))}</code></div><div><span>Schema deployment</span><b>${esc(string(schema?.deploymentState, schema?.valid === true ? "active" : "invalid"))}</b></div></div><section class="block"><div class="block-head"><h3>语言</h3><span>WordPress SiteConfig</span></div><div class="chips">${localeChips(site)}</div></section><section class="block"><div class="block-head"><h3>ThemeSchema</h3><span>documents · collections · active snapshot</span></div>${schemaRows(site)}</section><section class="block"><div class="block-head"><h3>Canonical pages</h3><span>LocaleHead 状态与 route</span></div><div class="inventory">${inventoryRows(site)}</div></section><section class="block two-column"><div><div class="block-head"><h3>Shared ACF</h3><span>read-only</span></div>${acfRows(site)}</div><div><div class="block-head"><h3>Connector integrity</h3><span>read-only</span></div>${integrityRows(site)}</div></section><section class="block"><div class="block-head"><h3>前台检查</h3><span>HTTP · HTML · canonical · hreflang · links · PageSpeed</span></div>${externalRows(site)}</section></section>`;
 };
 
 const render = () => {

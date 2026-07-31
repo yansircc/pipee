@@ -36,6 +36,7 @@ function zeroy_runtime_site_endpoint(): WP_REST_Response
         return zeroy_runtime_response_error($config);
     }
     $diagnostics = zeroy_runtime_schema_diagnostics();
+    $candidate = zeroy_runtime_candidate_schema_diagnostics();
     $theme = wp_get_theme();
     return new WP_REST_Response([
         'contract' => 'zeroy/site@1',
@@ -52,7 +53,12 @@ function zeroy_runtime_site_endpoint(): WP_REST_Response
             'valid' => $diagnostics['valid'],
             'contractHash' => $diagnostics['contractHash'] ?? null,
             'schemaHashes' => $diagnostics['schemaHashes'] ?? [],
+            'candidateContractHash' => $candidate['contractHash'] ?? null,
+            'deploymentState' => $diagnostics['valid'] && $candidate['valid'] && hash_equals((string) $diagnostics['contractHash'], (string) $candidate['contractHash'])
+                ? 'active'
+                : ($candidate['valid'] ? 'staged' : 'candidate-invalid'),
             'errors' => $diagnostics['errors'],
+            'candidateErrors' => $candidate['errors'],
         ],
         'capabilities' => [
             'siteConfig' => true,
@@ -83,11 +89,19 @@ function zeroy_runtime_schema_endpoint(): WP_REST_Response
             )
         );
     }
+    $candidate = zeroy_runtime_candidate_schema_diagnostics();
     return new WP_REST_Response([
         'contract' => 'zeroy/schema@1',
         'schema' => $diagnostics['schema'],
         'contractHash' => $diagnostics['contractHash'],
         'schemaHashes' => $diagnostics['schemaHashes'],
+        'activatedAt' => $diagnostics['activatedAt'] ?? null,
+        'candidate' => [
+            'valid' => $candidate['valid'],
+            'contractHash' => $candidate['contractHash'] ?? null,
+            'matchesActive' => $candidate['valid'] && hash_equals((string) $diagnostics['contractHash'], (string) $candidate['contractHash']),
+            'errors' => $candidate['errors'],
+        ],
         'language' => zeroy_runtime_theme_schema_capabilities(),
     ]);
 }
@@ -311,22 +325,42 @@ function zeroy_runtime_theme_files_write_endpoint(WP_REST_Request $request): WP_
         }
     }
     $schema_reconciliation = null;
+    $schema_deployment = null;
     if ($schema_written) {
-        $schema_reconciliation = zeroy_runtime_reconcile_active_schema(true);
+        $schema_reconciliation = zeroy_runtime_deploy_candidate_schema(true);
         if (is_wp_error($schema_reconciliation)) {
+            $error_data = $schema_reconciliation->get_error_data();
             $schema_reconciliation = [
-                'state' => 'schema-invalid',
+                'state' => 'blocked',
                 'code' => $schema_reconciliation->get_error_code(),
                 'message' => $schema_reconciliation->get_error_message(),
-                'violations' => $schema_reconciliation->get_error_data()['violations'] ?? [],
+                'violations' => is_array($error_data) ? ($error_data['violations'] ?? []) : [],
+                'items' => is_array($error_data) ? ($error_data['affectedHeads'] ?? []) : [],
+                'routeConflicts' => is_array($error_data) ? ($error_data['routeConflicts'] ?? []) : [],
             ];
         }
+        $active_diagnostics = zeroy_runtime_schema_diagnostics();
+        $candidate_diagnostics = zeroy_runtime_candidate_schema_diagnostics();
+        $ready = ($schema_reconciliation['state'] ?? null) === 'reconciled';
+        $schema_deployment = [
+            'state' => $ready ? 'ready' : 'staged',
+            'activeContractHash' => $active_diagnostics['contractHash'] ?? null,
+            'candidateContractHash' => $candidate_diagnostics['contractHash'] ?? null,
+            'migratedHeads' => (int) ($schema_reconciliation['migrated'] ?? 0),
+            'incompatibleHeads' => (int) ($schema_reconciliation['incompatible'] ?? 0),
+            'corruptHeads' => (int) ($schema_reconciliation['corrupt'] ?? 0),
+            'errorHeads' => (int) ($schema_reconciliation['errors'] ?? 0),
+            'routeConflicts' => $schema_reconciliation['routeConflicts'] ?? [],
+            'collectionReservations' => $schema_reconciliation['collectionReservations'] ?? ['created' => 0, 'current' => 0],
+            'affectedHeads' => $schema_reconciliation['items'] ?? [],
+        ];
     }
     return new WP_REST_Response([
         'contract' => 'zeroy/theme-write@1',
         'ok' => $ok,
         'results' => $results,
         ...($schema_reconciliation === null ? [] : ['schemaReconciliation' => $schema_reconciliation]),
+        ...($schema_deployment === null ? [] : ['schemaDeployment' => $schema_deployment]),
     ]);
 }
 
@@ -401,7 +435,7 @@ function zeroy_runtime_locale_read_endpoint(WP_REST_Request $request): WP_REST_R
 
 function zeroy_runtime_schema_reconcile_endpoint(): WP_REST_Response
 {
-    $result = zeroy_runtime_reconcile_active_schema(true);
+    $result = zeroy_runtime_deploy_candidate_schema(true);
     return is_wp_error($result)
         ? zeroy_runtime_response_error($result)
         : new WP_REST_Response(['contract' => 'zeroy/schema-reconciliation@1', 'reconciliation' => $result]);

@@ -11,6 +11,10 @@ describe("zeroY runtime contract", () => {
   it("keeps localized node structure in non-executable JSON rather than theme PHP", () => {
     const schema = JSON.parse(readFixture("../mvp-theme/zeroy.schema.json")) as {
       readonly contract: string;
+      readonly collections: Record<
+        string,
+        { readonly kind: string; readonly route: string; readonly schemaId: string }
+      >;
       readonly schemas: Record<
         string,
         { readonly nodes: Record<string, { readonly kind: string; readonly required: boolean }> }
@@ -22,6 +26,10 @@ describe("zeroY runtime contract", () => {
       title: { kind: "text", required: true },
       intro: { kind: "text", required: true },
     });
+    expect(schema.collections).toMatchObject({
+      machines: { kind: "post-archive", route: "machine", schemaId: "machine" },
+      services: { kind: "post-archive", route: "service", schemaId: "service" },
+    });
   });
 
   it("owns locale history as version pointers and exposes only constrained Connector ports", () => {
@@ -32,6 +40,11 @@ describe("zeroY runtime contract", () => {
     expect(plugin).toContain("locale_versions");
     expect(plugin).toContain("locale_heads");
     expect(plugin).toContain("route_reservations");
+    expect(plugin).toContain("collection_route_reservations");
+    expect(plugin).toContain("schema_state");
+    expect(plugin).toContain("zeroy_runtime_deploy_candidate_schema");
+    expect(plugin).toContain("zeroy_locale_entities");
+    expect(plugin).toContain("zeroy_collection_items");
     expect(plugin).toContain("search_projection");
     expect(plugin).toContain("register_rest_route('zeroy/v1', '/site'");
     expect(plugin).toContain("register_rest_route('zeroy/v1', '/theme-files'");

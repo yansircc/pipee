@@ -58,6 +58,10 @@ const sessions = new WeakMap<object, ActiveSession>();
 const emptySurface: WebSurfaceSlot = { replace: () => undefined };
 
 const text = (value: unknown): string => JSON.stringify(value, null, 2);
+const asRecord = (value: unknown): JsonRecord | null =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : null;
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 const errorPayload = (error: unknown): JsonRecord => {
@@ -450,13 +454,19 @@ const themeApplyTool = (
         const site = yield* connection(active, input.siteId);
         const payload = yield* connectorPost(site, "theme-files", { files: input.files }, signal);
         yield* refreshSurface(active);
-        const complete = payload.ok === true;
+        const deployment = asRecord(payload.schemaDeployment);
+        const filesWritten = payload.ok === true;
+        const deploymentReady = deployment === null || deployment.state === "ready";
+        const complete = filesWritten && deploymentReady;
+        const summary = !filesWritten
+          ? "Some writes failed; successful files remain changed."
+          : deploymentReady
+            ? "All requested files were atomically replaced."
+            : "Theme files were written, but the active schema has incompatible heads or route conflicts.";
         return result(
           text(payload),
-          complete ? "zeroY theme updated" : "zeroY theme partially updated",
-          complete
-            ? "All requested files were atomically replaced."
-            : "Some writes failed; successful files remain changed.",
+          complete ? "zeroY theme updated" : "zeroY theme needs attention",
+          summary,
           [
             ["Site", input.siteId],
             ["Files", String(input.files.length)],
