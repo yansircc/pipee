@@ -1659,20 +1659,27 @@ export function TurnUsageSummary({
 
 export function StreamingThroughputBadge({ message }: { message: AssistantMessage }) {
   const { t } = useI18n()
-  const outputUnits = estimateStreamingOutputUnits(message)
+  const outputUnits = useMemo(() => estimateStreamingOutputUnits(message), [message])
   const observedAt = message.observedAt
-  const [samples, setSamples] = useState<ReadonlyArray<StreamingOutputSample>>([])
-  const [now, setNow] = useState(observedAt ?? 0)
+  const generationDurationMs = message.generationDurationMs
+  const committedSamples = useRef<ReadonlyArray<StreamingOutputSample>>([])
+  const observedSamples = useMemo(
+    () =>
+      observedAt === undefined
+        ? committedSamples.current
+        : appendStreamingOutputSample(committedSamples.current, {
+            observedAt,
+            outputUnits,
+            streamElapsedMs: generationDurationMs,
+          }),
+    [generationDurationMs, observedAt, outputUnits],
+  )
   useEffect(() => {
-    if (observedAt === undefined) return
-    setSamples((current) =>
-      appendStreamingOutputSample(current, {
-        observedAt,
-        outputUnits,
-        streamElapsedMs: message.generationDurationMs,
-      }),
-    )
-  }, [message.generationDurationMs, observedAt, outputUnits])
+    // The message snapshot already caused this render. Retain its bounded history without scheduling a second render
+    // from a passive effect; queued stream snapshots can otherwise exhaust React's nested passive-update limit.
+    committedSamples.current = observedSamples
+  }, [observedSamples])
+  const [now, setNow] = useState(observedAt ?? 0)
   useEffect(
     () =>
       runBrowser(observeCurrentTime("250 millis", setNow), {
@@ -1682,14 +1689,12 @@ export function StreamingThroughputBadge({ message }: { message: AssistantMessag
   )
   const projectedSamples =
     observedAt === undefined
-      ? samples
-      : appendStreamingOutputSample(samples, {
+      ? []
+      : appendStreamingOutputSample(observedSamples, {
           observedAt: Math.max(observedAt, now),
           outputUnits,
           streamElapsedMs:
-            message.generationDurationMs === undefined
-              ? undefined
-              : message.generationDurationMs + Math.max(0, now - observedAt),
+            generationDurationMs === undefined ? undefined : generationDurationMs + Math.max(0, now - observedAt),
         })
   const throughput = projectStreamingOutputThroughput(projectedSamples)
   if (throughput === null) return null
