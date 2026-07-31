@@ -9,7 +9,7 @@ import {
 import { ZeroYConnectorError, connectorGet } from "../domain/client.js";
 import { type ZeroYConnectionConfigError, type SiteConnection } from "../domain/connection.js";
 import type { InspectInput, JsonRecord } from "../domain/protocol.js";
-import { listThemeCheckouts } from "../domain/theme-checkout.js";
+import { listSiteWorkspaces } from "../domain/site-workspace.js";
 import { failedSiteView, projectZeroYWebView, type ZeroYSiteView } from "./web-surface.js";
 import { connection, type ActiveSession, withLivePresentation } from "./session.js";
 import { errorMessage, result, text } from "./tool-result.js";
@@ -28,9 +28,9 @@ const inspectConnection = (
       connectorGet(site, "inventory?page=1&perPage=100"),
       connectorGet(site, "acf"),
       connectorGet(site, "integrity"),
-      connectorGet(site, "theme/state"),
-      connectorGet(site, "theme/deployments?limit=20"),
-      listThemeCheckouts(site.siteId).pipe(
+      connectorGet(site, "site-release/state"),
+      connectorGet(site, "site-releases?limit=20"),
+      listSiteWorkspaces(site.siteId).pipe(
         Effect.mapError(
           (cause) =>
             new ZeroYConnectorError({
@@ -42,7 +42,7 @@ const inspectConnection = (
     { concurrency: 7 },
   ).pipe(
     Effect.flatMap(
-      ([siteView, schema, inventory, acf, integrity, themeState, deployments, checkouts]) => {
+      ([siteView, schema, inventory, acf, integrity, siteRelease, releases, checkouts]) => {
         if (siteView.siteId !== site.siteId) {
           return Effect.fail(
             new ZeroYConnectorError({
@@ -50,22 +50,43 @@ const inspectConnection = (
             }),
           );
         }
-        return Effect.succeed({
-          siteId: site.siteId,
-          label: site.label,
-          endpoint: site.endpoint,
-          state: "ready" as const,
-          error: null,
-          site: siteView,
-          schema,
-          inventory,
-          acf,
-          integrity,
-          themeState,
-          deployments,
-          checkouts,
-          externalCheck: active.externalChecks.get(site.siteId) ?? null,
-        });
+        const releaseId =
+          typeof siteRelease.activeReleaseId === "string" ? siteRelease.activeReleaseId : null;
+        return Effect.all(
+          [
+            releaseId === null
+              ? Effect.succeed(null)
+              : connectorGet(site, `site-releases/${releaseId}`),
+            releaseId === null || typeof siteRelease.siteLogicArtifactId !== "string"
+              ? Effect.succeed(null)
+              : connectorGet(
+                  site,
+                  `site-release/site-logic-artifacts/${siteRelease.siteLogicArtifactId}`,
+                ),
+            connectorGet(site, "site-release/migrations?limit=50"),
+          ],
+          { concurrency: 3 },
+        ).pipe(
+          Effect.map(([activeRelease, activeSiteLogic, migrationHistory]) => ({
+            siteId: site.siteId,
+            label: site.label,
+            endpoint: site.endpoint,
+            state: "ready" as const,
+            error: null,
+            site: siteView,
+            schema,
+            inventory,
+            acf,
+            integrity,
+            siteRelease,
+            activeRelease,
+            activeSiteLogic,
+            migrationHistory,
+            releases,
+            checkouts,
+            externalCheck: active.externalChecks.get(site.siteId) ?? null,
+          })),
+        );
       },
     ),
     Effect.catch((error) => Effect.succeed(failedSiteView(site, errorMessage(error)))),
@@ -164,15 +185,19 @@ const inspectResource = (
           payload: yield* connectorGet(site, `existing-post?postId=${input.postId}`, signal),
           summary: "Read existing WordPress and ACF facts",
         };
-      case "themeState":
+      case "siteRelease":
         return {
-          payload: yield* connectorGet(site, "theme/state", signal),
-          summary: "Read active ThemeDeployment state",
+          payload: yield* connectorGet(site, "site-release/state", signal),
+          summary: "Read active SiteRelease state",
         };
-      case "themeArtifact":
+      case "siteReleaseArtifact":
         return {
-          payload: yield* connectorGet(site, `theme/artifacts/${input.artifactId}`, signal),
-          summary: "Read immutable ThemeArtifact manifest",
+          payload: yield* connectorGet(
+            site,
+            `site-release/${input.kind === "theme" ? "theme" : "site-logic"}-artifacts/${input.artifactId}`,
+            signal,
+          ),
+          summary: "Read immutable SiteRelease Artifact manifest",
         };
       case "translationJob":
         return {

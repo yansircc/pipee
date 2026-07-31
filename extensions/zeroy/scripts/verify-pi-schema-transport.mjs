@@ -79,7 +79,7 @@ try {
       "--print",
       "--no-builtin-tools",
       "--tools",
-      "zeroy_inspect,zeroy_theme_checkout,zeroy_theme_push,zeroy_content_apply",
+      "zeroy_inspect,zeroy_site_checkout,zeroy_site_verify,zeroy_site_push,zeroy_content_apply",
       "--extension",
       extension,
       "--no-extensions",
@@ -122,7 +122,13 @@ try {
   const tools = new Map(captured.tools.map((tool) => [tool.name, tool]));
   assert.deepEqual(
     [...tools.keys()],
-    ["zeroy_inspect", "zeroy_theme_checkout", "zeroy_theme_push", "zeroy_content_apply"],
+    [
+      "zeroy_inspect",
+      "zeroy_site_checkout",
+      "zeroy_site_verify",
+      "zeroy_site_push",
+      "zeroy_content_apply",
+    ],
   );
 
   const inspect = tools.get("zeroy_inspect")?.input_schema;
@@ -137,8 +143,8 @@ try {
     "canonicalContent",
     "adoptionCandidates",
     "existingPost",
-    "themeState",
-    "themeArtifact",
+    "siteRelease",
+    "siteReleaseArtifact",
     "translationJob",
     "integrity",
     "externalCheck",
@@ -172,16 +178,16 @@ try {
   assert.match(content?.properties?.jobToken?.description ?? "", /translationJob/u);
   assert.match(JSON.stringify(content?.properties?.values ?? {}), /\^\//u);
 
-  const checkout = tools.get("zeroy_theme_checkout")?.input_schema;
+  const checkout = tools.get("zeroy_site_checkout")?.input_schema;
   assert.equal(checkout?.type, "object");
   assert.deepEqual(checkout?.required, ["siteId"]);
-  const push = tools.get("zeroy_theme_push")?.input_schema;
+  const verify = tools.get("zeroy_site_verify")?.input_schema;
+  assert.equal(verify?.type, "object");
+  assert.deepEqual(verify?.required, ["siteId", "checkoutId"]);
+  const push = tools.get("zeroy_site_push")?.input_schema;
   assert.equal(push?.type, "object");
   assert.deepEqual(push?.required, ["siteId", "checkoutId"]);
-  assert.match(
-    push?.properties?.checkoutId?.description ?? "",
-    /returned by zeroy_theme_checkout/u,
-  );
+  assert.match(push?.properties?.checkoutId?.description ?? "", /returned by zeroy_site_checkout/u);
   assert.match(inspect?.properties?.artifactId?.pattern ?? "", /^\^sha256/u);
 
   process.stdout.write("Pi Anthropic schema transport gate passed.\n");

@@ -86,13 +86,17 @@ function zeroy_runtime_integrity(): array
             }
         }
     }
-    $active = zeroy_runtime_active_theme_state();
+    $active = zeroy_runtime_active_site_release();
     if ($active === null) {
-        $issues[] = ['code' => 'active_theme_missing'];
+        $issues[] = ['code' => 'active_site_release_missing'];
     } else {
-        $artifact = zeroy_runtime_artifact_integrity((string) $active['artifact_id']);
+        $artifact = zeroy_runtime_artifact_integrity((string) $active['theme_artifact_id']);
         if (is_wp_error($artifact) || !($artifact['ok'] ?? false)) {
             $issues[] = ['code' => is_wp_error($artifact) ? $artifact->get_error_code() : 'theme-drift'];
+        }
+        $logic = zeroy_runtime_site_logic_artifact_integrity((string) $active['site_logic_artifact_id']);
+        if (is_wp_error($logic) || !($logic['ok'] ?? false)) {
+            $issues[] = ['code' => is_wp_error($logic) ? $logic->get_error_code() : 'site-logic-drift'];
         }
     }
     return ['ok' => $issues === [], 'issues' => $issues];

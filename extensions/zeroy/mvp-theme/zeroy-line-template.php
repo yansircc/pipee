@@ -36,7 +36,7 @@ $zy_row_text = static function (array $row, string $name): string {
     return '';
 };
 
-$zy_machine_link = static function ($machine): ?array {
+$zy_machine_id = static function ($machine): int {
     $id = 0;
     if ($machine instanceof WP_Post) {
         $id = (int) $machine->ID;
@@ -45,7 +45,7 @@ $zy_machine_link = static function ($machine): ?array {
     } elseif (is_array($machine) && isset($machine['ID'])) {
         $id = (int) $machine['ID'];
     }
-    return $id > 0 ? array(get_permalink($id), get_the_title($id)) : null;
+    return $id;
 };
 
 $zy_title = (string) ($zeroy_content['post']['title'] ?? '');
@@ -59,6 +59,35 @@ $zy_purpose = (array) $zy_field('project_purpose');
 $zy_delivery = (array) $zy_field('delivery_scope');
 $zy_steps = (array) $zy_field('process_steps');
 $zy_specs = (array) $zy_field('technical_specs');
+$zy_machine_ids = array();
+foreach ($zy_steps as $zy_step) {
+    if (!is_array($zy_step)) {
+        continue;
+    }
+    $zy_related = $zy_step['related_machines'] ?? $zy_step['field_related_machines'] ?? array();
+    foreach (is_array($zy_related) ? $zy_related : array() as $zy_machine) {
+        $zy_id = $zy_machine_id($zy_machine);
+        if ($zy_id > 0) {
+            $zy_machine_ids[$zy_id] = $zy_id;
+        }
+    }
+}
+$zy_machine_projection = array();
+if (array() !== $zy_machine_ids) {
+    $zy_entities = zeroy_locale_entities(array_values($zy_machine_ids), $zeroy_locale, array('url', '/post/title'));
+    if (!is_wp_error($zy_entities)) {
+        foreach ($zy_entities['items'] as $zy_entity) {
+            $zy_machine_projection[(int) $zy_entity['objectId']] = $zy_entity;
+        }
+    }
+}
+$zy_machine_link = static function ($machine) use ($zy_machine_id, $zy_machine_projection): ?array {
+    $id = $zy_machine_id($machine);
+    $entity = $zy_machine_projection[$id] ?? null;
+    return is_array($entity) && is_string($entity['url'] ?? null)
+        ? array($entity['url'], (string) ($entity['fields']['post']['title'] ?? ''))
+        : null;
+};
 
 get_header();
 ?>

@@ -172,7 +172,8 @@ function zeroy_runtime_render_collection_route(): void
         zeroy_runtime_render_404();
     }
     $route = $definition['route'] . ($match['termSlug'] === null ? '' : '/' . $match['termSlug']);
-    $GLOBALS['zeroy_runtime_route_context'] = ['kind' => 'collection', 'collectionId' => $match['collectionId'], 'collectionKind' => $definition['kind'], 'locale' => $request['locale'], 'route' => $route, 'schemaId' => $definition['schemaId'], 'title' => $title, 'term' => $term, 'termContent' => is_array($term_content) ? $term_content : null, 'links' => zeroy_locale_links($route)];
+    set_query_var('paged', (int) ($match['page'] ?? 1));
+    $GLOBALS['zeroy_runtime_route_context'] = ['kind' => 'collection', 'collectionId' => $match['collectionId'], 'collectionKind' => $definition['kind'], 'locale' => $request['locale'], 'route' => $route, 'page' => (int) ($match['page'] ?? 1), 'schemaId' => $definition['schemaId'], 'title' => $title, 'term' => $term, 'termContent' => is_array($term_content) ? $term_content : null, 'links' => zeroy_locale_links($route)];
     $zeroy_collection = $GLOBALS['zeroy_runtime_route_context'];
     status_header(200);
     include $template;

@@ -10,8 +10,9 @@ export default Object.freeze({
     tools: Object.freeze([
       "zeroy_content_apply",
       "zeroy_inspect",
-      "zeroy_theme_checkout",
-      "zeroy_theme_push",
+      "zeroy_site_checkout",
+      "zeroy_site_verify",
+      "zeroy_site_push",
     ]),
     handlers: Object.freeze(["session_shutdown", "session_start"]),
     skills: Object.freeze([]),

@@ -25,7 +25,7 @@
   },
   "scripts": {
     "verify": "pnpm run repo:verify && pnpm run pi:verify",
-    "repo:verify": "vp run quality",
+    "repo:verify": "vp run quality && node scripts/verify-site-release-boundaries.mjs",
     "test": "vp test",
     "pi:web-build": "node ../../tooling/pi-extension/build-web.mjs .",
     "pi:assets-build": "pnpm run pi:web-build",
@@ -34,7 +34,8 @@
     "pi:distribution-check": "node ../../tooling/pi-extension/verify-distribution.mjs . package",
     "pi:schema-transport-check": "node scripts/verify-pi-schema-transport.mjs",
     "pi:verify": "pnpm run pi:build && pnpm run pi:bundle-check && pnpm run pi:schema-transport-check && node scripts/verify-headless-ledger.mjs",
-    "acceptance:headless": "pnpm run pi:build && node scripts/headless-acceptance.mjs"
+    "acceptance:headless": "pnpm run pi:build && node scripts/headless-acceptance.mjs",
+    "acceptance:site-release": "node scripts/site-release-acceptance.mjs"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "catalog:",

@@ -131,20 +131,20 @@ function zeroy_runtime_schema_diagnostics_from_path(string $path, string $theme_
 
 function zeroy_runtime_active_schema_row(): ?array
 {
-    $request = $GLOBALS['zeroy_runtime_request_artifact'] ?? null;
-    if (is_array($request) && ($request['candidate'] ?? false) === true) {
-        $artifact = zeroy_runtime_artifact_row((string) $request['artifactId']);
-        return is_array($artifact) ? ['schema_json' => $artifact['schema_json'], 'contract_hash' => $artifact['schema_hash'], 'activated_at' => null, 'theme_root' => $request['directory']] : null;
+    $request = zeroy_runtime_request_site_release();
+    if (is_array($request)) {
+        $artifact = zeroy_runtime_artifact_row((string) $request['themeArtifactId']);
+        return is_array($artifact) ? ['schema_json' => $artifact['schema_json'], 'contract_hash' => $artifact['schema_hash'], 'activated_at' => null, 'theme_root' => $request['themeDirectory']] : null;
     }
-    $state = zeroy_runtime_active_theme_state();
-    return is_array($state) ? ['schema_json' => $state['schema_json'], 'contract_hash' => $state['schema_hash'], 'activated_at' => $state['activated_at'], 'theme_root' => zeroy_runtime_artifact_directory((string) $state['artifact_id'])] : null;
+    $release = zeroy_runtime_active_site_release();
+    return is_array($release) ? ['schema_json' => $release['theme_schema_json'], 'contract_hash' => $release['theme_schema_hash'], 'activated_at' => $release['activated_at'], 'theme_root' => zeroy_runtime_artifact_directory((string) $release['theme_artifact_id'])] : null;
 }
 
 function zeroy_runtime_schema_diagnostics(): array
 {
     $row = zeroy_runtime_active_schema_row();
     if ($row === null) {
-        return ['valid' => false, 'errors' => [['code' => 'schema_not_activated', 'message' => 'No active ThemeDeployment provides a ThemeSchema.']]];
+        return ['valid' => false, 'errors' => [['code' => 'schema_not_activated', 'message' => 'No active SiteRelease provides a ThemeSchema.']]];
     }
     $schema = zeroy_runtime_decode_json((string) $row['schema_json']);
     $analysis = is_wp_error($schema) ? ['schema' => null, 'errors' => [['code' => 'schema_snapshot_invalid', 'message' => 'The active ThemeSchema snapshot is invalid.']]] : zeroy_runtime_theme_schema_analysis($schema, (string) $row['theme_root'], true);

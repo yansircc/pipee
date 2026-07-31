@@ -235,7 +235,7 @@ try {
       "--print",
       "--no-builtin-tools",
       "--tools",
-      "zeroy_inspect,zeroy_theme_checkout,zeroy_theme_push,zeroy_content_apply",
+      "zeroy_inspect,zeroy_site_checkout,zeroy_site_verify,zeroy_site_push,zeroy_content_apply",
       "--extension",
       extension,
       "--no-extensions",

@@ -7,112 +7,43 @@ import piZeroY from "../src/pi/extension.js";
 const readFixture = (relative: string): string =>
   readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8");
 
-describe("zeroY localization runtime contract", () => {
-  it("puts localization responsibility in ThemeSchema, not in locale documents", () => {
+describe("zeroY SiteRelease hard cut", () => {
+  it("keeps localization responsibility in ThemeSchema rather than locale documents", () => {
     const schema = JSON.parse(readFixture("../mvp-theme/zeroy.schema.json")) as {
       readonly contract: string;
-      readonly schemas: Record<
-        string,
-        { readonly localization: { readonly contract: string; readonly rules: readonly unknown[] } }
-      >;
-      readonly localizationSubjects: Record<string, unknown>;
+      readonly schemas: Record<string, { readonly localization: { readonly contract: string } }>;
     };
     expect(schema.contract).toBe("zeroy/theme-schema@1");
-    const home = schema.schemas.home;
-    expect(home?.localization.contract).toBe("zeroy/localization-policy@1");
-    expect(home?.localization.rules.length).toBeGreaterThan(0);
-    expect(home).toHaveProperty("templateContent");
-    expect(schema.localizationSubjects).toHaveProperty("siteCopy");
+    expect(schema.schemas.home?.localization.contract).toBe("zeroy/localization-policy@1");
     expect(JSON.stringify(schema)).not.toContain("themeCopy");
-    expect(JSON.stringify(schema)).not.toContain("nodes");
   });
 
-  it("keeps the connector runtime as a composition root, not an implementation bucket", () => {
-    const runtime = readFixture("../wordpress-plugin/includes/runtime.php");
-    expect(runtime).toContain("theme/schema-runtime.php");
-    expect(runtime).toContain("localization/template-content.php");
-    expect(runtime).toContain("localization/migration.php");
-    expect(runtime).not.toMatch(/\bfunction\s+zeroy_/);
-  });
-
-  it("confines retired locale documents to the one-shot bootstrap importer", () => {
-    const requestReaders = [
-      "../wordpress-plugin/includes/localization/locale-resolver.php",
-      "../wordpress-plugin/includes/localization/translation-job.php",
-      "../wordpress-plugin/includes/routes.php",
-      "../wordpress-plugin/includes/theme/activation.php",
-    ]
-      .map(readFixture)
-      .join("\n");
-    expect(requestReaders).not.toContain("zeroy_localization_legacy_");
-    expect(requestReaders).not.toContain("locale_heads");
-    expect(requestReaders).not.toContain("locale_versions");
-
-    const transition = [
-      "../wordpress-plugin/includes/theme/initial-deployment.php",
-      "../wordpress-plugin/includes/localization/migration.php",
-      "../wordpress-plugin/includes/localization/migration/post-overlays.php",
-    ]
-      .map(readFixture)
-      .join("\n");
-    expect(transition).toContain("zeroy_localization_apply_legacy_migration");
-    expect(transition).toContain("locale_heads");
-    expect(transition).not.toContain("locale-version@2");
-    expect(transition).not.toContain("theme-copy-version@2");
-  });
-
-  it("has one first-deployment writer for imported and uploaded Artifacts", () => {
-    const bootstrap = readFixture("../wordpress-plugin/includes/theme/bootstrap.php");
-    const initial = readFixture("../wordpress-plugin/includes/theme/initial-deployment.php");
-    expect(bootstrap).toContain("zeroy_runtime_bootstrap_theme_deployment_from_artifact");
-    expect(bootstrap).not.toContain("zeroy_runtime_table('theme_state')");
-    expect(initial).toContain("zeroy_runtime_table('theme_state')");
-    expect(initial).toContain("zeroy_localization_apply_legacy_migration");
-  });
-
-  it("runs content-writing upgrades only after WordPress functionality is initialized", () => {
+  it("uses SiteRelease as the only active composition and keeps Connector recovery code separate", () => {
     const connector = readFixture("../wordpress-plugin/zeroy-runtime-connector.php");
-    expect(connector).toContain("add_action('init', 'zeroy_runtime_maybe_upgrade', 1)");
-    expect(connector).not.toContain("add_action('plugins_loaded', 'zeroy_runtime_maybe_upgrade'");
+    const store = readFixture("../wordpress-plugin/includes/site-release/store.php");
+    const request = readFixture("../wordpress-plugin/includes/site-release/request-runtime.php");
+    expect(connector).toContain("site-release/store.php");
+    expect(connector).toContain("site-logic/artifact-store.php");
+    expect(connector).not.toContain("theme/activation.php");
+    expect(store).toContain("site_release_state");
+    expect(store).toContain("theme_artifact_id");
+    expect(store).toContain("site_logic_artifact_id");
+    expect(request).toContain("zeroy_runtime_is_connector_safe_request");
+    expect(request).toContain("require $bootstrap");
+    expect(request).toContain("require $functions");
   });
 
-  it("repairs the one additive Overlay column without replaying dbDelta against existing tables", () => {
-    const lifecycle = readFixture("../wordpress-plugin/includes/lifecycle.php");
-    expect(lifecycle).toContain("if (!zeroy_runtime_table_exists(zeroy_runtime_table($name))) {");
-    expect(lifecycle).toContain(
-      "ALTER TABLE ' . zeroy_runtime_table('locale_overlay_heads') . ' ADD COLUMN published_at DATETIME NULL",
-    );
-    expect(lifecycle).toContain("zeroy_runtime_schema_is_current()");
-    expect(lifecycle).toContain("zeroy_runtime_locale_overlay_heads_has_published_at()");
+  it("derives ThemeContract and rejects Theme business writes without a case table", () => {
+    const compiler = readFixture("../wordpress-plugin/includes/theme/contract-compiler.php");
+    const verifier = readFixture("../wordpress-plugin/includes/site-release/static-verifier.php");
+    expect(compiler).toContain("zeroy_runtime_compile_theme_contract");
+    expect(compiler).toContain("zeroy_runtime_capability_requirements_satisfied");
+    expect(verifier).toContain("theme_persistence_forbidden");
+    expect(verifier).toContain("site_logic_rendering_forbidden");
+    expect(verifier).not.toContain("zeroy_weixin");
   });
 
-  it("owns immutable Overlay history and exposes only generic ports", () => {
-    const plugin = [
-      "../wordpress-plugin/includes/runtime.php",
-      "../wordpress-plugin/includes/lifecycle.php",
-      "../wordpress-plugin/includes/localization/policy-contract.php",
-      "../wordpress-plugin/includes/localization/locale-overlay-store.php",
-      "../wordpress-plugin/includes/localization/translation-job.php",
-      "../wordpress-plugin/includes/localization/locale-resolver.php",
-      "../wordpress-plugin/includes/rest/routes.php",
-      "../wordpress-plugin/includes/theme/activation.php",
-    ]
-      .map(readFixture)
-      .join("\n");
-    expect(plugin).toContain("locale_overlay_versions");
-    expect(plugin).toContain("locale_overlay_heads");
-    expect(plugin).toContain("zeroy/localization-policy@1");
-    expect(plugin).toContain("zeroy/locale-overlay@1");
-    expect(plugin).toContain("zeroy/translation-job@1");
-    expect(plugin).toContain("/translation-job");
-    expect(plugin).toContain("/translation");
-    expect(plugin).toContain("theme_artifacts");
-    expect(plugin).not.toMatch(/zeroy\/locale-version@2/);
-    expect(plugin).not.toMatch(/zeroy\/theme-copy-version@2/);
-    expect(plugin).not.toMatch(/eval\s*\(/);
-  });
-
-  it("registers exactly the read, checkout, deploy, and content agent boundaries", () => {
+  it("gives Pi one site workspace and three release operations", () => {
     const tools: string[] = [];
     const handlers: string[] = [];
     const pi = {
@@ -122,23 +53,20 @@ describe("zeroY localization runtime contract", () => {
     piZeroY(pi);
     expect(tools).toEqual([
       "zeroy_inspect",
-      "zeroy_theme_checkout",
-      "zeroy_theme_push",
+      "zeroy_site_checkout",
+      "zeroy_site_verify",
+      "zeroy_site_push",
       "zeroy_content_apply",
     ]);
     expect(handlers).toEqual(["session_start", "session_shutdown"]);
   });
 
-  it("keeps Pi registration as composition rather than a tool implementation bucket", () => {
+  it("keeps Pi registration as composition rather than a deployment implementation bucket", () => {
     const registration = readFixture("../src/pi/extension.ts");
-    expect(registration.split("\n").length).toBeLessThan(180);
-    expect(registration).toContain('from "./session.js"');
-    expect(registration).toContain('from "./inspect-tools.js"');
-    expect(registration).toContain('from "./theme-tools.js"');
-    expect(registration).toContain('from "./content-tools.js"');
+    expect(registration.split("\n").length).toBeLessThan(190);
+    expect(registration).toContain('from "./site-tools.js"');
     expect(registration).not.toContain("connectorGet(");
     expect(registration).not.toContain("connectorPost(");
-    expect(registration).not.toContain("prepareThemePush(");
-    expect(registration).not.toContain("contentPayload");
+    expect(registration).not.toContain("prepareSitePush(");
   });
 });

@@ -8,17 +8,19 @@ import {
   CONTENT_PROMPT_GUIDELINES,
   ContentProviderProjection,
   InspectProviderProjection,
-  ThemeCheckoutInputContract,
-  ThemePushInputContract,
+  SiteCheckoutInputContract,
+  SitePushInputContract,
+  SiteVerifyInputContract,
   decodeContentInput,
   decodeInspectInput,
-  type ThemeCheckoutInput,
-  type ThemePushInput,
+  type SiteCheckoutInput,
+  type SitePushInput,
+  type SiteVerifyInput,
 } from "../domain/protocol.js";
 import { contentApplyTool } from "./content-tools.js";
 import { inspectTool, refreshSurface } from "./inspect-tools.js";
 import { activeSession, run, startSession, stopSession, withSession } from "./session.js";
-import { themeCheckoutTool, themePushTool } from "./theme-tools.js";
+import { siteCheckoutTool, sitePushTool, siteVerifyTool } from "./site-tools.js";
 import { errorMessage, runTool, type ZeroYToolFailure } from "./tool-result.js";
 
 const registrations = new WeakSet<object>();
@@ -66,24 +68,34 @@ export default function piZeroY(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "zeroy_theme_checkout",
-    label: "Checkout zeroY theme",
-    description: "Download the active immutable ThemeArtifact into a local Git checkout.",
-    parameters: ThemeCheckoutInputContract,
+    name: "zeroy_site_checkout",
+    label: "Checkout zeroY site",
+    description:
+      "Download the active atomic SiteRelease into one local Git workspace containing theme and site-logic.",
+    parameters: SiteCheckoutInputContract,
     execute: (_id, input, signal) =>
       runTool(
-        withSession(pi, (active) => themeCheckoutTool(active, input as ThemeCheckoutInput, signal)),
+        withSession(pi, (active) => siteCheckoutTool(active, input as SiteCheckoutInput, signal)),
       ),
   });
 
   pi.registerTool({
-    name: "zeroy_theme_push",
-    label: "Deploy zeroY theme",
+    name: "zeroy_site_verify",
+    label: "Verify zeroY site workspace",
+    description: "Validate that one clean committed Git HEAD produces both SiteRelease artifacts.",
+    parameters: SiteVerifyInputContract,
+    execute: (_id, input) =>
+      runTool(withSession(pi, (active) => siteVerifyTool(active, input as SiteVerifyInput))),
+  });
+
+  pi.registerTool({
+    name: "zeroy_site_push",
+    label: "Release zeroY site",
     description:
-      "Upload committed checkout Git HEAD as one Artifact, prepare it, and activate only on CAS success.",
-    parameters: ThemePushInputContract,
+      "Build ThemeArtifact and SiteLogicArtifact from one committed Git HEAD, verify their exact composition, and CAS activate the SiteRelease.",
+    parameters: SitePushInputContract,
     execute: (_id, input, signal) =>
-      runTool(withSession(pi, (active) => themePushTool(active, input as ThemePushInput, signal))),
+      runTool(withSession(pi, (active) => sitePushTool(active, input as SitePushInput, signal))),
   });
 
   pi.registerTool({

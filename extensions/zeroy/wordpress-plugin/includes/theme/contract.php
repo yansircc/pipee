@@ -4,7 +4,6 @@ defined('ABSPATH') || exit;
 
 const ZEROY_THEME_ARTIFACT_CONTRACT = 'zeroy/theme-artifact@1';
 const ZEROY_THEME_MANIFEST_CONTRACT = 'zeroy/theme-manifest@1';
-const ZEROY_THEME_DEPLOYMENT_CONTRACT = 'zeroy/theme-deployment@1';
 const ZEROY_THEME_POLICY_CONTRACT = 'zeroy/theme-artifact-policy@1';
 
 function zeroy_runtime_theme_policy(): array

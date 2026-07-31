@@ -115,13 +115,18 @@ function zeroy_runtime_collection_for_relative_route(string $route, ?array $coll
         return null;
     }
     foreach ($collections as $collection_id => $definition) {
-        if ($definition['kind'] === 'post-archive' && $route === $definition['route']) {
-            return ['collectionId' => $collection_id, 'definition' => $definition, 'termSlug' => null];
+        if ($definition['kind'] === 'post-archive') {
+            if ($route === $definition['route']) {
+                return ['collectionId' => $collection_id, 'definition' => $definition, 'termSlug' => null, 'page' => 1];
+            }
+            if (preg_match('#\A' . preg_quote($definition['route'], '#') . '/page/([1-9][0-9]*)\z#', $route, $matches) === 1) {
+                return ['collectionId' => $collection_id, 'definition' => $definition, 'termSlug' => null, 'page' => (int) $matches[1]];
+            }
         }
         if ($definition['kind'] === 'taxonomy' && str_starts_with($route, $definition['route'] . '/')) {
-            $term_slug = substr($route, strlen($definition['route']) + 1);
-            if ($term_slug !== '' && !str_contains($term_slug, '/')) {
-                return ['collectionId' => $collection_id, 'definition' => $definition, 'termSlug' => $term_slug];
+            $suffix = substr($route, strlen($definition['route']) + 1);
+            if (preg_match('#\A([^/]+)(?:/page/([1-9][0-9]*))?\z#', $suffix, $matches) === 1) {
+                return ['collectionId' => $collection_id, 'definition' => $definition, 'termSlug' => $matches[1], 'page' => isset($matches[2]) ? (int) $matches[2] : 1];
             }
         }
     }

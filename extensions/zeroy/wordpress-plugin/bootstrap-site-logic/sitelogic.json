@@ -1,0 +1,89 @@
+{
+  "contract": "zeroy/site-logic-contract@1",
+  "provides": [
+    {
+      "capability": "product-selection.evaluate",
+      "version": "1",
+      "kind": "query",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "throughputKgPerHour": {
+            "type": "number",
+            "minimum": 1
+          },
+          "material": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "required": ["throughputKgPerHour"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "tier": { "type": "string" },
+          "minimumCapacityKgPerHour": { "type": "number" },
+          "material": { "type": "string" }
+        },
+        "required": ["tier", "minimumCapacityKgPerHour", "material"],
+        "additionalProperties": false
+      },
+      "effects": ["read"],
+      "authorization": "public",
+      "errors": []
+    },
+    {
+      "capability": "rfq.submit",
+      "version": "1",
+      "kind": "action",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "email": { "type": "string", "format": "email", "maxLength": 320 },
+          "message": { "type": "string", "minLength": 1, "maxLength": 12000 }
+        },
+        "required": ["name", "email", "message"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "rfqId": { "type": "integer", "minimum": 1 },
+          "status": { "type": "string", "enum": ["received"] }
+        },
+        "required": ["rfqId", "status"],
+        "additionalProperties": false
+      },
+      "effects": ["write"],
+      "authorization": "public",
+      "errors": [{ "code": "rfq_write_failed", "retryable": true }]
+    }
+  ],
+  "requires": [],
+  "storageEpoch": 1,
+  "migrations": [
+    {
+      "fromEpoch": 0,
+      "toEpoch": 1,
+      "idempotencyKey": "rfq-table-v1",
+      "effects": "schema-additive",
+      "verify": "The rfqs table has an immutable id plus name, email, message, status, and created_at columns.",
+      "operations": [
+        {
+          "kind": "create-table",
+          "table": "rfqs",
+          "columns": [
+            { "name": "name", "type": "varchar" },
+            { "name": "email", "type": "varchar" },
+            { "name": "message", "type": "text" },
+            { "name": "status", "type": "varchar" },
+            { "name": "created_at", "type": "datetime" }
+          ]
+        }
+      ]
+    }
+  ]
+}

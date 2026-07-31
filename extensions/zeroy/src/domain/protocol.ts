@@ -174,11 +174,12 @@ export const InspectInputContract = Type.Union([
         "An unmanaged WordPress post ID returned by adoptionCandidates. Returns its canonical WordPress fields and current ACF values without creating zeroY content.",
     }),
   }),
-  Type.Object({ siteId: SiteId, resource: Type.Literal("themeState") }),
+  Type.Object({ siteId: SiteId, resource: Type.Literal("siteRelease") }),
   Type.Object({
     siteId: SiteId,
-    resource: Type.Literal("themeArtifact"),
+    resource: Type.Literal("siteReleaseArtifact"),
     artifactId: Type.String({ pattern: "^sha256:[0-9a-f]{64}$" }),
+    kind: Type.Union([Type.Literal("theme"), Type.Literal("siteLogic")]),
   }),
   Type.Object({
     siteId: SiteId,
@@ -201,22 +202,31 @@ export const InspectInputContract = Type.Union([
 ]);
 export type InspectInput = Static<typeof InspectInputContract>;
 
-export const ThemeCheckoutInputContract = Type.Object({
+export const SiteCheckoutInputContract = Type.Object({
   siteId: SiteId,
 });
-export type ThemeCheckoutInput = Static<typeof ThemeCheckoutInputContract>;
+export type SiteCheckoutInput = Static<typeof SiteCheckoutInputContract>;
 
-export const ThemePushInputContract = Type.Object({
+export const SiteVerifyInputContract = Type.Object({
   siteId: SiteId,
   checkoutId: Type.String({
     minLength: 1,
-    description: "The checkoutId returned by zeroy_theme_checkout.",
+    description: "The checkoutId returned by zeroy_site_checkout.",
+  }),
+});
+export type SiteVerifyInput = Static<typeof SiteVerifyInputContract>;
+
+export const SitePushInputContract = Type.Object({
+  siteId: SiteId,
+  checkoutId: Type.String({
+    minLength: 1,
+    description: "The checkoutId returned by zeroy_site_checkout.",
   }),
   message: Type.Optional(
     Type.String({ maxLength: 500, description: "Optional deployment provenance message." }),
   ),
 });
-export type ThemePushInput = Static<typeof ThemePushInputContract>;
+export type SitePushInput = Static<typeof SitePushInputContract>;
 
 export const ContentInputContract = Type.Union([
   Type.Object({

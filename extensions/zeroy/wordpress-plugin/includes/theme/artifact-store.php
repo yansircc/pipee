@@ -59,6 +59,19 @@ function zeroy_runtime_ensure_artifact_directories(): true|WP_Error
     return true;
 }
 
+function zeroy_runtime_theme_storage_usage(): array
+{
+    $bytes = 0;
+    foreach ([zeroy_runtime_artifact_root(), zeroy_runtime_archive_root(), zeroy_runtime_staging_root()] as $root) {
+        if (!is_dir($root) || is_link($root)) continue;
+        $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::LEAVES_ONLY);
+        foreach ($iterator as $entry) {
+            if ($entry instanceof SplFileInfo && $entry->isFile() && !$entry->isLink()) $bytes += $entry->getSize();
+        }
+    }
+    return ['bytes' => $bytes, 'limit' => zeroy_runtime_theme_policy()['maxStorageBytes']];
+}
+
 function zeroy_runtime_scan_theme_tree(string $root): array|WP_Error
 {
     $root = wp_normalize_path($root);

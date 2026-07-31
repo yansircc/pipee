@@ -2,40 +2,55 @@
 /**
  * Plugin Name: zeroY Runtime Connector
  * Description: Locale runtime kernel and typed Connector for Agent-authored WordPress themes.
- * Version: 3.0.0
+ * Version: 3.1.0
  * Requires PHP: 8.1
  */
 
 defined('ABSPATH') || exit;
 
-define('ZEROY_RUNTIME_VERSION', '4.0.0');
+define('ZEROY_RUNTIME_VERSION', '5.1.0');
 define('ZEROY_THEME_SCHEMA_CONTRACT', 'zeroy/theme-schema@1');
 define('ZEROY_RUNTIME_SITE_ID_OPTION', 'zeroy_runtime_site_id');
 define('ZEROY_RUNTIME_CONNECTION_KEY_OPTION', 'zeroy_runtime_connection_key');
 define('ZEROY_RUNTIME_SCHEMA_META', '_zeroy_runtime_schema_id');
 define('ZEROY_RUNTIME_CANONICAL_REVISION_META', '_zeroy_runtime_canonical_revision');
 define('ZEROY_RUNTIME_TEMPLATE_CONTENT_META', '_zeroy_runtime_template_content');
-define('ZEROY_RUNTIME_DATABASE_VERSION', '4.4.0');
+define('ZEROY_RUNTIME_DATABASE_VERSION', '5.1.0');
 define('ZEROY_RUNTIME_DATABASE_VERSION_OPTION', 'zeroy_runtime_database_version');
 
 require_once __DIR__ . '/includes/runtime.php';
 require_once __DIR__ . '/includes/theme/contract.php';
 require_once __DIR__ . '/includes/theme/artifact-store.php';
-require_once __DIR__ . '/includes/theme/deployment-store.php';
-require_once __DIR__ . '/includes/theme/faults.php';
 require_once __DIR__ . '/includes/theme/php-lint.php';
-require_once __DIR__ . '/includes/theme/retention.php';
-require_once __DIR__ . '/includes/theme/repair.php';
-require_once __DIR__ . '/includes/theme/bootstrap.php';
-require_once __DIR__ . '/includes/theme/initial-deployment.php';
-require_once __DIR__ . '/includes/theme/request-runtime.php';
-require_once __DIR__ . '/includes/theme/activation.php';
-require_once __DIR__ . '/includes/theme/rest.php';
+require_once __DIR__ . '/includes/site-logic/contract.php';
+require_once __DIR__ . '/includes/site-logic/artifact-store.php';
+require_once __DIR__ . '/includes/site-logic/migrations.php';
+require_once __DIR__ . '/includes/site-logic/observation.php';
+require_once __DIR__ . '/includes/site-logic/runtime.php';
+require_once __DIR__ . '/includes/theme/contract-compiler.php';
+require_once __DIR__ . '/includes/site-release/store.php';
+require_once __DIR__ . '/includes/site-release/static-verifier.php';
+require_once __DIR__ . '/includes/site-release/scenario-compiler.php';
+require_once __DIR__ . '/includes/site-release/candidate-runtime.php';
+require_once __DIR__ . '/includes/site-release/browser-smoke.php';
+require_once __DIR__ . '/includes/site-release/proof.php';
+require_once __DIR__ . '/includes/site-release/preparation.php';
+require_once __DIR__ . '/includes/site-release/activation.php';
+require_once __DIR__ . '/includes/site-release/migration.php';
+require_once __DIR__ . '/includes/site-release/stable-shell.php';
+require_once __DIR__ . '/includes/site-release/request-runtime.php';
+require_once __DIR__ . '/includes/site-release/rest.php';
 require_once __DIR__ . '/includes/routes.php';
 require_once __DIR__ . '/includes/rest.php';
 
 register_activation_hook(__FILE__, 'zeroy_runtime_activate');
 register_deactivation_hook(__FILE__, 'zeroy_runtime_deactivate');
+add_action('plugins_loaded', static function (): void {
+    $shell = zeroy_runtime_install_stable_shell();
+    if (is_wp_error($shell)) {
+        zeroy_runtime_record_upgrade_error($shell);
+    }
+}, 1);
 // Upgrade work may write canonical posts while repairing route identity. WordPress
 // defines its functionality constants only after plugins_loaded, so upgrades must
 // run at init rather than during plugin loading.
