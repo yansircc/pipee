@@ -24,13 +24,10 @@ zeroy_bootstrap_acceptance_assert(
     'A bootstrap site did not expose the generic ThemeSchema, RouteSpec, and ThemeRenderContext authoring contract.',
 );
 zeroy_bootstrap_acceptance_assert(
-    ($bootstrap_site['siteLogicAuthoring']['contract'] ?? null) === 'zeroy/site-logic-authoring@1'
-    && ($bootstrap_site['siteLogicAuthoring']['artifact']['requiredFiles'] ?? null) === ['bootstrap.php', 'sitelogic.json']
-    && ($bootstrap_site['siteLogicAuthoring']['bootstrap']['entrypoint'] ?? null) === 'bootstrap.php'
-    && ($bootstrap_site['siteLogicAuthoring']['siteLogicContract']['capability']['kinds'] ?? null) === ['query', 'action']
-    && ($bootstrap_site['siteLogicAuthoring']['siteLogicContract']['capability']['effects'] ?? null) === ['read', 'write', 'external-request', 'background-job', 'file-write']
-    && ($bootstrap_site['siteLogicAuthoring']['siteLogicContract']['migrations']['effects'] ?? null) === 'schema-additive',
-    'A bootstrap site did not expose the complete SiteLogic artifact and manifest authoring grammar.',
+    !array_key_exists('siteLogicAuthoring', $bootstrap_site)
+    && !array_key_exists('siteLogicBootstrap', $bootstrap_site)
+    && !array_key_exists('siteLogic', $bootstrap_site['themeAuthoring']['artifact'] ?? []),
+    'A bootstrap site exposed connector-owned SiteLogic as Agent authoring surface.',
 );
 
 $initial_theme_request = new WP_REST_Request('GET', '/zeroy/v1/site-artifacts/theme/files');

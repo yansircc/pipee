@@ -202,14 +202,14 @@ const inspectResource = (
           ),
           summary: "Read CandidateProof diagnostics",
         };
-      case "artifactFiles":
+      case "themeFiles":
         return {
           payload: yield* connectorGet(
             site,
-            `site-artifacts/${encodeURIComponent(input.artifact)}/files?path=${encodeURIComponent(input.path ?? "")}`,
+            `site-artifacts/theme/files?path=${encodeURIComponent(input.path ?? "")}`,
             signal,
           ),
-          summary: `Read active remote ${input.artifact} file`,
+          summary: "Read active remote theme file",
         };
       case "content":
         switch (input.content.kind) {

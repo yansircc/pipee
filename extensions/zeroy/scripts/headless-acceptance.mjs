@@ -27,7 +27,7 @@ const prompt = `Use only the four zeroY tools to build and verify one small remo
 
 First discover the site rather than guessing: inspect sites, then the selected site, schema, active release, and the remote theme file list. Read one listed theme file using its path.
 
-Use exactly one SiteDraft for all writes. Stage one harmless new theme CSS file whose name includes ${run}; use expectedHash null because it is new. From the remote ThemeSchema choose a document schema, then stage a new canonical document with ref ${ref}, explicit route ${route}, meaningful title/content, and every required template-content value. Add and publish a non-default-locale translation for that staged ref with every required writable field. Read the draft after staging. Commit it with the exact base release returned by that Draft. Then read the CSS file you staged through artifactFiles and run externalCheck on the active site. Do not treat a stage receipt as publication.`;
+Use exactly one SiteDraft for all writes. Stage one harmless new theme CSS file whose name includes ${run}; use expectedHash null because it is new. From the remote ThemeSchema choose a document schema, then stage a new canonical document with ref ${ref}, explicit route ${route}, meaningful title/content, and every required template-content value. Add and publish a non-default-locale translation for that staged ref with every required writable field. Read the draft after staging. Commit it with the exact base release returned by that Draft. Then read the CSS file you staged through themeFiles and run externalCheck on the active site. Do not treat a stage receipt as publication.`;
 const files = async (directory) => {
   const found = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -73,7 +73,7 @@ try {
       "--print",
       "--no-builtin-tools",
       "--tools",
-      "zeroy_inspect,zeroy_artifact_stage,zeroy_content_stage,zeroy_site_commit",
+      "zeroy_inspect,zeroy_theme_stage,zeroy_content_stage,zeroy_site_commit",
       "--extension",
       extension,
       "--no-extensions",
@@ -135,12 +135,9 @@ try {
   const names = new Set(entries.map((entry) => entry.name));
   for (const name of names)
     assert(
-      [
-        "zeroy_inspect",
-        "zeroy_artifact_stage",
-        "zeroy_content_stage",
-        "zeroy_site_commit",
-      ].includes(name),
+      ["zeroy_inspect", "zeroy_theme_stage", "zeroy_content_stage", "zeroy_site_commit"].includes(
+        name,
+      ),
       `Unknown tool ${name}.`,
     );
   for (const entry of entries) {
@@ -156,28 +153,23 @@ try {
   }
   const inspections = entries.filter((entry) => entry.name === "zeroy_inspect");
   const resources = new Set(inspections.map((entry) => entry.input.resource));
-  for (const resource of ["sites", "site", "schema", "release", "artifactFiles"])
+  for (const resource of ["sites", "site", "schema", "release", "themeFiles"])
     assert(resources.has(resource), `Inspect ${resource} was not exercised.`);
   assert(
     inspections.some(
       (entry) =>
-        entry.input.resource === "artifactFiles" &&
-        entry.input.artifact === "theme" &&
+        entry.input.resource === "themeFiles" &&
         !Object.prototype.hasOwnProperty.call(entry.input, "path"),
     ),
     "Remote theme file listing was not exercised.",
   );
   assert(
     inspections.some(
-      (entry) =>
-        entry.input.resource === "artifactFiles" &&
-        entry.input.artifact === "theme" &&
-        typeof entry.input.path === "string",
+      (entry) => entry.input.resource === "themeFiles" && typeof entry.input.path === "string",
     ),
     "Remote theme file reading was not exercised.",
   );
-  const artifactStages = entries.filter((entry) => entry.name === "zeroy_artifact_stage");
-  const themeStages = artifactStages.filter((entry) => entry.input.artifact === "theme");
+  const themeStages = entries.filter((entry) => entry.name === "zeroy_theme_stage");
   assert(themeStages.length > 0, "Theme stage was not exercised.");
   const stagedThemeFiles = themeStages.flatMap((entry) => entry.input.files ?? []);
   assert(
@@ -192,9 +184,7 @@ try {
   );
   const contentStages = entries.filter((entry) => entry.name === "zeroy_content_stage");
   assert(contentStages.length > 0, "Content stage was not exercised.");
-  const stagedReceipts = [...artifactStages, ...contentStages].map(
-    (entry) => entry.result?.payload,
-  );
+  const stagedReceipts = [...themeStages, ...contentStages].map((entry) => entry.result?.payload);
   assert(
     stagedReceipts.every((receipt) => typeof receipt?.draftId === "string"),
     "A stage receipt did not identify its SiteDraft.",
@@ -248,8 +238,7 @@ try {
     entries.some(
       (entry) =>
         entry.name === "zeroy_inspect" &&
-        entry.input.resource === "artifactFiles" &&
-        entry.input.artifact === "theme" &&
+        entry.input.resource === "themeFiles" &&
         typeof entry.input.path === "string" &&
         entry.input.path.includes(run),
     ),

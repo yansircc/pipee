@@ -8,17 +8,16 @@ import {
   CONTENT_PROMPT_GUIDELINES,
   ContentStageProviderProjection,
   InspectProviderProjection,
+  SiteCommitProviderProjection,
+  ThemeStageProviderProjection,
   decodeInspectInput,
-  decodeArtifactStageInput,
+  decodeThemeStageInput,
   decodeContentStageInput,
   decodeSiteCommitInput,
-  ArtifactStageInputContract,
-  SiteCommitInputContract,
-  SITE_LOGIC_BOOTSTRAP_GUIDELINES,
 } from "../domain/protocol.js";
 import { inspectTool, refreshSurface } from "./inspect-tools.js";
 import { activeSession, run, startSession, stopSession, withSession } from "./session.js";
-import { artifactStageTool, contentStageTool, siteCommitTool } from "./stage-tools.js";
+import { contentStageTool, siteCommitTool, themeStageTool } from "./stage-tools.js";
 import { errorMessage, runTool, type ZeroYToolFailure } from "./tool-result.js";
 
 const registrations = new WeakSet<object>();
@@ -50,6 +49,20 @@ export default function piZeroY(pi: ExtensionAPI): void {
   }
   const inspectParameters = inspectProjection.value;
   const contentStageParameters = contentStageProjection.value;
+  const themeStageProjection = ThemeStageProviderProjection;
+  if (themeStageProjection._tag === "Failure") {
+    const error = themeStageProjection.error;
+    pi.on("session_start", (_event, context) => run(notifySessionFailure(context, error)));
+    return;
+  }
+  const siteCommitProjection = SiteCommitProviderProjection;
+  if (siteCommitProjection._tag === "Failure") {
+    const error = siteCommitProjection.error;
+    pi.on("session_start", (_event, context) => run(notifySessionFailure(context, error)));
+    return;
+  }
+  const themeStageParameters = themeStageProjection.value;
+  const siteCommitParameters = siteCommitProjection.value;
   pi.registerTool({
     name: "zeroy_inspect",
     label: "Inspect zeroY site",
@@ -67,17 +80,18 @@ export default function piZeroY(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "zeroy_artifact_stage",
-    label: "Stage zeroY artifact",
-    description: `Stage remote WordPress Theme or SiteLogic file changes into one SiteDraft; changes are not live until commit. ${SITE_LOGIC_BOOTSTRAP_GUIDELINES}`,
-    parameters: ArtifactStageInputContract,
+    name: "zeroy_theme_stage",
+    label: "Stage zeroY theme",
+    description:
+      "Stage remote WordPress theme file changes into one SiteDraft; changes are not live until commit.",
+    parameters: themeStageParameters,
     execute: (_id, input, signal) =>
       runTool(
         withSession<AgentToolResult<unknown>, ZeroYToolFailure>(pi, (active) => {
-          const decoded = decodeArtifactStageInput(input);
+          const decoded = decodeThemeStageInput(input);
           return decoded._tag === "Failure"
             ? Effect.fail(decoded.error)
-            : artifactStageTool(active, decoded.value, signal);
+            : themeStageTool(active, decoded.value, signal);
         }),
       ),
   });
@@ -101,7 +115,7 @@ export default function piZeroY(pi: ExtensionAPI): void {
     label: "Commit zeroY site",
     description:
       "Compile one remote SiteDraft, run its CandidateProof, and atomically activate one SiteRelease.",
-    parameters: SiteCommitInputContract,
+    parameters: siteCommitParameters,
     execute: (_id, input, signal) =>
       runTool(
         withSession<AgentToolResult<unknown>, ZeroYToolFailure>(pi, (active) => {

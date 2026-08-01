@@ -116,17 +116,10 @@ $baseline_theme_artifact_id = (string) $active['theme_artifact_id'];
 $baseline_logic_artifact_id = (string) $active['site_logic_artifact_id'];
 $site_handshake = zeroy_runtime_site_endpoint()->get_data();
 zeroy_site_release_acceptance_assert(
-    ($site_handshake['siteLogicBootstrap']['contract'] ?? null) === 'zeroy/site-logic-bootstrap@1'
-    && ($site_handshake['siteLogicBootstrap']['entrypoint'] ?? null) === 'bootstrap.php'
-    && ($site_handshake['siteLogicBootstrap']['topLevel']['allowed'] ?? null) === ['named-function-declaration', 'literal-capability-registration'],
-    'Site inspection did not expose the SiteLogic bootstrap authoring contract.',
-);
-zeroy_site_release_acceptance_assert(
-    ($site_handshake['siteLogicAuthoring']['contract'] ?? null) === 'zeroy/site-logic-authoring@1'
-    && ($site_handshake['siteLogicAuthoring']['artifact']['requiredFiles'] ?? null) === ['bootstrap.php', 'sitelogic.json']
-    && ($site_handshake['siteLogicAuthoring']['bootstrap']['registration']['function'] ?? null) === 'zeroy_register_site_logic_capability'
-    && ($site_handshake['siteLogicAuthoring']['siteLogicContract']['capability']['kinds'] ?? null) === ['query', 'action'],
-    'Site inspection did not expose the complete SiteLogic artifact authoring contract.',
+    !array_key_exists('siteLogicAuthoring', $site_handshake)
+    && !array_key_exists('siteLogicBootstrap', $site_handshake)
+    && !array_key_exists('siteLogic', $site_handshake['themeAuthoring']['artifact'] ?? []),
+    'Site inspection exposed connector-owned SiteLogic as Agent authoring surface.',
 );
 $theme_list_request = new WP_REST_Request('GET', '/zeroy/v1/site-artifacts/theme/files');
 $theme_list_request->set_param('artifact', 'theme');
@@ -326,6 +319,76 @@ $base_release_id = (string) $active['active_release_id'];
 $baseline_theme_artifact_id = (string) $active['theme_artifact_id'];
 $baseline_logic_artifact_id = (string) $active['site_logic_artifact_id'];
 
+// Revision is a projection of the appended operation, never a client-side
+// guess. A failed prospective operation must leave the immutable log exactly
+// as it was, while the returned revision must be accepted by the next stage.
+$revision_receipt_draft = $new_draft($base_release_id);
+$revision_receipt_draft_id = (string) $revision_receipt_draft['draftId'];
+$revision_created = zeroy_runtime_append_site_draft_operation($revision_receipt_draft_id, [
+    'kind' => 'createCanonical',
+    'payload' => [
+        'ref' => 'revision-receipt-probe',
+        'postType' => 'page',
+        'schemaId' => 'showcase',
+        'route' => 'revision-receipt-probe',
+        'postTitle' => 'Revision receipt probe',
+        'postContent' => 'This staged post verifies revision receipts.',
+        'templateContent' => [
+            'title' => 'Revision receipt probe',
+            'intro' => 'The next revision comes from the Draft receipt.',
+        ],
+    ],
+], $draft_owner);
+zeroy_site_release_acceptance_assert(
+    !is_wp_error($revision_created)
+    && (($revision_created['lastOperation']['kind'] ?? null) === 'createCanonical')
+    && (($revision_created['lastOperation']['nextRevision'] ?? null) === 1),
+    'createCanonical did not return the exact next canonical revision.',
+);
+$revision_stale = zeroy_runtime_append_site_draft_operation($revision_receipt_draft_id, [
+    'kind' => 'writeTemplateContent',
+    'payload' => [
+        'objectRef' => 'revision-receipt-probe',
+        'templateContent' => ['title' => 'This stale operation must not persist'],
+        'expectedRevision' => 0,
+    ],
+], $draft_owner);
+$revision_after_stale = zeroy_runtime_site_draft_row($revision_receipt_draft_id);
+zeroy_site_release_acceptance_assert(
+    is_wp_error($revision_stale)
+    && $revision_stale->get_error_code() === 'zeroy_canonical_conflict'
+    && is_array($revision_after_stale)
+    && count(zeroy_runtime_site_draft_operations($revision_after_stale)) === 1,
+    'A stale content revision entered the Draft operation log instead of failing at stage.',
+);
+$revision_template = zeroy_runtime_append_site_draft_operation($revision_receipt_draft_id, [
+    'kind' => 'writeTemplateContent',
+    'payload' => [
+        'objectRef' => 'revision-receipt-probe',
+        'templateContent' => ['title' => 'Receipt revision accepted'],
+        'expectedRevision' => $revision_created['lastOperation']['nextRevision'],
+    ],
+], $draft_owner);
+zeroy_site_release_acceptance_assert(
+    !is_wp_error($revision_template)
+    && (($revision_template['lastOperation']['nextRevision'] ?? null) === 2),
+    'The canonical revision returned by the preceding receipt was not accepted by the next stage.',
+);
+$revision_canonical = zeroy_runtime_append_site_draft_operation($revision_receipt_draft_id, [
+    'kind' => 'writeCanonicalContent',
+    'payload' => [
+        'objectRef' => 'revision-receipt-probe',
+        'postContent' => 'The receipt-chain stage was accepted.',
+        'expectedRevision' => $revision_template['lastOperation']['nextRevision'],
+    ],
+], $draft_owner);
+zeroy_site_release_acceptance_assert(
+    !is_wp_error($revision_canonical)
+    && (($revision_canonical['lastOperation']['nextRevision'] ?? null) === 3),
+    'A revision receipt did not chain through multiple canonical mutations.',
+);
+zeroy_runtime_discard_site_draft($revision_receipt_draft_id, $draft_owner);
+
 // Every LocalizableSubject uses the same Draft operation algebra. SiteCopy and
 // taxonomy terms must not fall through the post-only identity path.
 $auxiliary_snapshot = zeroy_runtime_site_release_snapshot($active);
@@ -409,30 +472,11 @@ $route_conflict_operation = zeroy_runtime_append_site_draft_operation((string) $
         'templateContent' => ['title' => 'Route conflict', 'intro' => 'Route conflict content'],
     ],
 ], $draft_owner);
-zeroy_site_release_acceptance_assert(!is_wp_error($route_conflict_operation), 'Could not stage route conflict probe.');
-$route_conflict_translation = zeroy_runtime_append_site_draft_operation((string) $route_conflict_draft['draftId'], [
-    'kind' => 'writeTranslationDraft',
-    'payload' => [
-        'subject' => ['kind' => 'post', 'ref' => 'route-conflict'],
-        'locale' => $auxiliary_locale,
-        'values' => [
-            '/post/title' => 'Route conflict',
-            '/post/content' => 'Route conflict content',
-            '/template-content/title' => 'Route conflict',
-            '/template-content/intro' => 'Route conflict content',
-        ],
-        'expectedRevision' => 0,
-    ],
-], $draft_owner);
-$route_conflict_publish = zeroy_runtime_append_site_draft_operation((string) $route_conflict_draft['draftId'], [
-    'kind' => 'publishTranslation',
-    'payload' => ['subject' => ['kind' => 'post', 'ref' => 'route-conflict'], 'locale' => $auxiliary_locale, 'expectedRevision' => 1],
-], $draft_owner);
-zeroy_site_release_acceptance_assert(!is_wp_error($route_conflict_translation) && !is_wp_error($route_conflict_publish), 'Could not publish the route conflict probe in its candidate locale.');
-$route_conflict_release = zeroy_runtime_prepare_site_release($baseline_theme_artifact_id, $baseline_logic_artifact_id, $base_release_id, ['source' => 'site-draft', 'draftId' => $route_conflict_draft['draftId']], (string) $route_conflict_draft['draftId']);
 zeroy_site_release_acceptance_assert(
-    is_wp_error($route_conflict_release) && $route_conflict_release->get_error_code() === 'zeroy_draft_snapshot_route_conflict',
-    'A canonical route silently replaced the Search route owner: ' . (is_wp_error($route_conflict_release) ? $route_conflict_release->get_error_code() . ' ' . $route_conflict_release->get_error_message() . ' ' . wp_json_encode($route_conflict_release->get_error_data()) : wp_json_encode($route_conflict_release))
+    is_wp_error($route_conflict_operation)
+    && $route_conflict_operation->get_error_code() === 'zeroy_draft_snapshot_route_conflict'
+    && ((zeroy_runtime_site_draft_receipt(zeroy_runtime_site_draft_row((string) $route_conflict_draft['draftId']))['operationCount'] ?? null) === 0),
+    'A canonical route collision was not rejected before it entered the Draft operation log.'
 );
 zeroy_runtime_discard_site_draft((string) $route_conflict_draft['draftId'], $draft_owner);
 

@@ -14,8 +14,6 @@ function zeroy_runtime_site_endpoint(): WP_REST_Response
         'contentOwnership' => zeroy_runtime_content_ownership(),
         'themeSchema' => ['valid' => $schema['valid'], 'contractHash' => $schema['contractHash'] ?? null, 'schemaHashes' => $schema['schemaHashes'] ?? [], 'errors' => $schema['errors']],
         'themeAuthoring' => zeroy_runtime_theme_authoring_contract(),
-        'siteLogicAuthoring' => zeroy_runtime_site_logic_authoring_contract(),
-        'siteLogicBootstrap' => zeroy_runtime_site_logic_bootstrap_contract(),
         'capabilities' => ['siteConfig' => true, 'schema' => true, 'inventory' => true, 'acf' => true, 'adoptionCandidates' => true, 'existingPost' => true, 'canonicalContent' => true, 'themeArtifacts' => true, 'translationJob' => true, 'canonicalObjects' => true, 'siteDrafts' => true, 'integrity' => true],
     ]);
 }

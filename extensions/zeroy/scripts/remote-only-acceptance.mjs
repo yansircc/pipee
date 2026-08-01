@@ -86,6 +86,17 @@ const nestedString = (value, key) => {
   }
   return null;
 };
+const receiptNextRevision = (value) => {
+  if (typeof value !== "object" || value === null) return null;
+  const last = value.lastOperation;
+  if (typeof last === "object" && last !== null && Number.isInteger(last.nextRevision))
+    return last.nextRevision;
+  for (const child of Object.values(value)) {
+    const found = receiptNextRevision(child);
+    if (found !== null) return found;
+  }
+  return null;
+};
 const anthropicToolUse = (id, name, input) =>
   [
     `event: message_start\ndata: ${JSON.stringify({ type: "message_start", message: { id: `msg_${id}`, type: "message", role: "assistant", content: [], model: "remote-only-gate", stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 0 } } })}\n\n`,
@@ -138,17 +149,18 @@ let initialReleaseId = null;
 let staleDraftId = null;
 let replacementDraftId = null;
 let replayedDraftId = null;
+let translationDraftRevision = null;
 const calls = [
   { tool: "zeroy_inspect", input: () => ({ resource: "sites" }) },
   { tool: "zeroy_inspect", input: () => ({ siteId, resource: "site" }) },
   { tool: "zeroy_inspect", input: () => ({ siteId, resource: "acf" }) },
   {
     tool: "zeroy_inspect",
-    input: () => ({ siteId, resource: "artifactFiles", artifact: "theme" }),
+    input: () => ({ siteId, resource: "themeFiles" }),
   },
   {
-    tool: "zeroy_artifact_stage",
-    input: () => ({ siteId, artifact: "theme", files: themeFiles }),
+    tool: "zeroy_theme_stage",
+    input: () => ({ siteId, files: themeFiles }),
     receive: (result) => {
       initialDraftId = nestedDraftId(result);
     },
@@ -192,6 +204,9 @@ const calls = [
         },
       },
     }),
+    receive: (result) => {
+      translationDraftRevision = receiptNextRevision(result);
+    },
   },
   {
     tool: "zeroy_content_stage",
@@ -202,7 +217,7 @@ const calls = [
         kind: "publishTranslation",
         subject: { kind: "post", ref: "remote-only-home" },
         locale: "en",
-        expectedRevision: 1,
+        expectedRevision: translationDraftRevision,
       },
     }),
   },
@@ -223,10 +238,9 @@ const calls = [
     },
   },
   {
-    tool: "zeroy_artifact_stage",
+    tool: "zeroy_theme_stage",
     input: () => ({
       siteId,
-      artifact: "theme",
       files: [
         {
           path: "__zeroy-replay-stale.css",
@@ -240,10 +254,9 @@ const calls = [
     },
   },
   {
-    tool: "zeroy_artifact_stage",
+    tool: "zeroy_theme_stage",
     input: () => ({
       siteId,
-      artifact: "theme",
       files: [
         {
           path: "__zeroy-replay-replacement.css",
@@ -361,7 +374,7 @@ try {
       "--print",
       "--no-builtin-tools",
       "--tools",
-      "zeroy_inspect,zeroy_artifact_stage,zeroy_content_stage,zeroy_site_commit",
+      "zeroy_inspect,zeroy_theme_stage,zeroy_content_stage,zeroy_site_commit",
       "--extension",
       extension,
       "--no-extensions",
@@ -423,7 +436,7 @@ try {
   assert.equal(entries.length, calls.length, "Unexpected Agent tool call count.");
   const allowed = new Set([
     "zeroy_inspect",
-    "zeroy_artifact_stage",
+    "zeroy_theme_stage",
     "zeroy_content_stage",
     "zeroy_site_commit",
   ]);
@@ -438,6 +451,25 @@ try {
       `Remote-only ${entry.name} failed: ${entry.result?.text}`,
     );
   }
+  const translationDraft = entries.find(
+    (entry) =>
+      entry.name === "zeroy_content_stage" &&
+      entry.input.operation?.kind === "writeTranslationDraft",
+  );
+  const translationPublish = entries.find(
+    (entry) =>
+      entry.name === "zeroy_content_stage" && entry.input.operation?.kind === "publishTranslation",
+  );
+  assert.equal(
+    translationDraft?.input.operation?.expectedRevision,
+    0,
+    "The first new locale stage did not use its documented revision 0.",
+  );
+  assert.equal(
+    translationPublish?.input.operation?.expectedRevision,
+    receiptNextRevision(translationDraft?.result?.payload),
+    "publishTranslation did not use the preceding stage receipt's nextRevision.",
+  );
   const commits = entries.filter((entry) => entry.name === "zeroy_site_commit");
   assert.equal(
     commits.at(-1)?.result?.payload?.state,

@@ -11,7 +11,7 @@ export default Object.freeze({
       "zeroy_content_stage",
       "zeroy_inspect",
       "zeroy_site_commit",
-      "zeroy_artifact_stage",
+      "zeroy_theme_stage",
     ]),
     handlers: Object.freeze(["session_shutdown", "session_start"]),
     skills: Object.freeze([]),

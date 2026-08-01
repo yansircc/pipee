@@ -3,10 +3,10 @@ import type { NodeServices } from "@effect/platform-node/NodeServices";
 import { Effect } from "effect";
 import { connectorPost, decodeConnectorPayload } from "../domain/client.js";
 import type {
-  ArtifactStageInput,
   ContentStageInput,
   JsonRecord,
   SiteCommitInput,
+  ThemeStageInput,
 } from "../domain/protocol.js";
 import { SiteDraftReceiptContract, SiteReleaseReceiptContract } from "../domain/protocol.js";
 import {
@@ -62,9 +62,9 @@ const stage = (
     ),
   );
 
-export const artifactStageTool = (
+export const themeStageTool = (
   active: ActiveSession,
-  input: ArtifactStageInput,
+  input: ThemeStageInput,
   signal: AbortSignal | undefined,
 ) =>
   stage(
@@ -73,12 +73,14 @@ export const artifactStageTool = (
     input.draftId,
     {
       kind: "artifact.files",
-      artifact: input.artifact,
+      // SiteArtifact selection belongs to the remote compiler. The sole
+      // public file-writing capability is the ThemeArtifact.
+      artifact: "theme",
       files: input.files,
       message: input.message ?? "",
     },
     signal,
-    "zeroY artifact stage",
+    "zeroY theme stage",
   );
 
 export const contentStageTool = (

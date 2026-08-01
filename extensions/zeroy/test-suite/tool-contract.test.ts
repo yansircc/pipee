@@ -6,15 +6,17 @@ import {
   ContentStageProviderProjection,
   ContentInspectionProviderProjection,
   InspectProviderProjection,
-  ArtifactStageInputContract,
+  SiteCommitProviderProjection,
   SiteDraftInspectionContract,
   SiteDraftReceiptContract,
   SiteCommitInputContract,
   SiteReleaseReceiptContract,
+  ThemeStageInputContract,
+  ThemeStageProviderProjection,
   decodeContentStageInput,
   decodeInspectInput,
   decodeSiteCommitInput,
-  decodeArtifactStageInput,
+  decodeThemeStageInput,
 } from "../src/domain/protocol.js";
 
 const siteId = "site-a";
@@ -28,7 +30,11 @@ describe("zeroY remote stage contracts", () => {
       state: "open",
       operationCount: 1,
       operationsHash: "a".repeat(64),
-      lastOperationId: "operation-1",
+      lastOperation: {
+        operationId: "operation-1",
+        kind: "writeTranslationDraft",
+        nextRevision: 1,
+      },
       proofId: null,
       replayedFromDraftId: null,
       diagnostics: {},
@@ -96,8 +102,7 @@ describe("zeroY remote stage contracts", () => {
       { siteId, resource: "release" },
       { siteId, resource: "draft", draftId: "draft-1" },
       { siteId, resource: "proof", proofId: "proof-1" },
-      { siteId, resource: "artifactFiles", artifact: "theme", path: "functions.php" },
-      { siteId, resource: "artifactFiles", artifact: "site-logic", path: "bootstrap.php" },
+      { siteId, resource: "themeFiles", path: "functions.php" },
       { siteId, resource: "content", content: { kind: "canonical", objectId: 1 } },
       {
         siteId,
@@ -128,23 +133,20 @@ describe("zeroY remote stage contracts", () => {
 
   it("keeps stage and commit top-level schemas provider-safe", () => {
     expect(
-      Value.Check(ArtifactStageInputContract, {
+      Value.Check(ThemeStageInputContract, {
         siteId,
-        artifact: "theme",
         files: [{ path: "x.php", content: "<?php", expectedHash: null }],
       }),
     ).toBe(true);
     expect(
-      Value.Check(ArtifactStageInputContract, {
+      Value.Check(ThemeStageInputContract, {
         siteId,
-        artifact: "site-logic",
         files: [{ path: "obsolete.php", content: null, expectedHash: "a".repeat(64) }],
       }),
     ).toBe(true);
     expect(
-      Value.Check(ArtifactStageInputContract, {
+      Value.Check(ThemeStageInputContract, {
         siteId,
-        artifact: "theme",
         files: [{ path: "obsolete.php", content: null, expectedHash: null }],
       }),
     ).toBe(false);
@@ -215,13 +217,14 @@ describe("zeroY remote stage contracts", () => {
     ).toBe(true);
     expect(Value.Check(ContentOperationContract, { kind: "unknown" })).toBe(false);
     expect(InspectProviderProjection._tag).toBe("Success");
+    expect(ThemeStageProviderProjection._tag).toBe("Success");
+    expect(SiteCommitProviderProjection._tag).toBe("Success");
   });
 
   it("decodes every staged mutation before it can cross the Connector boundary", () => {
     expect(
-      decodeArtifactStageInput({
+      decodeThemeStageInput({
         siteId,
-        artifact: "theme",
         files: [{ path: "obsolete.php", content: null, expectedHash: null }],
       })._tag,
     ).toBe("Failure");
@@ -338,7 +341,6 @@ describe("zeroY remote stage contracts", () => {
         perPage: 100,
         draftId: "unused",
         proofId: "unused",
-        artifact: "theme",
         path: "unused",
         content: {
           kind: "canonical",

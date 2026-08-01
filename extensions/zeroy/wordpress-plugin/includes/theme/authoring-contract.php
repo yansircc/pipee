@@ -58,13 +58,6 @@ function zeroy_runtime_theme_authoring_contract(): array
                     'requiresCapabilities' => 'A keyed map from a stable capability name to its required major version reference.',
                 ],
             ],
-            'siteLogic' => [
-                'requiredFiles' => ['bootstrap.php', 'sitelogic.json'],
-                'manifest' => [
-                    'contract' => ZEROY_SITE_LOGIC_CONTRACT,
-                    'required' => ['provides', 'requires', 'storageEpoch', 'migrations'],
-                ],
-            ],
         ],
         'themeSchema' => [
             'contract' => ZEROY_THEME_SCHEMA_CONTRACT,

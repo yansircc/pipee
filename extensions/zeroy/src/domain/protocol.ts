@@ -4,11 +4,10 @@ import { Data } from "effect";
 
 const SiteId = Type.String({ minLength: 1, description: "Configured zeroY site identifier." });
 const Locale = Type.String({ minLength: 1 });
-export const SITE_LOGIC_BOOTSTRAP_GUIDELINES =
-  "For a site-logic artifact, bootstrap.php must start exactly with defined('ABSPATH') || exit;. Its top level may contain only named function declarations and literal zeroy_register_site_logic_capability('capability', 'majorVersion', 'named_handler') calls. Put all reads and writes inside the named handler; do not use top-level effects, includes, closures, or dynamic registration.";
-const SiteArtifactKind = Type.Union([Type.Literal("theme"), Type.Literal("site-logic")], {
-  description: `The SiteDraft artifact to edit. theme renders only; site-logic owns declared site capabilities and effects. ${SITE_LOGIC_BOOTSTRAP_GUIDELINES}`,
-});
+// SiteDraft is also the connector's internal compiler log. Its receipt must
+// describe either compiler artifact even though the Agent-facing write tool
+// only permits ThemeArtifact changes.
+const SiteArtifactKind = Type.Union([Type.Literal("theme"), Type.Literal("site-logic")]);
 const JsonValue = Type.Recursive((Self) =>
   Type.Union([
     Type.String(),
@@ -240,8 +239,7 @@ export const InspectInputContract = Type.Union([
   }),
   Type.Object({
     siteId: SiteId,
-    resource: Type.Literal("artifactFiles"),
-    artifact: SiteArtifactKind,
+    resource: Type.Literal("themeFiles"),
     path: Type.Optional(Type.String({ minLength: 1 })),
   }),
   Type.Object({
@@ -277,7 +275,20 @@ export const SiteDraftReceiptContract = Type.Object({
   ]),
   operationCount: Type.Integer({ minimum: 0 }),
   operationsHash: Type.String({ minLength: 64, maxLength: 64 }),
-  lastOperationId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  lastOperation: Type.Union([
+    Type.Object({
+      operationId: Type.String({ minLength: 1 }),
+      kind: Type.String({ minLength: 1 }),
+      nextRevision: Type.Union([
+        Type.Integer({ minimum: 0 }),
+        Type.Null({
+          description:
+            "No follow-up revision applies to this operation. A non-null value is the exact expectedRevision for the same staged subject's next mutation.",
+        }),
+      ]),
+    }),
+    Type.Null(),
+  ]),
   proofId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   replayedFromDraftId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   diagnostics: Type.Record(Type.String(), JsonValue),
@@ -341,7 +352,14 @@ export const SiteDraftInspectionContract = Type.Object({
 });
 export type SiteDraftInspection = Static<typeof SiteDraftInspectionContract>;
 
-export const ArtifactStageInputContract = Type.Object(
+/**
+ * Agent authoring is scoped to the remote ThemeArtifact. SiteLogic is
+ * connector-owned runtime code: it participates in CandidateProof but is not
+ * an Agent-editable file tree. This keeps the public surface aligned with the
+ * one capability users actually need (authoring their WordPress theme) while
+ * leaving artifact composition an internal compiler concern.
+ */
+export const ThemeStageInputContract = Type.Object(
   {
     siteId: SiteId,
     draftId: Type.Optional(
@@ -351,13 +369,12 @@ export const ArtifactStageInputContract = Type.Object(
           "Open SiteDraft; omit to create one from the current active release or an empty bootstrap base.",
       }),
     ),
-    artifact: SiteArtifactKind,
     files: Type.Array(
       Type.Union([
         Type.Object({
           path: Type.String({
             minLength: 1,
-            description: "Path relative to the selected artifact root.",
+            description: "Path relative to the remote active theme root.",
           }),
           content: Type.String({
             description: "Complete replacement bytes for a created or existing file.",
@@ -365,7 +382,7 @@ export const ArtifactStageInputContract = Type.Object(
           expectedHash: Type.Union([
             Type.String({
               pattern: "^[a-f0-9]{64}$",
-              description: "Hash returned by artifactFiles when replacing an existing file.",
+              description: "Hash returned by themeFiles when replacing an existing file.",
             }),
             Type.Null({ description: "Use only when creating a new file." }),
           ]),
@@ -373,12 +390,12 @@ export const ArtifactStageInputContract = Type.Object(
         Type.Object({
           path: Type.String({
             minLength: 1,
-            description: "Path relative to the selected artifact root.",
+            description: "Path relative to the remote active theme root.",
           }),
           content: Type.Null({ description: "Delete the existing file." }),
           expectedHash: Type.String({
             pattern: "^[a-f0-9]{64}$",
-            description: "Current hash returned by artifactFiles for the file being deleted.",
+            description: "Current hash returned by themeFiles for the file being deleted.",
           }),
         }),
       ]),
@@ -387,10 +404,11 @@ export const ArtifactStageInputContract = Type.Object(
     message: Type.Optional(Type.String({ maxLength: 500 })),
   },
   {
-    description: `Stage one immutable ThemeArtifact or SiteLogicArtifact into the current SiteDraft. ${SITE_LOGIC_BOOTSTRAP_GUIDELINES}`,
+    description:
+      "Stage remote WordPress theme file changes into the current SiteDraft. Changes are not live until zeroy_site_commit succeeds.",
   },
 );
-export type ArtifactStageInput = Static<typeof ArtifactStageInputContract>;
+export type ThemeStageInput = Static<typeof ThemeStageInputContract>;
 
 export const ContentOperationContract = Type.Union([
   Type.Object({
@@ -739,7 +757,7 @@ export const providerSafeParameters = (
  */
 export const providerSafeObject = (
   contract: TSchema,
-  nested: Readonly<Record<string, TSchema>>,
+  nested: Readonly<Record<string, TSchema>> = {},
 ): ProtocolResult<TSchema, ProviderSchemaProjectionError> => {
   const object = objectProperties(contract as JsonSchema);
   if (object instanceof ProviderSchemaProjectionError) return failure(object);
@@ -832,6 +850,8 @@ export const ContentOperationProviderProjection = providerSafeParameters(
   ContentOperationContract,
   "kind",
 );
+export const ThemeStageProviderProjection = providerSafeObject(ThemeStageInputContract);
+export const SiteCommitProviderProjection = providerSafeObject(SiteCommitInputContract);
 export const ContentStageProviderProjection =
   ContentOperationProviderProjection._tag === "Failure"
     ? ContentOperationProviderProjection
@@ -886,8 +906,8 @@ const decodeExact = <Output>(
   );
 };
 
-export const decodeArtifactStageInput = (input: unknown) =>
-  decodeExact<ArtifactStageInput>(ArtifactStageInputContract, "artifact stage", input);
+export const decodeThemeStageInput = (input: unknown) =>
+  decodeExact<ThemeStageInput>(ThemeStageInputContract, "theme stage", input);
 export const decodeContentStageInput = (input: unknown) => {
   const operation =
     typeof input === "object" && input !== null
@@ -928,6 +948,6 @@ export const decodeSiteCommitInput = (input: unknown) =>
   decodeExact<SiteCommitInput>(SiteCommitInputContract, "site commit", input);
 
 export const CONTENT_PROMPT_GUIDELINES =
-  "Begin with zeroy_inspect resource sites, then inspect the selected site. Stage theme, SiteLogic, and typed content operations into one remote SiteDraft. After staging a schema, inspect resource draft: its candidate ThemeContract and ThemeSchema are the only contract for subsequent content. For an unmanaged post, inspect content existing-post with draftId and schemaId to get its exact candidate FieldProjection. If staging reports zeroy_site_draft_base_changed, call replayDraft with sourceDraftId and no draftId; it either returns one new open Draft with the complete operation log or a structured conflict without changing either release. Inspect the draft and proof diagnostics, then call zeroy_site_commit with the expected base release. Never write local files, bypass the connector, or treat staging as live publication.";
+  "Begin with zeroy_inspect resource sites, then inspect the selected site. Stage remote theme files and typed content operations into one remote SiteDraft. After staging a schema, inspect resource draft: its candidate ThemeContract and ThemeSchema are the only contract for subsequent content. For an unmanaged post, inspect content existing-post with draftId and schemaId to get its exact candidate FieldProjection. If staging reports zeroy_site_draft_base_changed, call replayDraft with sourceDraftId and no draftId; it either returns one new open Draft with the complete operation log or a structured conflict without changing either release. Inspect the draft and proof diagnostics, then call zeroy_site_commit with the expected base release. Never write local files, bypass the connector, or treat staging as live publication.";
 
 export type JsonRecord = Readonly<Record<string, unknown>>;

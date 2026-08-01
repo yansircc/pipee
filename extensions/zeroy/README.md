@@ -9,13 +9,13 @@ WordPress / ACF canonical facts
 → resolved theme projection
 ```
 
-The Connector has four agent tools: `zeroy_inspect`, `zeroy_artifact_stage`, `zeroy_content_stage`, and `zeroy_site_commit`.
+The Connector has four agent tools: `zeroy_inspect`, `zeroy_theme_stage`, `zeroy_content_stage`, and `zeroy_site_commit`.
 
 ## Translation workflow
 
-1. Inspect `sites`, then the selected `site`, `release`, and active artifact files.
-2. Stage Theme, SiteLogic, and typed content operations into one SiteDraft. Omitting `draftId` atomically creates the Draft and appends that first operation; a failed first operation leaves no empty Draft behind.
-3. After staging or changing a ThemeSchema, inspect `resource: "draft"`. Its candidate ThemeContract, ThemeSchema, SiteLogic contract, ACF projection, and virtual artifact manifests are the exact contract that commit will compile. This inspection is read-only: it neither writes artifacts nor creates a release.
+1. Inspect `sites`, then the selected `site`, `release`, and active `themeFiles`.
+2. Stage remote Theme and typed content operations into one SiteDraft. Omitting `draftId` atomically creates the Draft and appends that first operation; a failed first operation leaves no empty Draft behind.
+3. After staging or changing a ThemeSchema, inspect `resource: "draft"`. Its candidate ThemeContract, ThemeSchema, ACF projection, and virtual theme manifest are the exact contract that commit will compile. This inspection is read-only: it neither writes artifacts nor creates a release.
 4. For an unmanaged WordPress post, inspect `content.kind: "existing-post"` with that `draftId` and candidate `schemaId`. The returned FieldProjection is the exact candidate field identity, item-key, source-hash, value-shape, and localization-policy input for adoption and translation.
 5. Inspect `content.kind: "translation"` for an adopted/published subject and stage its locale draft operation. Reinspect the Draft after meaningful changes.
 6. Commit once with the Draft's expected base release. If CandidateProof blocks it, inspect `resource: "proof"`, repair the Draft, and commit again. Nothing is live before this step.
@@ -67,7 +67,7 @@ The default locale must have exactly one committed `front-page` canonical at `/`
 
 ## Site release
 
-`zeroy_artifact_stage` and `zeroy_content_stage` append remote operations to one SiteDraft. Artifact staging explicitly selects either the read-only Theme or the effect-owning SiteLogic artifact. `zeroy_site_commit` is the only operation that can activate a SiteRelease after CandidateProof succeeds. `zeroy_inspect { resource: "draft" }` compiles an ephemeral candidate from the same ordered operation log that commit uses, so it is the contract-discovery boundary for staged schemas; it is not a preview cache or second mutable store. Draft receipts expose compact operation summaries, affected subjects/artifacts, and staged file hashes—not staged source or document bytes. Candidate releases and their proofs are readable only by the Pi session that owns the source Draft; history contains only activated or superseded Releases. `zeroy_inspect { resource: "proof" }` is the explicit path for complete CandidateProof evidence. All are read-only projections of the same Draft and proof facts.
+`zeroy_theme_stage` and `zeroy_content_stage` append remote operations to one SiteDraft. Theme staging is the only Agent file-write operation; connector-owned SiteLogic participates in CandidateProof but is not an Agent-editable file tree. `zeroy_site_commit` is the only operation that can activate a SiteRelease after CandidateProof succeeds. `zeroy_inspect { resource: "draft" }` compiles an ephemeral candidate from the same ordered operation log that commit uses, so it is the contract-discovery boundary for staged schemas; it is not a preview cache or second mutable store. A stage receipt's `lastOperation.nextRevision` is the exact `expectedRevision` for the same subject's next mutation; only a new locale begins at `0`. Draft receipts expose compact operation summaries, affected subjects/artifacts, and staged file hashes—not staged source or document bytes. Candidate releases and their proofs are readable only by the Pi session that owns the source Draft; history contains only activated or superseded Releases. `zeroy_inspect { resource: "proof" }` is the explicit path for complete CandidateProof evidence. All are read-only projections of the same Draft and proof facts.
 
 ```text
 ThemeArtifact × SiteLogicArtifact × exact VerificationProof
@@ -77,27 +77,7 @@ ThemeArtifact × SiteLogicArtifact × exact VerificationProof
 
 The Connector verifies static boundaries before it ever loads a candidate, then runs representative front page, singular, archive/taxonomy, search, pagination and 404 requests where current site facts make them available. It pins one SiteRelease for the entire front-end request and never loads Agent Theme or SiteLogic code on `/wp-json/zeroy/*`. Theme may render and read; it cannot own persistence, migration, background work, Connector routes, request-time file writes, or inferred WordPress permalinks. SiteLogic owns declared business capabilities, state and additive storage migrations. Its capability port validates input/output, authorization and observed database effects.
 
-On a site with no active release, `artifactFiles` for `theme` returns an explicit empty bootstrap projection, while `artifactFiles` for `site-logic` exposes the connector-owned empty baseline. `zeroy_inspect { resource: "site" }` also returns `themeAuthoring`: the generic ThemeSchema, RouteSpec, localization, artifact-file, and `zeroy_theme_context()` grammar required to author the first release. The first theme stage must provide the complete ThemeArtifact; its Draft has `baseReleaseId: null`, and the first commit must return that exact `null` as `expectedBaseReleaseId`. A Draft may stage a complete SiteLogicArtifact when the Theme requires a site-specific capability.
-
-### SiteLogic bootstrap
-
-`zeroy_inspect` with `resource: "site"` returns `siteLogicAuthoring`: the complete SiteLogic artifact grammar (its required `bootstrap.php` and `sitelogic.json`, capability/effect/authorization/migration algebra, and declaration rules). `siteLogicBootstrap` remains the focused bootstrap projection. Read `siteLogicAuthoring` before staging the first artifact with site-specific capabilities. A SiteLogic artifact has one declaration-only entrypoint, `bootstrap.php`:
-
-```php
-<?php
-
-defined('ABSPATH') || exit;
-
-function my_rfq_submit(array $input): array
-{
-    // Effects belong inside the handler, never at bootstrap top level.
-    return ['status' => 'received'];
-}
-
-zeroy_register_site_logic_capability('rfq.submit', '1', 'my_rfq_submit');
-```
-
-Its top level allows only that exact ABSPATH guard, named function declarations, and literal `zeroy_register_site_logic_capability(capability, majorVersion, namedHandler)` registrations. CandidateProof rejects a top-level effect, include, closure, or dynamic registration before it loads the candidate runtime. The immutable `sitelogic.json` contract remains the authority for every registered capability, its input/output schema, authorization, and declared effects.
+On a site with no active release, `themeFiles` returns an explicit empty bootstrap projection. `zeroy_inspect { resource: "site" }` also returns `themeAuthoring`: the generic ThemeSchema, RouteSpec, localization, theme-file, and `zeroy_theme_context()` grammar required to author the first release. The first theme stage must provide the complete ThemeArtifact; its Draft has `baseReleaseId: null`, and the first commit must return that exact `null` as `expectedBaseReleaseId`.
 
 LocaleOverlay is the only locale document protocol. Per-leaf inherit decisions, ThemeCopy, file-by-file theme mutation, ThemeDeployment and their runtime paths are retired. No old deployment endpoint, tool alias, reader, writer, or request-time fallback remains. A single upgrade-time conversion writer turns an already-active pre-SiteDraft release into a normal immutable Snapshot release, then deletes the old Release/proof rows; it is not a compatibility API or reader.
 

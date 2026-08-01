@@ -154,6 +154,22 @@ function zeroy_runtime_site_draft_subject_identity(mixed $subject): ?array
 }
 
 /**
+ * Revision is not an independently stored Draft fact. The next legal
+ * expectedRevision is a pure projection of the operation that just entered
+ * the one Draft log. Returning it lets an Agent chain dependent operations
+ * without guessing while commit still replays and checks the same log.
+ */
+function zeroy_runtime_site_draft_operation_next_revision(array $operation): ?int
+{
+    $kind = $operation['kind'] ?? null;
+    $payload = $operation['payload'] ?? null;
+    if (!is_string($kind) || !is_array($payload)) return null;
+    if (in_array($kind, ['createCanonical', 'adoptCanonical'], true)) return 1;
+    if ($kind === 'retireCanonical' || $kind === 'artifact.files' || $kind === 'replayDraft') return null;
+    return is_int($payload['expectedRevision'] ?? null) ? $payload['expectedRevision'] + 1 : null;
+}
+
+/**
  * A receipt is a read-only view of the single Draft operation log. It does not
  * store a second impact ledger, so retries and failed candidates cannot drift
  * from the operations that actually define the SiteDraft.
@@ -244,6 +260,7 @@ function zeroy_runtime_site_draft_operation_summaries(array $operations): array
             'operationId' => is_string($operation['operationId'] ?? null) ? $operation['operationId'] : null,
             'ordinal' => is_int($operation['ordinal'] ?? null) ? $operation['ordinal'] : null,
             'kind' => $kind,
+            'nextRevision' => zeroy_runtime_site_draft_operation_next_revision($operation),
         ];
         if ($kind === 'artifact.files') {
             $files = [];
@@ -326,6 +343,13 @@ function zeroy_runtime_site_draft_receipt(array $draft): array|WP_Error
     }
     $affected = zeroy_runtime_site_draft_affected_projection($operations);
     $operation_summaries = zeroy_runtime_site_draft_operation_summaries($operations);
+    $last_operation = is_array($last) && is_string($last['operationId'] ?? null) && is_string($last['kind'] ?? null)
+        ? [
+            'operationId' => $last['operationId'],
+            'kind' => $last['kind'],
+            'nextRevision' => zeroy_runtime_site_draft_operation_next_revision($last),
+        ]
+        : null;
     $last_artifact_files = [];
     if (is_array($last) && ($last['kind'] ?? null) === 'artifact.files' && is_array($last['payload'] ?? null)) {
         $artifact = $last['payload']['artifact'] ?? null;
@@ -348,7 +372,7 @@ function zeroy_runtime_site_draft_receipt(array $draft): array|WP_Error
         'state' => (string) $draft['state'],
         'operationCount' => count($operations),
         'operationsHash' => zeroy_runtime_hash($operations),
-        'lastOperationId' => is_array($last) && is_string($last['operationId'] ?? null) ? $last['operationId'] : null,
+        'lastOperation' => $last_operation,
         'proofId' => $draft['proof_id'] !== null && $draft['proof_id'] !== '' ? (string) $draft['proof_id'] : null,
         'replayedFromDraftId' => is_array($diagnostics) && is_string($diagnostics['replayedFromDraftId'] ?? null) ? $diagnostics['replayedFromDraftId'] : null,
         'diagnostics' => zeroy_runtime_json_map(is_wp_error($diagnostics) ? ['corrupt' => true] : $diagnostics),
@@ -376,6 +400,28 @@ function zeroy_runtime_site_draft_active_base(array $draft): array|WP_Error
         );
     }
     return $active ?? [];
+}
+
+/**
+ * Content operations are only meaningful against the candidate ThemeSchema.
+ * Validate the complete prospective log before persisting it, using the same
+ * read-only candidate compiler that commit will later consume. Theme stages
+ * remain freely composable while a ThemeSchema is incomplete; the first
+ * content stage is the deliberate boundary that requires that contract.
+ */
+function zeroy_runtime_site_draft_preflight_content_append(array $draft, array $operations): true|WP_Error
+{
+    $candidate_draft = $draft;
+    $candidate_draft['operations_json'] = zeroy_runtime_json($operations);
+    $candidate = zeroy_runtime_site_draft_candidate_contract($candidate_draft);
+    if (is_wp_error($candidate)) return $candidate;
+    $theme_contract = $candidate['themeContract'] ?? null;
+    $theme_schema = $candidate['themeSchema'] ?? null;
+    if (!is_array($theme_contract) || !is_array($theme_schema)) {
+        return zeroy_runtime_error('zeroy_site_draft_candidate_invalid', 'Candidate ThemeSchema is unavailable for a content operation.', 409);
+    }
+    $snapshot = zeroy_runtime_compile_draft_snapshot($candidate_draft, $theme_contract, $theme_schema);
+    return is_wp_error($snapshot) ? $snapshot : true;
 }
 
 function zeroy_runtime_site_draft_owner_valid(string $owner_id): bool
@@ -551,6 +597,10 @@ function zeroy_runtime_append_site_draft_operation(string $draft_id, array $oper
         $operation['operationId'] = wp_generate_uuid4();
         $operation['ordinal'] = count($operations) + 1;
         $operations[] = $operation;
+        if (($operation['kind'] ?? null) !== 'artifact.files') {
+            $preflight = zeroy_runtime_site_draft_preflight_content_append($draft, $operations);
+            if (is_wp_error($preflight)) return $preflight;
+        }
         $diagnostics = zeroy_runtime_decode_json((string) ($draft['diagnostics_json'] ?? ''));
         $diagnostics = is_wp_error($diagnostics) ? [] : $diagnostics;
         $previous_proof_id = is_string($draft['proof_id'] ?? null) && $draft['proof_id'] !== ''

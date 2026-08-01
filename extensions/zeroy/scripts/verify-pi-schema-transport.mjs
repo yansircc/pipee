@@ -79,7 +79,7 @@ try {
       "--print",
       "--no-builtin-tools",
       "--tools",
-      "zeroy_inspect,zeroy_artifact_stage,zeroy_content_stage,zeroy_site_commit",
+      "zeroy_inspect,zeroy_theme_stage,zeroy_content_stage,zeroy_site_commit",
       "--extension",
       extension,
       "--no-extensions",
@@ -122,7 +122,7 @@ try {
   const tools = new Map(captured.tools.map((tool) => [tool.name, tool]));
   assert.deepEqual(
     [...tools.keys()],
-    ["zeroy_inspect", "zeroy_artifact_stage", "zeroy_content_stage", "zeroy_site_commit"],
+    ["zeroy_inspect", "zeroy_theme_stage", "zeroy_content_stage", "zeroy_site_commit"],
   );
 
   const inspect = tools.get("zeroy_inspect")?.input_schema;
@@ -137,7 +137,7 @@ try {
     "release",
     "draft",
     "proof",
-    "artifactFiles",
+    "themeFiles",
     "content",
     "integrity",
     "externalCheck",
@@ -188,11 +188,11 @@ try {
     operation?.properties?.expectedRevision?.description ?? "",
     /new locale starts at 0 independently/u,
   );
-  const artifact = tools.get("zeroy_artifact_stage")?.input_schema;
-  assert.equal(artifact?.type, "object");
-  assert.deepEqual(artifact?.required, ["siteId", "artifact", "files"]);
-  assert.match(JSON.stringify(artifact?.properties?.artifact ?? {}), /site-logic/u);
-  assert.match(JSON.stringify(artifact?.properties?.files ?? {}), /expectedHash/u);
+  const theme = tools.get("zeroy_theme_stage")?.input_schema;
+  assert.equal(theme?.type, "object");
+  assert.deepEqual(theme?.required, ["siteId", "files"]);
+  assert.equal("artifact" in (theme?.properties ?? {}), false);
+  assert.match(JSON.stringify(theme?.properties?.files ?? {}), /expectedHash/u);
   const commit = tools.get("zeroy_site_commit")?.input_schema;
   assert.equal(commit?.type, "object");
   assert.deepEqual(commit?.required, ["siteId", "draftId", "expectedBaseReleaseId"]);

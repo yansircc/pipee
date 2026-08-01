@@ -26,6 +26,8 @@ describe("zeroY SiteRelease hard cut", () => {
     const draftInspection = readFixture(
       "../wordpress-plugin/includes/site-release/draft-inspection.php",
     );
+    const read = readFixture("../wordpress-plugin/includes/rest/read.php");
+    const themeAuthoring = readFixture("../wordpress-plugin/includes/theme/authoring-contract.php");
     const releaseRest = readFixture("../wordpress-plugin/includes/site-release/rest.php");
     const proof = readFixture("../wordpress-plugin/includes/site-release/proof.php");
     const snapshotCompiler = readFixture(
@@ -81,6 +83,9 @@ describe("zeroY SiteRelease hard cut", () => {
     expect(browserSmoke).toContain("candidate_empty_image_source");
     expect(templateContent).toContain("zeroy_localization_template_content_required_violations");
     expect(translationJob).toContain("zeroy_localization_value_is_present");
+    expect(read).not.toContain("siteLogicAuthoring");
+    expect(read).not.toContain("siteLogicBootstrap");
+    expect(themeAuthoring).not.toContain("'siteLogic' =>");
   });
 
   it("derives ThemeContract and rejects Theme business writes without a case table", () => {
@@ -105,7 +110,7 @@ describe("zeroY SiteRelease hard cut", () => {
     piZeroY(pi);
     expect(tools).toEqual([
       "zeroy_inspect",
-      "zeroy_artifact_stage",
+      "zeroy_theme_stage",
       "zeroy_content_stage",
       "zeroy_site_commit",
     ]);
