@@ -10,79 +10,44 @@ function zeroy_runtime_canonical(int $object_id): array|WP_Error
     }
     $schema_id = (string) get_post_meta($object_id, ZEROY_RUNTIME_SCHEMA_META, true);
     $revision = (int) get_post_meta($object_id, ZEROY_RUNTIME_CANONICAL_REVISION_META, true);
-    if ($schema_id === '' || $revision < 1) {
+    $route = get_post_meta($object_id, ZEROY_RUNTIME_CANONICAL_ROUTE_META, true);
+    if ($schema_id === '' || $revision < 1 || !is_string($route)) {
         return zeroy_runtime_error('zeroy_canonical_unassigned', "WordPress object {$object_id} is not a zeroY canonical object.", 409);
     }
-    return ['objectId' => $object_id, 'post' => $post, 'schemaId' => $schema_id, 'revision' => $revision];
+    return ['objectId' => $object_id, 'post' => $post, 'schemaId' => $schema_id, 'route' => $route, 'revision' => $revision];
 }
 
-function zeroy_runtime_canonical_route_slug(WP_Post $post): string
+function zeroy_runtime_create_canonical(string $post_type, string $schema_id, array $definition, string $route, string $post_title, string $post_content = '', string $post_excerpt = '', array $template_content = []): array|WP_Error
 {
-    $candidate = sanitize_title($post->post_name);
-    return $candidate !== '' ? $candidate : 'zeroy-' . $post->ID;
-}
-
-function zeroy_runtime_ensure_canonical_route_slug(int $object_id): true|WP_Error
-{
-    $post = get_post($object_id);
-    if (!$post instanceof WP_Post) {
-        return zeroy_runtime_error('zeroy_canonical_missing', "WordPress object {$object_id} does not exist.", 404);
-    }
-    $current = zeroy_runtime_normalize_route((string) $post->post_name);
-    if (!is_wp_error($current)) {
-        return true;
-    }
-    $slug = zeroy_runtime_canonical_route_slug($post);
-    $updated = wp_update_post(['ID' => $post->ID, 'post_name' => $slug], true);
-    if (is_wp_error($updated)) {
-        return zeroy_runtime_error('zeroy_canonical_route_write_failed', $updated->get_error_message(), 500, ['objectId' => $object_id]);
-    }
-    $next = get_post($object_id);
-    return $next instanceof WP_Post && !is_wp_error(zeroy_runtime_normalize_route((string) $next->post_name))
-        ? true
-        : zeroy_runtime_error('zeroy_canonical_route_write_failed', 'Could not establish a path-safe canonical route slug.', 409, ['objectId' => $object_id]);
-}
-
-function zeroy_runtime_migrate_canonical_route_slugs(): true|WP_Error
-{
-    global $wpdb;
-    $ids = $wpdb->get_col($wpdb->prepare('SELECT post_id FROM ' . $wpdb->postmeta . ' WHERE meta_key = %s', ZEROY_RUNTIME_SCHEMA_META));
-    foreach (is_array($ids) ? $ids : [] as $object_id) {
-        $result = zeroy_runtime_ensure_canonical_route_slug((int) $object_id);
-        if (is_wp_error($result)) {
-            return $result;
-        }
-    }
-    return true;
-}
-
-function zeroy_runtime_create_canonical(string $post_type, string $schema_id, string $post_title): array|WP_Error
-{
-    return zeroy_runtime_transaction(function () use ($post_type, $schema_id, $post_title) {
+    return zeroy_runtime_transaction(function () use ($post_type, $schema_id, $definition, $route, $post_title, $post_content, $post_excerpt, $template_content) {
         $lease = zeroy_runtime_acquire_content_lease();
         if (is_wp_error($lease)) {
             return $lease;
         }
-        $definition = zeroy_runtime_schema_definition($schema_id);
-        if (is_wp_error($definition)) {
-            return $definition;
-        }
         if (!in_array($post_type, $definition['canonicalPostTypes'], true)) {
             return zeroy_runtime_error('zeroy_canonical_post_type_invalid', "Post type {$post_type} is not allowed by ThemeSchema {$schema_id}.", 400);
         }
+        $route = zeroy_runtime_normalize_route($route);
+        if (is_wp_error($route)) return $route;
         $object_id = wp_insert_post([
             'post_type' => $post_type,
-            'post_status' => 'draft',
+            // SiteDraft is the only draft layer. This write runs inside
+            // SiteRelease activation, so a newly materialized canonical is
+            // published exactly when its immutable snapshot becomes active.
+            'post_status' => 'publish',
             'post_title' => $post_title !== '' ? $post_title : 'zeroY canonical object',
+            'post_content' => $post_content,
+            'post_excerpt' => $post_excerpt,
         ], true);
         if (is_wp_error($object_id)) {
             return zeroy_runtime_error('zeroy_canonical_create_failed', $object_id->get_error_message(), 500);
         }
         update_post_meta((int) $object_id, ZEROY_RUNTIME_SCHEMA_META, $schema_id);
         update_post_meta((int) $object_id, ZEROY_RUNTIME_CANONICAL_REVISION_META, 1);
-        $route = zeroy_runtime_ensure_canonical_route_slug((int) $object_id);
-        if (is_wp_error($route)) {
-            return $route;
+        update_post_meta((int) $object_id, ZEROY_RUNTIME_CANONICAL_ROUTE_META, $route);
+        if ($template_content !== []) {
+            $written = zeroy_localization_replace_template_content((int) $object_id, $template_content, $definition);
+            if (is_wp_error($written)) return $written;
         }
         return zeroy_runtime_canonical((int) $object_id);
     });
@@ -175,7 +140,41 @@ function zeroy_runtime_adoption_candidates(?string $post_type, ?string $schema_i
     return ['items' => $items, 'page' => $page, 'perPage' => $per_page, 'total' => $count];
 }
 
-function zeroy_runtime_existing_unmanaged_post(int $post_id): array|WP_Error
+function zeroy_runtime_existing_post_field_projection(WP_Post $post, string $schema_id, ?array $definition_override = null): array|WP_Error
+{
+    $definition = $definition_override ?? zeroy_runtime_schema_definition($schema_id);
+    if (is_wp_error($definition)) return $definition;
+    $facts = zeroy_runtime_existing_post_facts($post);
+    $localizable = zeroy_localization_post_subject_from_view(
+        ['kind' => 'post', 'id' => (int) $post->ID],
+        $schema_id,
+        $definition,
+        $post->post_type,
+        [
+            'post' => [
+                'title' => $facts['post']['postTitle'],
+                'content' => $facts['post']['postContent'],
+                'excerpt' => $facts['post']['postExcerpt'],
+            ],
+            'acf' => $facts['acf'],
+            'templateContent' => [],
+        ],
+        1,
+        ['post_id' => (int) $post->ID],
+    );
+    if (is_wp_error($localizable)) return $localizable;
+    $compiled = zeroy_localization_compile_subject_policy($localizable, $definition);
+    if (is_wp_error($compiled)) return $compiled;
+    return [
+        'contract' => 'zeroy/field-projection@1',
+        'subject' => ['kind' => 'post', 'id' => (int) $post->ID],
+        'schemaId' => $schema_id,
+        'canonicalRevision' => $localizable['canonicalRevision'],
+        'fields' => array_values($compiled['fields']),
+    ];
+}
+
+function zeroy_runtime_existing_unmanaged_post(int $post_id, ?string $schema_id = null, ?array $definition_override = null): array|WP_Error
 {
     $post = get_post($post_id);
     if (!$post instanceof WP_Post) {
@@ -184,12 +183,15 @@ function zeroy_runtime_existing_unmanaged_post(int $post_id): array|WP_Error
     if ((string) get_post_meta($post_id, ZEROY_RUNTIME_SCHEMA_META, true) !== '') {
         return zeroy_runtime_error('zeroy_existing_post_adopted', "WordPress post {$post_id} is already a zeroY canonical object.", 409);
     }
-    return zeroy_runtime_existing_post_projection($post);
+    $projection = zeroy_runtime_existing_post_projection($post);
+    if ($schema_id === null || $schema_id === '') return $projection;
+    $field_projection = zeroy_runtime_existing_post_field_projection($post, $schema_id, $definition_override);
+    return is_wp_error($field_projection) ? $field_projection : [...$projection, 'fieldProjection' => $field_projection];
 }
 
-function zeroy_runtime_adopt_canonical(int $post_id, string $schema_id, string $expected_source_hash): array|WP_Error
+function zeroy_runtime_adopt_canonical(int $post_id, string $schema_id, array $definition, string $route, string $expected_source_hash): array|WP_Error
 {
-    return zeroy_runtime_transaction(function () use ($post_id, $schema_id, $expected_source_hash) {
+    return zeroy_runtime_transaction(function () use ($post_id, $schema_id, $definition, $route, $expected_source_hash) {
         $lease = zeroy_runtime_acquire_content_lease();
         if (is_wp_error($lease)) {
             return $lease;
@@ -207,14 +209,12 @@ function zeroy_runtime_adopt_canonical(int $post_id, string $schema_id, string $
                 ['currentSourceHash' => $current_hash]
             );
         }
-        $definition = zeroy_runtime_schema_definition($schema_id);
-        if (is_wp_error($definition)) {
-            return $definition;
-        }
         $post = get_post($post_id);
         if (!$post instanceof WP_Post || !in_array($post->post_type, $definition['canonicalPostTypes'], true)) {
             return zeroy_runtime_error('zeroy_canonical_post_type_invalid', 'The selected ThemeSchema does not allow this WordPress post type.', 400);
         }
+        $route = zeroy_runtime_normalize_route($route);
+        if (is_wp_error($route)) return $route;
         if (!add_post_meta($post_id, ZEROY_RUNTIME_SCHEMA_META, $schema_id, true)) {
             return zeroy_runtime_error('zeroy_canonical_already_adopted', 'WordPress post became a zeroY canonical object before adoption completed.', 409);
         }
@@ -222,13 +222,35 @@ function zeroy_runtime_adopt_canonical(int $post_id, string $schema_id, string $
             delete_post_meta($post_id, ZEROY_RUNTIME_SCHEMA_META, $schema_id);
             return zeroy_runtime_error('zeroy_canonical_adoption_failed', 'Could not initialize canonical revision during adoption.', 500);
         }
+        if (!add_post_meta($post_id, ZEROY_RUNTIME_CANONICAL_ROUTE_META, $route, true)) {
+            delete_post_meta($post_id, ZEROY_RUNTIME_SCHEMA_META, $schema_id);
+            delete_post_meta($post_id, ZEROY_RUNTIME_CANONICAL_REVISION_META, 1);
+            return zeroy_runtime_error('zeroy_canonical_adoption_failed', 'Could not persist the explicit canonical route during adoption.', 500);
+        }
         return zeroy_runtime_canonical($post_id);
     });
 }
 
-function zeroy_runtime_assign_canonical_schema(int $object_id, string $schema_id, int $expected_revision): array|WP_Error
+function zeroy_runtime_retire_canonical(int $object_id, int $expected_revision): array|WP_Error
 {
-    return zeroy_runtime_transaction(function () use ($object_id, $schema_id, $expected_revision) {
+    return zeroy_runtime_transaction(function () use ($object_id, $expected_revision) {
+        global $wpdb;
+        $lease = zeroy_runtime_acquire_content_lease();
+        if (is_wp_error($lease)) return $lease;
+        $canonical = zeroy_runtime_canonical($object_id);
+        if (is_wp_error($canonical)) return $canonical;
+        if ((int) $canonical['revision'] !== $expected_revision) return zeroy_runtime_error('zeroy_canonical_conflict', 'Canonical object changed after it was read.', 409, ['currentRevision' => $canonical['revision']]);
+        $subject_key = zeroy_localization_subject_key(['kind' => 'post', 'id' => $object_id]);
+        if ($wpdb->delete(zeroy_runtime_table('locale_overlay_versions'), ['subject_key' => $subject_key], ['%s']) === false) return zeroy_runtime_error('zeroy_canonical_retirement_failed', $wpdb->last_error ?: 'Could not retire canonical LocaleOverlay versions.', 500);
+        if ($wpdb->delete(zeroy_runtime_table('locale_overlay_heads'), ['subject_key' => $subject_key], ['%s']) === false) return zeroy_runtime_error('zeroy_canonical_retirement_failed', $wpdb->last_error ?: 'Could not retire canonical LocaleOverlay heads.', 500);
+        foreach ([ZEROY_RUNTIME_SCHEMA_META, ZEROY_RUNTIME_CANONICAL_REVISION_META, ZEROY_RUNTIME_CANONICAL_ROUTE_META, ZEROY_RUNTIME_TEMPLATE_CONTENT_META] as $meta_key) delete_post_meta($object_id, $meta_key);
+        return ['objectId' => $object_id, 'state' => 'retired'];
+    });
+}
+
+function zeroy_runtime_assign_canonical_schema(int $object_id, string $schema_id, array $definition, int $expected_revision): array|WP_Error
+{
+    return zeroy_runtime_transaction(function () use ($object_id, $schema_id, $definition, $expected_revision) {
         $lease = zeroy_runtime_acquire_content_lease();
         if (is_wp_error($lease)) {
             return $lease;
@@ -239,10 +261,6 @@ function zeroy_runtime_assign_canonical_schema(int $object_id, string $schema_id
         }
         if ($canonical['revision'] !== $expected_revision) {
             return zeroy_runtime_error('zeroy_canonical_conflict', 'Canonical object changed after it was read.', 409, ['currentRevision' => $canonical['revision']]);
-        }
-        $definition = zeroy_runtime_schema_definition($schema_id);
-        if (is_wp_error($definition)) {
-            return $definition;
         }
         if (!in_array($canonical['post']->post_type, $definition['canonicalPostTypes'], true)) {
             return zeroy_runtime_error('zeroy_canonical_post_type_invalid', 'The selected ThemeSchema does not allow this canonical object type.', 400);
@@ -268,9 +286,9 @@ function zeroy_runtime_assign_canonical_schema(int $object_id, string $schema_id
     });
 }
 
-function zeroy_runtime_write_template_content(int $object_id, mixed $values, int $expected_revision): array|WP_Error
+function zeroy_runtime_write_template_content(int $object_id, array $definition, mixed $values, int $expected_revision): array|WP_Error
 {
-    return zeroy_runtime_transaction(function () use ($object_id, $values, $expected_revision) {
+    return zeroy_runtime_transaction(function () use ($object_id, $definition, $values, $expected_revision) {
         $lease = zeroy_runtime_acquire_content_lease();
         if (is_wp_error($lease)) {
             return $lease;
@@ -285,10 +303,6 @@ function zeroy_runtime_write_template_content(int $object_id, mixed $values, int
         if ($canonical['revision'] !== $expected_revision) {
             return zeroy_runtime_error('zeroy_canonical_conflict', 'Canonical object changed after it was read.', 409, ['currentRevision' => $canonical['revision']]);
         }
-        $definition = zeroy_runtime_schema_definition($canonical['schemaId']);
-        if (is_wp_error($definition)) {
-            return $definition;
-        }
         $next_values = zeroy_localization_template_content_values($object_id, $definition);
         if (is_wp_error($next_values)) {
             return $next_values;
@@ -299,6 +313,10 @@ function zeroy_runtime_write_template_content(int $object_id, mixed $values, int
             }
             $next_values[$key] = $value;
         }
+        $required_violations = zeroy_localization_template_content_required_violations($next_values, $definition);
+        if ($required_violations !== []) {
+            return zeroy_runtime_error('zeroy_template_content_required_missing', 'TemplateContent has empty required fields.', 409, ['violations' => $required_violations]);
+        }
         $next_revision = $expected_revision + 1;
         if (update_post_meta($object_id, ZEROY_RUNTIME_CANONICAL_REVISION_META, $next_revision, $expected_revision) === false) {
             $fresh = zeroy_runtime_canonical($object_id);
@@ -307,6 +325,49 @@ function zeroy_runtime_write_template_content(int $object_id, mixed $values, int
         $written = zeroy_localization_replace_template_content($object_id, $next_values, $definition);
         if (is_wp_error($written)) {
             return $written;
+        }
+        return zeroy_runtime_canonical($object_id);
+    });
+}
+
+function zeroy_runtime_write_canonical_content(int $object_id, array $payload): array|WP_Error
+{
+    return zeroy_runtime_transaction(function () use ($object_id, $payload) {
+        $lease = zeroy_runtime_acquire_content_lease();
+        if (is_wp_error($lease)) return $lease;
+        $canonical = zeroy_runtime_canonical($object_id);
+        if (is_wp_error($canonical)) return $canonical;
+        $expected = (int) ($payload['expectedRevision'] ?? -1);
+        if ($canonical['revision'] !== $expected) {
+            return zeroy_runtime_error('zeroy_canonical_conflict', 'Canonical object changed after it was read.', 409, ['currentRevision' => $canonical['revision']]);
+        }
+        $post = ['ID' => $object_id];
+        foreach (['postTitle' => 'post_title', 'postContent' => 'post_content', 'postExcerpt' => 'post_excerpt'] as $input => $column) {
+            if (array_key_exists($input, $payload)) {
+                if (!is_string($payload[$input])) return zeroy_runtime_error('zeroy_canonical_content_invalid', "{$input} must be text.", 400);
+                $post[$column] = $payload[$input];
+            }
+        }
+        if (count($post) > 1 && is_wp_error(wp_update_post(wp_slash($post), true))) {
+            return zeroy_runtime_error('zeroy_canonical_content_write_failed', 'WordPress post content could not be updated.', 500);
+        }
+        if (array_key_exists('acf', $payload)) {
+            if (!zeroy_runtime_is_keyed_map($payload['acf'])) return zeroy_runtime_error('zeroy_canonical_content_invalid', 'acf must be a keyed object.', 400);
+            foreach ($payload['acf'] as $name => $value) {
+                if (!is_string($name) || $name === '') return zeroy_runtime_error('zeroy_canonical_content_invalid', 'ACF field names must be non-empty strings.', 400);
+                $written = function_exists('update_field') ? update_field($name, $value, $object_id) : update_post_meta($object_id, $name, $value);
+                if ($written === false) return zeroy_runtime_error('zeroy_canonical_content_write_failed', "ACF field {$name} could not be updated.", 500, ['fieldId' => '/acf/' . $name]);
+            }
+        }
+        if (array_key_exists('route', $payload)) {
+            if (!is_string($payload['route'])) return zeroy_runtime_error('zeroy_canonical_content_invalid', 'route must be text.', 400);
+            $route = zeroy_runtime_normalize_route($payload['route']);
+            if (is_wp_error($route)) return $route;
+            update_post_meta($object_id, ZEROY_RUNTIME_CANONICAL_ROUTE_META, $route);
+        }
+        $next_revision = $expected + 1;
+        if (update_post_meta($object_id, ZEROY_RUNTIME_CANONICAL_REVISION_META, $next_revision, $expected) === false) {
+            return zeroy_runtime_error('zeroy_canonical_conflict', 'Canonical object changed while writing content.', 409);
         }
         return zeroy_runtime_canonical($object_id);
     });

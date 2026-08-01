@@ -1,9 +1,30 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const rawPackageRoot = process.argv.slice(2).find((argument) => argument !== "--");
+const root = resolve(
+  rawPackageRoot ?? dirname(fileURLToPath(import.meta.url)),
+  rawPackageRoot ? "." : "..",
+);
+const pluginArchiveAllowlist = (path) =>
+  path === "wordpress-plugin/zeroy-runtime-connector.php" ||
+  path === "wordpress-plugin/default-site-logic/bootstrap.php" ||
+  path === "wordpress-plugin/default-site-logic/sitelogic.json" ||
+  path === "wordpress-plugin/stable-shell/functions.php" ||
+  path === "wordpress-plugin/stable-shell/index.php" ||
+  path === "wordpress-plugin/stable-shell/style.css" ||
+  (/^wordpress-plugin\/includes\/.+\.php$/u.test(path) && !path.includes("//"));
+const archiveAllowlist = (path) =>
+  path === "package.json" ||
+  path === "README.md" ||
+  path === "LICENSE" ||
+  path.startsWith("dist/pi/") ||
+  path.startsWith("dist/web/") ||
+  pluginArchiveAllowlist(path);
+
 const list = async (directory) => {
   const entries = await readdir(directory, { withFileTypes: true });
   return (
@@ -15,22 +36,59 @@ const list = async (directory) => {
     )
   ).flat();
 };
-const [pluginFiles, themeFiles] = await Promise.all([
-  list(join(root, "wordpress-plugin")),
-  list(join(root, "mvp-theme")),
-]);
+
+const archivePaths = rawPackageRoot
+  ? (await list(root)).map((path) => relative(root, path))
+  : JSON.parse(
+      execFileSync("npm", ["pack", "--json", "--dry-run"], {
+        cwd: root,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    )[0]?.files?.map((entry) => entry?.path);
+
+assert(Array.isArray(archivePaths), "npm pack did not return a production archive manifest.");
+for (const path of archivePaths) {
+  assert(
+    typeof path === "string" && archiveAllowlist(path),
+    `Production archive contains a non-connector path: ${String(path)}.`,
+  );
+  assert(
+    !/(^|\/)(?:mvp-theme|test-suite|fixtures)(?:\/|$)/.test(path),
+    `Production archive contains a site fixture: ${path}.`,
+  );
+  assert(
+    !/(?:acf(?:-|_)?export|localwp|zeroy\.schema\.json)$/i.test(path),
+    `Production archive contains site data: ${path}.`,
+  );
+}
+const pluginFiles = await list(join(root, "wordpress-plugin"));
 const source = await Promise.all(
-  [...pluginFiles, ...themeFiles]
+  pluginFiles
     .filter((path) => path.endsWith(".php"))
     .map(async (path) => [relative(root, path), await readFile(path, "utf8")]),
 );
-const theme = source.filter(
-  ([path]) => path.startsWith("mvp-theme/") || path.includes("/stable-shell/"),
+for (const [path, text] of source) {
+  assert.doesNotMatch(
+    text,
+    /(?:localhost:\d+|LocalWP|MVP Showcase|Industrial Home|zeroy_mvp_theme_assets)/,
+    `${path} leaks fixture-only site data into the production Connector.`,
+  );
+  assert.doesNotMatch(
+    text,
+    /(?:mvp-theme|test-suite\/fixtures)/,
+    `${path} reaches across the production/fixture boundary.`,
+  );
+}
+const releaseBundle = await readFile(join(root, "dist/pi/extension.js"), "utf8");
+assert.doesNotMatch(
+  releaseBundle,
+  /(?:localhost:\d+|LocalWP|MVP Showcase|Industrial Home|zeroy_mvp_theme_assets|mvp-theme|test-suite\/fixtures)/,
+  "Production Pi bundle leaks fixture-only site data or a local-site identity.",
 );
+const theme = source.filter(([path]) => path.includes("/stable-shell/"));
 const connector = source.filter(([path]) => path.startsWith("wordpress-plugin/includes/"));
-const siteLogic = source.filter(
-  ([path]) => path.includes("/bootstrap-site-logic/") || path.includes("/site-logic/"),
-);
+const siteLogic = source.filter(([path]) => path.includes("/site-logic/"));
 for (const [path, text] of theme) {
   assert.doesNotMatch(
     text,
@@ -63,11 +121,10 @@ assert.equal(
   "ThemeArtifact-only request pin must not survive the SiteRelease hard cut.",
 );
 for (const [path, text] of source) {
-  if (path.endsWith("site-release/migration.php")) continue;
   assert.doesNotMatch(
     text,
-    /\b(?:ThemeDeployment|zeroy_theme_checkout|zeroy_theme_push|theme_deployments|theme_state)\b/,
-    `${path} retains a legacy ThemeDeployment production identity after the hard cut.`,
+    /\b(?:ThemeDeployment|zeroy_theme_checkout|zeroy_theme_push|theme_deployments|theme_state|bootstrap-site-logic|legacy_locale|legacy_theme_copy)\b/,
+    `${path} retains a legacy production identity after the hard cut.`,
   );
 }
 process.stdout.write("zeroY SiteRelease boundary gate passed.\n");

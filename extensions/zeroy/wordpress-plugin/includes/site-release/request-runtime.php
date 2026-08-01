@@ -24,6 +24,18 @@ function zeroy_runtime_request_site_release(): ?array
     return is_array($request) ? $request : null;
 }
 
+function zeroy_runtime_request_is_candidate_site_release(): bool
+{
+    $request = zeroy_runtime_request_site_release();
+    return is_array($request) && ($request['candidate'] ?? false) === true;
+}
+
+function zeroy_runtime_request_snapshot(): array|WP_Error
+{
+    $snapshot = $GLOBALS['zeroy_runtime_request_snapshot'] ?? null;
+    return is_array($snapshot) ? $snapshot : zeroy_runtime_error('zeroy_site_release_snapshot_missing', 'Current request has no DraftSnapshot.', 500);
+}
+
 function zeroy_runtime_boot_site_release(): void
 {
     if (zeroy_runtime_is_connector_safe_request()) return;
@@ -31,6 +43,8 @@ function zeroy_runtime_boot_site_release(): void
     $active = zeroy_runtime_active_site_release();
     $release = $candidate ?? $active;
     if (!is_array($release)) wp_die('No active zeroY SiteRelease is available.', 'zeroY release unavailable', ['response' => 503]);
+    $snapshot = zeroy_runtime_site_release_snapshot($release);
+    if (is_wp_error($snapshot)) wp_die($snapshot->get_error_message(), 'zeroY release unavailable', ['response' => 503]);
     $theme_id = (string) $release['theme_artifact_id'];
     $logic_id = (string) $release['site_logic_artifact_id'];
     $theme_dir = zeroy_runtime_artifact_directory($theme_id);
@@ -39,6 +53,7 @@ function zeroy_runtime_boot_site_release(): void
     $bootstrap = $logic_dir . '/bootstrap.php';
     if (!is_file($functions) || is_link($functions) || !is_file($bootstrap) || is_link($bootstrap)) wp_die('The selected zeroY SiteRelease is incomplete.', 'zeroY release unavailable', ['response' => 503]);
     $GLOBALS['zeroy_runtime_request_release'] = ['releaseId' => $release['release_id'], 'themeArtifactId' => $theme_id, 'siteLogicArtifactId' => $logic_id, 'themeDirectory' => $theme_dir, 'siteLogicDirectory' => $logic_dir, 'candidate' => $candidate !== null];
+    $GLOBALS['zeroy_runtime_request_snapshot'] = $snapshot;
     foreach (['stylesheet_directory', 'template_directory'] as $filter) add_filter($filter, static fn(): string => $GLOBALS['zeroy_runtime_request_release']['themeDirectory'], PHP_INT_MIN);
     foreach (['stylesheet_directory_uri', 'template_directory_uri'] as $filter) add_filter($filter, static fn(): string => content_url('zeroy-runtime/artifacts/' . rawurlencode(str_replace(':', '-', $GLOBALS['zeroy_runtime_request_release']['themeArtifactId']))), PHP_INT_MIN);
     wp_set_template_globals();

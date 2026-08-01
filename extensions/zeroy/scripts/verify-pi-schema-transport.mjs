@@ -79,7 +79,7 @@ try {
       "--print",
       "--no-builtin-tools",
       "--tools",
-      "zeroy_inspect,zeroy_site_checkout,zeroy_site_verify,zeroy_site_push,zeroy_content_apply",
+      "zeroy_inspect,zeroy_artifact_stage,zeroy_content_stage,zeroy_site_commit",
       "--extension",
       extension,
       "--no-extensions",
@@ -122,13 +122,7 @@ try {
   const tools = new Map(captured.tools.map((tool) => [tool.name, tool]));
   assert.deepEqual(
     [...tools.keys()],
-    [
-      "zeroy_inspect",
-      "zeroy_site_checkout",
-      "zeroy_site_verify",
-      "zeroy_site_push",
-      "zeroy_content_apply",
-    ],
+    ["zeroy_inspect", "zeroy_artifact_stage", "zeroy_content_stage", "zeroy_site_commit"],
   );
 
   const inspect = tools.get("zeroy_inspect")?.input_schema;
@@ -140,55 +134,68 @@ try {
     "schema",
     "inventory",
     "acf",
-    "canonicalContent",
-    "adoptionCandidates",
-    "existingPost",
-    "siteRelease",
-    "siteReleaseArtifact",
-    "translationJob",
+    "release",
+    "draft",
+    "proof",
+    "artifactFiles",
+    "content",
     "integrity",
     "externalCheck",
   ]);
   assert(Object.keys(inspect?.properties ?? {}).length > 2);
-  assert.match(inspect?.properties?.subject?.description ?? "", /translationJob/u);
+  const inspectedContent = inspect?.properties?.content;
+  assert.equal(inspectedContent?.type, "object");
+  assert.deepEqual(inspectedContent?.required, ["kind"]);
+  assert.deepEqual(inspectedContent?.properties?.kind?.enum, [
+    "canonical",
+    "adoption-candidates",
+    "existing-post",
+    "translation",
+  ]);
+  assert.match(
+    inspectedContent?.properties?.objectId?.description ?? "",
+    /Required when kind = canonical/u,
+  );
 
-  const content = tools.get("zeroy_content_apply")?.input_schema;
+  const content = tools.get("zeroy_content_stage")?.input_schema;
   assert.equal(content?.type, "object");
-  assert.deepEqual(content?.required, ["siteId", "action"]);
-  assert.deepEqual(content?.properties?.action?.enum, [
+  assert.deepEqual(content?.required, ["siteId", "operation"]);
+  const operation = content?.properties?.operation;
+  assert.equal(operation?.type, "object");
+  assert.deepEqual(operation?.required, ["kind"]);
+  assert.deepEqual(operation?.properties?.kind?.enum, [
+    "replayDraft",
     "siteConfig",
     "createCanonical",
     "adoptCanonical",
+    "retireCanonical",
     "assignSchema",
     "writeTemplateContent",
+    "writeCanonicalContent",
     "writeTranslationDraft",
     "publishTranslation",
     "unpublishTranslation",
   ]);
   assert.match(
-    content?.properties?.expectedRevision?.description ?? "",
-    /LocaleOverlay starts at 0/u,
+    operation?.properties?.ref?.description ?? "",
+    /Required when kind = createCanonical/u,
   );
-  assert.match(content?.properties?.expectedRevision?.description ?? "", /canonical revision/u);
-  assert.match(content?.properties?.postTitle?.description ?? "", /WordPress administrator title/u);
   assert.match(
-    content?.properties?.expectedSourceHash?.description ?? "",
-    /ACF facts have not changed/u,
+    operation?.properties?.sourceDraftId?.description ?? "",
+    /Omit draftId for this operation/u,
   );
-  assert.match(content?.properties?.jobToken?.description ?? "", /translationJob/u);
-  assert.match(JSON.stringify(content?.properties?.values ?? {}), /\^\//u);
-
-  const checkout = tools.get("zeroy_site_checkout")?.input_schema;
-  assert.equal(checkout?.type, "object");
-  assert.deepEqual(checkout?.required, ["siteId"]);
-  const verify = tools.get("zeroy_site_verify")?.input_schema;
-  assert.equal(verify?.type, "object");
-  assert.deepEqual(verify?.required, ["siteId", "checkoutId"]);
-  const push = tools.get("zeroy_site_push")?.input_schema;
-  assert.equal(push?.type, "object");
-  assert.deepEqual(push?.required, ["siteId", "checkoutId"]);
-  assert.match(push?.properties?.checkoutId?.description ?? "", /returned by zeroy_site_checkout/u);
-  assert.match(inspect?.properties?.artifactId?.pattern ?? "", /^\^sha256/u);
+  assert.match(
+    operation?.properties?.expectedRevision?.description ?? "",
+    /new locale starts at 0 independently/u,
+  );
+  const artifact = tools.get("zeroy_artifact_stage")?.input_schema;
+  assert.equal(artifact?.type, "object");
+  assert.deepEqual(artifact?.required, ["siteId", "artifact", "files"]);
+  assert.match(JSON.stringify(artifact?.properties?.artifact ?? {}), /site-logic/u);
+  assert.match(JSON.stringify(artifact?.properties?.files ?? {}), /expectedHash/u);
+  const commit = tools.get("zeroy_site_commit")?.input_schema;
+  assert.equal(commit?.type, "object");
+  assert.deepEqual(commit?.required, ["siteId", "draftId", "expectedBaseReleaseId"]);
 
   process.stdout.write("Pi Anthropic schema transport gate passed.\n");
 } finally {

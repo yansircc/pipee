@@ -19,10 +19,12 @@ import { zeroYPresentation } from "./presentation.js";
  */
 export type ActiveSession = {
   readonly context: ExtensionContext;
+  /** Pi session identity, forwarded only as the remote SiteDraft owner. */
+  readonly draftOwnerId: string;
   readonly scope: Scope.Closeable;
   readonly connections: ReadonlyArray<SiteConnection>;
   readonly presentation: LivePresentationPort | undefined;
-  readonly surface: WebSurfaceSlot;
+  readonly surface: WebSurfaceSlot | undefined;
   readonly externalChecks: Map<string, ExternalCheck>;
   readonly mutationGates: ReadonlyMap<string, Semaphore.Semaphore>;
 };
@@ -32,7 +34,6 @@ export class ZeroYSessionUnavailable extends Data.TaggedError("ZeroYSessionUnava
 }> {}
 
 const sessions = new WeakMap<object, ActiveSession>();
-const emptySurface: WebSurfaceSlot = { replace: () => undefined };
 const runtime = ManagedRuntime.make(nodeServicesLayer);
 
 export const run = <A, E>(effect: Effect.Effect<A, E, NodeServices>): Promise<A> =>
@@ -113,35 +114,47 @@ export const startSession = (
   pi: ExtensionAPI,
   context: ExtensionContext,
   refresh: (active: ActiveSession) => Effect.Effect<void, never, NodeServices>,
-): Effect.Effect<void, ZeroYConnectionConfigError, NodeServices> =>
+): Effect.Effect<void, ZeroYConnectionConfigError | ZeroYSessionUnavailable, NodeServices> =>
   Effect.gen(function* () {
     const previous = activeSession(pi);
     if (previous) yield* stopSession(pi, previous);
     const scope = yield* Scope.make("sequential");
     yield* Effect.gen(function* () {
       const connections = yield* loadSiteConnections();
+      const draftOwnerId = context.sessionManager.getSessionId().trim();
+      if (draftOwnerId === "") {
+        return yield* new ZeroYSessionUnavailable({
+          message: "zeroY requires a stable Pi session ID to own remote SiteDrafts.",
+        });
+      }
       const mutationGates = new Map(
         yield* Effect.forEach(connections, (site) =>
           Semaphore.make(1).pipe(Effect.map((gate) => [site.siteId, gate] as const)),
         ),
       );
-      const surface = yield* webSurface(context.ui, packageJson.name, () => ({
-        _tag: "Rejected" as const,
-        reason: "zeroY WebSurface is read-only; ask the Agent to make changes in the conversation.",
-      })).pipe(
-        Effect.catchTag("WebSurfaceCapabilityUnavailable", () => Effect.succeed(emptySurface)),
-      );
+      const surface = context.hasUI
+        ? yield* webSurface(context.ui, packageJson.name, () => ({
+            _tag: "Rejected" as const,
+            reason:
+              "zeroY WebSurface is read-only; ask the Agent to make changes in the conversation.",
+          })).pipe(
+            Effect.catchTag("WebSurfaceCapabilityUnavailable", () =>
+              Effect.void.pipe(Effect.as(undefined)),
+            ),
+          )
+        : undefined;
       const active: ActiveSession = {
         context,
+        draftOwnerId,
         scope,
         connections,
-        presentation: livePresentation(context.ui, packageJson.name),
+        presentation: context.hasUI ? livePresentation(context.ui, packageJson.name) : undefined,
         surface,
         externalChecks: new Map(),
         mutationGates,
       };
       yield* Effect.sync(() => sessions.set(pi as object, active));
-      yield* refresh(active);
+      if (surface !== undefined) yield* refresh(active);
     }).pipe(
       Effect.provideService(Scope.Scope, scope),
       Effect.onError(() =>

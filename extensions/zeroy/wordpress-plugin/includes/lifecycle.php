@@ -10,9 +10,10 @@ function zeroy_runtime_schema_definitions(): array
         'runtime_locks' => "CREATE TABLE " . zeroy_runtime_table('runtime_locks') . " (lock_name VARCHAR(64) NOT NULL, revision BIGINT UNSIGNED NOT NULL, PRIMARY KEY (lock_name)) {$charset};",
         'theme_artifacts' => "CREATE TABLE " . zeroy_runtime_table('theme_artifacts') . " (artifact_id VARCHAR(71) NOT NULL, manifest_json LONGTEXT NOT NULL, schema_json LONGTEXT NOT NULL, schema_hash CHAR(64) NOT NULL, file_count BIGINT UNSIGNED NOT NULL, total_bytes BIGINT UNSIGNED NOT NULL, pinned_at DATETIME NULL, created_at DATETIME NOT NULL, PRIMARY KEY (artifact_id)) {$charset};",
         'site_logic_artifacts' => "CREATE TABLE " . zeroy_runtime_table('site_logic_artifacts') . " (artifact_id VARCHAR(71) NOT NULL, manifest_json LONGTEXT NOT NULL, contract_json LONGTEXT NOT NULL, contract_hash CHAR(64) NOT NULL, storage_epoch BIGINT UNSIGNED NOT NULL, file_count BIGINT UNSIGNED NOT NULL, total_bytes BIGINT UNSIGNED NOT NULL, created_at DATETIME NOT NULL, PRIMARY KEY (artifact_id)) {$charset};",
-        'site_releases' => "CREATE TABLE " . zeroy_runtime_table('site_releases') . " (release_id CHAR(36) NOT NULL, theme_artifact_id VARCHAR(71) NOT NULL, site_logic_artifact_id VARCHAR(71) NOT NULL, theme_contract_hash CHAR(64) NOT NULL, site_logic_contract_hash CHAR(64) NOT NULL, storage_epoch BIGINT UNSIGNED NOT NULL, expected_active_release_id CHAR(36) NULL, state VARCHAR(16) NOT NULL, proof_id VARCHAR(64) NULL, provenance_json LONGTEXT NOT NULL, diagnostics_json LONGTEXT NOT NULL, created_at DATETIME NOT NULL, activated_at DATETIME NULL, PRIMARY KEY (release_id), KEY zeroy_site_release_state (state), KEY zeroy_site_release_theme (theme_artifact_id), KEY zeroy_site_release_logic (site_logic_artifact_id)) {$charset};",
+        'site_releases' => "CREATE TABLE " . zeroy_runtime_table('site_releases') . " (release_id CHAR(36) NOT NULL, draft_id CHAR(36) NULL, theme_artifact_id VARCHAR(71) NOT NULL, site_logic_artifact_id VARCHAR(71) NOT NULL, theme_contract_hash CHAR(64) NOT NULL, site_logic_contract_hash CHAR(64) NOT NULL, storage_epoch BIGINT UNSIGNED NOT NULL, snapshot_hash CHAR(64) NOT NULL, snapshot_json LONGTEXT NOT NULL, expected_active_release_id CHAR(36) NULL, state VARCHAR(16) NOT NULL, proof_id VARCHAR(64) NULL, provenance_json LONGTEXT NOT NULL, diagnostics_json LONGTEXT NOT NULL, created_at DATETIME NOT NULL, activated_at DATETIME NULL, PRIMARY KEY (release_id), KEY zeroy_site_release_state (state), KEY zeroy_site_release_draft (draft_id), KEY zeroy_site_release_theme (theme_artifact_id), KEY zeroy_site_release_logic (site_logic_artifact_id)) {$charset};",
         'site_release_state' => "CREATE TABLE " . zeroy_runtime_table('site_release_state') . " (singleton TINYINT UNSIGNED NOT NULL, active_release_id CHAR(36) NOT NULL, revision BIGINT UNSIGNED NOT NULL, activated_at DATETIME NOT NULL, PRIMARY KEY (singleton)) {$charset};",
         'verification_proofs' => "CREATE TABLE " . zeroy_runtime_table('verification_proofs') . " (proof_id VARCHAR(64) NOT NULL, release_id CHAR(36) NOT NULL, proof_json LONGTEXT NOT NULL, verified_at DATETIME NOT NULL, PRIMARY KEY (proof_id), KEY zeroy_proof_release (release_id)) {$charset};",
+        'site_drafts' => "CREATE TABLE " . zeroy_runtime_table('site_drafts') . " (draft_id CHAR(36) NOT NULL, owner_id VARCHAR(128) NOT NULL DEFAULT '', base_release_id CHAR(36) NULL, state VARCHAR(16) NOT NULL, operations_json LONGTEXT NOT NULL, proof_id VARCHAR(64) NULL, diagnostics_json LONGTEXT NOT NULL, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL, PRIMARY KEY (draft_id), KEY zeroy_site_draft_owner (owner_id), KEY zeroy_site_draft_state (state), KEY zeroy_site_draft_base (base_release_id)) {$charset};",
         'site_logic_migration_ledger' => "CREATE TABLE " . zeroy_runtime_table('site_logic_migration_ledger') . " (idempotency_key VARCHAR(96) NOT NULL, from_epoch BIGINT UNSIGNED NOT NULL, to_epoch BIGINT UNSIGNED NOT NULL, applied_at DATETIME NOT NULL, PRIMARY KEY (idempotency_key)) {$charset};",
         'site_config' => "CREATE TABLE " . zeroy_runtime_table('site_config') . " (singleton TINYINT UNSIGNED NOT NULL, config_json LONGTEXT NOT NULL, revision BIGINT UNSIGNED NOT NULL, PRIMARY KEY (singleton)) {$charset};",
         'locale_overlay_versions' => "CREATE TABLE " . zeroy_runtime_table('locale_overlay_versions') . " (version_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, subject_key VARCHAR(191) NOT NULL, locale VARCHAR(32) NOT NULL, policy_hash CHAR(64) NOT NULL, overlay_json LONGTEXT NOT NULL, created_at DATETIME NOT NULL, PRIMARY KEY (version_id), KEY zeroy_overlay_subject_locale (subject_key, locale)) {$charset};",
@@ -26,72 +27,130 @@ function zeroy_runtime_table_exists(string $table): bool
     return $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) === $table;
 }
 
-function zeroy_runtime_install_schema(): void
+function zeroy_runtime_table_column_exists(string $table, string $column): bool
 {
     global $wpdb;
-    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-    foreach (zeroy_runtime_schema_definitions() as $name => $sql) {
-        if (!zeroy_runtime_table_exists(zeroy_runtime_table($name))) {
-            dbDelta($sql);
-        }
-    }
-    foreach (['content', 'site-release'] as $lock) {
-        $wpdb->query($wpdb->prepare('INSERT IGNORE INTO ' . zeroy_runtime_table('runtime_locks') . ' (lock_name, revision) VALUES (%s, 0)', $lock));
-    }
-}
-
-function zeroy_runtime_locale_overlay_heads_has_published_at(): bool
-{
-    global $wpdb;
-    $columns = $wpdb->get_results('DESCRIBE ' . zeroy_runtime_table('locale_overlay_heads'), ARRAY_A);
-    foreach (is_array($columns) ? $columns : [] as $column) {
-        if (($column['Field'] ?? null) === 'published_at') {
-            return true;
-        }
+    $columns = $wpdb->get_results('DESCRIBE ' . $table, ARRAY_A);
+    foreach (is_array($columns) ? $columns : [] as $definition) {
+        if (($definition['Field'] ?? null) === $column) return true;
     }
     return false;
 }
 
-function zeroy_runtime_ensure_overlay_published_at(): true|WP_Error
+/**
+ * dbDelta is a table creator here, not an upgrade engine. Some database
+ * adapters rebuild an existing table when presented with an otherwise
+ * unchanged CREATE TABLE statement. Each hard-cut storage invariant is
+ * therefore declared once and upgraded by its exact column transition.
+ */
+function zeroy_runtime_required_schema_columns(): array
+{
+    return [
+        'site_drafts' => [
+            'owner_id' => "VARCHAR(128) NOT NULL DEFAULT ''",
+        ],
+        'site_releases' => [
+            // Existing releases are converted before a reader can select
+            // them. These are nullable only at the transition boundary;
+            // fresh tables retain the stricter CREATE TABLE definition.
+            'draft_id' => 'CHAR(36) NULL',
+            'snapshot_hash' => 'CHAR(64) NULL',
+            'snapshot_json' => 'LONGTEXT NULL',
+        ],
+        'locale_overlay_heads' => [
+            'published_at' => 'DATETIME NULL',
+        ],
+    ];
+}
+
+function zeroy_runtime_ensure_schema_column(string $table_name, string $column, string $definition): true|WP_Error
 {
     global $wpdb;
-    if (zeroy_runtime_locale_overlay_heads_has_published_at()) {
-        return true;
-    }
-    $result = $wpdb->query('ALTER TABLE ' . zeroy_runtime_table('locale_overlay_heads') . ' ADD COLUMN published_at DATETIME NULL');
-    return $result === false
-        ? zeroy_runtime_error('zeroy_runtime_overlay_published_at_migration_failed', $wpdb->last_error ?: 'Could not add locale overlay published timestamp.', 500)
+    $table = zeroy_runtime_table($table_name);
+    if (zeroy_runtime_table_column_exists($table, $column)) return true;
+    $added = $wpdb->query("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
+    return $added === false
+        ? zeroy_runtime_error('zeroy_runtime_schema_column_migration_failed', $wpdb->last_error ?: "Could not add {$table_name}.{$column}.", 500, ['table' => $table_name, 'column' => $column])
         : true;
 }
 
+/**
+ * Existing public readers need publication time even though it was absent
+ * from prior overlay rows. This is a fact conversion, not a legacy reader.
+ */
 function zeroy_runtime_backfill_overlay_published_at(): true|WP_Error
 {
     global $wpdb;
-    $result = $wpdb->query(
-        'UPDATE ' . zeroy_runtime_table('locale_overlay_heads') . ' SET published_at = updated_at WHERE published_version_id IS NOT NULL AND published_at IS NULL'
+    $updated = $wpdb->query(
+        'UPDATE ' . zeroy_runtime_table('locale_overlay_heads') . ' SET published_at = updated_at WHERE published_version_id IS NOT NULL AND published_at IS NULL',
     );
-    return $result === false
+    return $updated === false
         ? zeroy_runtime_error('zeroy_runtime_overlay_published_at_backfill_failed', $wpdb->last_error ?: 'Could not backfill locale overlay publication timestamps.', 500)
         : true;
+}
+
+/**
+ * A pre-hard-cut open Draft has no reconstructable Pi session identity. It
+ * cannot be claimed, so it becomes terminal rather than an unowned
+ * compatibility path.
+ */
+function zeroy_runtime_discard_unowned_site_drafts(): true|WP_Error
+{
+    global $wpdb;
+    $table = zeroy_runtime_table('site_drafts');
+    // A pre-hard-cut open Draft has no reconstructable Pi session identity.
+    // It cannot be safely claimed, so it is explicitly terminal rather than
+    // becoming an unowned compatibility path.
+    $updated = $wpdb->query(
+        'UPDATE ' . $table .
+        " SET state = 'discarded', diagnostics_json = '{\"hardCut\":\"draft-owner-required\"}'" .
+        " WHERE owner_id = '' AND state IN ('open', 'committing')",
+    );
+    return $updated === false
+        ? zeroy_runtime_error('zeroy_site_draft_owner_migration_failed', $wpdb->last_error ?: 'Could not discard unowned SiteDrafts.', 500)
+        : true;
+}
+
+function zeroy_runtime_migrate_schema_columns(): true|WP_Error
+{
+    foreach (zeroy_runtime_required_schema_columns() as $table => $columns) {
+        foreach ($columns as $column => $definition) {
+            $result = zeroy_runtime_ensure_schema_column($table, $column, $definition);
+            if (is_wp_error($result)) return $result;
+        }
+    }
+    $published_at = zeroy_runtime_backfill_overlay_published_at();
+    if (is_wp_error($published_at)) return $published_at;
+    return zeroy_runtime_discard_unowned_site_drafts();
+}
+
+function zeroy_runtime_install_schema(): true|WP_Error
+{
+    global $wpdb;
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    foreach (zeroy_runtime_schema_definitions() as $name => $sql) {
+        if (!zeroy_runtime_table_exists(zeroy_runtime_table($name))) dbDelta($sql);
+    }
+    $migration = zeroy_runtime_migrate_schema_columns();
+    if (is_wp_error($migration)) return $migration;
+    foreach (['content', 'site-release'] as $lock) {
+        $wpdb->query($wpdb->prepare('INSERT IGNORE INTO ' . zeroy_runtime_table('runtime_locks') . ' (lock_name, revision) VALUES (%s, 0)', $lock));
+    }
+    return true;
 }
 
 function zeroy_runtime_schema_is_current(): bool
 {
     foreach (array_keys(zeroy_runtime_schema_definitions()) as $name) {
-        if (!zeroy_runtime_table_exists(zeroy_runtime_table($name))) {
-            return false;
+        if (!zeroy_runtime_table_exists(zeroy_runtime_table($name))) return false;
+    }
+    foreach (zeroy_runtime_required_schema_columns() as $table => $columns) {
+        foreach (array_keys($columns) as $column) {
+            if (!zeroy_runtime_table_column_exists(zeroy_runtime_table($table), $column)) return false;
         }
     }
-    return zeroy_runtime_locale_overlay_heads_has_published_at();
-}
-
-function zeroy_runtime_drop_removed_runtime_tables(): void
-{
-    global $wpdb;
-    foreach (['schema_state', 'route_reservations', 'collection_route_reservations', 'search_projection'] as $table) {
-        $wpdb->query('DROP TABLE IF EXISTS ' . zeroy_runtime_table($table));
-    }
-    zeroy_runtime_drop_legacy_site_release_tables();
+    $active = zeroy_runtime_active_site_release();
+    return $active === null || !is_wp_error(zeroy_runtime_site_release_snapshot($active));
 }
 
 function zeroy_runtime_record_upgrade_error(WP_Error $error): void
@@ -99,56 +158,27 @@ function zeroy_runtime_record_upgrade_error(WP_Error $error): void
     update_option('zeroy_runtime_upgrade_error', ['code' => $error->get_error_code(), 'message' => $error->get_error_message()], false);
 }
 
-function zeroy_runtime_has_failed_hard_cut_attempt(): bool
+function zeroy_runtime_initialize(): true|WP_Error
 {
-    global $wpdb;
-    return zeroy_runtime_table_exists(zeroy_runtime_table('site_releases'))
-        && (int) $wpdb->get_var('SELECT COUNT(*) FROM ' . zeroy_runtime_table('site_releases')) > 0
-        && zeroy_runtime_active_site_release() === null
-        && get_option('zeroy_runtime_upgrade_error', false) !== false;
+    $schema = zeroy_runtime_install_schema();
+    if (is_wp_error($schema)) return $schema;
+    $shell = zeroy_runtime_enforce_stable_shell();
+    if (is_wp_error($shell)) return $shell;
+    zeroy_runtime_site_id();
+    zeroy_runtime_connection_key();
+    zeroy_runtime_ensure_site_config();
+    $snapshot = zeroy_runtime_migrate_active_site_release_snapshot();
+    if (is_wp_error($snapshot)) return $snapshot;
+    return true;
 }
 
 function zeroy_runtime_maybe_upgrade(): void
 {
-    // Candidate verification pins a not-yet-active release. It must never
-    // recursively start the legacy migration before request pinning happens.
-    if (zeroy_runtime_candidate_site_release_from_request() !== null) {
-        return;
-    }
-    if (zeroy_runtime_has_failed_hard_cut_attempt()) {
-        return;
-    }
-    if (get_option(ZEROY_RUNTIME_DATABASE_VERSION_OPTION, '') === ZEROY_RUNTIME_DATABASE_VERSION && zeroy_runtime_schema_is_current()) {
-        return;
-    }
-    zeroy_runtime_install_schema();
-    $shell = zeroy_runtime_install_stable_shell();
-    if (is_wp_error($shell)) {
-        zeroy_runtime_record_upgrade_error($shell);
-        return;
-    }
-    $published_at = zeroy_runtime_ensure_overlay_published_at();
-    if (is_wp_error($published_at)) {
-        zeroy_runtime_record_upgrade_error($published_at);
-        return;
-    }
-    $backfill = zeroy_runtime_backfill_overlay_published_at();
-    if (is_wp_error($backfill)) {
-        zeroy_runtime_record_upgrade_error($backfill);
-        return;
-    }
-    $migration = zeroy_runtime_migrate_legacy_site_release();
-    if (is_wp_error($migration)) {
-        zeroy_runtime_record_upgrade_error($migration);
-        return;
-    }
-    zeroy_runtime_drop_removed_runtime_tables();
-    zeroy_runtime_site_id();
-    zeroy_runtime_connection_key();
-    zeroy_runtime_ensure_site_config();
-    $routes = zeroy_runtime_migrate_canonical_route_slugs();
-    if (is_wp_error($routes)) {
-        zeroy_runtime_record_upgrade_error($routes);
+    if (zeroy_runtime_candidate_site_release_from_request() !== null) return;
+    if (get_option(ZEROY_RUNTIME_DATABASE_VERSION_OPTION, '') === ZEROY_RUNTIME_DATABASE_VERSION && zeroy_runtime_schema_is_current()) return;
+    $initialized = zeroy_runtime_initialize();
+    if (is_wp_error($initialized)) {
+        zeroy_runtime_record_upgrade_error($initialized);
         return;
     }
     delete_option('zeroy_runtime_upgrade_error');
@@ -157,26 +187,12 @@ function zeroy_runtime_maybe_upgrade(): void
 
 function zeroy_runtime_activate(): void
 {
-    zeroy_runtime_install_schema();
-    $shell = zeroy_runtime_install_stable_shell();
-    if (is_wp_error($shell)) {
-        zeroy_runtime_record_upgrade_error($shell);
+    $initialized = zeroy_runtime_initialize();
+    if (is_wp_error($initialized)) {
+        zeroy_runtime_record_upgrade_error($initialized);
         return;
     }
-    $published_at = zeroy_runtime_ensure_overlay_published_at();
-    $backfill = is_wp_error($published_at) ? $published_at : zeroy_runtime_backfill_overlay_published_at();
-    if (is_wp_error($backfill)) {
-        zeroy_runtime_record_upgrade_error($backfill);
-        return;
-    }
-    zeroy_runtime_site_id();
-    zeroy_runtime_connection_key();
-    zeroy_runtime_ensure_site_config();
-    $migration = zeroy_runtime_migrate_legacy_site_release();
-    if (is_wp_error($migration)) {
-        zeroy_runtime_record_upgrade_error($migration);
-        return;
-    }
+    delete_option('zeroy_runtime_upgrade_error');
     update_option(ZEROY_RUNTIME_DATABASE_VERSION_OPTION, ZEROY_RUNTIME_DATABASE_VERSION, false);
     flush_rewrite_rules(false);
 }

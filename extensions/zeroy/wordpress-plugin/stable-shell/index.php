@@ -2,4 +2,4 @@
 
 defined('ABSPATH') || exit;
 
-zeroy_runtime_render_404();
+wp_die('The request was not projected from an active zeroY SiteRelease.', 'zeroY render unavailable', ['response' => 503]);

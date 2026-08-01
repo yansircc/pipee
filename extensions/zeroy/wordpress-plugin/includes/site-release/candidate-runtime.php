@@ -26,9 +26,14 @@ function zeroy_runtime_candidate_runtime_checks(string $release_id, array $scena
         $status = wp_remote_retrieve_response_code($response);
         $body = wp_remote_retrieve_body($response);
         $robots = wp_remote_retrieve_header($response, 'x-robots-tag');
+        $route_kind = wp_remote_retrieve_header($response, 'x-zeroy-route-kind');
         $checks[] = ['scenario' => $scenario['id'], 'kind' => $scenario['kind'], 'locale' => $scenario['locale'], 'path' => $scenario['path'], 'query' => $scenario['query'] ?? [], 'status' => $status, 'bytes' => strlen($body)];
-        if ($status !== $scenario['expectedStatus'] || trim($body) === '') {
-            $failures[] = zeroy_runtime_candidate_failure('candidate_runtime_failed', 'A candidate must produce the expected non-empty response for every executed scenario.', $scenario, 'Expected HTTP ' . $scenario['expectedStatus'] . ', received HTTP ' . $status . '.', 'Repair the ThemeArtifact, SiteLogicArtifact, or route contract and prepare a new release.');
+        if ($status !== $scenario['expectedStatus'] || trim($body) === '' || (isset($scenario['expectedRouteKind']) && $route_kind !== $scenario['expectedRouteKind'])) {
+            $evidence = 'Expected HTTP ' . $scenario['expectedStatus'] . ', received HTTP ' . $status . '.';
+            if (isset($scenario['expectedRouteKind']) && $route_kind !== $scenario['expectedRouteKind']) {
+                $evidence .= ' Expected routeKind ' . $scenario['expectedRouteKind'] . ', received ' . ($route_kind === '' ? '<missing>' : $route_kind) . '.';
+            }
+            $failures[] = zeroy_runtime_candidate_failure('candidate_runtime_failed', 'A candidate must produce the expected non-empty response for every executed scenario.', $scenario, $evidence, 'Repair the ThemeArtifact, SiteLogicArtifact, or route contract and prepare a new release.');
         }
         if (!is_string($robots) || !str_contains(strtolower($robots), 'noindex')) {
             $failures[] = zeroy_runtime_candidate_failure('candidate_cache_boundary_missing', 'Candidate requests must never be indexable or publicly cacheable.', $scenario, 'X-Robots-Tag did not contain noindex.', 'Restore the Connector candidate request boundary.');

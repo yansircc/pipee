@@ -49,7 +49,7 @@ function zeroy_runtime_normalize_collections(mixed $collections, array $schemas,
         // Candidate preparation must not execute Artifact PHP, so a taxonomy
         // registration cannot be a static Artifact invariant.  Keep this
         // boundary syntactic; query-time WordPress owns an absent taxonomy.
-        if (!in_array($kind, ['post-archive', 'taxonomy'], true) || $label === '' || $route === null || !is_string($schema_id) || !isset($schemas[$schema_id]) || $template === '' || str_contains($template, '..') || !preg_match('/\A[a-zA-Z0-9_\-\/]+\.php\z/', $template) || !is_file($theme_root . '/' . $template) || ($kind === 'taxonomy' && (!is_string($taxonomy) || $taxonomy === '' || sanitize_key($taxonomy) !== $taxonomy))) {
+        if (!in_array($kind, zeroy_runtime_theme_authoring_collection_kinds(), true) || $label === '' || $route === null || !is_string($schema_id) || !isset($schemas[$schema_id]) || $template === '' || str_contains($template, '..') || !preg_match('/\A[a-zA-Z0-9_\-\/]+\.php\z/', $template) || !is_file($theme_root . '/' . $template) || ($kind === 'taxonomy' && (!is_string($taxonomy) || $taxonomy === '' || sanitize_key($taxonomy) !== $taxonomy))) {
             zeroy_runtime_schema_violation($errors, 'collection_definition_invalid', "Collection {$collection_id} is incomplete or invalid.", $context);
             continue;
         }

@@ -2,6 +2,13 @@
   "name": "@yansircc/pi-zeroy",
   "version": "0.0.0",
   "description": "MVP connector for Agent-authored zeroY WordPress themes",
+  "keywords": [
+    "agent",
+    "pi-extension",
+    "pi-package",
+    "wordpress",
+    "zeroy"
+  ],
   "homepage": "https://github.com/yansircc/pipee/tree/main/extensions/zeroy#readme",
   "bugs": {
     "url": "https://github.com/yansircc/pipee/issues"
@@ -16,8 +23,7 @@
   "files": [
     "dist/pi",
     "dist/web",
-    "wordpress-plugin",
-    "mvp-theme"
+    "wordpress-plugin"
   ],
   "type": "module",
   "publishConfig": {
@@ -25,7 +31,8 @@
   },
   "scripts": {
     "verify": "pnpm run repo:verify && pnpm run pi:verify",
-    "repo:verify": "vp run quality && node scripts/verify-site-release-boundaries.mjs",
+    "repo:verify": "vp run quality",
+    "archive:verify": "node scripts/verify-site-release-boundaries.mjs",
     "test": "vp test",
     "pi:web-build": "node ../../tooling/pi-extension/build-web.mjs .",
     "pi:assets-build": "pnpm run pi:web-build",
@@ -33,8 +40,14 @@
     "pi:bundle-check": "node ../../tooling/pi-extension/verify-distribution.mjs . bundle",
     "pi:distribution-check": "node ../../tooling/pi-extension/verify-distribution.mjs . package",
     "pi:schema-transport-check": "node scripts/verify-pi-schema-transport.mjs",
-    "pi:verify": "pnpm run pi:build && pnpm run pi:bundle-check && pnpm run pi:schema-transport-check && node scripts/verify-headless-ledger.mjs",
+    "pi:verify": "pnpm run pi:build && pnpm run archive:verify && pnpm run pi:bundle-check && pnpm run pi:schema-transport-check && node scripts/verify-headless-ledger.mjs && node scripts/verify-headless-no-proxy.mjs && node scripts/verify-headless-external-check.mjs",
+    "pi:domain-check": "node scripts/verify-site-release-boundaries.mjs",
+    "release:archive-check": "node ../../tooling/pi-extension/verify-distribution.mjs . archive",
+    "release:platform-check": "node ../../tooling/pi-extension/verify-distribution.mjs . platform",
     "acceptance:headless": "pnpm run pi:build && node scripts/headless-acceptance.mjs",
+    "acceptance:remote-only": "pnpm run pi:build && node scripts/remote-only-acceptance.mjs",
+    "acceptance:bootstrap": "node scripts/bootstrap-site-release-acceptance.mjs",
+    "acceptance:upgrade": "node scripts/site-release-hard-cut-upgrade-acceptance.mjs",
     "acceptance:site-release": "node scripts/site-release-acceptance.mjs"
   },
   "devDependencies": {

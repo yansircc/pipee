@@ -6,6 +6,4 @@ defined("ABSPATH") || exit;
 
 require_once __DIR__ . '/rest/auth.php';
 require_once __DIR__ . '/rest/read.php';
-require_once __DIR__ . '/rest/content.php';
-require_once __DIR__ . '/rest/mutations.php';
 require_once __DIR__ . '/rest/routes.php';

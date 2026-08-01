@@ -4,14 +4,14 @@ defined('ABSPATH') || exit;
 
 function zeroy_current_locale(): string
 {
-    $context = $GLOBALS['zeroy_runtime_route_context'] ?? null;
+    $context = $GLOBALS['zeroy_runtime_theme_context'] ?? null;
     return is_array($context) ? (string) ($context['locale'] ?? '') : '';
 }
 
 function zeroy_collection_context(): array|WP_Error
 {
-    $context = $GLOBALS['zeroy_runtime_route_context'] ?? null;
-    return is_array($context) && ($context['kind'] ?? null) === 'collection'
+    $context = $GLOBALS['zeroy_runtime_theme_context'] ?? null;
+    return is_array($context) && in_array(($context['routeKind'] ?? null), ['archive', 'taxonomy'], true)
         ? $context
         : zeroy_runtime_error('zeroy_collection_context_missing', 'The current request is not a zeroY CollectionRoute.', 409);
 }
@@ -61,6 +61,28 @@ function zeroy_locale_entities(array $object_ids, string $locale, array $select 
     $selectors = zeroy_localization_projection_select($select);
     if (is_wp_error($selectors)) {
         return $selectors;
+    }
+    $context = $GLOBALS['zeroy_runtime_theme_context'] ?? null;
+    $snapshot_entities = is_array($context) && is_array($context['resolvedContent']['_entities'] ?? null) ? $context['resolvedContent']['_entities'] : null;
+    if (is_array($snapshot_entities)) {
+        $items = [];
+        $unavailable = [];
+        foreach (array_values(array_unique(array_map('intval', $object_ids))) as $object_id) {
+            $item = $snapshot_entities[(string) $object_id] ?? null;
+            if (!is_array($item)) {
+                $unavailable[] = ['objectId' => $object_id, 'code' => 'zeroy_snapshot_entity_missing'];
+                continue;
+            }
+            $fields = [];
+            foreach ($selectors as $selector => $path) {
+                if ($selector === 'url') continue;
+                $found = false;
+                $value = zeroy_localization_nested_value($item['fields'], $path, $found);
+                if ($found) zeroy_localization_set_view_value($fields, $path, $value);
+            }
+            $items[] = [...$item, 'fields' => $fields, ...(array_key_exists('url', $selectors) ? [] : ['url' => null])];
+        }
+        return ['items' => $items, 'unavailable' => $unavailable];
     }
     $items = [];
     $unavailable = [];
@@ -117,16 +139,21 @@ function zeroy_collection_items(array $select = ['url', '/post/title'], int $pag
     if (is_wp_error($context)) {
         return $context;
     }
-    $posts = get_posts(['post_type' => get_post_types(['public' => true]), 'post_status' => 'publish', 'posts_per_page' => -1, 'meta_key' => ZEROY_RUNTIME_SCHEMA_META, 'meta_value' => $context['schemaId'], 'fields' => 'ids']);
+    if (is_array($context['archiveItems'] ?? null)) {
+        $collection = is_array($context['collection'] ?? null) ? $context['collection'] : [];
+        return ['items' => $context['archiveItems'], 'unavailable' => [], 'page' => (int) ($collection['page'] ?? 1), 'perPage' => (int) ($collection['perPage'] ?? $per_page), 'total' => (int) ($collection['total'] ?? count($context['archiveItems']))];
+    }
+    $collection = is_array($context['collection'] ?? null) ? $context['collection'] : [];
+    $posts = get_posts(['post_type' => get_post_types(['public' => true]), 'post_status' => 'publish', 'posts_per_page' => -1, 'meta_key' => ZEROY_RUNTIME_SCHEMA_META, 'meta_value' => $collection['schemaId'] ?? '', 'fields' => 'ids']);
     $ids = array_map('intval', is_array($posts) ? $posts : []);
-    if (($context['collectionKind'] ?? null) === 'taxonomy' && ($context['term'] ?? null) instanceof WP_Term) {
-        $assigned = get_objects_in_term($context['term']->term_id, $context['term']->taxonomy);
+    if (($collection['kind'] ?? null) === 'taxonomy' && ($collection['term'] ?? null) instanceof WP_Term) {
+        $assigned = get_objects_in_term($collection['term']->term_id, $collection['term']->taxonomy);
         $assigned = is_wp_error($assigned) ? [] : array_fill_keys(array_map('intval', $assigned), true);
         $ids = array_values(array_filter($ids, static fn(int $id): bool => isset($assigned[$id])));
     }
     $page = max(1, $page);
     $per_page = min(100, max(1, $per_page));
-    $projection = zeroy_locale_entities(array_slice($ids, ($page - 1) * $per_page, $per_page), $context['locale'], $select);
+    $projection = zeroy_locale_entities(array_slice($ids, ($page - 1) * $per_page, $per_page), (string) $context['locale'], $select);
     return is_wp_error($projection) ? $projection : [...$projection, 'page' => $page, 'perPage' => $per_page, 'total' => count($ids)];
 }
 

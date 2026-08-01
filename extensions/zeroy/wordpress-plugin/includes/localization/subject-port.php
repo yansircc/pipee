@@ -86,6 +86,25 @@ function zeroy_localization_field(
     ];
 }
 
+/**
+ * `required` is a content invariant, not merely the presence of a key in an
+ * Overlay.  In particular, an empty translation must not make a required
+ * field publishable.  False and zero remain legitimate canonical values.
+ */
+function zeroy_localization_value_is_present(mixed $value): bool
+{
+    if ($value === null) {
+        return false;
+    }
+    if (is_string($value)) {
+        return trim($value) !== '';
+    }
+    if (is_array($value)) {
+        return $value !== [];
+    }
+    return true;
+}
+
 function zeroy_localization_subject(array $subject): array|WP_Error
 {
     $subject = zeroy_localization_subject_ref($subject);

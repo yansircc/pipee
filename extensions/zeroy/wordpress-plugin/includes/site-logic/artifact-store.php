@@ -40,6 +40,71 @@ function zeroy_runtime_site_logic_archive_path(string $artifact_id): string
     return zeroy_runtime_site_logic_archive_root() . '/' . str_replace(':', '-', $artifact_id) . '.tar.gz';
 }
 
+function zeroy_runtime_scan_site_logic_tree(string $root): array|WP_Error
+{
+    $root = wp_normalize_path($root);
+    if (!is_dir($root) || is_link($root)) {
+        return zeroy_runtime_error('zeroy_site_logic_tree_invalid', 'SiteLogic source must be one regular directory.', 409);
+    }
+    $entries = [];
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::LEAVES_ONLY,
+    );
+    foreach ($iterator as $file) {
+        if (!$file instanceof SplFileInfo) continue;
+        $absolute = wp_normalize_path($file->getPathname());
+        $path = ltrim(substr($absolute, strlen(rtrim($root, '/'))), '/');
+        if ($file->isLink() || !$file->isFile() || !zeroy_runtime_artifact_path_valid($path) || zeroy_runtime_artifact_path_forbidden($path)) {
+            return zeroy_runtime_error('zeroy_site_logic_tree_invalid', 'SiteLogic source contains a symlink, special file, or forbidden path.', 409, ['path' => $path]);
+        }
+        $hash = hash_file('sha256', $absolute);
+        $bytes = $file->getSize();
+        if (!is_string($hash) || !is_int($bytes)) {
+            return zeroy_runtime_error('zeroy_site_logic_tree_unreadable', 'Could not hash a SiteLogicArtifact file.', 500, ['path' => $path]);
+        }
+        $entries[] = ['path' => $path, 'hash' => $hash, 'bytes' => $bytes, 'mode' => $file->isExecutable() ? 'executable' : 'file'];
+    }
+    return zeroy_runtime_normalize_site_logic_manifest(['contract' => ZEROY_SITE_LOGIC_MANIFEST_CONTRACT, 'entries' => $entries]);
+}
+
+function zeroy_runtime_archive_site_logic_directory(string $directory, array $manifest): string|WP_Error
+{
+    $storage = zeroy_runtime_site_logic_ensure_directories();
+    if (is_wp_error($storage)) return $storage;
+    $tar = zeroy_runtime_site_logic_staging_root() . '/' . wp_generate_uuid4() . '.tar';
+    $gz = $tar . '.gz';
+    try {
+        $archive = new PharData($tar);
+        foreach ($manifest['entries'] as $entry) {
+            $archive->addFile(rtrim($directory, '/') . '/' . $entry['path'], $entry['path']);
+        }
+        $archive->compress(Phar::GZ);
+        unset($archive);
+        $bytes = is_file($gz) ? file_get_contents($gz) : false;
+        return is_string($bytes)
+            ? base64_encode($bytes)
+            : zeroy_runtime_error('zeroy_site_logic_archive_failed', 'Could not read the SiteLogicArtifact archive.', 500);
+    } catch (Throwable $error) {
+        return zeroy_runtime_error('zeroy_site_logic_archive_failed', 'Could not archive SiteLogicArtifact: ' . $error->getMessage(), 500);
+    } finally {
+        foreach ([$tar, $gz] as $path) if (is_file($path)) unlink($path);
+    }
+}
+
+function zeroy_runtime_materialize_site_logic_directory(string $directory): array|WP_Error
+{
+    $manifest = zeroy_runtime_scan_site_logic_tree($directory);
+    if (is_wp_error($manifest)) return $manifest;
+    $archive = zeroy_runtime_archive_site_logic_directory($directory, $manifest);
+    return is_wp_error($archive) ? $archive : zeroy_runtime_site_logic_materialize_artifact_archive($manifest, $archive);
+}
+
+function zeroy_runtime_default_site_logic_artifact(): array|WP_Error
+{
+    return zeroy_runtime_materialize_site_logic_directory(dirname(__DIR__, 2) . '/default-site-logic');
+}
+
 function zeroy_runtime_normalize_site_logic_manifest(array $manifest): array|WP_Error
 {
     if (($manifest['contract'] ?? null) !== ZEROY_SITE_LOGIC_MANIFEST_CONTRACT || !is_array($manifest['entries'] ?? null) || !array_is_list($manifest['entries'])) {

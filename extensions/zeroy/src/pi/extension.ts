@@ -6,21 +6,19 @@ import type {
 import { Effect } from "effect";
 import {
   CONTENT_PROMPT_GUIDELINES,
-  ContentProviderProjection,
+  ContentStageProviderProjection,
   InspectProviderProjection,
-  SiteCheckoutInputContract,
-  SitePushInputContract,
-  SiteVerifyInputContract,
-  decodeContentInput,
   decodeInspectInput,
-  type SiteCheckoutInput,
-  type SitePushInput,
-  type SiteVerifyInput,
+  decodeArtifactStageInput,
+  decodeContentStageInput,
+  decodeSiteCommitInput,
+  ArtifactStageInputContract,
+  SiteCommitInputContract,
+  SITE_LOGIC_BOOTSTRAP_GUIDELINES,
 } from "../domain/protocol.js";
-import { contentApplyTool } from "./content-tools.js";
 import { inspectTool, refreshSurface } from "./inspect-tools.js";
 import { activeSession, run, startSession, stopSession, withSession } from "./session.js";
-import { siteCheckoutTool, sitePushTool, siteVerifyTool } from "./site-tools.js";
+import { artifactStageTool, contentStageTool, siteCommitTool } from "./stage-tools.js";
 import { errorMessage, runTool, type ZeroYToolFailure } from "./tool-result.js";
 
 const registrations = new WeakSet<object>();
@@ -38,19 +36,20 @@ export default function piZeroY(pi: ExtensionAPI): void {
   if (registrations.has(pi as object)) return;
   registrations.add(pi as object);
 
-  if (InspectProviderProjection._tag === "Failure") {
-    const error = InspectProviderProjection.error;
+  const inspectProjection = InspectProviderProjection;
+  if (inspectProjection._tag === "Failure") {
+    const error = inspectProjection.error;
     pi.on("session_start", (_event, context) => run(notifySessionFailure(context, error)));
     return;
   }
-  const inspectParameters = InspectProviderProjection.value;
-  if (ContentProviderProjection._tag === "Failure") {
-    const error = ContentProviderProjection.error;
+  const contentStageProjection = ContentStageProviderProjection;
+  if (contentStageProjection._tag === "Failure") {
+    const error = contentStageProjection.error;
     pi.on("session_start", (_event, context) => run(notifySessionFailure(context, error)));
     return;
   }
-  const contentParameters = ContentProviderProjection.value;
-
+  const inspectParameters = inspectProjection.value;
+  const contentStageParameters = contentStageProjection.value;
   pi.registerTool({
     name: "zeroy_inspect",
     label: "Inspect zeroY site",
@@ -68,48 +67,48 @@ export default function piZeroY(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "zeroy_site_checkout",
-    label: "Checkout zeroY site",
-    description:
-      "Download the active atomic SiteRelease into one local Git workspace containing theme and site-logic.",
-    parameters: SiteCheckoutInputContract,
-    execute: (_id, input, signal) =>
-      runTool(
-        withSession(pi, (active) => siteCheckoutTool(active, input as SiteCheckoutInput, signal)),
-      ),
-  });
-
-  pi.registerTool({
-    name: "zeroy_site_verify",
-    label: "Verify zeroY site workspace",
-    description: "Validate that one clean committed Git HEAD produces both SiteRelease artifacts.",
-    parameters: SiteVerifyInputContract,
-    execute: (_id, input) =>
-      runTool(withSession(pi, (active) => siteVerifyTool(active, input as SiteVerifyInput))),
-  });
-
-  pi.registerTool({
-    name: "zeroy_site_push",
-    label: "Release zeroY site",
-    description:
-      "Build ThemeArtifact and SiteLogicArtifact from one committed Git HEAD, verify their exact composition, and CAS activate the SiteRelease.",
-    parameters: SitePushInputContract,
-    execute: (_id, input, signal) =>
-      runTool(withSession(pi, (active) => sitePushTool(active, input as SitePushInput, signal))),
-  });
-
-  pi.registerTool({
-    name: "zeroy_content_apply",
-    label: "Update zeroY content",
-    description: `Update SiteConfig, canonical objects, or immutable LocaleOverlay drafts and published pointers. ${CONTENT_PROMPT_GUIDELINES}`,
-    parameters: contentParameters,
+    name: "zeroy_artifact_stage",
+    label: "Stage zeroY artifact",
+    description: `Stage remote WordPress Theme or SiteLogic file changes into one SiteDraft; changes are not live until commit. ${SITE_LOGIC_BOOTSTRAP_GUIDELINES}`,
+    parameters: ArtifactStageInputContract,
     execute: (_id, input, signal) =>
       runTool(
         withSession<AgentToolResult<unknown>, ZeroYToolFailure>(pi, (active) => {
-          const decoded = decodeContentInput(input);
+          const decoded = decodeArtifactStageInput(input);
           return decoded._tag === "Failure"
             ? Effect.fail(decoded.error)
-            : contentApplyTool(active, decoded.value, signal);
+            : artifactStageTool(active, decoded.value, signal);
+        }),
+      ),
+  });
+  pi.registerTool({
+    name: "zeroy_content_stage",
+    label: "Stage zeroY content",
+    description: `Stage typed content and translation operations into one remote SiteDraft. ${CONTENT_PROMPT_GUIDELINES}`,
+    parameters: contentStageParameters,
+    execute: (_id, input, signal) =>
+      runTool(
+        withSession<AgentToolResult<unknown>, ZeroYToolFailure>(pi, (active) => {
+          const decoded = decodeContentStageInput(input);
+          return decoded._tag === "Failure"
+            ? Effect.fail(decoded.error)
+            : contentStageTool(active, decoded.value, signal);
+        }),
+      ),
+  });
+  pi.registerTool({
+    name: "zeroy_site_commit",
+    label: "Commit zeroY site",
+    description:
+      "Compile one remote SiteDraft, run its CandidateProof, and atomically activate one SiteRelease.",
+    parameters: SiteCommitInputContract,
+    execute: (_id, input, signal) =>
+      runTool(
+        withSession<AgentToolResult<unknown>, ZeroYToolFailure>(pi, (active) => {
+          const decoded = decodeSiteCommitInput(input);
+          return decoded._tag === "Failure"
+            ? Effect.fail(decoded.error)
+            : siteCommitTool(active, decoded.value, signal);
         }),
       ),
   });

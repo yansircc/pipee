@@ -8,7 +8,7 @@ function zeroy_runtime_site_logic_registry(): array
     return is_array($registry) ? $registry : [];
 }
 
-function zeroy_register_site_logic_capability(string $capability, string $version, callable $handler): void
+function zeroy_register_site_logic_capability(string $capability, string $version, string $handler): void
 {
     $request = zeroy_runtime_request_site_release();
     if ($request === null) {
@@ -21,6 +21,9 @@ function zeroy_register_site_logic_capability(string $capability, string $versio
     }
     foreach ($contract['provides'] as $provided) {
         if ($provided['capability'] === $capability && $provided['version'] === $version) {
+            if (!function_exists($handler)) {
+                throw new LogicException('SiteLogic capability handler must be a named declared function.');
+            }
             $registry = zeroy_runtime_site_logic_registry();
             $identity = $capability . '@' . $version;
             if (isset($registry[$identity])) throw new LogicException('A SiteLogic capability can register only once per request.');

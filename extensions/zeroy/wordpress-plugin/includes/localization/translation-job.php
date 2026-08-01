@@ -40,22 +40,10 @@ function zeroy_localization_decode_job_token(string $token): array|WP_Error
 
 function zeroy_localization_post_route(array $subject, array $definition): string|WP_Error
 {
-    $post = get_post((int) $subject['id']);
-    if (!$post instanceof WP_Post) {
-        return zeroy_runtime_error('zeroy_canonical_missing', 'Canonical WordPress post no longer exists.', 404);
-    }
-    if (array_key_exists('route', $definition)) {
-        // ThemeSchema persistence uses an empty route only for the explicit
-        // front-page algebra. Public Artifact input is normalized separately.
-        if ($definition['route'] === '') {
-            return '';
-        }
-        return zeroy_runtime_normalize_route((string) $definition['route']);
-    }
-    $route = zeroy_runtime_normalize_route((string) $post->post_name);
-    return is_wp_error($route)
-        ? zeroy_runtime_error('zeroy_translation_route_missing', 'Canonical post needs a path-safe WordPress slug or an explicit ThemeSchema route.', 409)
-        : $route;
+    $canonical = zeroy_runtime_canonical((int) $subject['id']);
+    return is_wp_error($canonical)
+        ? $canonical
+        : (is_string($canonical['route'] ?? null) ? $canonical['route'] : zeroy_runtime_error('zeroy_translation_route_missing', 'Canonical post needs an explicit zeroY route.', 409));
 }
 
 function zeroy_localization_subject_route(array $subject, array $definition): string|WP_Error
@@ -66,7 +54,12 @@ function zeroy_localization_subject_route(array $subject, array $definition): st
 function zeroy_localization_translation_status(array $field, array $overlay): array
 {
     $stored = $overlay['values'][$field['fieldId']] ?? null;
-    if (!is_array($stored) || !array_key_exists('value', $stored) || !is_string($stored['sourceHash'] ?? null)) {
+    if (
+        !is_array($stored)
+        || !array_key_exists('value', $stored)
+        || !is_string($stored['sourceHash'] ?? null)
+        || (($field['policy']['required'] ?? false) === true && !zeroy_localization_value_is_present($stored['value']))
+    ) {
         return ['status' => 'missing'];
     }
     if (hash_equals($field['sourceHash'], $stored['sourceHash'])) {
@@ -78,7 +71,7 @@ function zeroy_localization_translation_status(array $field, array $overlay): ar
     ];
 }
 
-function zeroy_localization_translation_job(array $subject, string $locale): array|WP_Error
+function zeroy_localization_translation_job(array $subject, string $locale, ?array $definition_override = null): array|WP_Error
 {
     $subject = zeroy_localization_subject_ref($subject);
     if (is_wp_error($subject)) {
@@ -94,11 +87,13 @@ function zeroy_localization_translation_job(array $subject, string $locale): arr
     if ($locale === $config['defaultLocale']) {
         return zeroy_runtime_error('zeroy_translation_default_locale', 'The default locale resolves directly from canonical WordPress and ACF facts; it has no TranslationJob.', 409);
     }
-    $localizable = zeroy_localization_subject($subject);
+    $localizable = $subject['kind'] === 'post' && is_array($definition_override)
+        ? zeroy_localization_post_subject((int) $subject['id'], $definition_override)
+        : zeroy_localization_subject($subject);
     if (is_wp_error($localizable)) {
         return $localizable;
     }
-    $definition = zeroy_localization_subject_definition($subject, $localizable);
+    $definition = $definition_override ?? zeroy_localization_subject_definition($subject, $localizable);
     if (is_wp_error($definition)) {
         return $definition;
     }
@@ -181,7 +176,7 @@ function zeroy_localization_translation_job(array $subject, string $locale): arr
     ];
 }
 
-function zeroy_localization_write_translation_draft(string $job_token, mixed $values, int $expected_revision): array|WP_Error
+function zeroy_localization_write_translation_draft(string $job_token, mixed $values, int $expected_revision, ?array $definition_override = null): array|WP_Error
 {
     if (!zeroy_runtime_is_keyed_map($values)) {
         return zeroy_runtime_error('zeroy_translation_values_invalid', 'values must be a keyed object of fieldId to value.', 400);
@@ -190,7 +185,7 @@ function zeroy_localization_write_translation_draft(string $job_token, mixed $va
     if (is_wp_error($payload)) {
         return $payload;
     }
-    $job = zeroy_localization_translation_job($payload['subject'], $payload['locale']);
+    $job = zeroy_localization_translation_job($payload['subject'], $payload['locale'], $definition_override);
     if (is_wp_error($job)) {
         return $job;
     }
@@ -231,8 +226,10 @@ function zeroy_localization_write_translation_draft(string $job_token, mixed $va
         $overlay['values'][$field_id] = ['sourceHash' => $field['sourceHash'], 'value' => $value];
     }
     $overlay['createdAt'] = current_time('mysql', true);
-    $localizable = zeroy_localization_subject($subject);
-    $definition = is_wp_error($localizable) ? $localizable : zeroy_localization_subject_definition($subject, $localizable);
+    $localizable = $subject['kind'] === 'post' && is_array($definition_override)
+        ? zeroy_localization_post_subject((int) $subject['id'], $definition_override)
+        : zeroy_localization_subject($subject);
+    $definition = is_wp_error($localizable) ? $localizable : ($definition_override ?? zeroy_localization_subject_definition($subject, $localizable));
     if (is_wp_error($definition)) {
         return $definition;
     }
@@ -244,7 +241,7 @@ function zeroy_localization_write_translation_draft(string $job_token, mixed $va
     if (is_wp_error($stored)) {
         return $stored;
     }
-    $next = zeroy_localization_translation_job($subject, $job['locale']);
+    $next = zeroy_localization_translation_job($subject, $job['locale'], $definition_override);
     if (is_wp_error($next)) {
         return $next;
     }
@@ -259,9 +256,17 @@ function zeroy_localization_write_translation_draft(string $job_token, mixed $va
     ];
 }
 
-function zeroy_localization_publish_translation(array $subject, string $locale, int $expected_revision): array|WP_Error
+function zeroy_localization_write_translation_values(array $subject, string $locale, array $definition, mixed $values, int $expected_revision): array|WP_Error
 {
-    $job = zeroy_localization_translation_job($subject, $locale);
+    $job = zeroy_localization_translation_job($subject, $locale, $definition);
+    return is_wp_error($job)
+        ? $job
+        : zeroy_localization_write_translation_draft((string) $job['jobToken'], $values, $expected_revision, $definition);
+}
+
+function zeroy_localization_publish_translation(array $subject, string $locale, array $definition, int $expected_revision): array|WP_Error
+{
+    $job = zeroy_localization_translation_job($subject, $locale, $definition);
     if (is_wp_error($job)) {
         return $job;
     }
@@ -297,9 +302,9 @@ function zeroy_localization_publish_translation(array $subject, string $locale, 
     ];
 }
 
-function zeroy_localization_unpublish_translation(array $subject, string $locale, int $expected_revision): array|WP_Error
+function zeroy_localization_unpublish_translation(array $subject, string $locale, array $definition, int $expected_revision): array|WP_Error
 {
-    $job = zeroy_localization_translation_job($subject, $locale);
+    $job = zeroy_localization_translation_job($subject, $locale, $definition);
     if (is_wp_error($job)) {
         return $job;
     }

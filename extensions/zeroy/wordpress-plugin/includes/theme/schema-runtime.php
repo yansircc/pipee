@@ -2,6 +2,41 @@
 
 defined('ABSPATH') || exit;
 
+function zeroy_runtime_normalize_route_spec(mixed $input, string $theme_root, array &$errors): ?array
+{
+    if ($input === null) {
+        zeroy_runtime_schema_violation($errors, 'route_spec_missing', 'ThemeSchema requires an explicit RouteSpec object.', ['field' => 'routes']);
+        return null;
+    }
+    if (!is_array($input) || array_is_list($input)) {
+        zeroy_runtime_schema_violation($errors, 'route_spec_invalid', 'ThemeSchema requires an explicit RouteSpec object.', ['field' => 'routes']);
+        return null;
+    }
+    $error_count = count($errors);
+    $search = $input['search'] ?? null;
+    $not_found = $input['notFound'] ?? null;
+    if (!is_array($search) || !is_array($not_found)) {
+        zeroy_runtime_schema_violation($errors, 'route_spec_invalid', 'RouteSpec requires search and notFound declarations.', ['field' => 'routes']);
+        return null;
+    }
+    $search_route = is_string($search['route'] ?? null) ? zeroy_runtime_normalize_route($search['route']) : zeroy_runtime_error('zeroy_invalid_route', 'Search route must be a string.', 409);
+    $search_template = is_string($search['template'] ?? null) ? ltrim(wp_normalize_path($search['template']), '/') : '';
+    $not_found_template = is_string($not_found['template'] ?? null) ? ltrim(wp_normalize_path($not_found['template']), '/') : '';
+    if (is_wp_error($search_route) || $search_route === '' || $search_template === '' || !is_file($theme_root . '/' . $search_template) || str_contains($search_template, '..')) {
+        zeroy_runtime_schema_violation($errors, 'route_spec_invalid', 'RouteSpec search must declare a non-empty route and an existing template.', ['field' => 'routes.search']);
+    }
+    if ($not_found_template === '' || !is_file($theme_root . '/' . $not_found_template) || str_contains($not_found_template, '..')) {
+        zeroy_runtime_schema_violation($errors, 'route_spec_invalid', 'RouteSpec notFound must declare an existing template.', ['field' => 'routes.notFound']);
+    }
+    if (count($errors) > $error_count) {
+        return null;
+    }
+    return [
+        'search' => ['route' => $search_route, 'template' => $search_template],
+        'notFound' => ['template' => $not_found_template],
+    ];
+}
+
 function zeroy_runtime_normalize_schema_definition(string $schema_id, mixed $input, string $theme_root, array &$errors, bool $stored): ?array
 {
     $context = ['schemaId' => $schema_id];
@@ -33,22 +68,18 @@ function zeroy_runtime_normalize_schema_definition(string $schema_id, mixed $inp
     }
     $policy = zeroy_localization_normalize_policy($input['localization'] ?? null, $errors, $context);
     $template_content = zeroy_runtime_normalize_template_content($input['templateContent'] ?? null, $context, $errors);
-    $route = null;
-    if (array_key_exists('route', $input)) {
-        // Empty is the normalized storage representation of the front page;
-        // public ThemeArtifact JSON must still spell that route as "/".
-        $route = $stored && $input['route'] === ''
-            ? ''
-            : (is_string($input['route']) ? zeroy_runtime_normalize_route($input['route']) : zeroy_runtime_error('zeroy_invalid_route', 'route must be a string.', 409));
-        if (is_wp_error($route)) {
-            zeroy_runtime_schema_violation($errors, 'schema_route_invalid', $route->get_error_message(), $context);
-            $route = null;
-        }
+    $route_kind = $input['routeKind'] ?? null;
+    if (!is_string($route_kind) || !in_array($route_kind, zeroy_runtime_theme_authoring_route_kinds(), true)) {
+        zeroy_runtime_schema_violation($errors, 'schema_route_kind_invalid', "Schema {$schema_id} must declare routeKind as front-page, document, or singular.", $context + ['field' => 'routeKind']);
     }
-    return $label !== '' && $template !== '' && count($normalized_types) === count($post_types) && is_array($policy) && is_array($template_content)
+    if (array_key_exists('route', $input)) {
+        zeroy_runtime_schema_violation($errors, 'schema_route_owner_invalid', "Schema {$schema_id} cannot declare a public route. Each canonical object owns its explicit route.", $context + ['field' => 'route']);
+    }
+    return $label !== '' && $template !== '' && count($normalized_types) === count($post_types) && is_array($policy) && is_array($template_content) && is_string($route_kind) && in_array($route_kind, zeroy_runtime_theme_authoring_route_kinds(), true) && !array_key_exists('route', $input)
         ? [
             'label' => $label,
             'template' => $template,
+            'routeKind' => $route_kind,
             'canonicalPostTypes' => array_values($normalized_types),
             'localization' => [
                 'contract' => $policy['contract'],
@@ -56,7 +87,6 @@ function zeroy_runtime_normalize_schema_definition(string $schema_id, mixed $inp
                 'repeaterItemKeys' => $policy['repeaterItemKeys'],
             ],
             ...($template_content === [] ? [] : ['templateContent' => $template_content]),
-            ...($route === null ? [] : ['route' => $route]),
         ]
         : null;
 }
@@ -90,7 +120,7 @@ function zeroy_runtime_theme_schema_analysis(array $schema, ?string $theme_root 
     } else {
         $normalized_subjects = [];
         foreach ($subjects as $subject_kind => $definition) {
-            if (!in_array($subject_kind, ['term', 'menu', 'siteCopy', 'media'], true) || !is_array($definition)) {
+            if (!in_array($subject_kind, zeroy_runtime_theme_authoring_localization_subject_kinds(), true) || !is_array($definition)) {
                 zeroy_runtime_schema_violation($errors, 'localization_subject_invalid', 'Unsupported localization subject declaration.', ['subject' => $subject_kind]);
                 continue;
             }
@@ -107,7 +137,17 @@ function zeroy_runtime_theme_schema_analysis(array $schema, ?string $theme_root 
             $normalized['localizationSubjects'] = $normalized_subjects;
         }
     }
+    $routes = zeroy_runtime_normalize_route_spec($schema['routes'] ?? null, $theme_root, $errors);
+    if ($routes !== null) {
+        $front_pages = array_filter($normalized['schemas'], static fn(array $definition): bool => ($definition['routeKind'] ?? null) === 'front-page');
+        if (count($front_pages) !== 1) {
+            zeroy_runtime_schema_violation($errors, 'front_page_route_invalid', 'Exactly one canonical schema must declare routeKind front-page.', ['field' => 'schemas.*.routeKind']);
+        }
+    }
     $collections = zeroy_runtime_normalize_collections($schema['collections'] ?? null, $normalized['schemas'], $errors, $theme_root);
+    if ($routes !== null) {
+        $normalized['routes'] = $routes;
+    }
     if ($collections !== []) {
         $normalized['collections'] = $collections;
     }

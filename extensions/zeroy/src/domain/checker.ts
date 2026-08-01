@@ -6,9 +6,12 @@ export class ZeroYExternalCheckError extends Data.TaggedError("ZeroYExternalChec
 }> {}
 
 export type PageCheck = {
+  readonly scenarioId: string;
+  readonly routeKind: string;
   readonly objectId: number | null;
   readonly locale: string | null;
   readonly url: string;
+  readonly expectedStatus: number;
   readonly finalUrl: string | null;
   readonly status: number | null;
   readonly title: string | null;
@@ -22,9 +25,12 @@ export type PageCheck = {
 };
 
 export type ExternalCheckTarget = {
+  readonly scenarioId: string;
+  readonly routeKind: string;
   readonly objectId: number | null;
   readonly locale: string | null;
   readonly url: string;
+  readonly expectedStatus: number;
 };
 
 export type ExternalCheckUrlError = {
@@ -112,28 +118,6 @@ const links = (html: string, base: URL): ReadonlyArray<string> => {
   return [...values];
 };
 
-const publishedPages = (inventory: JsonRecord): ReadonlyArray<ExternalCheckTarget> => {
-  const items = Array.isArray(inventory.items) ? inventory.items : [];
-  const pages: ExternalCheckTarget[] = [];
-  for (const item of items) {
-    const object = record(item);
-    const objectId = object ? object.objectId : null;
-    const locales = object && Array.isArray(object.locales) ? object.locales : [];
-    if (typeof objectId !== "number") continue;
-    for (const localeValue of locales) {
-      const locale = record(localeValue);
-      if (
-        locale?.state !== "published" ||
-        typeof locale.locale !== "string" ||
-        typeof locale.url !== "string"
-      )
-        continue;
-      pages.push({ objectId, locale: locale.locale, url: locale.url });
-    }
-  }
-  return pages;
-};
-
 const fetchResponse = (
   url: string | URL,
   signal?: AbortSignal,
@@ -163,9 +147,12 @@ const responseJson = (response: Response): Effect.Effect<unknown, ZeroYExternalC
   });
 
 const failedPage = (page: ExternalCheckTarget, error: ZeroYExternalCheckError): PageCheck => ({
+  scenarioId: page.scenarioId,
+  routeKind: page.routeKind,
   objectId: page.objectId,
   locale: page.locale,
   url: page.url,
+  expectedStatus: page.expectedStatus,
   finalUrl: null,
   status: null,
   title: null,
@@ -203,9 +190,12 @@ const checkPage = (
     );
     const alternateTags = html.match(/<link\b[^>]*rel=["']alternate["'][^>]*>/gi) ?? [];
     return {
+      scenarioId: page.scenarioId,
+      routeKind: page.routeKind,
       objectId: page.objectId,
       locale: page.locale,
       url: page.url,
+      expectedStatus: page.expectedStatus,
       finalUrl: response.url,
       status: response.status,
       title: tag(html, "title"),
@@ -283,13 +273,20 @@ const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 export const runExternalCheck = (
-  inventory: JsonRecord,
+  releaseTargets: ReadonlyArray<ExternalCheckTarget>,
   requestedUrls: ReadonlyArray<string> = [],
   signal?: AbortSignal,
 ): Effect.Effect<ExternalCheck, never> => {
   const pages = [
-    ...publishedPages(inventory),
-    ...requestedUrls.map((url) => ({ objectId: null, locale: null, url })),
+    ...releaseTargets,
+    ...requestedUrls.map((url) => ({
+      scenarioId: `requested:${url}`,
+      routeKind: "requested",
+      objectId: null,
+      locale: null,
+      url,
+      expectedStatus: 200,
+    })),
   ].filter(
     (page, index, all) => all.findIndex((candidate) => candidate.url === page.url) === index,
   );
@@ -316,7 +313,9 @@ export const runExternalCheck = (
 };
 
 export const externalCheckSummary = (check: ExternalCheck): string => {
-  const failures = check.pages.filter((page) => page.status !== 200 || page.error !== null).length;
+  const failures = check.pages.filter(
+    (page) => page.status !== page.expectedStatus || page.error !== null,
+  ).length;
   const brokenLinks = check.pages.reduce((total, page) => total + page.brokenLinks.length, 0);
   return `${check.pages.length} page(s), ${failures} HTTP failure(s), ${brokenLinks} broken link(s)`;
 };

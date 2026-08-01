@@ -37,6 +37,18 @@ function zeroy_runtime_is_keyed_map(mixed $value): bool
     return is_array($value) && ($value === [] || !array_is_list($value));
 }
 
+/**
+ * PHP decodes both `{}` and `[]` into an empty array.  Internally that is a
+ * useful neutral representation, but a wire field declared as a keyed map
+ * must always serialize back to `{}`.  Keep that correction at the outward
+ * projection boundary instead of weakening every consumer contract to accept
+ * two meanings for an empty value.
+ */
+function zeroy_runtime_json_map(array $value): array|stdClass
+{
+    return $value === [] ? new stdClass() : $value;
+}
+
 function zeroy_runtime_sort_recursive(mixed $value): mixed
 {
     if (!is_array($value)) {

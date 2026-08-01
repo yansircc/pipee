@@ -1,0 +1,7 @@
+{
+  "contract": "zeroy/site-logic-contract@1",
+  "provides": [],
+  "requires": [],
+  "storageEpoch": 0,
+  "migrations": []
+}

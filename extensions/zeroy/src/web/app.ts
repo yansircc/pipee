@@ -23,7 +23,6 @@ type Site = {
   readonly activeSiteLogic: RecordValue | null;
   readonly migrationHistory: RecordValue | null;
   readonly releases: RecordValue | null;
-  readonly checkouts: ReadonlyArray<RecordValue>;
   readonly externalCheck: RecordValue | null;
 };
 
@@ -252,10 +251,8 @@ const siteReleaseRows = (site: Site): string => {
   const state = site.siteRelease;
   const active = site.activeRelease;
   const proof = asRecord(asRecord(active?.diagnostics)?.proof);
-  const themeProof = asRecord(proof?.themeProof);
-  const runtimeChecks = asRecord(themeProof?.runtimeChecks);
-  const declared = asArray(runtimeChecks?.declaredScenarios).length;
-  const executed = asArray(runtimeChecks?.executedScenarios).length;
+  const declared = number(proof?.declaredScenarioCount);
+  const executed = number(proof?.executedScenarioCount);
   const capabilities = asArray(asRecord(site.activeSiteLogic?.artifactContract)?.provides)
     .map((value) => {
       const capability = asRecord(value);
@@ -285,23 +282,13 @@ const siteReleaseRows = (site: Site): string => {
   return `<div class="facts"><div><span>Active release</span><code>${esc(string(state?.activeReleaseId).slice(0, 18))}</code></div><div><span>Theme Artifact</span><code>${esc(string(state?.themeArtifactId).slice(0, 18))}</code></div><div><span>SiteLogic Artifact</span><code>${esc(string(state?.siteLogicArtifactId).slice(0, 18))}</code></div><div><span>Storage epoch</span><b>${esc(number(state?.storageEpoch))}</b></div></div><div class="facts"><div><span>Source commit</span><code>${esc(string(asRecord(active?.provenance)?.sourceCommit).slice(0, 18))}</code></div><div><span>Theme contract</span><code>${esc(string(active?.themeContractHash).slice(0, 18))}</code></div><div><span>Logic contract</span><code>${esc(string(active?.siteLogicContractHash).slice(0, 18))}</code></div><div><span>Verification</span><b>${esc(String(executed))}/${esc(String(declared))} scenarios · ${esc(String(asArray(proof?.blockingFailures).length))} blocking</b></div></div><div class="two-column"><div><div class="subhead"><b>SiteLogic capabilities</b><span>active Artifact</span></div><div class="check-list">${capabilities || '<div class="empty">No public SiteLogic capabilities.</div>'}</div></div><div><div class="subhead"><b>Storage migrations</b><span>applied ledger</span></div><div class="check-list">${migrations || '<div class="empty">No storage migrations.</div>'}</div></div></div>${history || '<div class="empty">尚无 release history。</div>'}`;
 };
 
-const checkoutRows = (site: Site): string => {
-  if (site.checkouts.length === 0) return '<div class="empty">此设备上还没有本地 checkout。</div>';
-  return site.checkouts
-    .map(
-      (checkout) =>
-        `<div class="inventory-row"><div class="object"><b>${esc(string(checkout.checkoutId).slice(0, 12))}</b><span><code>${esc(string(checkout.head).slice(0, 12))}</code> · ${esc(string(checkout.localPath))}</span></div><div class="locale-states"><span class="locale-state ${checkout.dirty === true ? "content-stale" : "published"}"><b>${checkout.dirty === true ? "dirty" : "clean"}</b><small>${esc(string(checkout.baseReleaseId).slice(0, 20))}</small></span></div></div>`,
-    )
-    .join("");
-};
-
 const siteCard = (site: Site): string => {
   const theme = asRecord(site.site?.activeTheme);
   const schema = asRecord(site.site?.themeSchema);
   if (site.state === "failed") {
     return `<section class="site-card failed"><header><div><h2>${esc(site.label)}</h2><p>${esc(site.endpoint)}</p></div><span class="status">连接失败</span></header><div class="error">${esc(site.error)}</div></section>`;
   }
-  return `<section class="site-card"><header><div><div class="eyebrow">${esc(site.siteId)}</div><h2>${esc(site.label)}</h2><p>${esc(site.endpoint)}</p></div><span class="status ready">已连接</span></header><div class="facts"><div><span>Runtime</span><b>${esc(string(site.site?.runtimeVersion))}</b></div><div><span>Shell</span><b>${esc(string(theme?.name))}</b></div><div><span>Contract hash</span><code>${esc(string(schema?.contractHash).slice(0, 12))}</code></div><div><span>Schema</span><b>${esc(string(schema?.deploymentState, schema?.valid === true ? "active" : "invalid"))}</b></div></div><section class="block"><div class="block-head"><h3>Site release</h3><span>Theme × SiteLogic · read-only</span></div>${siteReleaseRows(site)}</section><section class="block"><div class="block-head"><h3>Local checkouts</h3><span>this device only</span></div>${checkoutRows(site)}</section><section class="block"><div class="block-head"><h3>语言</h3><span>WordPress SiteConfig</span></div><div class="chips">${localeChips(site)}</div></section><section class="block"><div class="block-head"><h3>语言覆盖</h3><span>missing · stale · review · recent publish</span></div>${translationCoverageRows(site)}</section><section class="block"><div class="block-head"><h3>ThemeSchema</h3><span>documents · collections · active Artifact</span></div>${schemaRows(site)}</section><section class="block"><div class="block-head"><h3>Canonical pages</h3><span>LocaleHead 状态与 route</span></div><div class="inventory">${inventoryRows(site)}</div></section><section class="block two-column"><div><div class="block-head"><h3>Shared ACF</h3><span>read-only</span></div>${acfRows(site)}</div><div><div class="block-head"><h3>Connector integrity</h3><span>read-only</span></div>${integrityRows(site)}</div></section><section class="block"><div class="block-head"><h3>前台检查</h3><span>HTTP · HTML · canonical · hreflang · links · PageSpeed</span></div>${externalRows(site)}</section></section>`;
+  return `<section class="site-card"><header><div><div class="eyebrow">${esc(site.siteId)}</div><h2>${esc(site.label)}</h2><p>${esc(site.endpoint)}</p></div><span class="status ready">已连接</span></header><div class="facts"><div><span>Runtime</span><b>${esc(string(site.site?.runtimeVersion))}</b></div><div><span>Shell</span><b>${esc(string(theme?.name))}</b></div><div><span>Contract hash</span><code>${esc(string(schema?.contractHash).slice(0, 12))}</code></div><div><span>Schema</span><b>${esc(string(schema?.deploymentState, schema?.valid === true ? "active" : "invalid"))}</b></div></div><section class="block"><div class="block-head"><h3>Site release</h3><span>Theme × SiteLogic · read-only</span></div>${siteReleaseRows(site)}</section><section class="block"><div class="block-head"><h3>语言</h3><span>WordPress SiteConfig</span></div><div class="chips">${localeChips(site)}</div></section><section class="block"><div class="block-head"><h3>语言覆盖</h3><span>missing · stale · review · recent publish</span></div>${translationCoverageRows(site)}</section><section class="block"><div class="block-head"><h3>ThemeSchema</h3><span>documents · collections · active Artifact</span></div>${schemaRows(site)}</section><section class="block"><div class="block-head"><h3>Canonical pages</h3><span>LocaleHead 状态与 route</span></div><div class="inventory">${inventoryRows(site)}</div></section><section class="block two-column"><div><div class="block-head"><h3>Shared ACF</h3><span>read-only</span></div>${acfRows(site)}</div><div><div class="block-head"><h3>Connector integrity</h3><span>read-only</span></div>${integrityRows(site)}</div></section><section class="block"><div class="block-head"><h3>前台检查</h3><span>HTTP · HTML · canonical · hreflang · links · PageSpeed</span></div>${externalRows(site)}</section></section>`;
 };
 
 const render = () => {

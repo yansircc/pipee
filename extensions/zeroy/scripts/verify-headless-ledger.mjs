@@ -16,8 +16,8 @@ const calls = readToolLedger([
         {
           type: "toolCall",
           id: "call-2",
-          name: "zeroy_content_apply",
-          arguments: { action: "publishTranslation", expectedRevision: 1 },
+          name: "zeroy_content_stage",
+          arguments: { operation: { kind: "publishTranslation", expectedRevision: 1 } },
         },
       ],
     },
@@ -49,8 +49,8 @@ assert.deepEqual(calls, [
   {
     index: 0,
     id: "call-2",
-    name: "zeroy_content_apply",
-    input: { action: "publishTranslation", expectedRevision: 1 },
+    name: "zeroy_content_stage",
+    input: { operation: { kind: "publishTranslation", expectedRevision: 1 } },
     result: null,
   },
 ]);

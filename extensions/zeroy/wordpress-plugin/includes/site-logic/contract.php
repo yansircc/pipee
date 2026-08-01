@@ -6,6 +6,86 @@ const ZEROY_SITE_LOGIC_CONTRACT = 'zeroy/site-logic-contract@1';
 const ZEROY_SITE_LOGIC_MANIFEST_CONTRACT = 'zeroy/site-logic-manifest@1';
 const ZEROY_SITE_LOGIC_ARTIFACT_CONTRACT = 'zeroy/site-logic-artifact@1';
 
+function zeroy_runtime_site_logic_capability_kinds(): array
+{
+    return ['query', 'action'];
+}
+
+function zeroy_runtime_site_logic_effect_kinds(): array
+{
+    return ['read', 'write', 'external-request', 'background-job', 'file-write'];
+}
+
+function zeroy_runtime_site_logic_authorization_kinds(): array
+{
+    return ['public', 'authenticated'];
+}
+
+function zeroy_runtime_site_logic_bootstrap_contract(): array
+{
+    return [
+        'contract' => 'zeroy/site-logic-bootstrap@1',
+        'entrypoint' => 'bootstrap.php',
+        'requiredGuard' => "defined('ABSPATH') || exit;",
+        'topLevel' => [
+            'allowed' => ['named-function-declaration', 'literal-capability-registration'],
+            'forbidden' => ['arbitrary-statement', 'include', 'closure', 'top-level-effect'],
+        ],
+        'registration' => [
+            'function' => 'zeroy_register_site_logic_capability',
+            'arguments' => ['capability', 'majorVersion', 'namedHandler'],
+            'capabilityPattern' => '^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$',
+            'majorVersionPattern' => '^[1-9][0-9]*$',
+            'namedHandlerPattern' => '^[a-zA-Z_][a-zA-Z0-9_]*$',
+        ],
+    ];
+}
+
+function zeroy_runtime_site_logic_authoring_contract(): array
+{
+    return [
+        'contract' => 'zeroy/site-logic-authoring@1',
+        'artifact' => [
+            'requiredFiles' => ['bootstrap.php', 'sitelogic.json'],
+            'entrypoint' => 'bootstrap.php',
+            'manifest' => 'sitelogic.json',
+        ],
+        // The declaration program and immutable manifest describe one
+        // SiteLogicArtifact. Keep their grammar under this single public
+        // contract so an Agent never has to infer either half from source.
+        'bootstrap' => zeroy_runtime_site_logic_bootstrap_contract(),
+        'siteLogicContract' => [
+            'contract' => ZEROY_SITE_LOGIC_CONTRACT,
+            'required' => ['contract', 'provides', 'requires', 'storageEpoch', 'migrations'],
+            'capability' => [
+                'required' => ['capability', 'version', 'kind', 'outputSchema', 'effects', 'authorization', 'errors'],
+                'optional' => ['inputSchema'],
+                'capabilityPattern' => '^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$',
+                'versionPattern' => '^[1-9][0-9]*$',
+                'kinds' => zeroy_runtime_site_logic_capability_kinds(),
+                'effects' => zeroy_runtime_site_logic_effect_kinds(),
+                'authorizations' => zeroy_runtime_site_logic_authorization_kinds(),
+                'schemaRule' => 'inputSchema when present and outputSchema always must be keyed JSON-schema-like objects.',
+                'errors' => ['itemRequired' => ['code', 'retryable']],
+            ],
+            'requires' => [
+                'itemRequired' => ['capability', 'version'],
+                'versionPattern' => '^\^[1-9][0-9]*$',
+            ],
+            'migrations' => [
+                'itemRequired' => ['fromEpoch', 'toEpoch', 'idempotencyKey', 'effects', 'verify', 'operations'],
+                'effects' => 'schema-additive',
+                'idempotencyKeyPattern' => '^[a-z][a-z0-9_.-]{0,95}$',
+                'invariant' => 'Migrations are unique, form a forward epoch chain, and are verified before activation.',
+            ],
+        ],
+        'runtimeCapabilities' => [
+            ['capability' => 'locale.resolve', 'version' => '^1'],
+            ['capability' => 'collection.query', 'version' => '^1'],
+        ],
+    ];
+}
+
 function zeroy_runtime_contract_has_only_keys(array $input, array $allowed): bool
 {
     return array_diff(array_keys($input), $allowed) === [];
@@ -46,10 +126,10 @@ function zeroy_runtime_normalize_site_logic_contract(mixed $input): array|WP_Err
         $effects = $provided['effects'] ?? null;
         $authorization = is_string($provided['authorization'] ?? null) ? $provided['authorization'] : '';
         $errors = $provided['errors'] ?? null;
-        if (!preg_match('/\A[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*\z/', $capability) || !preg_match('/\A[1-9][0-9]*\z/', $version) || !in_array($kind, ['query', 'action'], true) || !is_array($effects) || !array_is_list($effects) || !in_array($authorization, ['public', 'authenticated'], true) || !is_array($errors) || !array_is_list($errors) || !zeroy_runtime_is_keyed_map($provided['outputSchema'] ?? null) || (array_key_exists('inputSchema', $provided) && !zeroy_runtime_is_keyed_map($provided['inputSchema']))) {
+        if (!preg_match('/\A[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*\z/', $capability) || !preg_match('/\A[1-9][0-9]*\z/', $version) || !in_array($kind, zeroy_runtime_site_logic_capability_kinds(), true) || !is_array($effects) || !array_is_list($effects) || !in_array($authorization, zeroy_runtime_site_logic_authorization_kinds(), true) || !is_array($errors) || !array_is_list($errors) || !zeroy_runtime_is_keyed_map($provided['outputSchema'] ?? null) || (array_key_exists('inputSchema', $provided) && !zeroy_runtime_is_keyed_map($provided['inputSchema']))) {
             return zeroy_runtime_error('zeroy_site_logic_contract_invalid', 'Each capability needs an identity, kind, declared effects, public/authenticated authorization, error algebra, and object outputSchema.', 400, ['capability' => $capability]);
         }
-        $allowed_effects = ['read', 'write', 'external-request', 'background-job', 'file-write'];
+        $allowed_effects = zeroy_runtime_site_logic_effect_kinds();
         foreach ($effects as $effect) {
             if (!is_string($effect) || !in_array($effect, $allowed_effects, true)) {
                 return zeroy_runtime_error('zeroy_site_logic_contract_invalid', 'SiteLogic capability effects are invalid.', 400, ['capability' => $capability]);

@@ -38,7 +38,7 @@ function zeroy_localization_resolve(array $subject, string $locale, string $poin
         // Candidate preview never writes LocaleHead state. It projects the
         // same deterministic reconciliation activation will commit, so a
         // preview observes one candidate Artifact plus matching Overlay facts.
-        if (is_wp_error($overlay) && $overlay->get_error_code() === 'zeroy_localization_policy_changed' && zeroy_runtime_is_candidate_artifact_request()) {
+        if (is_wp_error($overlay) && $overlay->get_error_code() === 'zeroy_localization_policy_changed' && zeroy_runtime_request_is_candidate_site_release()) {
             $overlay = zeroy_localization_candidate_overlay_for_head($head, $pointer, $subject, $locale, $compiled);
         }
         if (is_wp_error($overlay)) {
@@ -84,6 +84,10 @@ function zeroy_localization_post_content(int $post_id, string $locale, string $s
 
 function zeroy_localization_site_copy(string $locale): array|WP_Error
 {
+    $context = $GLOBALS['zeroy_runtime_theme_context'] ?? null;
+    if (is_array($context) && ($context['locale'] ?? null) === $locale && is_array($context['resolvedContent']['siteCopy'] ?? null)) {
+        return ['contract' => 'zeroy/locale-resolved@1', 'subject' => ['kind' => 'site-copy', 'id' => 'default'], 'locale' => $locale, 'siteCopy' => $context['resolvedContent']['siteCopy']];
+    }
     return zeroy_localization_resolve(['kind' => 'site-copy', 'id' => 'default'], $locale);
 }
 

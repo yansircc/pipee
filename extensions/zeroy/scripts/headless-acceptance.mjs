@@ -1,229 +1,67 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { readdir, readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { readToolLedger, recordValue } from "./headless-acceptance/ledger.mjs";
+import { externalCheckFailures } from "./headless-acceptance/external-check.mjs";
+import { readToolLedger } from "./headless-acceptance/ledger.mjs";
+import { withLoopbackNoProxy } from "./headless-acceptance/no-proxy.mjs";
 
-const required = ["ZEROY_SITES", "ZEROY_ACCEPTANCE_SITE_ID", "ZEROY_ACCEPTANCE_MODEL"];
-for (const key of required) assert(process.env[key], `${key} is required for headless acceptance.`);
-const configuredSites = JSON.parse(process.env.ZEROY_SITES);
-const selectedSiteId = process.env.ZEROY_ACCEPTANCE_SITE_ID;
+for (const key of ["ZEROY_SITES", "ZEROY_ACCEPTANCE_SITE_ID", "ZEROY_ACCEPTANCE_MODEL"])
+  assert(process.env[key], `${key} is required for headless acceptance.`);
+const sites = JSON.parse(process.env.ZEROY_SITES);
+const siteId = process.env.ZEROY_ACCEPTANCE_SITE_ID;
 assert(
-  Array.isArray(configuredSites) && configuredSites.some((site) => site?.siteId === selectedSiteId),
-  "ZEROY_ACCEPTANCE_SITE_ID must name one configured zeroY site.",
+  Array.isArray(sites) && sites.some((site) => site?.siteId === siteId),
+  "Selected zeroY site is not configured.",
 );
+const root = resolve(import.meta.dirname, "..");
+const pi = resolve(root, "node_modules/.bin/pi");
+const extension = resolve(root, "dist/pi/extension.js");
+const temporary = await mkdtemp(resolve(tmpdir(), "zeroy-remote-acceptance-"));
+const sessions = resolve(temporary, "sessions");
+const run = Date.now().toString(36);
+const ref = `headless-${run}`;
+const route = `headless-proof-${run}`;
+const prompt = `Use only the four zeroY tools to build and verify one small remote WordPress addition on site ${siteId}. Do not use shell, filesystem, source code, database, SSH, or any other tool.
 
-const packageRoot = resolve(import.meta.dirname, "..");
-const pi = resolve(packageRoot, "node_modules/.bin/pi");
-const extension = resolve(packageRoot, "dist/pi/extension.js");
-const temporary = await mkdtemp(resolve(tmpdir(), "zeroy-translation-acceptance-"));
-const sessionDirectory = resolve(temporary, "sessions");
-const token = `translation-${Date.now().toString(36)}`;
-const prompt = `You are validating the zeroY Connector. Do not inspect extension source code, use shell tools, or use the local filesystem. First inspect configured sites and the selected site's ThemeSchema. Use configured site ${selectedSiteId}. Create a meaningful showcase page named "${token}". If its ThemeSchema declares template content, read that canonical projection and write useful source copy before translating. Then inspect the site's locale configuration, choose one enabled locale that is not the default locale, and derive the translation job for that exact page in that locale. Create its draft using only its writable fields. Use zeroY's same-origin external check to validate the returned draft preview URL before publishing with the draft receipt revision. Use the same external check to validate both public language versions. Next change exactly one canonical template text field, read the translation job again, repair only the stale field in the selected non-default locale, validate that new draft preview too, publish it, and report the two final public URLs.`;
+First discover the site rather than guessing: inspect sites, then the selected site, schema, active release, and the remote theme file list. Read one listed theme file using its path.
 
-const inspectResources = new Set([
-  "sites",
-  "site",
-  "schema",
-  "inventory",
-  "acf",
-  "canonicalContent",
-  "adoptionCandidates",
-  "existingPost",
-  "themeState",
-  "themeArtifact",
-  "translationJob",
-  "integrity",
-  "externalCheck",
-]);
-const contentActions = new Set([
-  "siteConfig",
-  "createCanonical",
-  "adoptCanonical",
-  "assignSchema",
-  "writeTemplateContent",
-  "writeTranslationDraft",
-  "publishTranslation",
-  "unpublishTranslation",
-]);
-const payload = (entry) => recordValue(entry.result?.payload);
-const action = (entry, value) =>
-  entry.name === "zeroy_content_apply" && entry.input?.action === value;
-const resource = (entry, value) =>
-  entry.name === "zeroy_inspect" && entry.input?.resource === value;
-const sessionFiles = async (directory) => {
-  const files = [];
+Use exactly one SiteDraft for all writes. Stage one harmless new theme CSS file whose name includes ${run}; use expectedHash null because it is new. From the remote ThemeSchema choose a document schema, then stage a new canonical document with ref ${ref}, explicit route ${route}, meaningful title/content, and every required template-content value. Add and publish a non-default-locale translation for that staged ref with every required writable field. Read the draft after staging. Commit it with the exact base release returned by that Draft. Then read the CSS file you staged through artifactFiles and run externalCheck on the active site. Do not treat a stage receipt as publication.`;
+const files = async (directory) => {
+  const found = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = resolve(directory, entry.name);
-    if (entry.isDirectory()) files.push(...(await sessionFiles(path)));
-    if (entry.isFile() && entry.name.endsWith(".jsonl")) files.push(path);
+    if (entry.isDirectory()) found.push(...(await files(path)));
+    else if (entry.name.endsWith(".jsonl")) found.push(path);
   }
-  return files;
+  return found;
 };
-
-const providerFailure = (events) => {
-  const messages = events
-    .flatMap((event) => [event?.message, ...(event?.messages ?? [])])
-    .filter((message) => message?.role === "assistant" && typeof message.errorMessage === "string")
-    .map((message) => message.errorMessage);
-  const unique = [...new Set(messages)];
-  return unique.length === 0 ? null : unique.join("\n");
-};
-
-const assertLedger = (events, output) => {
-  const entries = readToolLedger(events);
-  assert(entries.length > 0, "Pi session contains no tool calls.");
-  for (const entry of entries) {
-    assert(entry.name.startsWith("zeroy_"), `Forbidden non-zeroY tool call: ${entry.name}.`);
-    assert(
-      entry.input !== null && Object.keys(entry.input).length > 0,
-      "Agent made an empty tool probe.",
-    );
-    assert(entry.result !== null && !entry.result.isError, `Tool call ${entry.name} failed.`);
-    if (entry.name === "zeroy_inspect") {
-      assert(
-        inspectResources.has(entry.input.resource),
-        `Unknown inspect resource ${entry.input.resource}.`,
-      );
-    }
-    if (entry.name === "zeroy_content_apply") {
-      assert(
-        contentActions.has(entry.input.action),
-        `Unknown content action ${entry.input.action}.`,
-      );
-    }
-  }
-  assert(!output.includes("Validation failed"), output);
-  assert(!entries.some((entry) => resource(entry, "acf")), "Ordinary translation read raw ACF.");
-  assert(
-    !entries.some((entry) => entry.input?.resource === "contentTree"),
-    "Ordinary translation read raw contentTree.",
-  );
-  assert(
-    !entries.some(
-      (entry) => entry.input?.action === "writeDraft" || entry.input?.action === "publish",
-    ),
-    "Legacy locale mutation is forbidden.",
-  );
-
-  const create = entries.find((entry) => action(entry, "createCanonical"));
-  assert(
-    typeof create?.input?.postTitle === "string" && create.input.postTitle.trim() !== "",
-    "Canonical creation omitted the WordPress title.",
-  );
-
-  const drafts = entries.filter((entry) => action(entry, "writeTranslationDraft"));
-  assert(drafts.length >= 2, "Agent did not create and then repair a Translation draft.");
-  assert.equal(
-    drafts[0]?.input?.expectedRevision,
-    0,
-    "First LocaleOverlay write must use revision 0.",
-  );
-  const draftReceipts = drafts.map((entry) => payload(entry));
-  for (const receipt of draftReceipts) {
-    assert(
-      typeof receipt?.revision === "number",
-      "Translation draft did not return a compact revision receipt.",
-    );
-    assert(
-      typeof receipt?.previewUrl === "string",
-      "Translation draft did not return a preview URL.",
-    );
-    assert(
-      JSON.stringify(receipt).length < 4_000,
-      "Translation receipt echoed an oversized document.",
-    );
-    assert(
-      !Object.hasOwn(receipt, "document") && !Object.hasOwn(receipt, "contentTree"),
-      "Translation receipt echoed a document.",
-    );
-  }
-
-  const previewUrls = new Set(draftReceipts.map((receipt) => receipt.previewUrl));
-  const externalChecks = entries.filter((entry) => resource(entry, "externalCheck"));
-  const externallyRequestedUrls = new Set(
-    externalChecks.flatMap((entry) => (Array.isArray(entry.input?.urls) ? entry.input.urls : [])),
-  );
-  for (const url of previewUrls) {
-    assert(externallyRequestedUrls.has(url), `Draft preview was not checked: ${url}`);
-  }
-
-  const publishes = entries.filter((entry) => action(entry, "publishTranslation"));
-  assert(publishes.length >= 2, "Agent did not publish the initial and repaired Translation.");
-  let latestDraftRevision = null;
-  for (const entry of entries) {
-    if (action(entry, "writeTranslationDraft"))
-      latestDraftRevision = payload(entry)?.revision ?? null;
-    if (action(entry, "publishTranslation")) {
-      assert.equal(
-        entry.input.expectedRevision,
-        latestDraftRevision,
-        "Publish did not use the preceding draft receipt revision.",
-      );
-    }
-  }
-  const publishedUrls = publishes
-    .map((entry) => payload(entry)?.url)
-    .filter((url) => typeof url === "string");
-  assert(publishedUrls.length >= 2, "Published receipts did not return public locale URLs.");
-  const externallyCheckedUrls = new Set(
-    externalChecks.flatMap((entry) => {
-      const check = recordValue(payload(entry)?.externalCheck);
-      return Array.isArray(check?.pages)
-        ? check.pages.map((page) => recordValue(page)?.url).filter((url) => typeof url === "string")
-        : [];
-    }),
-  );
-  for (const url of publishedUrls) {
-    assert(externallyCheckedUrls.has(url), `Published route was not checked: ${url}`);
-  }
-  const canonicalId = payload(create)?.canonical?.objectId;
-  const checkedLocales = new Set(
-    externalChecks.flatMap((entry) => {
-      const check = recordValue(payload(entry)?.externalCheck);
-      return Array.isArray(check?.pages)
-        ? check.pages
-            .map(recordValue)
-            .filter((page) => page?.objectId === canonicalId && page.status === 200)
-            .map((page) => page.locale)
-            .filter((locale) => typeof locale === "string")
-        : [];
-    }),
-  );
-  assert(checkedLocales.size >= 2, "Both published language routes were not externally checked.");
-
-  const jobs = entries
-    .filter((entry) => resource(entry, "translationJob"))
-    .map((entry) => ({ index: entry.index, payload: payload(entry) }))
-    .filter((entry) => entry.payload !== null);
-  for (const job of jobs) {
-    assert(
-      JSON.stringify(job.payload).length < 24_000,
-      "TranslationJob exceeded the Agent context budget.",
-    );
-  }
-  const staleJob = jobs.find(({ payload: job }) => {
-    const fields = Array.isArray(job.fields) ? job.fields.map(recordValue).filter(Boolean) : [];
-    return fields.filter((field) => field.status === "stale").length === 1;
+const safeLedgerSummary = (entries) =>
+  entries.map((entry) => {
+    const input = entry.input;
+    const scope =
+      typeof input.resource === "string"
+        ? `resource:${input.resource}`
+        : typeof input.artifact === "string"
+          ? `artifact:${input.artifact}`
+          : typeof input.operation?.kind === "string"
+            ? `operation:${input.operation.kind}`
+            : "commit";
+    const connectorError = entry.result?.payload?.error;
+    const result =
+      entry.result === null
+        ? "missing"
+        : entry.result.isError
+          ? entry.result.text.includes("Validation failed")
+            ? "tool-error:validation"
+            : "tool-error:host"
+          : typeof connectorError?.code === "string"
+            ? `connector-error:${connectorError.code}`
+            : "ok";
+    return { tool: entry.name, scope, result };
   });
-  assert(staleJob, "Canonical edit did not produce exactly one stale translation field.");
-  const staleFields = new Set(
-    staleJob.payload.fields
-      .map(recordValue)
-      .filter((field) => field?.status === "stale")
-      .map((field) => field.fieldId),
-  );
-  const repair = drafts.find((entry) => entry.index > staleJob.index);
-  assert(repair, "Agent did not repair the stale TranslationJob.");
-  assert.deepEqual(
-    new Set(Object.keys(repair.input.values ?? {})),
-    staleFields,
-    "Repair wrote fields other than the stale field.",
-  );
-};
 
-let passed = false;
 try {
   const child = spawn(
     pi,
@@ -235,7 +73,7 @@ try {
       "--print",
       "--no-builtin-tools",
       "--tools",
-      "zeroy_inspect,zeroy_site_checkout,zeroy_site_verify,zeroy_site_push,zeroy_content_apply",
+      "zeroy_inspect,zeroy_artifact_stage,zeroy_content_stage,zeroy_site_commit",
       "--extension",
       extension,
       "--no-extensions",
@@ -244,58 +82,196 @@ try {
       "--no-context-files",
       "--no-themes",
       "--session-dir",
-      sessionDirectory,
+      sessions,
       "--name",
-      "zeroY headless translation acceptance",
+      "zeroY remote SiteDraft acceptance",
       prompt,
     ],
     {
       cwd: temporary,
-      env: { ...process.env, ZEROY_SITES: process.env.ZEROY_SITES },
+      env: withLoopbackNoProxy({ ...process.env, ZEROY_SITES: process.env.ZEROY_SITES }, sites),
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
-  let output = "";
-  child.stdout.on("data", (chunk) => {
-    output += chunk;
-  });
-  child.stderr.on("data", (chunk) => {
-    output += chunk;
-  });
-  const exit = await new Promise((resolveExit, rejectExit) => {
+  // `--mode json --print` can emit a full provider response. The JSONL session
+  // is the acceptance truth, so drain process output without retaining or
+  // reporting model text; otherwise a full OS pipe can deadlock Pi after the
+  // site has already completed its tool loop.
+  child.stdout.resume();
+  child.stderr.resume();
+  let timedOut = false;
+  const exit = await new Promise((resolveExit, reject) => {
     const timeout = setTimeout(() => {
+      timedOut = true;
       child.kill("SIGKILL");
-      rejectExit(new Error("zeroY real-model headless acceptance timed out after 10 minutes."));
     }, 600_000);
-    child.once("error", (error) => {
-      clearTimeout(timeout);
-      rejectExit(error);
-    });
+    child.once("error", reject);
     child.once("exit", (code) => {
       clearTimeout(timeout);
       resolveExit(code);
     });
   });
-  assert.equal(exit, 0, output);
-  const sessions = await sessionFiles(sessionDirectory);
-  assert.equal(sessions.length, 1, "Pi did not write exactly one isolated session.");
-  const events = (await readFile(sessions[0], "utf8"))
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line));
-  const providerError = providerFailure(events);
+  const sessionFiles = await files(sessions);
+  const events =
+    sessionFiles.length === 1
+      ? (await readFile(sessionFiles[0], "utf8"))
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line))
+      : [];
+  const entries = readToolLedger(events);
   assert.equal(
-    providerError,
-    null,
-    `Pi provider failed before acceptance completed:\n${providerError}`,
+    timedOut,
+    false,
+    `zeroY remote acceptance timed out; safe tool ledger: ${JSON.stringify(safeLedgerSummary(entries))}`,
   );
-  assertLedger(events, output);
-  passed = true;
-  process.stdout.write(`zeroY translation headless acceptance passed: ${token}\n`);
-} finally {
-  if (passed) {
-    await rm(temporary, { recursive: true, force: true });
-  } else {
-    process.stderr.write(`zeroY translation acceptance evidence retained: ${temporary}\n`);
+  assert.equal(
+    exit,
+    0,
+    `zeroY remote acceptance Pi process failed; safe tool ledger: ${JSON.stringify(safeLedgerSummary(entries))}`,
+  );
+  assert.equal(sessionFiles.length, 1, "Pi did not write exactly one isolated session.");
+  assert(entries.length > 0, "No zeroY tool calls were recorded.");
+  const names = new Set(entries.map((entry) => entry.name));
+  for (const name of names)
+    assert(
+      [
+        "zeroy_inspect",
+        "zeroy_artifact_stage",
+        "zeroy_content_stage",
+        "zeroy_site_commit",
+      ].includes(name),
+      `Unknown tool ${name}.`,
+    );
+  for (const entry of entries) {
+    assert(entry.input && Object.keys(entry.input).length > 0, `Empty input for ${entry.name}.`);
+    assert(
+      entry.result && !entry.result.isError,
+      `Tool failed; safe tool ledger: ${JSON.stringify(safeLedgerSummary(entries))}`,
+    );
+    assert(
+      !(entry.result.payload && typeof entry.result.payload.error === "object"),
+      `Connector rejected ${entry.name}: ${entry.result.text}`,
+    );
   }
+  const inspections = entries.filter((entry) => entry.name === "zeroy_inspect");
+  const resources = new Set(inspections.map((entry) => entry.input.resource));
+  for (const resource of ["sites", "site", "schema", "release", "artifactFiles"])
+    assert(resources.has(resource), `Inspect ${resource} was not exercised.`);
+  assert(
+    inspections.some(
+      (entry) =>
+        entry.input.resource === "artifactFiles" &&
+        entry.input.artifact === "theme" &&
+        !Object.prototype.hasOwnProperty.call(entry.input, "path"),
+    ),
+    "Remote theme file listing was not exercised.",
+  );
+  assert(
+    inspections.some(
+      (entry) =>
+        entry.input.resource === "artifactFiles" &&
+        entry.input.artifact === "theme" &&
+        typeof entry.input.path === "string",
+    ),
+    "Remote theme file reading was not exercised.",
+  );
+  const artifactStages = entries.filter((entry) => entry.name === "zeroy_artifact_stage");
+  const themeStages = artifactStages.filter((entry) => entry.input.artifact === "theme");
+  assert(themeStages.length > 0, "Theme stage was not exercised.");
+  const stagedThemeFiles = themeStages.flatMap((entry) => entry.input.files ?? []);
+  assert(
+    stagedThemeFiles.some(
+      (file) =>
+        typeof file?.path === "string" &&
+        file.path.endsWith(".css") &&
+        file.path.includes(run) &&
+        file.expectedHash === null,
+    ),
+    "A new CSS ThemeArtifact file was not staged.",
+  );
+  const contentStages = entries.filter((entry) => entry.name === "zeroy_content_stage");
+  assert(contentStages.length > 0, "Content stage was not exercised.");
+  const stagedReceipts = [...artifactStages, ...contentStages].map(
+    (entry) => entry.result?.payload,
+  );
+  assert(
+    stagedReceipts.every((receipt) => typeof receipt?.draftId === "string"),
+    "A stage receipt did not identify its SiteDraft.",
+  );
+  const stagedDraftIds = new Set(stagedReceipts.map((receipt) => receipt.draftId));
+  assert.equal(
+    stagedDraftIds.size,
+    1,
+    `Writes escaped one SiteDraft: ${JSON.stringify([...stagedDraftIds])}`,
+  );
+  const [draftId] = stagedDraftIds;
+  assert(typeof draftId === "string", "The shared SiteDraft identity is missing.");
+  const operations = contentStages.map((entry) => entry.input.operation);
+  for (const kind of ["createCanonical", "writeTranslationDraft", "publishTranslation"])
+    assert(
+      operations.some((operation) => operation?.kind === kind),
+      `${kind} was not staged.`,
+    );
+  const canonical = operations.find((operation) => operation?.kind === "createCanonical");
+  assert.equal(canonical?.ref, ref, "Canonical ref was not preserved across the remote Draft.");
+  assert.equal(canonical?.route, route, "Canonical public route was not explicit.");
+  assert(
+    typeof canonical?.postTitle === "string" && canonical.postTitle.length > 0,
+    "Canonical postTitle is missing.",
+  );
+  const translations = operations.filter(
+    (operation) =>
+      operation?.kind === "writeTranslationDraft" || operation?.kind === "publishTranslation",
+  );
+  for (const operation of translations)
+    assert.equal(
+      operation.subject?.ref,
+      ref,
+      "Translation did not target the staged canonical ref.",
+    );
+  const commits = entries.filter((entry) => entry.name === "zeroy_site_commit");
+  assert.equal(commits.length, 1, "Exactly one SiteDraft commit is required.");
+  const [commit] = commits;
+  assert.equal(commit.input.draftId, draftId, "Commit did not target the shared SiteDraft.");
+  assert.equal(
+    commit.input.expectedBaseReleaseId,
+    stagedReceipts[0].baseReleaseId,
+    "Commit did not use the SiteDraft's exact base release identity.",
+  );
+  assert.equal(
+    commit.result?.payload?.draftId,
+    draftId,
+    "Activated SiteRelease does not bind the shared SiteDraft.",
+  );
+  assert(
+    entries.some(
+      (entry) =>
+        entry.name === "zeroy_inspect" &&
+        entry.input.resource === "artifactFiles" &&
+        entry.input.artifact === "theme" &&
+        typeof entry.input.path === "string" &&
+        entry.input.path.includes(run),
+    ),
+    "The staged CSS file was not reread through the Connector.",
+  );
+  assert(
+    entries.some(
+      (entry) => entry.name === "zeroy_inspect" && entry.input.resource === "externalCheck",
+    ),
+    "External check was not exercised.",
+  );
+  const external = entries.find(
+    (entry) => entry.name === "zeroy_inspect" && entry.input.resource === "externalCheck",
+  )?.result?.payload?.externalCheck;
+  assert(external && Array.isArray(external.pages), "External check did not return page evidence.");
+  const externalFailures = externalCheckFailures(external.pages);
+  assert.equal(
+    externalFailures.length,
+    0,
+    `Published site failed external verification: ${JSON.stringify(externalFailures)}`,
+  );
+  process.stdout.write("zeroY remote SiteDraft headless acceptance passed.\n");
+} finally {
+  await rm(temporary, { recursive: true, force: true });
 }

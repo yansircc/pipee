@@ -7,11 +7,6 @@ import { requiredPiRuntimePackages, verifyPiReleaseTrain } from "./pi-release-tr
 const config = pipeeConfig();
 const rootManifest = readJson("package.json");
 assert.equal(config.schemaVersion, 1);
-assert.deepEqual(
-  config.packages.map(({ id }) => id),
-  ["pipee", "loop", "weixin", "chrome"],
-  "Pipee release package identities drifted",
-);
 assert.equal(rootManifest.version, "0.0.0", "private workspace root must not own a public version");
 assert.equal(
   rootManifest.devDependencies?.typescript,

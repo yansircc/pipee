@@ -7,6 +7,16 @@ function zeroy_localization_policy_contract(): string
     return 'zeroy/localization-policy@1';
 }
 
+function zeroy_localization_field_policy_modes(): array
+{
+    return ['shared', 'translated', 'overridable', 'derived'];
+}
+
+function zeroy_localization_field_policy_context_weights(): array
+{
+    return ['primary', 'supporting', 'hidden'];
+}
+
 function zeroy_localization_policy_pattern(string $pattern): array|WP_Error
 {
     if ($pattern === '' || $pattern[0] !== '/') {
@@ -70,7 +80,7 @@ function zeroy_localization_normalize_field_policy(mixed $input, array &$errors,
     $mode = $input['mode'] ?? null;
     $required = $input['required'] ?? false;
     $weight = $input['contextWeight'] ?? 'supporting';
-    if (!in_array($mode, ['shared', 'translated', 'overridable', 'derived'], true) || !is_bool($required) || !in_array($weight, ['primary', 'supporting', 'hidden'], true)) {
+    if (!in_array($mode, zeroy_localization_field_policy_modes(), true) || !is_bool($required) || !in_array($weight, zeroy_localization_field_policy_context_weights(), true)) {
         zeroy_runtime_schema_violation($errors, 'localization_field_policy_invalid', 'Localization field policy needs mode, boolean required, and contextWeight.', $context);
         return null;
     }

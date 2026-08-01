@@ -185,9 +185,13 @@ function zeroy_runtime_update_site_config(array $input, int $expected_revision):
 {
     $result = zeroy_runtime_transaction(function () use ($input, $expected_revision) {
         $lease = zeroy_runtime_acquire_content_lease();
-        return is_wp_error($lease)
-            ? $lease
-            : zeroy_runtime_update_site_config_locked($input, $expected_revision);
+        if (is_wp_error($lease)) return $lease;
+        $updated = zeroy_runtime_write_site_config_locked($input, $expected_revision);
+        if (is_wp_error($updated)) return $updated;
+        $schema = zeroy_runtime_theme_schema();
+        if (is_wp_error($schema)) return $schema;
+        $reconciled = zeroy_localization_reconcile_subject_overlay_heads(['kind' => 'site-copy', 'id' => 'default'], $schema);
+        return is_wp_error($reconciled) ? $reconciled : $updated;
     });
     if (!is_wp_error($result)) {
         flush_rewrite_rules(false);
@@ -195,7 +199,8 @@ function zeroy_runtime_update_site_config(array $input, int $expected_revision):
     return $result;
 }
 
-function zeroy_runtime_update_site_config_locked(array $input, int $expected_revision): array|WP_Error
+/** Persist SiteConfig only. The transaction owner chooses the schema used for reconciliation. */
+function zeroy_runtime_write_site_config_locked(array $input, int $expected_revision): array|WP_Error
 {
     global $wpdb;
     $next = zeroy_runtime_validate_site_config($input);
@@ -238,14 +243,6 @@ function zeroy_runtime_update_site_config_locked(array $input, int $expected_rev
         return zeroy_runtime_error('zeroy_site_config_conflict', 'SiteConfig changed after it was read.', 409, [
             'currentRevision' => is_array($fresh) ? $fresh['revision'] : null,
         ]);
-    }
-    $schema = zeroy_runtime_theme_schema();
-    if (is_wp_error($schema)) {
-        return $schema;
-    }
-    $reconciled = zeroy_localization_reconcile_subject_overlay_heads(['kind' => 'site-copy', 'id' => 'default'], $schema);
-    if (is_wp_error($reconciled)) {
-        return $reconciled;
     }
     $next['revision'] = $next_revision;
     return $next;

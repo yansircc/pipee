@@ -106,7 +106,7 @@ function zeroy_runtime_apply_site_logic_migration(array $migration): true|WP_Err
     return $wpdb->insert(zeroy_runtime_table('site_logic_migration_ledger'), ['idempotency_key' => $key, 'from_epoch' => $migration['fromEpoch'], 'to_epoch' => $migration['toEpoch'], 'applied_at' => current_time('mysql', true)]) === 1 ? true : zeroy_runtime_error('zeroy_site_logic_migration_ledger_failed', $wpdb->last_error ?: 'Could not record SiteLogic migration.', 500);
 }
 
-function zeroy_runtime_prepare_site_logic_migrations(array $contract, ?array $active): array|WP_Error
+function zeroy_runtime_apply_site_logic_migrations(array $contract, ?array $active): array|WP_Error
 {
     $from_epoch = $active === null ? 0 : (int) $active['storage_epoch'];
     $plan = zeroy_runtime_site_logic_migration_plan($contract, $from_epoch);

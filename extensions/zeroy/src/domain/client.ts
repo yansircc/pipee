@@ -1,3 +1,5 @@
+import { type Static, type TSchema } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import { Data, Effect } from "effect";
 import type { JsonRecord } from "./protocol.js";
 import type { SiteConnection } from "./connection.js";
@@ -32,11 +34,13 @@ export const connectorCall = (
   path: string,
   init: RequestInit,
   signal: AbortSignal | undefined,
+  draftOwnerId?: string,
 ): Effect.Effect<JsonRecord, ZeroYConnectorError> =>
   Effect.gen(function* () {
     const headers = new Headers(init.headers);
     headers.set("accept", "application/json");
     headers.set("x-zeroy-key", connection.connectionKey);
+    if (draftOwnerId !== undefined) headers.set("x-zeroy-draft-owner", draftOwnerId);
     if (init.body !== undefined) headers.set("content-type", "application/json");
     const response = yield* Effect.tryPromise({
       try: () =>
@@ -89,12 +93,51 @@ export const connectorCall = (
     }),
   );
 
-export const connectorGet = (connection: SiteConnection, path: string, signal?: AbortSignal) =>
-  connectorCall(connection, path, { method: "GET" }, signal);
+export const connectorGet = (
+  connection: SiteConnection,
+  path: string,
+  signal?: AbortSignal,
+  draftOwnerId?: string,
+) => connectorCall(connection, path, { method: "GET" }, signal, draftOwnerId);
 
 export const connectorPost = (
   connection: SiteConnection,
   path: string,
   payload: Readonly<Record<string, unknown>>,
   signal?: AbortSignal,
-) => connectorCall(connection, path, { method: "POST", body: JSON.stringify(payload) }, signal);
+  draftOwnerId?: string,
+) =>
+  connectorCall(
+    connection,
+    path,
+    { method: "POST", body: JSON.stringify(payload) },
+    signal,
+    draftOwnerId,
+  );
+
+/**
+ * The Connector is remote. Successful HTTP is therefore insufficient: every
+ * stable response boundary must prove its wire contract before it reaches a
+ * tool result. Dynamic site facts remain inside their declared JsonValue
+ * slots; this checks the stable envelope without creating a local shadow
+ * model of a site's ThemeSchema or content.
+ */
+export const decodeConnectorPayload = <Schema extends TSchema>(
+  contract: Schema,
+  label: string,
+  payload: JsonRecord,
+): Effect.Effect<Static<Schema>, ZeroYConnectorError> =>
+  Value.Check(contract, payload)
+    ? Effect.succeed(payload as Static<Schema>)
+    : Effect.fail(
+        new ZeroYConnectorError({
+          code: "zeroy_connector_response_invalid",
+          message: `Connector returned an invalid ${label} response.`,
+          data: {
+            label,
+            issues: [...Value.Errors(contract, payload)]
+              .slice(0, 8)
+              .map((issue) => ({ path: issue.path || "response", message: issue.message })),
+          },
+        }),
+      );

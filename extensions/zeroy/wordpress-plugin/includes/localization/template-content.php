@@ -52,21 +52,29 @@ function zeroy_localization_replace_template_content(int $post_id, array $values
         : zeroy_runtime_error('zeroy_template_content_write_failed', 'Could not persist canonical TemplateContent.', 500, ['objectId' => $post_id]);
 }
 
+function zeroy_localization_template_content_required_violations(array $values, array $definition): array
+{
+    $violations = [];
+    foreach ($definition['templateContent'] ?? [] as $key => $declaration) {
+        if (!is_string($key) || !is_array($declaration)) {
+            continue;
+        }
+        $policy = $declaration['localization'] ?? null;
+        if (!is_array($policy) || ($policy['required'] ?? false) !== true) {
+            continue;
+        }
+        if (!zeroy_localization_value_is_present($values[$key] ?? null)) {
+            $violations[] = ['fieldId' => '/template-content/' . zeroy_localization_pointer_segment($key), 'key' => $key];
+        }
+    }
+    return $violations;
+}
+
 function zeroy_localization_template_content_field(string $key, string $value, array $declaration): array
 {
     $field_id = '/template-content/' . zeroy_localization_pointer_segment($key);
     return [
         ...zeroy_localization_field($field_id, $key, 'template-content:text', $value, ['templateContent', $key]),
-        // A translation is current only when both the declared contract and
-        // the canonical source text it translated are unchanged. This keeps
-        // TemplateContent on the same source-integrity algebra as post and
-        // ACF fields: a canonical edit makes exactly its locale field stale.
-        'sourceHash' => zeroy_runtime_hash([
-            'fieldId' => $field_id,
-            'kind' => 'template-content:text',
-            'value' => $value,
-            'declaration' => $declaration,
-        ]),
         'localization' => $declaration['localization'],
         'searchable' => $declaration['searchable'],
     ];

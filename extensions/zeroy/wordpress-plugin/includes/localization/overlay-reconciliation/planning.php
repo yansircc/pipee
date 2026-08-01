@@ -73,12 +73,13 @@ function zeroy_localization_reconciliation_head(array $head, array $schema, bool
     ];
 }
 
-function zeroy_localization_plan_overlay_reconciliation(array $schema): array
+function zeroy_localization_plan_overlay_reconciliation(array $schema, array $retired_subject_keys = []): array
 {
     global $wpdb;
     $affected = [];
     $blockers = [];
     foreach ($wpdb->get_results('SELECT * FROM ' . zeroy_runtime_table('locale_overlay_heads'), ARRAY_A) ?: [] as $head) {
+        if (isset($retired_subject_keys[(string) ($head['subject_key'] ?? '')])) continue;
         $reconciliation = zeroy_localization_reconciliation_head($head, $schema);
         if (is_wp_error($reconciliation)) {
             $blockers[] = [

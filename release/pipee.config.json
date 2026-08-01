@@ -46,6 +46,15 @@
         "default": "release:platform-check"
       },
       "browserExtension": "dist/browser-extension/manifest.json"
+    },
+    {
+      "id": "zeroy",
+      "name": "@yansircc/pi-zeroy",
+      "path": "extensions/zeroy",
+      "prepareScript": "pi:build",
+      "platformChecks": {
+        "default": "release:platform-check"
+      }
     }
   ]
 }
