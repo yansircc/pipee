@@ -1,6 +1,6 @@
 {
   "name": "@yansircc/pi-zeroy",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "MVP connector for Agent-authored zeroY WordPress themes",
   "keywords": [
     "agent",
