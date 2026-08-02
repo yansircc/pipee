@@ -46,6 +46,7 @@
     "release:platform-check": "node ../../tooling/pi-extension/verify-distribution.mjs . platform",
     "acceptance:headless": "pnpm run pi:build && node scripts/headless-acceptance.mjs",
     "acceptance:remote-only": "pnpm run pi:build && node scripts/remote-only-acceptance.mjs",
+    "acceptance:agent-stage-recovery": "pnpm run pi:build && node scripts/agent-stage-recovery-acceptance.mjs",
     "acceptance:bootstrap": "node scripts/bootstrap-site-release-acceptance.mjs",
     "acceptance:upgrade": "node scripts/site-release-hard-cut-upgrade-acceptance.mjs",
     "acceptance:site-release": "node scripts/site-release-acceptance.mjs"

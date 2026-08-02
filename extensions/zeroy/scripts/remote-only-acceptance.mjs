@@ -86,6 +86,15 @@ const nestedString = (value, key) => {
   }
   return null;
 };
+const nestedArray = (value, key) => {
+  if (typeof value !== "object" || value === null) return null;
+  if (Array.isArray(value[key])) return value[key];
+  for (const child of Object.values(value)) {
+    const found = nestedArray(child, key);
+    if (found !== null) return found;
+  }
+  return null;
+};
 const receiptNextRevision = (value) => {
   if (typeof value !== "object" || value === null) return null;
   const last = value.lastOperation;
@@ -97,6 +106,22 @@ const receiptNextRevision = (value) => {
   }
   return null;
 };
+const receiptFileHash = (value, path) => {
+  if (typeof value !== "object" || value === null) return null;
+  if (Array.isArray(value.lastArtifactFiles)) {
+    const file = value.lastArtifactFiles.find((entry) => entry?.path === path);
+    if (typeof file?.hash === "string") return file.hash;
+  }
+  for (const child of Object.values(value)) {
+    const found = receiptFileHash(child, path);
+    if (found !== null) return found;
+  }
+  return null;
+};
+const connectorErrorCode = (value) =>
+  typeof value?.error?.code === "string" ? value.error.code : null;
+const connectorErrorData = (value) =>
+  typeof value?.error?.data === "object" && value.error.data !== null ? value.error.data : null;
 const anthropicToolUse = (id, name, input) =>
   [
     `event: message_start\ndata: ${JSON.stringify({ type: "message_start", message: { id: `msg_${id}`, type: "message", role: "assistant", content: [], model: "remote-only-gate", stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 0 } } })}\n\n`,
@@ -146,9 +171,16 @@ let step = 0;
 let issued = null;
 let initialDraftId = null;
 let initialReleaseId = null;
+let blockedDraftId = null;
+let blockedProofId = null;
+let blockedFileHash = null;
+let repairedReleaseId = null;
 let staleDraftId = null;
 let replacementDraftId = null;
+let replacementReleaseId = null;
 let replayedDraftId = null;
+let replayedReleaseId = null;
+let replayedProofId = null;
 let translationDraftRevision = null;
 const calls = [
   { tool: "zeroy_inspect", input: () => ({ resource: "sites" }) },
@@ -243,6 +275,66 @@ const calls = [
       siteId,
       files: [
         {
+          path: "__zeroy-proof-block.php",
+          content: "<?php\nfile_put_contents(__DIR__ . '/forbidden.txt', 'blocked');\n",
+          expectedHash: null,
+        },
+      ],
+    }),
+    receive: (result) => {
+      blockedDraftId = nestedDraftId(result);
+      blockedFileHash = receiptFileHash(result, "__zeroy-proof-block.php");
+    },
+  },
+  {
+    tool: "zeroy_site_commit",
+    expectedErrorCode: "zeroy_site_commit_proof_failed",
+    input: () => ({
+      siteId,
+      draftId: blockedDraftId,
+      expectedBaseReleaseId: initialReleaseId,
+      message: "prove blocked CandidateProof recovery",
+    }),
+    receive: (result) => {
+      blockedProofId = nestedString(result, "proofId");
+    },
+  },
+  {
+    tool: "zeroy_inspect",
+    input: () => ({ siteId, resource: "proof", proofId: blockedProofId }),
+  },
+  {
+    tool: "zeroy_theme_stage",
+    input: () => ({
+      siteId,
+      draftId: blockedDraftId,
+      files: [
+        {
+          path: "__zeroy-proof-block.php",
+          content: null,
+          expectedHash: blockedFileHash,
+        },
+      ],
+    }),
+  },
+  {
+    tool: "zeroy_site_commit",
+    input: () => ({
+      siteId,
+      draftId: blockedDraftId,
+      expectedBaseReleaseId: initialReleaseId,
+      message: "activate repaired CandidateProof",
+    }),
+    receive: (result) => {
+      repairedReleaseId = nestedString(result, "releaseId");
+    },
+  },
+  {
+    tool: "zeroy_theme_stage",
+    input: () => ({
+      siteId,
+      files: [
+        {
           path: "__zeroy-replay-stale.css",
           content: "/* staged on a soon-stale draft */\n",
           expectedHash: null,
@@ -274,8 +366,21 @@ const calls = [
     input: () => ({
       siteId,
       draftId: replacementDraftId,
-      expectedBaseReleaseId: initialReleaseId,
+      expectedBaseReleaseId: repairedReleaseId,
       message: "advance the active release before replay",
+    }),
+    receive: (result) => {
+      replacementReleaseId = nestedString(result, "releaseId");
+    },
+  },
+  {
+    tool: "zeroy_site_commit",
+    expectedErrorCode: "zeroy_site_draft_base_changed",
+    input: () => ({
+      siteId,
+      draftId: staleDraftId,
+      expectedBaseReleaseId: repairedReleaseId,
+      message: "observe stale Draft before replay",
     }),
   },
   {
@@ -295,6 +400,23 @@ const calls = [
   {
     tool: "zeroy_inspect",
     input: () => ({ siteId, resource: "draft", draftId: replayedDraftId }),
+  },
+  {
+    tool: "zeroy_site_commit",
+    input: () => ({
+      siteId,
+      draftId: replayedDraftId,
+      expectedBaseReleaseId: replacementReleaseId,
+      message: "activate replayed SiteDraft",
+    }),
+    receive: (result) => {
+      replayedReleaseId = nestedString(result, "releaseId");
+      replayedProofId = nestedString(result, "proofId");
+    },
+  },
+  {
+    tool: "zeroy_inspect",
+    input: () => ({ siteId, resource: "proof", proofId: replayedProofId }),
   },
   { tool: "zeroy_inspect", input: () => ({ siteId, resource: "externalCheck" }) },
 ];
@@ -440,16 +562,26 @@ try {
     "zeroy_content_stage",
     "zeroy_site_commit",
   ]);
-  for (const entry of entries) {
+  for (const [index, entry] of entries.entries()) {
     assert(allowed.has(entry.name), `Remote-only session exposed ${entry.name}.`);
     assert(
       Object.keys(entry.input).length > 0,
       `Remote-only session made an empty ${entry.name} call.`,
     );
-    assert(
-      entry.result && !entry.result.isError && !entry.result.payload?.error,
-      `Remote-only ${entry.name} failed: ${entry.result?.text}`,
-    );
+    assert(entry.result && !entry.result.isError, `Remote-only ${entry.name} host failed.`);
+    const expectedErrorCode = calls[index].expectedErrorCode ?? null;
+    if (expectedErrorCode === null) {
+      assert(
+        !entry.result.payload?.error,
+        `Remote-only ${entry.name} failed: ${entry.result.text}`,
+      );
+    } else {
+      assert.equal(
+        connectorErrorCode(entry.result.payload),
+        expectedErrorCode,
+        `Remote-only ${entry.name} did not expose its expected Connector error.`,
+      );
+    }
   }
   const translationDraft = entries.find(
     (entry) =>
@@ -476,6 +608,50 @@ try {
     "active",
     "Remote-only commit did not activate a SiteRelease.",
   );
+  const blockedCommit = commits.find(
+    (entry) => connectorErrorCode(entry.result?.payload) === "zeroy_site_commit_proof_failed",
+  );
+  const blockedData = connectorErrorData(blockedCommit?.result?.payload);
+  const blockedFailures = nestedArray(blockedData, "blockingFailures");
+  assert(
+    blockedCommit &&
+      blockedData?.draftId === blockedDraftId &&
+      blockedData?.proofId === blockedProofId &&
+      blockedFailures?.some((failure) => failure?.code === "theme_runtime_side_effect_forbidden"),
+    "Blocked CandidateProof did not cross REST, client, and Pi with actionable diagnostics.",
+  );
+  const blockedProof = entries.find(
+    (entry) =>
+      entry.name === "zeroy_inspect" &&
+      entry.input.resource === "proof" &&
+      entry.input.proofId === blockedProofId,
+  );
+  assert(
+    nestedArray(blockedProof?.result?.payload, "blockingFailures")?.some(
+      (failure) => failure?.code === "theme_runtime_side_effect_forbidden",
+    ),
+    "The Agent-visible proof inspection lost the blocked invariant and repair evidence.",
+  );
+  assert(
+    commits.some(
+      (entry) =>
+        entry.input.draftId === blockedDraftId &&
+        entry.result?.payload?.releaseId === repairedReleaseId &&
+        entry.result?.payload?.state === "active",
+    ),
+    "The same blocked SiteDraft was not repaired and activated.",
+  );
+  const staleCommit = commits.find(
+    (entry) => connectorErrorCode(entry.result?.payload) === "zeroy_site_draft_base_changed",
+  );
+  const staleData = connectorErrorData(staleCommit?.result?.payload);
+  assert(
+    staleCommit &&
+      staleCommit.input.draftId === staleDraftId &&
+      staleData?.baseReleaseId === repairedReleaseId &&
+      staleData?.activeReleaseId === replacementReleaseId,
+    "Stale SiteDraft commit did not expose both base and active release identities.",
+  );
   const replay = entries.find(
     (entry) =>
       entry.name === "zeroy_content_stage" && entry.input.operation?.kind === "replayDraft",
@@ -498,6 +674,27 @@ try {
   // into separate top-level response shapes.
   assert.equal(inspectedStale?.result?.payload?.draft?.state, "replayed");
   assert.equal(inspectedReplay?.result?.payload?.draft?.state, "open");
+  assert(
+    commits.some(
+      (entry) =>
+        entry.input.draftId === replayedDraftId &&
+        entry.result?.payload?.releaseId === replayedReleaseId &&
+        entry.result?.payload?.proofId === replayedProofId &&
+        entry.result?.payload?.state === "active",
+    ),
+    "The replayed SiteDraft was not committed against the replacement release.",
+  );
+  const replayedProof = entries.find(
+    (entry) =>
+      entry.name === "zeroy_inspect" &&
+      entry.input.resource === "proof" &&
+      entry.input.proofId === replayedProofId,
+  );
+  assert.deepEqual(
+    nestedArray(replayedProof?.result?.payload, "blockingFailures"),
+    [],
+    "The active replayed release did not expose a green CandidateProof.",
+  );
   const external = entries.find(
     (entry) => entry.name === "zeroy_inspect" && entry.input.resource === "externalCheck",
   )?.result?.payload?.externalCheck;

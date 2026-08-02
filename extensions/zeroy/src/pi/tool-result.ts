@@ -35,7 +35,7 @@ export const asNumber = (record: JsonRecord | null, key: string): number =>
 export const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-const errorPayload = (error: unknown): JsonRecord => {
+export const toolFailurePayload = (error: unknown): JsonRecord => {
   if (error instanceof ZeroYConnectorError) {
     return {
       error: {
@@ -76,7 +76,7 @@ export const runTool = (
       Effect.catch((error) =>
         Effect.succeed(
           result(
-            text(errorPayload(error)),
+            text(toolFailurePayload(error)),
             "zeroY Connector",
             "Request failed",
             [["Error", errorMessage(error)]],

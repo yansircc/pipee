@@ -551,10 +551,19 @@ zeroy_site_release_acceptance_assert(
     'A SiteDraft candidate or its CandidateProof escaped its owner through the Release read surface.'
 );
 $required_commit = zeroy_runtime_commit_site_draft((string) $required_draft['draftId'], $base_release_id, 'required-content commit must fail', $draft_owner);
+$required_commit_data = is_wp_error($required_commit) ? $required_commit->get_error_data() : null;
 zeroy_site_release_acceptance_assert(
     is_wp_error($required_commit)
     && $required_commit->get_error_code() === 'zeroy_site_commit_proof_failed'
-    && (($required_commit->get_error_data()['affectedSubjects'][0]['kind'] ?? null) === 'post'),
+    && is_array($required_commit_data)
+    && (($required_commit_data['draftId'] ?? null) === (string) $required_draft['draftId'])
+    && is_string($required_commit_data['proofId'] ?? null)
+    && ($required_commit_data['proofId'] ?? '') !== ''
+    && count(array_filter(
+        $required_commit_data['diagnostics']['proof']['blockingFailures'] ?? [],
+        static fn(mixed $failure): bool => is_array($failure) && ($failure['code'] ?? null) === 'candidate_required_source_missing',
+    )) > 0
+    && (($required_commit_data['affectedSubjects'][0]['kind'] ?? null) === 'post'),
     'SiteDraft commit did not fail closed with CandidateProof diagnostics and an operation-derived affected subject projection.',
 );
 zeroy_runtime_discard_site_draft((string) $required_draft['draftId'], $draft_owner);

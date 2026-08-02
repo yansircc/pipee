@@ -185,6 +185,10 @@ try {
     /Omit draftId for this operation/u,
   );
   assert.match(
+    operation?.properties?.route?.description ?? "",
+    /never derives a public route from a WordPress slug/u,
+  );
+  assert.match(
     operation?.properties?.expectedRevision?.description ?? "",
     /new locale starts at 0 independently/u,
   );

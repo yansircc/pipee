@@ -62,10 +62,12 @@ describe("DraftSnapshot request projection spike", () => {
       $singular = zeroy_runtime_snapshot_context($snapshot, '/zh/machines/press/');
       $archive = zeroy_runtime_snapshot_context($snapshot, '/machines/');
       $search = zeroy_runtime_snapshot_context($snapshot, '/zh/search/', ['s' => '压机']);
+      $nativePermalink = zeroy_runtime_snapshot_context($snapshot, '/zeroy-243/');
       if ($singular['context']['resolvedContent']['acf']['capacity'] !== '20 吨/时') throw new RuntimeException('acf projection failed');
       if ($singular['context']['seo']['alternates'][0]['url'] !== 'https://example.test/machines/press/') throw new RuntimeException('locale links failed');
       if (count($archive['context']['archiveItems']) !== 1 || $archive['context']['routeKind'] !== 'archive') throw new RuntimeException('archive projection failed');
       if (count($search['context']['archiveItems']) !== 1 || $search['context']['searchQuery'] !== '压机') throw new RuntimeException('search projection failed');
+      if ($nativePermalink['context']['routeKind'] !== 'not-found' || $nativePermalink['context']['seo']['canonical'] !== null) throw new RuntimeException('undeclared native permalink became a second public URL');
       if ($singular['projectionHash'] === $search['projectionHash']) throw new RuntimeException('projection identity failed');
       echo 'ok';
     `;
