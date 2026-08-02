@@ -6,6 +6,9 @@ const ZEROY_ZCSS_DESIGN_CONTRACT = 'zeroy/zcss-design@1';
 const ZEROY_ZCSS_COMPILED_CONTRACT = 'zeroy/zcss-compiled-contract@1';
 const ZEROY_ZCSS_COMPILER_ID = 'zeroy/zcss-compiler@1';
 const ZEROY_ZCSS_COMPILER_VERSION = '1.0.0';
+// Generated from the closed compiler source set. Tests reject algorithm edits
+// that do not deliberately advance this immutable compiler identity.
+const ZEROY_ZCSS_COMPILER_SOURCE_HASH = 'c900d16ecb14c232b3fe7d5e15d880c2bf41fbe22d4012bf2e218b45686b2e7c';
 const ZEROY_ZCSS_STYLE_SURFACE_CONTRACT = 'zeroy/style-surface@1';
 const ZEROY_ZCSS_GENERATED_CSS_PATH = 'assets/css/zcss.generated.css';
 const ZEROY_ZCSS_COMPILED_MANIFEST_PATH = 'assets/css/zcss.manifest.json';

@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { describe, expect, it } from "vite-plus/test";
 
 const root = new URL("../wordpress-plugin/includes/zcss/", import.meta.url);
@@ -14,6 +16,22 @@ const modules = [
   "compiler",
   "css-ast",
 ].map((name) => new URL(`${name}.php`, root).pathname);
+const compilerModules = modules.slice(0, 8);
+
+const compilerSourceHash = (): string =>
+  createHash("sha256")
+    .update(
+      compilerModules
+        .map((path) => {
+          const source = readFileSync(path, "utf8").replace(
+            /const ZEROY_ZCSS_COMPILER_SOURCE_HASH = '[0-9a-f]*';/u,
+            "const ZEROY_ZCSS_COMPILER_SOURCE_HASH = '';",
+          );
+          return `${basename(path)}\0${source.replace(/\r\n/g, "\n")}`;
+        })
+        .join("\0"),
+    )
+    .digest("hex");
 
 const run = (expression: string): unknown => {
   const requires = modules.map((path) => `require ${JSON.stringify(path)};`).join("\n");
@@ -29,6 +47,10 @@ const run = (expression: string): unknown => {
 };
 
 describe("ZCSS pure compiler", () => {
+  it("binds compiler identity to the complete pure compiler source closure", () => {
+    expect(run("zeroy_zcss_compiler_source_hash()")).toBe(compilerSourceHash());
+  });
+
   it("is deterministic across input key order and repeated execution", () => {
     const result = run(`(function () {
       $design = zeroy_zcss_minimal_design_document();

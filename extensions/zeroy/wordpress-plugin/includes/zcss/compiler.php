@@ -4,18 +4,7 @@ defined('ABSPATH') || exit;
 
 function zeroy_zcss_compiler_source_hash(): string
 {
-    return zeroy_zcss_hash([
-        'id' => ZEROY_ZCSS_COMPILER_ID,
-        'version' => ZEROY_ZCSS_COMPILER_VERSION,
-        'algorithms' => [
-            'canonicalJson' => 'zeroy/canonical-json@1',
-            'color' => 'zeroy/oklab-srgb-gamut-map@1',
-            'fluidScale' => 'zeroy/fluid-linear-clamp@1',
-        ],
-        'designSpec' => zeroy_zcss_design_spec(),
-        'browserPolicy' => zeroy_zcss_browser_policy(),
-        'primitives' => zeroy_zcss_primitive_definitions(),
-    ]);
+    return ZEROY_ZCSS_COMPILER_SOURCE_HASH;
 }
 
 function zeroy_zcss_tokens_css(array $tokens): string
