@@ -76,6 +76,13 @@ export function appendStreamingOutputSample(
   const previous = samples.at(-1)
   if (
     previous !== undefined &&
+    previous.observedAt === next.observedAt &&
+    previous.outputUnits === next.outputUnits &&
+    previous.streamElapsedMs === next.streamElapsedMs
+  )
+    return samples
+  if (
+    previous !== undefined &&
     (next.observedAt < previous.observedAt ||
       next.outputUnits < previous.outputUnits ||
       (next.streamElapsedMs !== undefined &&

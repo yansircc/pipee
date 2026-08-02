@@ -61,6 +61,22 @@ test("projects a stable recent rate and removes output older than the window", (
   assert.equal(projectStreamingOutputThroughput(samples), null)
 })
 
+test("reuses the bounded sample history for duplicate snapshots", () => {
+  const samples = appendStreamingOutputSample([], {
+    observedAt: 1_000,
+    outputUnits: 20,
+    streamElapsedMs: 1_000,
+  })
+  assert.equal(
+    appendStreamingOutputSample(samples, {
+      observedAt: 1_000,
+      outputUnits: 20,
+      streamElapsedMs: 1_000,
+    }),
+    samples,
+  )
+})
+
 test("is invariant to chunk boundaries and resets when a new stream starts", () => {
   const coarse = [
     { observedAt: 0, outputUnits: 0, streamElapsedMs: 0 },
