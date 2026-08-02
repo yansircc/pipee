@@ -21,6 +21,7 @@ import { contentStageTool, siteCommitTool, themeStageTool } from "./stage-tools.
 import { errorMessage, runTool, type ZeroYToolFailure } from "./tool-result.js";
 
 export { verifyBrowserChallengeWithLocalBrowser } from "../domain/browser-verifier.js";
+export { validateProviderSchemaDocument } from "../domain/protocol.js";
 
 const registrations = new WeakSet<object>();
 

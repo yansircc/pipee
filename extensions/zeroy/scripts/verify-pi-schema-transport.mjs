@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pi = resolve(packageRoot, "node_modules/.bin/pi");
@@ -124,6 +124,15 @@ try {
     [...tools.keys()],
     ["zeroy_inspect", "zeroy_theme_stage", "zeroy_content_stage", "zeroy_site_commit"],
   );
+  const { validateProviderSchemaDocument } = await import(pathToFileURL(extension).href);
+  for (const [name, tool] of tools) {
+    const validation = validateProviderSchemaDocument(tool.input_schema);
+    assert.equal(
+      validation._tag,
+      "Success",
+      `${name}: ${validation._tag === "Failure" ? validation.error.message : "unknown error"}`,
+    );
+  }
 
   const inspect = tools.get("zeroy_inspect")?.input_schema;
   assert.equal(inspect?.type, "object");
@@ -161,6 +170,7 @@ try {
 
   const content = tools.get("zeroy_content_stage")?.input_schema;
   assert.equal(content?.type, "object");
+  assert.doesNotMatch(JSON.stringify(content), /"\$(?:id|ref)"/u);
   assert.deepEqual(content?.required, ["siteId", "operation"]);
   const operation = content?.properties?.operation;
   assert.equal(operation?.type, "object");

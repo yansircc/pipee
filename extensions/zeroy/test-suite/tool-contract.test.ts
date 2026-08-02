@@ -13,10 +13,12 @@ import {
   SiteReleaseReceiptContract,
   ThemeStageInputContract,
   ThemeStageProviderProjection,
+  closeProviderSchema,
   decodeContentStageInput,
   decodeInspectInput,
   decodeSiteCommitInput,
   decodeThemeStageInput,
+  validateProviderSchemaDocument,
 } from "../src/domain/protocol.js";
 
 const siteId = "site-a";
@@ -335,6 +337,58 @@ describe("zeroY remote stage contracts", () => {
     ).toMatchObject({
       _tag: "Failure",
       error: { message: "kind canonical requires fields: objectId." },
+    });
+  });
+
+  it("closes every model-facing tool schema over local resolvable definitions", () => {
+    const projections = [
+      InspectProviderProjection,
+      ThemeStageProviderProjection,
+      ContentStageProviderProjection,
+      SiteCommitProviderProjection,
+    ];
+    for (const projection of projections) {
+      expect(projection._tag).toBe("Success");
+      if (projection._tag === "Failure") continue;
+      expect(validateProviderSchemaDocument(projection.value)).toMatchObject({ _tag: "Success" });
+    }
+    if (ContentStageProviderProjection._tag === "Failure") return;
+    const serialized = JSON.stringify(ContentStageProviderProjection.value);
+    expect(serialized).not.toContain('"$ref"');
+    expect(serialized).not.toContain('"$id"');
+    expect(ContentStageProviderProjection.value).toMatchObject({ type: "object" });
+  });
+
+  it("rejects non-local, dangling, and conflicting provider schema graphs", () => {
+    expect(
+      validateProviderSchemaDocument({
+        type: "object",
+        properties: { value: { $ref: "T0" } },
+      }),
+    ).toMatchObject({
+      _tag: "Failure",
+      error: { message: "Provider schema reference must be local: T0." },
+    });
+    expect(
+      validateProviderSchemaDocument({
+        type: "object",
+        properties: { value: { $ref: "#/$defs/missing" } },
+      }),
+    ).toMatchObject({
+      _tag: "Failure",
+      error: { message: "Provider schema reference is unresolved: #/$defs/missing." },
+    });
+    expect(
+      closeProviderSchema({
+        type: "object",
+        properties: {
+          left: { $id: "shared", type: "string" },
+          right: { $id: "shared", type: "number" },
+        },
+      } as unknown as Parameters<typeof closeProviderSchema>[0]),
+    ).toMatchObject({
+      _tag: "Failure",
+      error: { message: "Provider schema definition shared has conflicting bodies." },
     });
   });
 

@@ -691,6 +691,9 @@ export const SiteReleaseReceiptContract = Type.Object({
 export type SiteReleaseReceipt = Static<typeof SiteReleaseReceiptContract>;
 
 type JsonSchema = TSchema & {
+  readonly $defs?: Readonly<Record<string, JsonSchema>>;
+  readonly $id?: string;
+  readonly $ref?: string;
   readonly anyOf?: ReadonlyArray<JsonSchema>;
   readonly const?: unknown;
   readonly properties?: Readonly<Record<string, JsonSchema>>;
@@ -733,6 +736,171 @@ const failure = <Failure>(error: Failure): ProtocolResult<never, Failure> => ({
   _tag: "Failure",
   error,
 });
+
+const schemaAnnotations = new Set([
+  "default",
+  "deprecated",
+  "description",
+  "examples",
+  "readOnly",
+  "title",
+  "writeOnly",
+]);
+
+const withoutKey = (schema: JsonSchema, omitted: string): JsonSchema =>
+  Object.fromEntries(Object.entries(schema).filter(([key]) => key !== omitted)) as JsonSchema;
+
+const collectProviderDefinitions = (
+  value: unknown,
+  definitions: Map<string, JsonSchema>,
+): ProviderSchemaProjectionError | undefined => {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const error = collectProviderDefinitions(item, definitions);
+      if (error) return error;
+    }
+    return undefined;
+  }
+  if (typeof value !== "object" || value === null) return undefined;
+  const schema = value as JsonSchema;
+  if (schema.$id !== undefined) {
+    if (schema.$id.length === 0) {
+      return new ProviderSchemaProjectionError({ message: "Provider schema $id cannot be empty." });
+    }
+    const body = withoutKey(schema, "$id");
+    const existing = definitions.get(schema.$id);
+    if (existing && JSON.stringify(plainSchema(existing)) !== JSON.stringify(plainSchema(body))) {
+      return new ProviderSchemaProjectionError({
+        message: `Provider schema definition ${schema.$id} has conflicting bodies.`,
+      });
+    }
+    definitions.set(schema.$id, existing ?? body);
+  }
+  for (const nested of Object.values(schema)) {
+    const error = collectProviderDefinitions(nested, definitions);
+    if (error) return error;
+  }
+  return undefined;
+};
+
+const rewriteProviderReferences = (
+  value: unknown,
+  definitions: ReadonlyMap<string, JsonSchema>,
+  active: ReadonlySet<string> = new Set(),
+): unknown => {
+  if (Array.isArray(value)) {
+    return value.map((item) => rewriteProviderReferences(item, definitions, active));
+  }
+  if (typeof value !== "object" || value === null) return value;
+  const schema = value as JsonSchema;
+  if (schema.$id !== undefined) {
+    return rewriteProviderReferences(
+      withoutKey(schema, "$id"),
+      definitions,
+      new Set([...active, schema.$id]),
+    );
+  }
+  if (schema.$ref !== undefined && definitions.has(schema.$ref)) {
+    const annotations = Object.fromEntries(
+      Object.entries(schema)
+        .filter(([key]) => schemaAnnotations.has(key))
+        .map(([key, nested]) => [key, rewriteProviderReferences(nested, definitions, active)]),
+    );
+    if (active.has(schema.$ref)) return annotations;
+    return {
+      ...(rewriteProviderReferences(
+        definitions.get(schema.$ref),
+        definitions,
+        new Set([...active, schema.$ref]),
+      ) as Readonly<Record<string, unknown>>),
+      ...annotations,
+    };
+  }
+  return Object.fromEntries(
+    Object.entries(schema).map(([key, nested]) => [
+      key,
+      rewriteProviderReferences(nested, definitions, active),
+    ]),
+  );
+};
+
+const resolveLocalSchemaReference = (root: JsonSchema, reference: string): unknown => {
+  if (!reference.startsWith("#/")) return undefined;
+  let cursor: unknown = root;
+  for (const encoded of reference.slice(2).split("/")) {
+    const segment = encoded.replaceAll("~1", "/").replaceAll("~0", "~");
+    if (typeof cursor !== "object" || cursor === null || !(segment in cursor)) return undefined;
+    cursor = (cursor as Readonly<Record<string, unknown>>)[segment];
+  }
+  return cursor;
+};
+
+/** Validates the exact provider document that Pi is allowed to register. */
+export const validateProviderSchemaDocument = (
+  schema: unknown,
+): ProtocolResult<TSchema, ProviderSchemaProjectionError> => {
+  if (typeof schema !== "object" || schema === null || (schema as JsonSchema).type !== "object") {
+    return failure(
+      new ProviderSchemaProjectionError({
+        message: 'Provider tool parameters must have top-level type "object".',
+      }),
+    );
+  }
+  const root = schema as JsonSchema;
+  const visit = (value: unknown): ProviderSchemaProjectionError | undefined => {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const error = visit(item);
+        if (error) return error;
+      }
+      return undefined;
+    }
+    if (typeof value !== "object" || value === null) return undefined;
+    const node = value as JsonSchema;
+    if (node.$ref !== undefined) {
+      if (!node.$ref.startsWith("#/$defs/")) {
+        return new ProviderSchemaProjectionError({
+          message: `Provider schema reference must be local: ${node.$ref}.`,
+        });
+      }
+      if (resolveLocalSchemaReference(root, node.$ref) === undefined) {
+        return new ProviderSchemaProjectionError({
+          message: `Provider schema reference is unresolved: ${node.$ref}.`,
+        });
+      }
+      return new ProviderSchemaProjectionError({
+        message: `Provider schema must be reference-free after projection: ${node.$ref}.`,
+      });
+    }
+    for (const nested of Object.values(node)) {
+      const error = visit(nested);
+      if (error) return error;
+    }
+    return undefined;
+  };
+  const error = visit(root);
+  return error ? failure(error) : success(root);
+};
+
+/**
+ * Projects TypeBox's named recursion into a reference-free provider document.
+ * A recursive edge becomes `{}`, the exact JSON Schema vocabulary for any JSON wire value;
+ * the original recursive contract remains the execution decoder.
+ */
+export const closeProviderSchema = (
+  schema: TSchema,
+): ProtocolResult<TSchema, ProviderSchemaProjectionError> => {
+  const definitions = new Map<string, JsonSchema>();
+  const collectionError = collectProviderDefinitions(schema, definitions);
+  if (collectionError) return failure(collectionError);
+  const rewritten = rewriteProviderReferences(schema, definitions) as JsonSchema;
+  return validateProviderSchemaDocument(rewritten);
+};
+
+const finalizeProviderProjection = (
+  projection: ProtocolResult<TSchema, ProviderSchemaProjectionError>,
+): ProtocolResult<TSchema, ProviderSchemaProjectionError> =>
+  projection._tag === "Failure" ? projection : closeProviderSchema(projection.value);
 
 const variantsOf = (
   contract: JsonSchema,
@@ -978,20 +1146,28 @@ export const ContentOperationProviderProjection = providerSafeParameters(
   ContentOperationContract,
   "kind",
 );
-export const ThemeStageProviderProjection = providerSafeObject(ThemeStageInputContract);
-export const SiteCommitProviderProjection = providerSafeObject(SiteCommitInputContract);
+export const ThemeStageProviderProjection = finalizeProviderProjection(
+  providerSafeObject(ThemeStageInputContract),
+);
+export const SiteCommitProviderProjection = finalizeProviderProjection(
+  providerSafeObject(SiteCommitInputContract),
+);
 export const ContentStageProviderProjection =
   ContentOperationProviderProjection._tag === "Failure"
     ? ContentOperationProviderProjection
-    : providerSafeObject(ContentStageInputContract, {
-        operation: ContentOperationProviderProjection.value,
-      });
+    : finalizeProviderProjection(
+        providerSafeObject(ContentStageInputContract, {
+          operation: ContentOperationProviderProjection.value,
+        }),
+      );
 export const InspectProviderProjection =
   ContentInspectionProviderProjection._tag === "Failure"
     ? ContentInspectionProviderProjection
-    : providerSafeParameters(InspectInputContract, "resource", {
-        content: ContentInspectionProviderProjection.value,
-      });
+    : finalizeProviderProjection(
+        providerSafeParameters(InspectInputContract, "resource", {
+          content: ContentInspectionProviderProjection.value,
+        }),
+      );
 
 export const decodeInspectInput = (input: unknown) => {
   const root = decodeDiscriminated<InspectInput>(InspectInputContract, "resource", input);
