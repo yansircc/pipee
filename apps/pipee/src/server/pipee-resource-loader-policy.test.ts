@@ -14,9 +14,10 @@ describe("Pipee resource-loader policy", () => {
         const agentDir = path.join(root, "agent")
         yield* fs.makeDirectory(agentDir, { recursive: true })
 
-        const management = new DefaultResourceLoader({ cwd: root, agentDir, ...pipeeResourceLoaderPolicy() })
+        const policy = pipeeResourceLoaderPolicy(path, root, agentDir)
+        const management = new DefaultResourceLoader({ cwd: root, agentDir, ...policy })
         const runtime = yield* Effect.tryPromise(() =>
-          createAgentSessionServices({ cwd: root, agentDir, resourceLoaderOptions: pipeeResourceLoaderPolicy() }),
+          createAgentSessionServices({ cwd: root, agentDir, resourceLoaderOptions: policy }),
         )
         yield* Effect.tryPromise(() => Promise.all([management.reload(), runtime.resourceLoader.reload()]))
 
@@ -26,30 +27,38 @@ describe("Pipee resource-loader policy", () => {
     ).pipe(Effect.provide(NodeServices.layer)),
   )
 
-  it.effect("loads only an explicitly authorized skill in both surfaces", () =>
+  it.effect("loads only Pi-native skill roots in both surfaces", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem
         const path = yield* Path.Path
         const root = yield* fs.makeTempDirectoryScoped({ prefix: "pipee-explicit-skill-" })
         const agentDir = path.join(root, "agent")
-        const skillDir = path.join(root, "authorized")
-        const skillFile = path.join(skillDir, "SKILL.md")
+        const globalSkillFile = path.join(agentDir, "skills", "global", "SKILL.md")
+        const projectSkillFile = path.join(root, ".pi", "skills", "project", "SKILL.md")
+        const ambientSkillFile = path.join(root, ".agents", "skills", "ambient", "SKILL.md")
         yield* fs.makeDirectory(agentDir, { recursive: true })
-        yield* fs.makeDirectory(skillDir, { recursive: true })
+        yield* fs.makeDirectory(path.dirname(globalSkillFile), { recursive: true })
+        yield* fs.makeDirectory(path.dirname(projectSkillFile), { recursive: true })
+        yield* fs.makeDirectory(path.dirname(ambientSkillFile), { recursive: true })
+        yield* fs.writeFileString(globalSkillFile, "---\nname: global\ndescription: Pi global skill\n---\n\n# Global\n")
         yield* fs.writeFileString(
-          skillFile,
-          "---\nname: authorized\ndescription: Explicit Pipee skill\n---\n\n# Authorized\n",
+          projectSkillFile,
+          "---\nname: project\ndescription: Pi project skill\n---\n\n# Project\n",
         )
-        const policy = pipeeResourceLoaderPolicy([skillFile])
+        yield* fs.writeFileString(
+          ambientSkillFile,
+          "---\nname: ambient\ndescription: Ambient agent projection\n---\n\n# Ambient\n",
+        )
+        const policy = pipeeResourceLoaderPolicy(path, root, agentDir)
         const management = new DefaultResourceLoader({ cwd: root, agentDir, ...policy })
         const runtime = yield* Effect.tryPromise(() =>
           createAgentSessionServices({ cwd: root, agentDir, resourceLoaderOptions: policy }),
         )
         yield* Effect.tryPromise(() => Promise.all([management.reload(), runtime.resourceLoader.reload()]))
 
-        expect(management.getSkills().skills.map((skill) => skill.name)).toEqual(["authorized"])
-        expect(runtime.resourceLoader.getSkills().skills.map((skill) => skill.name)).toEqual(["authorized"])
+        expect(management.getSkills().skills.map((skill) => skill.name)).toEqual(["global", "project"])
+        expect(runtime.resourceLoader.getSkills().skills.map((skill) => skill.name)).toEqual(["global", "project"])
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
   )

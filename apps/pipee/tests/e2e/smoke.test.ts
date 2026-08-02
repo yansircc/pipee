@@ -600,7 +600,8 @@ test("shows immediate metrics, session prompt, and the extension drawer", async 
   await page.getByRole("button", { name: "技能", exact: true }).click()
   const skillLibrary = page.getByRole("dialog", { name: "Skill Library" })
   await expect(skillLibrary).toBeVisible()
-  await expect(skillLibrary.getByRole("button", { name: /e2e-skill/ })).toHaveCount(0)
+  await expect(skillLibrary.getByRole("button", { name: /e2e-skill/ })).toHaveCount(1)
+  await expect(skillLibrary.getByRole("button", { name: /ambient-skill/ })).toHaveCount(0)
   await expect(skillLibrary.getByRole("button", { name: /read-only-skill/ })).toHaveCount(0)
   await skillLibrary.getByRole("button", { name: "关闭", exact: true }).click()
 
@@ -769,15 +770,40 @@ test("governs settings focus, dismissal, and restoration", async ({ page }) => {
   await expect(opener).toBeVisible()
 })
 
-test("keeps ambient project skills outside the closed Pipee skill policy", async ({ page }) => {
+test("loads Pi-native project skills without admitting ambient skill projections", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 780 })
   await page.goto("/?session=00000000-0000-4000-8000-000000000001")
   await page.getByRole("button", { name: "更多控制项", exact: true }).click()
   await page.getByRole("button", { name: "技能", exact: true }).click()
   const skillWorkspace = page.getByRole("dialog", { name: "Skill Library" })
-  await expect(skillWorkspace.getByRole("button", { name: /e2e-skill/ })).toHaveCount(0)
+  await expect(skillWorkspace.getByRole("button", { name: /e2e-skill/ })).toHaveCount(1)
+  await expect(skillWorkspace.getByRole("button", { name: /ambient-skill/ })).toHaveCount(0)
   await expect(skillWorkspace.getByRole("button", { name: /read-only-skill/ })).toHaveCount(0)
   await expect(skillWorkspace.getByRole("switch")).toHaveCount(0)
+})
+
+test("opens Pi skill commands idempotently and retains unknown slash-command drafts", async ({ page }) => {
+  await page.goto("/?session=00000000-0000-4000-8000-000000000001")
+  const input = page.locator("textarea").first()
+  const commands = page.getByRole("button", { name: "/ 命令", exact: true })
+
+  await input.fill("keep this draft")
+  await commands.click()
+  await expect(input).toHaveValue("keep this draft")
+
+  await input.fill("")
+  await commands.click()
+  await commands.click()
+  await expect(input).toHaveValue("/")
+  const skillCommand = page.getByText("/skill:e2e-skill", { exact: true })
+  await expect(skillCommand).toBeVisible()
+  await skillCommand.click()
+  await expect(input).toHaveValue("/skill:e2e-skill ")
+
+  await input.fill("/skill:not-installed")
+  await input.press("Enter")
+  await expect(page.getByRole("alert")).toHaveText("Unknown slash command: /skill:not-installed")
+  await expect(input).toHaveValue("/skill:not-installed")
 })
 
 test("canonicalizes an invalid session URL after the session index loads", async ({ page }) => {
@@ -1642,9 +1668,11 @@ test("loads model, auth, plugin, and skill projections without mutating user sta
   expect(projections.apiKeys).toMatchObject({ status: 200, body: { providers: expect.any(Array) } })
   expect(projections.plugins.status).toBe(200)
   expect(projections.skills.status).toBe(200)
-  expect(projections.skills.body.skills).toEqual([])
+  expect(projections.skills.body.skills).toEqual([
+    expect.objectContaining({ name: "e2e-skill", sourceInfo: expect.objectContaining({ scope: "project" }) }),
+  ])
 
-  const skillFile = resolve(fixtureWorkspace, ".agents", "skills", "e2e-skill", "SKILL.md")
+  const skillFile = resolve(fixtureWorkspace, ".pi", "skills", "e2e-skill", "SKILL.md")
   const skillBrowse = await page.evaluate(
     async ({ cwd, skillPath }) => {
       const query = new URLSearchParams({ cwd, skillPath })
@@ -1663,26 +1691,27 @@ test("loads model, auth, plugin, and skill projections without mutating user sta
     },
     { cwd: fixtureWorkspace, skillPath: skillFile },
   )
-  expect(skillBrowse.files.status).toBe(403)
-  expect(skillBrowse.file.status).toBe(403)
+  expect(skillBrowse.files.status).toBe(200)
+  expect(skillBrowse.file.status).toBe(200)
   expect(skillBrowse.escapeStatus).not.toBe(200)
-  const beforeSkill = await readFile(skillFile, "utf8")
+  const ambientSkillFile = resolve(fixtureWorkspace, ".agents", "skills", "ambient-skill", "SKILL.md")
+  const beforeSkill = await readFile(ambientSkillFile, "utf8")
   const ambientSkillMutation = await mutate(
     page,
     "/api/packages/skills",
-    { cwd: fixtureWorkspace, filePath: skillFile, disableModelInvocation: true },
+    { cwd: fixtureWorkspace, filePath: ambientSkillFile, disableModelInvocation: true },
     "PATCH",
   )
   expect(ambientSkillMutation.status).toBe(403)
-  expect(await readFile(skillFile, "utf8")).toBe(beforeSkill)
+  expect(await readFile(ambientSkillFile, "utf8")).toBe(beforeSkill)
   const deletedSkill = await mutate(
     page,
     "/api/packages/skills",
-    { cwd: fixtureWorkspace, filePath: skillFile },
+    { cwd: fixtureWorkspace, filePath: ambientSkillFile },
     "DELETE",
   )
   expect(deletedSkill.status).toBe(403)
-  expect(await readFile(skillFile, "utf8")).toBe(beforeSkill)
+  expect(await readFile(ambientSkillFile, "utf8")).toBe(beforeSkill)
 
   const pluginRoundTrip = await page.evaluate(
     async ({ cwd, source }) => {

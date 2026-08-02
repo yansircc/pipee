@@ -324,6 +324,7 @@ interface BashResultLike {
 interface AgentSessionLike {
   readonly sessionId: string
   readonly sessionFile?: string
+  readonly settingsManager: { readonly getEnableSkillCommands: () => boolean }
   readonly isStreaming: boolean
   readonly isCompacting: boolean
   readonly isBashRunning: boolean
@@ -1431,6 +1432,14 @@ const makeRuntime = (
         return inner.getAllTools().map((tool) => ToolEntry.make({ ...tool, active: active.has(tool.name) }))
       }),
       commands: Effect.gen(function* () {
+        const skillCommands = inner.settingsManager.getEnableSkillCommands()
+          ? inner.resourceLoader.getSkills().skills.map((skill) => ({
+              name: `skill:${skill.name}`,
+              description: skill.description,
+              source: "skill" as const,
+              sourceInfo: skill.sourceInfo,
+            }))
+          : []
         const values = [
           ...inner.extensionRunner.getRegisteredCommands().map((command) => ({
             name: command.invocationName,
@@ -1444,12 +1453,7 @@ const makeRuntime = (
             source: "prompt" as const,
             sourceInfo: template.sourceInfo,
           })),
-          ...inner.resourceLoader.getSkills().skills.map((skill) => ({
-            name: `skill:${skill.name}`,
-            description: skill.description,
-            source: "skill" as const,
-            sourceInfo: skill.sourceInfo,
-          })),
+          ...skillCommands,
         ]
         return yield* decode(Schema.Array(SlashCommand), "runtime.commands", values)
       }),
@@ -1582,12 +1586,13 @@ const adapterLive = Effect.gen(function* () {
 
   const modelCatalog = (cwd: string) =>
     Effect.gen(function* () {
+      const agentDir = getAgentDir()
       const services = yield* Effect.tryPromise({
         try: () =>
           createAgentSessionServices({
             cwd,
-            agentDir: getAgentDir(),
-            resourceLoaderOptions: pipeeResourceLoaderPolicy(),
+            agentDir,
+            resourceLoaderOptions: pipeeResourceLoaderPolicy(path, cwd, agentDir),
           }),
         catch: adapterError("models.catalog"),
       })
@@ -2157,7 +2162,7 @@ const adapterLive = Effect.gen(function* () {
               createAgentSessionServices({
                 cwd: options.cwd,
                 agentDir: options.agentDir,
-                resourceLoaderOptions: pipeeResourceLoaderPolicy(),
+                resourceLoaderOptions: pipeeResourceLoaderPolicy(path, options.cwd, options.agentDir),
               }),
             catch: adapterError("runtime.services.create"),
           }),
@@ -2194,7 +2199,12 @@ const adapterLive = Effect.gen(function* () {
 
   const skills = (cwd: string) =>
     Effect.gen(function* () {
-      const loader = new DefaultResourceLoader({ cwd, agentDir: getAgentDir(), ...pipeeResourceLoaderPolicy() })
+      const agentDir = getAgentDir()
+      const loader = new DefaultResourceLoader({
+        cwd,
+        agentDir,
+        ...pipeeResourceLoaderPolicy(path, cwd, agentDir),
+      })
       yield* Effect.tryPromise({ try: () => loader.reload(), catch: adapterError("skills.reload") })
       const discovered = yield* decode(DiscoveredSkillsResponse, "skills.discovery", loader.getSkills())
       const mutationFor = (skill: (typeof discovered.skills)[number]): Effect.Effect<SkillMutationValue> => {

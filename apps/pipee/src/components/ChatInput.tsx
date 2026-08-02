@@ -348,6 +348,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     draftKey ? [...(getDraft(draftKey)?.attachments ?? [])] : [],
   )
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
+  const [slashCommandError, setSlashCommandError] = useState<string | null>(null)
   const [uploadingAttachments, setUploadingAttachments] = useState(0)
   const [slashMenuOpen, setSlashMenuOpen] = useState(false)
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
@@ -567,6 +568,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     draftKeyRef.current = draftKey
     setValue(draft?.value ?? "")
     setAtQuery(null)
+    setSlashCommandError(null)
     setAttachedImages((prev) => {
       prev.forEach(revokeImagePreview)
       return draft?.images.map(draftImageToAttachedImage) ?? []
@@ -601,10 +603,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     if (!attachedImages.length && !attachedFiles.length && msg.startsWith("/") && onBuiltinCommand) {
       const result = onBuiltinCommand(msg)
       if (result.handled) {
-        if (!result.error) clearInput()
+        if (result.error) setSlashCommandError(result.error)
+        else {
+          setSlashCommandError(null)
+          clearInput()
+        }
         return
       }
     }
+    setSlashCommandError(null)
     onSend(msg, attachedImages.length ? attachedImages : undefined)
     clearInput()
   }, [
@@ -1180,7 +1187,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     if (!isMobile) setControlsMenuOpen(false)
   }, [isMobile])
   const insertPromptToken = useCallback(
-    (token: "/" | "@") => {
+    (token: "@") => {
       const current = valueRef.current
       const next = `${current}${current && !current.endsWith(" ") ? " " : ""}${token}`
       valueRef.current = next
@@ -1195,6 +1202,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     },
     [setValue, updateAtQuery],
   )
+  const openSlashMenu = useCallback(() => {
+    const current = valueRef.current
+    const next = current || "/"
+    const isSlashQuery = next.startsWith("/") && !/\s/.test(next.slice(1))
+    if (current !== next) setValue(next)
+    setSlashCommandError(null)
+    setSlashMenuOpen(isSlashQuery)
+    setSlashActiveIndex(0)
+    onNextAnimationFrame(() => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      textarea.focus()
+      textarea.setSelectionRange(next.length, next.length)
+    })
+  }, [setValue])
   return (
     <div
       {...stylex.props(inlineStyles.inline4)}
@@ -1304,6 +1326,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
               <polyline points="20 6 9 17 4 12" />
             </svg>
             {compactResultText}
+          </div>
+        )}
+        {slashCommandError && (
+          <div
+            role="alert"
+            style={{ padding: "6px 10px", color: "#dc2626", fontSize: 12, background: "rgba(220, 38, 38, 0.08)" }}
+          >
+            {t(slashCommandError)}
           </div>
         )}
         {(attachedFiles.length > 0 || uploadingAttachments > 0 || attachmentError) && (
@@ -1515,6 +1545,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                   disabled={sessionLoading}
                   onBlur={field.handleBlur}
                   onChange={(event) => {
+                    setSlashCommandError(null)
                     field.handleChange(event.target.value)
                     updateAtQuery(event.target.value, event.target.selectionStart)
                   }}
@@ -1670,7 +1701,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
                 <path d="m21 11.5-8.7 8.7a6 6 0 0 1-8.5-8.5l9.4-9.4a4 4 0 0 1 5.7 5.7l-9.5 9.5a2 2 0 0 1-2.8-2.8l8.8-8.8" />
               </svg>
             </button>
-            <button type="button" onClick={() => insertPromptToken("/")} {...stylex.props(inlineStyles.promptToken)}>
+            <button type="button" onClick={openSlashMenu} {...stylex.props(inlineStyles.promptToken)}>
               / {locale === "zh-CN" ? "命令" : "Commands"}
             </button>
             <button type="button" onClick={() => insertPromptToken("@")} {...stylex.props(inlineStyles.promptToken)}>
