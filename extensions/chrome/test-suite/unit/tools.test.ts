@@ -10,13 +10,6 @@ import {
   registerChromeTools,
 } from "../../src/pi/tools.js";
 
-const rootJsonTypes = (schema: unknown): Array<string> => {
-  if (typeof schema !== "object" || schema === null || Array.isArray(schema)) return [];
-  const record = schema as Record<string, unknown>;
-  if (typeof record.type === "string") return [record.type];
-  return Array.isArray(record.anyOf) ? record.anyOf.flatMap(rootJsonTypes) : [];
-};
-
 describe("atomic public tool surface", () => {
   it("registers every descriptor-derived leaf and status directly", () => {
     const registered: Array<Record<string, unknown>> = [];
@@ -34,9 +27,7 @@ describe("atomic public tool surface", () => {
     expect(new Set(CHROME_ATOMIC_TOOL_NAMES).size).toBe(25);
     expect(registered.map((tool) => tool.name)).toEqual(CHROME_TOOL_NAMES);
     for (const tool of registered) {
-      expect(new Set(rootJsonTypes(tool.parameters)), String(tool.name)).toEqual(
-        new Set(["object"]),
-      );
+      expect(tool.parameters, String(tool.name)).toMatchObject({ type: "object" });
     }
     for (const name of ["chrome_status", "chrome_tab_list"]) {
       expect(registered.find((tool) => tool.name === name)?.parameters).toEqual({
@@ -51,5 +42,10 @@ describe("atomic public tool surface", () => {
     expect(clickSchema).toContain('"ref"');
     expect(clickSchema).not.toContain('"op"');
     expect(clickSchema).not.toContain('"operation"');
+
+    expect(registered.find((tool) => tool.name === "chrome_screenshot")?.parameters).toMatchObject({
+      type: "object",
+      anyOf: expect.any(Array),
+    });
   });
 });

@@ -25,6 +25,11 @@ export const CHROME_TOOL_NAMES = [...CHROME_ATOMIC_TOOL_NAMES, CHROME_STATUS_TOO
 
 const StatusParameters = EmptyToolParameters;
 
+const toToolParametersJsonSchema = <S extends Parameters<typeof toJsonSchema>[0]>(schema: S) => ({
+  ...toJsonSchema(schema),
+  type: "object" as const,
+});
+
 export const registerChromeTools = (
   pi: ExtensionAPI,
   executeTool: ExecuteTool,
@@ -36,7 +41,7 @@ export const registerChromeTools = (
       label: descriptor.label,
       description: descriptor.description,
       promptSnippet: descriptor.promptSnippet,
-      parameters: toJsonSchema(descriptor.parameters),
+      parameters: toToolParametersJsonSchema(descriptor.parameters),
       execute: (_id, input, signal, _onUpdate, context) =>
         executeTool(descriptor.name, input, signal, context),
     });
@@ -45,7 +50,7 @@ export const registerChromeTools = (
     name: CHROME_STATUS_TOOL_NAME,
     label: "Inspect Chrome Status",
     description: "Read the Chrome bridge and connector status without changing it.",
-    parameters: toJsonSchema(StatusParameters),
+    parameters: toToolParametersJsonSchema(StatusParameters),
     execute: (_id, _parameters, signal, _onUpdate, context) => readStatus(signal, context),
   });
 };

@@ -177,7 +177,13 @@ const verifyWithPiLoader = async (packageRoot, harnessRoot) => {
     assert.ok(extension.commands.has(command), `archive did not register /${String(command)}`);
   }
   for (const tool of config.expected.tools) {
-    assert.ok(extension.tools.has(tool), `archive did not register ${String(tool)}`);
+    const registration = extension.tools.get(tool);
+    assert.ok(registration, `archive did not register ${String(tool)}`);
+    assert.equal(
+      registration.definition.parameters?.type,
+      "object",
+      `archive tool ${String(tool)} parameters must be a top-level object schema`,
+    );
   }
   for (const handler of config.expected.handlers) {
     assert.ok(extension.handlers.has(handler), `archive did not register ${String(handler)}`);
