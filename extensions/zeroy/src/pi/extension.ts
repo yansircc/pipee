@@ -20,6 +20,8 @@ import { activeSession, run, startSession, stopSession, withSession } from "./se
 import { contentStageTool, siteCommitTool, themeStageTool } from "./stage-tools.js";
 import { errorMessage, runTool, type ZeroYToolFailure } from "./tool-result.js";
 
+export { verifyBrowserChallengeWithLocalBrowser } from "../domain/browser-verifier.js";
+
 const registrations = new WeakSet<object>();
 
 const notifySessionFailure = (context: ExtensionContext, error: unknown) =>

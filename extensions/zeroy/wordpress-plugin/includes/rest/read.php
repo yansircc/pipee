@@ -36,6 +36,23 @@ function zeroy_runtime_acf_endpoint(): WP_REST_Response
     return new WP_REST_Response(['contract' => 'zeroy/acf@1', ...zeroy_runtime_acf_projection()]);
 }
 
+function zeroy_runtime_zcss_contract_endpoint(): WP_REST_Response
+{
+    return new WP_REST_Response([
+        'contract' => 'zeroy/zcss-authoring@1',
+        'designContract' => ZEROY_ZCSS_DESIGN_CONTRACT,
+        'compiledContract' => ZEROY_ZCSS_COMPILED_CONTRACT,
+        'compiler' => ['id' => ZEROY_ZCSS_COMPILER_ID, 'version' => ZEROY_ZCSS_COMPILER_VERSION, 'sourceHash' => zeroy_zcss_compiler_source_hash()],
+        'schema' => zeroy_zcss_design_json_schema(),
+        'minimalDocument' => zeroy_zcss_minimal_design_document(),
+        'tokenCategories' => ['color', 'typography', 'spacing', 'foundation'],
+        'primitives' => zeroy_zcss_public_primitives(),
+        'namespaces' => ['compilerClasses' => '.z-*', 'compilerProperties' => '--z-*', 'siteProperties' => '--site-*', 'stateClasses' => '.is-*'],
+        'generatedPaths' => zeroy_zcss_reserved_paths(),
+        'guidance' => 'Inspect styleSurface, stage zcss.design.json and manifest-declared custom CSS, inspect the Draft styleSurface, commit, then inspect CandidateProof and externalCheck. Never write generated paths.',
+    ]);
+}
+
 function zeroy_runtime_adoption_candidates_endpoint(WP_REST_Request $request): WP_REST_Response
 {
     $result = zeroy_runtime_adoption_candidates($request->get_param('postType') ?: null, $request->get_param('schemaId') ?: null, (int) $request->get_param('page'), (int) $request->get_param('perPage'));

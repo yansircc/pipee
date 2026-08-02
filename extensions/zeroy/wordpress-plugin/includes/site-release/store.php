@@ -5,7 +5,7 @@ defined('ABSPATH') || exit;
 const ZEROY_SITE_RELEASE_CONTRACT = 'zeroy/site-release@1';
 const ZEROY_VERIFICATION_PROOF_CONTRACT = 'zeroy/verification-proof@1';
 const ZEROY_SITE_RELEASE_PROOF_CONTRACT = 'zeroy/site-release-proof@1';
-const ZEROY_SITE_RELEASE_VERIFIER_VERSION = '5';
+const ZEROY_SITE_RELEASE_VERIFIER_VERSION = '6';
 
 function zeroy_runtime_site_release_row(string $release_id): ?array
 {
@@ -109,6 +109,13 @@ function zeroy_runtime_site_release_receipt(string $release_id): array|WP_Error
             'executedScenarioCount' => count(is_array($integration_scenarios['executed'] ?? null) ? $integration_scenarios['executed'] : []),
         ];
     $migration = is_array($diagnostics) && is_array($diagnostics['migration'] ?? null) ? $diagnostics['migration'] : null;
+    $browser_verification = null;
+    if ($release['state'] === 'awaiting-browser') {
+        $snapshot = zeroy_runtime_site_release_snapshot($release);
+        if (is_wp_error($snapshot)) return $snapshot;
+        $browser_verification = zeroy_runtime_browser_verification_challenge($release, zeroy_runtime_snapshot_scenarios($snapshot));
+        if (is_wp_error($browser_verification)) return $browser_verification;
+    }
     return [
         'contract' => ZEROY_SITE_RELEASE_CONTRACT,
         'releaseId' => $release['release_id'],
@@ -116,6 +123,7 @@ function zeroy_runtime_site_release_receipt(string $release_id): array|WP_Error
         'themeArtifactId' => $release['theme_artifact_id'],
         'siteLogicArtifactId' => $release['site_logic_artifact_id'],
         'themeContractHash' => $release['theme_contract_hash'],
+        'zcss' => is_array($theme_proof['zcss'] ?? null) ? $theme_proof['zcss'] : null,
         'siteLogicContractHash' => $release['site_logic_contract_hash'],
         'storageEpoch' => (int) $release['storage_epoch'],
         'snapshotHash' => (string) $release['snapshot_hash'],
@@ -135,11 +143,12 @@ function zeroy_runtime_site_release_receipt(string $release_id): array|WP_Error
                 'migration' => $migration,
                 'proof' => $proof_diagnostics,
             ],
+        'browserVerification' => $browser_verification,
         'affectedSubjects' => $affected['affectedSubjects'],
         'affectedArtifacts' => $affected['affectedArtifacts'],
         'createdAt' => $release['created_at'],
         'activatedAt' => $release['activated_at'],
-        'previewUrl' => in_array($release['state'], ['preparing', 'prepared'], true)
+        'previewUrl' => in_array($release['state'], ['preparing', 'awaiting-browser', 'prepared'], true)
             ? add_query_arg(['zeroy_candidate_release' => $release['release_id'], 'token' => hash_hmac('sha256', $release['release_id'], zeroy_runtime_connection_key())], home_url('/'))
             : null,
     ];
@@ -172,6 +181,8 @@ function zeroy_runtime_site_release_proof_valid(array $release, array $proof): b
         && (($proof['themeProof']['runtimeVersion'] ?? null) === ZEROY_RUNTIME_VERSION)
         && (($proof['themeProof']['verifierVersion'] ?? null) === ZEROY_SITE_RELEASE_VERIFIER_VERSION)
         && (($proof['themeProof']['scenarioSetHash'] ?? null) === $scenario_hash)
+        && (($proof['themeProof']['browserChecks']['kind'] ?? null) === 'browser-executed')
+        && (($proof['themeProof']['browserChecks']['failures'] ?? null) === [])
         && (($proof['siteLogicProof']['artifactId'] ?? null) === $release['site_logic_artifact_id'])
         && (($proof['siteLogicProof']['contractHash'] ?? null) === $release['site_logic_contract_hash'])
         && (($proof['siteLogicProof']['storageEpoch'] ?? null) === (int) $release['storage_epoch'])

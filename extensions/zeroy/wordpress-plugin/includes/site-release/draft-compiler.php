@@ -92,6 +92,7 @@ function zeroy_runtime_replay_site_draft_artifact_hashes(string $artifact, ?arra
     $hashes = [];
     foreach ($manifest['entries'] as $entry) {
         if (is_string($entry['path'] ?? null) && is_string($entry['hash'] ?? null)) {
+            if ($artifact === 'theme' && in_array($entry['path'], zeroy_zcss_reserved_paths(), true)) continue;
             $hashes[$entry['path']] = $entry['hash'];
         }
     }
@@ -104,6 +105,9 @@ function zeroy_runtime_replay_site_draft_artifact_hashes(string $artifact, ?arra
             $expected = is_array($file) ? ($file['expectedHash'] ?? null) : null;
             if (!is_string($path) || !zeroy_runtime_artifact_path_valid($path) || zeroy_runtime_artifact_path_forbidden($path)) {
                 return zeroy_runtime_error('zeroy_site_draft_artifact_path_invalid', 'Staged artifact path is invalid or forbidden.', 400, ['artifact' => $artifact, 'path' => $path]);
+            }
+            if ($artifact === 'theme' && in_array($path, zeroy_zcss_reserved_paths(), true)) {
+                return zeroy_runtime_error('zeroy_zcss_generated_path_reserved', 'Generated ZCSS paths are owned by the SiteDraft compiler.', 400, ['artifact' => $artifact, 'path' => $path, 'reservedPaths' => zeroy_zcss_reserved_paths()]);
             }
             $current = $hashes[$path] ?? null;
             if ($current !== $expected) {
@@ -164,10 +168,17 @@ function zeroy_runtime_with_site_draft_artifact_directory(array $draft, ?array $
                 if (!wp_mkdir_p(dirname($target)) || file_put_contents($target, (string) $file['content'], LOCK_EX) !== strlen((string) $file['content'])) return zeroy_runtime_error('zeroy_site_draft_artifact_compile_failed', 'Could not write staged artifact file.', 500, ['path' => $path]);
             }
         }
+        if ($artifact === 'theme') {
+            $zcss = zeroy_runtime_compile_zcss_directory($staging);
+            if (is_wp_error($zcss)) return $zcss;
+        }
         $manifest = zeroy_runtime_scan_site_draft_artifact($artifact, $staging);
         if (is_wp_error($manifest)) return $manifest;
         $materialized_hashes = [];
-        foreach ($manifest['entries'] as $entry) $materialized_hashes[$entry['path']] = $entry['hash'];
+        foreach ($manifest['entries'] as $entry) {
+            if ($artifact === 'theme' && in_array($entry['path'], zeroy_zcss_reserved_paths(), true)) continue;
+            $materialized_hashes[$entry['path']] = $entry['hash'];
+        }
         if ($materialized_hashes !== $hashes) {
             return zeroy_runtime_error('zeroy_site_draft_artifact_projection_invalid', 'Materialized SiteArtifact differs from its Draft operation projection.', 500, ['artifact' => $artifact]);
         }

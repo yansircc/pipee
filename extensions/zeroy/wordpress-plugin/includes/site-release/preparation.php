@@ -77,7 +77,7 @@ function zeroy_runtime_prepare_site_release(string $theme_artifact_id, string $s
     if (is_wp_error($proof)) return $proof;
     $proof_id = zeroy_runtime_store_site_release_proof($release_id, $proof);
     if (is_wp_error($proof_id)) return $proof_id;
-    $state = $proof['blockingFailures'] === [] ? 'prepared' : 'failed';
+    $state = $proof['blockingFailures'] === [] ? 'awaiting-browser' : 'failed';
     if ($wpdb->update(zeroy_runtime_table('site_releases'), ['state' => $state, 'proof_id' => $proof_id, 'diagnostics_json' => zeroy_runtime_json(['themeContract' => $compiled['contract'], 'themeSchema' => $compiled['schema'], 'migration' => $migration, 'proof' => $proof])], ['release_id' => $release_id]) !== 1) return zeroy_runtime_error('zeroy_site_release_prepare_failed', 'Could not finalize candidate verification.', 500);
     if (is_array($draft)) {
         $bound = zeroy_runtime_bind_site_draft_proof(
@@ -89,6 +89,49 @@ function zeroy_runtime_prepare_site_release(string $theme_artifact_id, string $s
             (string) $proof['verifiedAt'],
         );
         if (is_wp_error($bound)) return $bound;
+    }
+    return zeroy_runtime_site_release_receipt($release_id);
+}
+
+function zeroy_runtime_finalize_site_release_browser_evidence(string $release_id, mixed $browser_evidence, string $owner_id): array|WP_Error
+{
+    $release = zeroy_runtime_site_release_row($release_id);
+    if ($release === null || (string) $release['state'] !== 'awaiting-browser') {
+        return zeroy_runtime_error('zeroy_site_release_not_awaiting_browser', 'SiteRelease is not awaiting browser evidence.', 409, ['releaseId' => $release_id, 'state' => $release['state'] ?? null]);
+    }
+    if (!empty($release['draft_id'])) {
+        $owned = zeroy_runtime_site_release_owned_candidate($release, $owner_id);
+        if (is_wp_error($owned)) return $owned;
+    }
+    $evidence = zeroy_runtime_decode_browser_evidence($browser_evidence);
+    if (is_wp_error($evidence)) return $evidence;
+    $compiled = zeroy_runtime_compile_theme_contract((string) $release['theme_artifact_id'], (string) $release['site_logic_artifact_id']);
+    if (is_wp_error($compiled)) return $compiled;
+    $proof = zeroy_runtime_verify_candidate_site_release_with_browser($release, $compiled, $evidence);
+    if (is_wp_error($proof)) return $proof;
+    $proof_id = zeroy_runtime_store_site_release_proof($release_id, $proof);
+    if (is_wp_error($proof_id)) return $proof_id;
+    $diagnostics = zeroy_runtime_decode_json((string) $release['diagnostics_json']);
+    if (!is_array($diagnostics)) return zeroy_runtime_error('zeroy_site_release_diagnostics_invalid', 'Candidate diagnostics are not readable.', 409, ['releaseId' => $release_id]);
+    $diagnostics['proof'] = $proof;
+    $state = $proof['blockingFailures'] === [] ? 'prepared' : 'failed';
+    global $wpdb;
+    $updated = $wpdb->update(
+        zeroy_runtime_table('site_releases'),
+        ['state' => $state, 'proof_id' => $proof_id, 'diagnostics_json' => zeroy_runtime_json($diagnostics)],
+        ['release_id' => $release_id, 'state' => 'awaiting-browser'],
+        ['%s', '%s', '%s'],
+        ['%s', '%s'],
+    );
+    if ($updated !== 1) return zeroy_runtime_error('zeroy_site_release_browser_finalize_conflict', 'Candidate changed while browser evidence was being attached.', 409, ['releaseId' => $release_id]);
+    if (!empty($release['draft_id'])) {
+        $draft = zeroy_runtime_site_draft_row((string) $release['draft_id']);
+        if (!is_array($draft)) return zeroy_runtime_error('zeroy_site_draft_missing', 'Candidate SiteDraft disappeared before browser evidence was attached.', 409, ['releaseId' => $release_id]);
+        $operations = zeroy_runtime_site_draft_operations($draft);
+        if (is_wp_error($operations)) return $operations;
+        $bound = zeroy_runtime_bind_site_draft_proof($draft, $release_id, $proof_id, $state, zeroy_runtime_hash($operations), (string) $proof['verifiedAt']);
+        if (is_wp_error($bound)) return $bound;
+        if ($state === 'failed') zeroy_runtime_site_draft_reopen_after_commit_failure((string) $release['draft_id']);
     }
     return zeroy_runtime_site_release_receipt($release_id);
 }

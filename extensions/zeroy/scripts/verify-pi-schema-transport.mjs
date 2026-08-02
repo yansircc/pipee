@@ -134,6 +134,8 @@ try {
     "schema",
     "inventory",
     "acf",
+    "zcssContract",
+    "styleSurface",
     "release",
     "draft",
     "proof",

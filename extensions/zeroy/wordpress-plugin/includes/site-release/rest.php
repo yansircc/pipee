@@ -94,7 +94,24 @@ function zeroy_runtime_site_draft_commit_endpoint(WP_REST_Request $request): WP_
     $expected = $payload['expectedBaseReleaseId'] ?? null;
     $message = $payload['message'] ?? '';
     if (($expected !== null && (!is_string($expected) || $expected === '')) || !is_string($message)) return zeroy_runtime_response_error(zeroy_runtime_error('zeroy_site_commit_request_invalid', 'Commit requires expectedBaseReleaseId (a release ID or null for bootstrap) and optional message.', 400));
-    $result = zeroy_runtime_commit_site_draft($draft_id, $expected, $message, $owner_id);
+    $result = zeroy_runtime_prepare_site_draft_commit($draft_id, $expected, $message, $owner_id);
+    return is_wp_error($result) ? zeroy_runtime_response_error($result) : new WP_REST_Response($result, 202);
+}
+
+function zeroy_runtime_site_release_browser_finalize_endpoint(WP_REST_Request $request): WP_REST_Response
+{
+    $release_id = sanitize_text_field((string) $request->get_param('releaseId'));
+    if (preg_match('/^[a-f0-9-]{36}$/', $release_id) !== 1) return zeroy_runtime_response_error(zeroy_runtime_error('zeroy_site_release_id_invalid', 'SiteRelease ID is invalid.', 400));
+    $payload = zeroy_runtime_site_release_request_json($request);
+    if (is_wp_error($payload)) return zeroy_runtime_response_error($payload);
+    if (!zeroy_runtime_browser_evidence_exact_keys($payload, ['browserEvidence'])) return zeroy_runtime_response_error(zeroy_runtime_error('zeroy_browser_evidence_invalid', 'Finalize requires exactly browserEvidence.', 400));
+    $owner_id = zeroy_runtime_site_draft_request_owner($request);
+    if (is_wp_error($owner_id)) return zeroy_runtime_response_error($owner_id);
+    $release = zeroy_runtime_site_release_row($release_id);
+    if ($release === null) return zeroy_runtime_response_error(zeroy_runtime_error('zeroy_site_release_missing', 'SiteRelease does not exist.', 404));
+    $owned = zeroy_runtime_site_release_owned_candidate($release, $owner_id);
+    if (is_wp_error($owned)) return zeroy_runtime_response_error($owned);
+    $result = zeroy_runtime_finalize_site_draft_commit($release_id, $payload['browserEvidence'], $owner_id);
     return is_wp_error($result) ? zeroy_runtime_response_error($result) : new WP_REST_Response($result);
 }
 
@@ -269,6 +286,36 @@ function zeroy_runtime_site_artifact_files_endpoint(WP_REST_Request $request): W
     return new WP_REST_Response(['contract' => 'zeroy/site-artifact-file@1', 'artifact' => $artifact, 'artifactId' => $artifact_id === '' ? null : $artifact_id, 'path' => $path, 'hash' => hash('sha256', $content), 'bytes' => strlen($content), 'content' => $content]);
 }
 
+function zeroy_runtime_zcss_style_surface_endpoint(WP_REST_Request $request): WP_REST_Response
+{
+    $draft_id = $request->get_param('draftId');
+    if (is_string($draft_id) && $draft_id !== '') {
+        $owner_id = zeroy_runtime_site_draft_request_owner($request);
+        if (is_wp_error($owner_id)) return zeroy_runtime_response_error($owner_id);
+        $draft = zeroy_runtime_site_draft_row($draft_id);
+        if ($draft === null) return zeroy_runtime_response_error(zeroy_runtime_error('zeroy_site_draft_missing', 'SiteDraft does not exist.', 404));
+        $owned = zeroy_runtime_site_draft_owned_by($draft, $owner_id);
+        if (is_wp_error($owned)) return zeroy_runtime_response_error($owned);
+        $active = zeroy_runtime_site_draft_active_base($draft);
+        if (is_wp_error($active)) return zeroy_runtime_response_error($active);
+        $surface = zeroy_runtime_with_site_draft_artifact_directory(
+            $draft,
+            $active === [] ? null : $active,
+            'theme',
+            static fn(string $directory): array|WP_Error => zeroy_zcss_style_surface_from_directory($directory),
+        );
+        if (is_wp_error($surface)) return zeroy_runtime_response_error($surface);
+        return new WP_REST_Response([...$surface, 'draftId' => $draft_id, 'releaseId' => null, 'themeArtifactId' => null]);
+    }
+    $active = zeroy_runtime_active_site_release();
+    if (!is_array($active)) return zeroy_runtime_response_error(zeroy_runtime_error('zeroy_site_release_missing', 'No active SiteRelease is available.', 404));
+    $artifact_id = (string) $active['theme_artifact_id'];
+    $surface = zeroy_zcss_style_surface_from_directory(zeroy_runtime_artifact_directory($artifact_id));
+    return is_wp_error($surface)
+        ? zeroy_runtime_response_error($surface)
+        : new WP_REST_Response([...$surface, 'draftId' => null, 'releaseId' => (string) $active['release_id'], 'themeArtifactId' => $artifact_id]);
+}
+
 function zeroy_runtime_register_site_release_routes(): void
 {
     $permission = ['permission_callback' => 'zeroy_runtime_authorized'];
@@ -277,7 +324,9 @@ function zeroy_runtime_register_site_release_routes(): void
     register_rest_route('zeroy/v1', '/site-drafts/(?P<draftId>[a-f0-9-]{36})/replay', $permission + ['methods' => WP_REST_Server::CREATABLE, 'callback' => 'zeroy_runtime_site_draft_replay_endpoint']);
     register_rest_route('zeroy/v1', '/site-drafts/(?P<draftId>[a-f0-9-]{36})/discard', $permission + ['methods' => WP_REST_Server::CREATABLE, 'callback' => 'zeroy_runtime_site_draft_discard_endpoint']);
     register_rest_route('zeroy/v1', '/site-drafts/(?P<draftId>[a-f0-9-]{36})/commit', $permission + ['methods' => WP_REST_Server::CREATABLE, 'callback' => 'zeroy_runtime_site_draft_commit_endpoint']);
+    register_rest_route('zeroy/v1', '/site-releases/(?P<releaseId>[a-f0-9-]{36})/browser-evidence', $permission + ['methods' => WP_REST_Server::CREATABLE, 'callback' => 'zeroy_runtime_site_release_browser_finalize_endpoint']);
     register_rest_route('zeroy/v1', '/site-artifacts/(?P<artifact>theme|site-logic)/files', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_runtime_site_artifact_files_endpoint']);
+    register_rest_route('zeroy/v1', '/zcss-style-surface', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_runtime_zcss_style_surface_endpoint']);
     register_rest_route('zeroy/v1', '/site-release/state', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_runtime_site_release_state_endpoint']);
     register_rest_route('zeroy/v1', '/site-release/external-check-targets', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_runtime_site_release_external_check_targets_endpoint']);
     foreach (['theme', 'site-logic'] as $kind) {

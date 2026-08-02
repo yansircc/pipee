@@ -1,9 +1,3 @@
-/*
-Theme Name: zeroY MVP Theme
-Description: Minimal locale-aware theme fixture for zeroY Runtime Connector.
-Version: 0.3.0
-*/
-
 :root {
   color: #15251d;
   background: #f3f1ea;
@@ -703,6 +697,14 @@ body {
 }
 
 @media (max-width: 620px) {
+  .zy-topbar-inner {
+    gap: 12px;
+  }
+
+  .zy-top-actions > .zy-btn {
+    display: none;
+  }
+
   .zy-hero {
     padding: 64px 0;
   }

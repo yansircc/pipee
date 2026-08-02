@@ -1,0 +1,29 @@
+{
+  "contract": "zeroy/zcss-design@1",
+  "palette": {
+    "brand": { "color": "#254f3d" },
+    "accent": { "color": "#d97706" },
+    "neutral": { "color": "#64748b" },
+    "success": { "color": "#16803c" },
+    "warning": { "color": "#a85d00" },
+    "danger": { "color": "#c52828" }
+  },
+  "typography": {
+    "viewport": { "minPx": 360, "maxPx": 1440 },
+    "body": { "minPx": 16, "maxPx": 18 },
+    "scaleRatio": 1.2,
+    "headingScaleRatio": 1.25,
+    "bodyLineHeight": 1.6,
+    "headingLineHeight": 1.15,
+    "bodyFamily": "Inter, ui-sans-serif, system-ui, sans-serif",
+    "headingFamily": "Inter, ui-sans-serif, system-ui, sans-serif"
+  },
+  "spacing": { "minPx": 4, "maxPx": 6, "scaleRatio": 1.5, "sectionMultiplier": 8 },
+  "layout": { "contentWidth": 1200, "textWidth": 720, "gutterMin": 16, "gutterMax": 32 },
+  "shape": { "radiusBase": 8, "borderWidth": 1, "shadowStrength": 0.16 },
+  "motion": {
+    "durationFast": 120,
+    "durationNormal": 240,
+    "easingStandard": "cubic-bezier(0.2, 0, 0, 1)"
+  }
+}

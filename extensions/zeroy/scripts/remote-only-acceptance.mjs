@@ -420,6 +420,7 @@ const calls = [
   },
   { tool: "zeroy_inspect", input: () => ({ siteId, resource: "externalCheck" }) },
 ];
+let completed = false;
 
 const sockets = new Set();
 const server = createServer((request, response) => {
@@ -533,7 +534,11 @@ try {
   const exit = await new Promise((resolveExit, reject) => {
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
-      reject(new Error("Remote-only Pi acceptance timed out."));
+      reject(
+        new Error(
+          `Remote-only Pi acceptance timed out at step ${step}/${calls.length}; next tool: ${calls[step]?.tool ?? "final-response"}.`,
+        ),
+      );
     }, 120_000);
     child.once("error", reject);
     child.once("exit", (code) => {
@@ -704,6 +709,7 @@ try {
     "Remote-only Connector check did not prove the active routes.",
   );
   process.stdout.write("zeroY deterministic remote-only Pi acceptance passed.\n");
+  completed = true;
 } finally {
   // The fake provider is this acceptance process's owned resource. Pi's
   // Anthropic client is allowed to keep an HTTP socket alive after its final
@@ -711,6 +717,7 @@ try {
   // Otherwise a successful remote-only run can leave the test process alive.
   for (const socket of sockets) socket.destroy();
   await new Promise((resolveClose) => server.close(resolveClose));
-  await rm(temporary, { recursive: true, force: true });
+  if (completed) await rm(temporary, { recursive: true, force: true });
+  else process.stderr.write(`Preserved failed remote-only acceptance at ${temporary}\n`);
   packaged.cleanup();
 }

@@ -2,6 +2,8 @@
 
 defined('ABSPATH') || exit;
 
+require_once __DIR__ . '/browser-evidence-fixture.php';
+
 function zeroy_site_release_acceptance_assert(bool $condition, string $message): void
 {
     if (!$condition) {
@@ -26,6 +28,13 @@ function zeroy_site_release_acceptance_proof(array $receipt): array
     return $proof;
 }
 
+function zeroy_site_release_acceptance_browser_verify(array|WP_Error $receipt, string $owner_id): array|WP_Error
+{
+    return is_wp_error($receipt) || ($receipt['state'] ?? null) !== 'awaiting-browser'
+        ? $receipt
+        : zeroy_acceptance_attach_browser_evidence($receipt, $owner_id);
+}
+
 function zeroy_site_release_acceptance_archive(string $directory, string $contract, array $overrides = []): array
 {
     $entries = [];
@@ -35,10 +44,20 @@ function zeroy_site_release_acceptance_archive(string $directory, string $contra
     foreach ($iterator as $file) {
         zeroy_site_release_acceptance_assert($file instanceof SplFileInfo && $file->isFile() && !$file->isLink(), 'Acceptance fixture contains an unsafe source file.');
         $path = ltrim(substr(wp_normalize_path($file->getPathname()), strlen($root)), '/');
+        if (array_key_exists($path, $overrides) && $overrides[$path] === null) continue;
         $bytes = $overrides[$path] ?? file_get_contents($file->getPathname());
         zeroy_site_release_acceptance_assert(is_string($bytes), 'Acceptance fixture file is unreadable.');
         $contents[$path] = $bytes;
         $entries[] = ['path' => $path, 'hash' => hash('sha256', $bytes), 'bytes' => strlen($bytes), 'mode' => $file->isExecutable() ? 'executable' : 'file'];
+    }
+    if (isset($contents['zcss.design.json'])) {
+        $design = zeroy_runtime_decode_json($contents['zcss.design.json']);
+        $compiled = is_array($design) ? zeroy_zcss_compile($design) : ['ok' => false];
+        zeroy_site_release_acceptance_assert(($compiled['ok'] ?? false) === true, 'Acceptance ThemeArtifact DesignDocument did not compile.');
+        foreach ([ZEROY_ZCSS_GENERATED_CSS_PATH => $compiled['css'], ZEROY_ZCSS_COMPILED_MANIFEST_PATH => $compiled['manifestJson']] as $path => $bytes) {
+            $contents[$path] = $bytes;
+            $entries[] = ['path' => $path, 'hash' => hash('sha256', $bytes), 'bytes' => strlen($bytes), 'mode' => 'file'];
+        }
     }
     usort($entries, static fn(array $left, array $right): int => strcmp($left['path'], $right['path']));
     $tar_path = tempnam(sys_get_temp_dir(), 'zeroy-site-release-acceptance-');
@@ -90,9 +109,23 @@ $logic = zeroy_site_release_acceptance_archive($root . '/test-suite/fixtures/sit
 $theme_stored = zeroy_runtime_materialize_artifact_archive($theme['manifest'], $theme['archiveBase64']);
 $logic_stored = zeroy_runtime_site_logic_materialize_artifact_archive($logic['manifest'], $logic['archiveBase64']);
 zeroy_site_release_acceptance_assert(!is_wp_error($theme_stored) && !is_wp_error($logic_stored), 'Could not materialize SiteRelease acceptance artifacts.');
+$missing_functions_theme = zeroy_site_release_acceptance_archive($root . '/test-suite/fixtures/site-theme', ZEROY_THEME_MANIFEST_CONTRACT, ['functions.php' => null]);
+$missing_functions_stored = zeroy_runtime_materialize_artifact_archive($missing_functions_theme['manifest'], $missing_functions_theme['archiveBase64']);
+zeroy_site_release_acceptance_assert(!is_wp_error($missing_functions_stored), 'Could not materialize the incomplete ThemeArtifact acceptance fixture.');
+$missing_functions_contract = zeroy_runtime_compile_theme_contract((string) $missing_functions_stored['artifactId'], (string) $logic_stored['artifactId']);
+zeroy_site_release_acceptance_assert(
+    is_wp_error($missing_functions_contract)
+    && $missing_functions_contract->get_error_code() === 'zeroy_theme_required_file_missing'
+    && (($missing_functions_contract->get_error_data()['path'] ?? null) === 'functions.php'),
+    'ThemeContract compilation accepted an artifact that request runtime cannot boot.',
+);
 $active = zeroy_runtime_active_site_release();
 $expected_active_release_id = is_array($active) ? (string) $active['active_release_id'] : null;
 $bootstrap = zeroy_runtime_prepare_site_release((string) $theme_stored['artifactId'], (string) $logic_stored['artifactId'], $expected_active_release_id, ['source' => 'acceptance-bootstrap']);
+zeroy_site_release_acceptance_assert(!is_wp_error($bootstrap) && ($bootstrap['state'] ?? null) === 'awaiting-browser' && is_array($bootstrap['browserVerification'] ?? null), 'Candidate did not stop at the required browser witness boundary.');
+$premature_activation = zeroy_runtime_activate_site_release((string) $bootstrap['releaseId']);
+zeroy_site_release_acceptance_assert(is_wp_error($premature_activation) && $premature_activation->get_error_code() === 'zeroy_site_release_not_prepared', 'Candidate activated without browser evidence.');
+$bootstrap = zeroy_acceptance_attach_browser_evidence($bootstrap, 'site-release-acceptance');
 zeroy_site_release_acceptance_assert(!is_wp_error($bootstrap) && ($bootstrap['state'] ?? null) === 'prepared', 'Could not prepare the snapshot acceptance baseline: ' . (is_wp_error($bootstrap) ? $bootstrap->get_error_code() . ' ' . $bootstrap->get_error_message() . ' ' . wp_json_encode($bootstrap->get_error_data()) : wp_json_encode($bootstrap['diagnostics']['proof']['blockingFailures'] ?? [])));
 $bootstrap_active = zeroy_runtime_activate_site_release((string) $bootstrap['releaseId']);
 zeroy_site_release_acceptance_assert(!is_wp_error($bootstrap_active), 'Could not activate the snapshot acceptance baseline.');
@@ -128,12 +161,13 @@ zeroy_site_release_acceptance_assert(
     ($theme_list['contract'] ?? null) === 'zeroy/site-artifact-file-list@1'
     && ($theme_list['artifact'] ?? null) === 'theme'
     && is_array($theme_list['files'] ?? null)
-    && count(array_filter($theme_list['files'], static fn(mixed $entry): bool => is_array($entry) && ($entry['path'] ?? null) === 'style.css')) === 1,
+    && count(array_filter($theme_list['files'], static fn(mixed $entry): bool => is_array($entry) && ($entry['path'] ?? null) === 'assets/css/site.css')) === 1
+    && count(array_filter($theme_list['files'], static fn(mixed $entry): bool => is_array($entry) && ($entry['path'] ?? null) === ZEROY_ZCSS_GENERATED_CSS_PATH)) === 1,
     'Remote theme file inspection did not return the active artifact manifest.'
 );
 $theme_read_request = new WP_REST_Request('GET', '/zeroy/v1/site-artifacts/theme/files');
 $theme_read_request->set_param('artifact', 'theme');
-$theme_read_request->set_param('path', 'style.css');
+$theme_read_request->set_param('path', 'assets/css/site.css');
 $theme_read = zeroy_runtime_site_artifact_files_endpoint($theme_read_request)->get_data();
 zeroy_site_release_acceptance_assert(
     ($theme_read['contract'] ?? null) === 'zeroy/site-artifact-file@1' && is_string($theme_read['content'] ?? null),
@@ -149,13 +183,28 @@ $empty_draft = static function (string $base_release_id) use ($new_draft): strin
     return (string) $new_draft($base_release_id)['draftId'];
 };
 
+$generated_entries = [];
+foreach ($theme_list['files'] as $entry) if (is_array($entry) && is_string($entry['path'] ?? null)) $generated_entries[$entry['path']] = $entry;
+$reserved_draft = $new_draft($base_release_id);
+foreach ([
+    [ZEROY_ZCSS_GENERATED_CSS_PATH, '/* forged generated CSS */', $generated_entries[ZEROY_ZCSS_GENERATED_CSS_PATH]['hash'] ?? null],
+    [ZEROY_ZCSS_COMPILED_MANIFEST_PATH, '{}', null],
+    [ZEROY_ZCSS_COMPILED_MANIFEST_PATH, null, $generated_entries[ZEROY_ZCSS_COMPILED_MANIFEST_PATH]['hash'] ?? null],
+] as [$path, $content, $expected_hash]) {
+    $reserved = zeroy_runtime_append_site_draft_operation((string) $reserved_draft['draftId'], [
+        'kind' => 'artifact.files',
+        'payload' => ['artifact' => 'theme', 'files' => [['path' => $path, 'content' => $content, 'expectedHash' => $expected_hash]]],
+    ], $draft_owner);
+    zeroy_site_release_acceptance_assert(is_wp_error($reserved) && $reserved->get_error_code() === 'zeroy_zcss_generated_path_reserved', 'SiteDraft accepted direct create, update, or delete access to a generated ZCSS path.');
+}
+
 // A stale artifact hash must fail while staging. It cannot be deferred to a
 // later CandidateProof, because subsequent Draft operations need the receipt's
 // returned hash as their sole remote precondition.
 $hash_conflict_draft = $new_draft($base_release_id);
 $hash_conflict = zeroy_runtime_append_site_draft_operation((string) $hash_conflict_draft['draftId'], [
     'kind' => 'artifact.files',
-    'payload' => ['artifact' => 'theme', 'files' => [['path' => 'style.css', 'content' => '/* invalid stale write */', 'expectedHash' => str_repeat('0', 64)]]],
+    'payload' => ['artifact' => 'theme', 'files' => [['path' => 'assets/css/site.css', 'content' => '/* invalid stale write */', 'expectedHash' => str_repeat('0', 64)]]],
 ], $draft_owner);
 zeroy_site_release_acceptance_assert(
     is_wp_error($hash_conflict) && $hash_conflict->get_error_code() === 'zeroy_site_artifact_hash_conflict',
@@ -219,7 +268,7 @@ foreach ([
     $appended = zeroy_runtime_append_site_draft_operation((string) $deletion_draft['draftId'], $operation, $draft_owner);
     zeroy_site_release_acceptance_assert(!is_wp_error($appended), 'Could not stage ThemeWorkspace deletion probe.');
 }
-$deletion_commit = zeroy_runtime_commit_site_draft((string) $deletion_draft['draftId'], $base_release_id, 'exercise ThemeWorkspace deletion', $draft_owner);
+$deletion_commit = zeroy_acceptance_commit_site_draft((string) $deletion_draft['draftId'], $base_release_id, 'exercise ThemeWorkspace deletion', $draft_owner);
 zeroy_site_release_acceptance_assert(!is_wp_error($deletion_commit), 'Could not commit ThemeWorkspace deletion probe: ' . (is_wp_error($deletion_commit) ? $deletion_commit->get_error_message() : ''));
 $active = zeroy_runtime_active_site_release();
 zeroy_site_release_acceptance_assert(is_array($active) && !is_file(zeroy_runtime_artifact_directory((string) $active['theme_artifact_id']) . '/' . $obsolete_path), 'Deleted ThemeWorkspace file survived in the active artifact.');
@@ -255,14 +304,14 @@ zeroy_site_release_acceptance_assert(
 // Replay is deliberately not a merge. If the current base changed the same
 // artifact file, the original expected hash remains authoritative, the source
 // stays open, and the diagnostic preserves the exact conflicting fact.
-$replay_conflict_style = (string) file_get_contents(zeroy_runtime_artifact_directory($baseline_theme_artifact_id) . '/style.css');
+$replay_conflict_style = (string) file_get_contents(zeroy_runtime_artifact_directory($baseline_theme_artifact_id) . '/assets/css/site.css');
 $replay_conflict_hash = hash('sha256', $replay_conflict_style);
 $replay_conflict_source = $new_draft($base_release_id);
 $replay_conflict_source_id = (string) $replay_conflict_source['draftId'];
 $replay_conflict_staged = zeroy_runtime_append_site_draft_operation($replay_conflict_source_id, [
     'kind' => 'artifact.files',
     'payload' => ['artifact' => 'theme', 'files' => [[
-        'path' => 'style.css',
+        'path' => 'assets/css/site.css',
         'content' => $replay_conflict_style . "\n/* stale replay source */\n",
         'expectedHash' => $replay_conflict_hash,
     ]]],
@@ -273,13 +322,13 @@ $replay_conflict_advance_id = (string) $replay_conflict_advance['draftId'];
 $replay_conflict_advanced = zeroy_runtime_append_site_draft_operation($replay_conflict_advance_id, [
     'kind' => 'artifact.files',
     'payload' => ['artifact' => 'theme', 'files' => [[
-        'path' => 'style.css',
+        'path' => 'assets/css/site.css',
         'content' => $replay_conflict_style . "\n/* active replacement */\n",
         'expectedHash' => $replay_conflict_hash,
     ]]],
 ], $draft_owner);
 zeroy_site_release_acceptance_assert(!is_wp_error($replay_conflict_advanced), 'Could not stage the replay conflict base advance.');
-$replay_conflict_commit = zeroy_runtime_commit_site_draft($replay_conflict_advance_id, $base_release_id, 'advance a conflicting artifact base', $draft_owner);
+$replay_conflict_commit = zeroy_acceptance_commit_site_draft($replay_conflict_advance_id, $base_release_id, 'advance a conflicting artifact base', $draft_owner);
 zeroy_site_release_acceptance_assert(!is_wp_error($replay_conflict_commit), 'Could not activate the replay conflict base advance.');
 $active = zeroy_runtime_active_site_release();
 $base_release_id = (string) $active['active_release_id'];
@@ -306,7 +355,7 @@ $logic_staged = zeroy_runtime_append_site_draft_operation((string) $logic_draft[
     'payload' => ['artifact' => 'site-logic', 'files' => [['path' => $logic_probe_path, 'content' => $logic_probe_content, 'expectedHash' => null]]],
 ], $draft_owner);
 zeroy_site_release_acceptance_assert(!is_wp_error($logic_staged), 'Could not stage a SiteLogicArtifact file.');
-$logic_commit = zeroy_runtime_commit_site_draft((string) $logic_draft['draftId'], $base_release_id, 'exercise SiteLogic Draft ownership', $draft_owner);
+$logic_commit = zeroy_acceptance_commit_site_draft((string) $logic_draft['draftId'], $base_release_id, 'exercise SiteLogic Draft ownership', $draft_owner);
 zeroy_site_release_acceptance_assert(!is_wp_error($logic_commit), 'Could not commit staged SiteLogicArtifact file: ' . (is_wp_error($logic_commit) ? $logic_commit->get_error_message() : ''));
 $active = zeroy_runtime_active_site_release();
 zeroy_site_release_acceptance_assert(
@@ -418,7 +467,7 @@ foreach ($auxiliary_operations as $operation) {
     $appended = zeroy_runtime_append_site_draft_operation((string) $auxiliary_draft['draftId'], $operation, $draft_owner);
     zeroy_site_release_acceptance_assert(!is_wp_error($appended), 'Could not stage an auxiliary LocalizableSubject operation: ' . (is_wp_error($appended) ? $appended->get_error_message() : ''));
 }
-$auxiliary_commit = zeroy_runtime_commit_site_draft((string) $auxiliary_draft['draftId'], $base_release_id, 'exercise auxiliary LocalizableSubjects', $draft_owner);
+$auxiliary_commit = zeroy_acceptance_commit_site_draft((string) $auxiliary_draft['draftId'], $base_release_id, 'exercise auxiliary LocalizableSubjects', $draft_owner);
 zeroy_site_release_acceptance_assert(!is_wp_error($auxiliary_commit), 'Could not commit SiteCopy and term translations: ' . (is_wp_error($auxiliary_commit) ? $auxiliary_commit->get_error_message() . ' ' . wp_json_encode($auxiliary_commit->get_error_data()) : ''));
 $active = zeroy_runtime_active_site_release();
 zeroy_site_release_acceptance_assert(is_array($active), 'Auxiliary LocalizableSubject commit did not activate.');
@@ -450,7 +499,7 @@ foreach ([
     $appended = zeroy_runtime_append_site_draft_operation((string) $retirement_draft['draftId'], $operation, $draft_owner);
     zeroy_site_release_acceptance_assert(!is_wp_error($appended), 'Could not stage canonical retirement probe.');
 }
-$retirement_commit = zeroy_runtime_commit_site_draft((string) $retirement_draft['draftId'], $base_release_id, 'exercise canonical retirement', $draft_owner);
+$retirement_commit = zeroy_acceptance_commit_site_draft((string) $retirement_draft['draftId'], $base_release_id, 'exercise canonical retirement', $draft_owner);
 zeroy_site_release_acceptance_assert(!is_wp_error($retirement_commit), 'Could not commit canonical retirement probe: ' . (is_wp_error($retirement_commit) ? $retirement_commit->get_error_message() : ''));
 zeroy_site_release_acceptance_assert(get_post((int) $retirement_post) instanceof WP_Post && is_wp_error(zeroy_runtime_canonical((int) $retirement_post)), 'Canonical retirement deleted the WordPress post or retained zeroY identity.');
 wp_delete_post((int) $retirement_post, true);
@@ -514,7 +563,7 @@ $required_operation = zeroy_runtime_append_site_draft_operation((string) $requir
     'payload' => ['postId' => (int) $required_content_probe, 'schemaId' => 'showcase', 'route' => 'required-content-probe', 'expectedSourceHash' => $required_projection['sourceHash']],
 ], $draft_owner);
 zeroy_site_release_acceptance_assert(!is_wp_error($required_operation), 'Could not stage required-content adoption.');
-$required_content_release = zeroy_runtime_prepare_site_release($baseline_theme_artifact_id, $baseline_logic_artifact_id, $base_release_id, ['source' => 'site-draft', 'draftId' => $required_draft['draftId'], 'message' => 'required-content candidate'], (string) $required_draft['draftId']);
+$required_content_release = zeroy_site_release_acceptance_browser_verify(zeroy_runtime_prepare_site_release($baseline_theme_artifact_id, $baseline_logic_artifact_id, $base_release_id, ['source' => 'site-draft', 'draftId' => $required_draft['draftId'], 'message' => 'required-content candidate'], (string) $required_draft['draftId']), $draft_owner);
 zeroy_site_release_acceptance_assert(
     !is_wp_error($required_content_release)
     && $required_content_release['state'] === 'failed'
@@ -550,7 +599,7 @@ zeroy_site_release_acceptance_assert(
     && count(array_filter($public_release_history['releases'] ?? [], static fn(mixed $release): bool => is_array($release) && ($release['releaseId'] ?? null) === $candidate_release_id)) === 0,
     'A SiteDraft candidate or its CandidateProof escaped its owner through the Release read surface.'
 );
-$required_commit = zeroy_runtime_commit_site_draft((string) $required_draft['draftId'], $base_release_id, 'required-content commit must fail', $draft_owner);
+$required_commit = zeroy_acceptance_commit_site_draft((string) $required_draft['draftId'], $base_release_id, 'required-content commit must fail', $draft_owner);
 $required_commit_data = is_wp_error($required_commit) ? $required_commit->get_error_data() : null;
 zeroy_site_release_acceptance_assert(
     is_wp_error($required_commit)
@@ -587,7 +636,7 @@ $unsafe_theme_stored = zeroy_runtime_materialize_artifact_archive($unsafe_theme[
 zeroy_site_release_acceptance_assert(!is_wp_error($unsafe_theme_stored), 'Could not materialize Theme boundary fixture.');
 delete_option('zeroy_site_release_boundary_probe');
 $unsafe_draft = $empty_draft($base_release_id);
-$unsafe_theme_release = zeroy_runtime_prepare_site_release((string) $unsafe_theme_stored['artifactId'], $baseline_logic_artifact_id, $base_release_id, ['source' => 'site-draft', 'draftId' => $unsafe_draft, 'message' => 'theme-boundary candidate'], $unsafe_draft);
+$unsafe_theme_release = zeroy_site_release_acceptance_browser_verify(zeroy_runtime_prepare_site_release((string) $unsafe_theme_stored['artifactId'], $baseline_logic_artifact_id, $base_release_id, ['source' => 'site-draft', 'draftId' => $unsafe_draft, 'message' => 'theme-boundary candidate'], $unsafe_draft), $draft_owner);
 zeroy_site_release_acceptance_assert(!is_wp_error($unsafe_theme_release) && $unsafe_theme_release['state'] === 'failed', 'Theme persistence boundary was not rejected before runtime execution.');
 zeroy_site_release_acceptance_assert(get_option('zeroy_site_release_boundary_probe', false) === false, 'Rejected ThemeArtifact executed during verification.');
 $candidate_theme_id = (string) $unsafe_theme_stored['artifactId'];
@@ -611,7 +660,7 @@ $unsafe_logic_stored = zeroy_runtime_site_logic_materialize_artifact_archive($un
 zeroy_site_release_acceptance_assert(!is_wp_error($unsafe_logic_stored), 'Could not materialize SiteLogic bootstrap boundary fixture.');
 delete_option($logic_boundary_option);
 $unsafe_logic_draft = $empty_draft($base_release_id);
-$unsafe_logic_release = zeroy_runtime_prepare_site_release($baseline_theme_artifact_id, (string) $unsafe_logic_stored['artifactId'], $base_release_id, ['source' => 'site-draft', 'draftId' => $unsafe_logic_draft, 'message' => 'SiteLogic bootstrap boundary candidate'], $unsafe_logic_draft);
+$unsafe_logic_release = zeroy_site_release_acceptance_browser_verify(zeroy_runtime_prepare_site_release($baseline_theme_artifact_id, (string) $unsafe_logic_stored['artifactId'], $base_release_id, ['source' => 'site-draft', 'draftId' => $unsafe_logic_draft, 'message' => 'SiteLogic bootstrap boundary candidate'], $unsafe_logic_draft), $draft_owner);
 zeroy_site_release_acceptance_assert(!is_wp_error($unsafe_logic_release) && $unsafe_logic_release['state'] === 'failed', 'Top-level SiteLogic persistence was not rejected before CandidateProof runtime execution.');
 $unsafe_logic_proof = zeroy_site_release_acceptance_proof($unsafe_logic_release);
 zeroy_site_release_acceptance_assert(
@@ -646,12 +695,12 @@ zeroy_site_release_acceptance_assert(
 zeroy_site_release_acceptance_assert(get_option($logic_boundary_option, false) === false, 'Rejected SiteLogic bootstrap executed during CandidateProof.');
 zeroy_site_release_acceptance_assert((zeroy_runtime_site_release_state_endpoint()->get_data()['activeReleaseId'] ?? null) === $base_release_id, 'Rejected SiteLogic bootstrap changed the active SiteRelease pointer.');
 $unsafe_lifecycle_logic = zeroy_site_release_acceptance_archive($root . '/test-suite/fixtures/site-logic', ZEROY_SITE_LOGIC_MANIFEST_CONTRACT, [
-    'bootstrap.php' => "<?php\ndefined('ABSPATH') || exit;\nfunction zeroy_acceptance_forbidden_release_transition(): mixed { return zeroy_runtime_commit_site_draft('forbidden', null, '', 'forbidden'); }\n",
+    'bootstrap.php' => "<?php\ndefined('ABSPATH') || exit;\nfunction zeroy_acceptance_forbidden_release_transition(): mixed { return zeroy_runtime_prepare_site_draft_commit('forbidden', null, '', 'forbidden'); }\n",
 ]);
 $unsafe_lifecycle_stored = zeroy_runtime_site_logic_materialize_artifact_archive($unsafe_lifecycle_logic['manifest'], $unsafe_lifecycle_logic['archiveBase64']);
 zeroy_site_release_acceptance_assert(!is_wp_error($unsafe_lifecycle_stored), 'Could not materialize SiteLogic lifecycle-boundary fixture.');
 $unsafe_lifecycle_draft = $empty_draft($base_release_id);
-$unsafe_lifecycle_release = zeroy_runtime_prepare_site_release($baseline_theme_artifact_id, (string) $unsafe_lifecycle_stored['artifactId'], $base_release_id, ['source' => 'site-draft', 'draftId' => $unsafe_lifecycle_draft, 'message' => 'SiteLogic lifecycle boundary candidate'], $unsafe_lifecycle_draft);
+$unsafe_lifecycle_release = zeroy_site_release_acceptance_browser_verify(zeroy_runtime_prepare_site_release($baseline_theme_artifact_id, (string) $unsafe_lifecycle_stored['artifactId'], $base_release_id, ['source' => 'site-draft', 'draftId' => $unsafe_lifecycle_draft, 'message' => 'SiteLogic lifecycle boundary candidate'], $unsafe_lifecycle_draft), $draft_owner);
 $unsafe_lifecycle_proof = !is_wp_error($unsafe_lifecycle_release) ? zeroy_site_release_acceptance_proof($unsafe_lifecycle_release) : [];
 zeroy_site_release_acceptance_assert(
     !is_wp_error($unsafe_lifecycle_release)
@@ -663,12 +712,12 @@ $fatal_logic = zeroy_site_release_acceptance_archive($root . '/test-suite/fixtur
 $fatal_logic_stored = zeroy_runtime_site_logic_materialize_artifact_archive($fatal_logic['manifest'], $fatal_logic['archiveBase64']);
 zeroy_site_release_acceptance_assert(!is_wp_error($fatal_logic_stored), 'Could not materialize SiteLogic fatal fixture.');
 $fatal_draft = $empty_draft($base_release_id);
-$fatal_logic_release = zeroy_runtime_prepare_site_release($baseline_theme_artifact_id, (string) $fatal_logic_stored['artifactId'], $base_release_id, ['source' => 'site-draft', 'draftId' => $fatal_draft, 'message' => 'SiteLogic-fatal candidate'], $fatal_draft);
+$fatal_logic_release = zeroy_site_release_acceptance_browser_verify(zeroy_runtime_prepare_site_release($baseline_theme_artifact_id, (string) $fatal_logic_stored['artifactId'], $base_release_id, ['source' => 'site-draft', 'draftId' => $fatal_draft, 'message' => 'SiteLogic-fatal candidate'], $fatal_draft), $draft_owner);
 zeroy_site_release_acceptance_assert(!is_wp_error($fatal_logic_release) && $fatal_logic_release['state'] === 'failed', 'Candidate SiteLogic fatal was not rejected.');
 zeroy_site_release_acceptance_assert((zeroy_runtime_site_release_state_endpoint()->get_data()['activeReleaseId'] ?? null) === $base_release_id, 'Candidate failure moved the active SiteRelease pointer.');
-$prepare = static function (string $message) use ($empty_draft, $baseline_theme_artifact_id, $baseline_logic_artifact_id, $base_release_id): array|WP_Error {
+$prepare = static function (string $message) use ($empty_draft, $baseline_theme_artifact_id, $baseline_logic_artifact_id, $base_release_id, $draft_owner): array|WP_Error {
     $draft = $empty_draft($base_release_id);
-    return zeroy_runtime_prepare_site_release($baseline_theme_artifact_id, $baseline_logic_artifact_id, $base_release_id, ['source' => 'site-draft', 'draftId' => $draft, 'message' => $message], $draft);
+    return zeroy_site_release_acceptance_browser_verify(zeroy_runtime_prepare_site_release($baseline_theme_artifact_id, $baseline_logic_artifact_id, $base_release_id, ['source' => 'site-draft', 'draftId' => $draft, 'message' => $message], $draft), $draft_owner);
 };
 $first = $prepare('first concurrent candidate');
 $second = $prepare('second concurrent candidate');
@@ -688,7 +737,7 @@ unset($GLOBALS['zeroy_runtime_request_release'], $GLOBALS['zeroy_runtime_site_lo
 $conflict = zeroy_runtime_activate_site_release($second['releaseId']);
 zeroy_site_release_acceptance_assert(is_wp_error($conflict) && $conflict->get_error_code() === 'zeroy_active_site_release_changed', 'Concurrent activation was not rejected by the SiteRelease CAS.');
 $stale_draft = $empty_draft((string) $first['releaseId']);
-$stale = zeroy_runtime_prepare_site_release($baseline_theme_artifact_id, $baseline_logic_artifact_id, $first['releaseId'], ['source' => 'site-draft', 'draftId' => $stale_draft, 'message' => 'stale-proof candidate'], $stale_draft);
+$stale = zeroy_site_release_acceptance_browser_verify(zeroy_runtime_prepare_site_release($baseline_theme_artifact_id, $baseline_logic_artifact_id, $first['releaseId'], ['source' => 'site-draft', 'draftId' => $stale_draft, 'message' => 'stale-proof candidate'], $stale_draft), $draft_owner);
 zeroy_site_release_acceptance_assert(!is_wp_error($stale) && $stale['state'] === 'prepared', 'Stale-proof fixture did not prepare.');
 $proof_row = zeroy_runtime_site_release_proof_row($stale['proofId']);
 zeroy_site_release_acceptance_assert(is_array($proof_row), 'Stale-proof fixture has no stored proof.');
@@ -727,13 +776,13 @@ $migration_logic = zeroy_site_release_acceptance_archive($root . '/test-suite/fi
 $migration_logic_stored = zeroy_runtime_site_logic_materialize_artifact_archive($migration_logic['manifest'], $migration_logic['archiveBase64']);
 zeroy_site_release_acceptance_assert(!is_wp_error($migration_logic_stored), 'Could not materialize the SiteLogic migration fixture.');
 $migration_failure_draft = $empty_draft((string) $first['releaseId']);
-$migration_failure = zeroy_runtime_prepare_site_release((string) $unsafe_theme_stored['artifactId'], (string) $migration_logic_stored['artifactId'], (string) $first['releaseId'], ['source' => 'site-draft', 'draftId' => $migration_failure_draft, 'message' => 'migration must wait for proof'], $migration_failure_draft);
+$migration_failure = zeroy_site_release_acceptance_browser_verify(zeroy_runtime_prepare_site_release((string) $unsafe_theme_stored['artifactId'], (string) $migration_logic_stored['artifactId'], (string) $first['releaseId'], ['source' => 'site-draft', 'draftId' => $migration_failure_draft, 'message' => 'migration must wait for proof'], $migration_failure_draft), $draft_owner);
 zeroy_site_release_acceptance_assert(!is_wp_error($migration_failure) && $migration_failure['state'] === 'failed', 'Invalid candidate did not fail before migration application.');
 global $wpdb;
 $migration_ledger_count = (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM ' . zeroy_runtime_table('site_logic_migration_ledger') . ' WHERE idempotency_key = %s', $migration_key));
 zeroy_site_release_acceptance_assert($migration_ledger_count === 0, 'Rejected CandidateProof applied a SiteLogic migration.');
 $migration_draft = $empty_draft((string) $first['releaseId']);
-$migration_release = zeroy_runtime_prepare_site_release($baseline_theme_artifact_id, (string) $migration_logic_stored['artifactId'], (string) $first['releaseId'], ['source' => 'site-draft', 'draftId' => $migration_draft, 'message' => 'verified migration activation'], $migration_draft);
+$migration_release = zeroy_site_release_acceptance_browser_verify(zeroy_runtime_prepare_site_release($baseline_theme_artifact_id, (string) $migration_logic_stored['artifactId'], (string) $first['releaseId'], ['source' => 'site-draft', 'draftId' => $migration_draft, 'message' => 'verified migration activation'], $migration_draft), $draft_owner);
 zeroy_site_release_acceptance_assert(!is_wp_error($migration_release) && $migration_release['state'] === 'prepared', 'Valid candidate with SiteLogic migration was not prepared.');
 $migration_active = zeroy_runtime_activate_site_release((string) $migration_release['releaseId']);
 zeroy_site_release_acceptance_assert(!is_wp_error($migration_active) && $migration_active['state'] === 'active', 'Verified SiteLogic migration candidate did not activate.');

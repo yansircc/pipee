@@ -11,6 +11,31 @@ WordPress / ACF canonical facts
 
 The Connector has four agent tools: `zeroy_inspect`, `zeroy_theme_stage`, `zeroy_content_stage`, and `zeroy_site_commit`.
 
+## ZCSS Core v1
+
+ZCSS is the deterministic style compiler inside the remote SiteDraft compiler. The Agent owns `zcss.design.json` and manifest-declared custom CSS; the Connector alone writes `assets/css/zcss.generated.css` and `assets/css/zcss.manifest.json`. The same DesignDocument and compiler identity always produce the same bytes and hashes. Request-time code only reads stylesheets pinned by one active SiteRelease.
+
+The public v1 surface is:
+
+- contract `zeroy/zcss-design@1`, compiler `zeroy/zcss-compiler@1` version `1.0.0`;
+- generated namespace `.z-*` and `--z-*`;
+- site namespace `--site-*`, component-private properties outside both reserved namespaces, and state classes `.is-*`;
+- primitives `z-container`, `z-section`, `z-stack`, `z-cluster`, `z-grid`, `z-sidebar`, `z-switcher`, `z-content-grid`, `z-reel`, and `z-visually-hidden`;
+- generated stylesheet first, followed by the exact ordered custom styles declared in ThemeManifest v3.
+
+Do not copy a token list from documentation. `zeroy_inspect { "resource": "zcssContract" }` is the authoring source for the exact DesignDocument schema, minimal document, primitives, namespaces, compiler identity, and generated paths. `styleSurface` is the read-only projection of the active Release or an owner-scoped Draft; it reports selectors, custom properties, references, stylesheet hashes, and namespace violations without becoming a second style store.
+
+Compact Agent workflow:
+
+1. Inspect `sites`, `site`, `acf`, and `zcssContract`.
+2. Stage a complete ThemeManifest v3, ThemeSchema, DesignDocument, custom CSS, and templates into one Draft. `requiresCapabilities` is `{}` unless a template calls a capability supplied by the pinned SiteLogicArtifact; Connector and ZCSS capabilities never belong there.
+3. Inspect the Draft `styleSurface`, then reuse or refine the projected component surface. Never write a generated path.
+4. Stage typed canonical and locale operations into the same Draft.
+5. Commit the exact Draft and base Release. The tool pauses at an immutable browser challenge, runs Chromium through CDP, submits evidence bound to that challenge, and activates only when CandidateProof is green.
+6. Inspect `release`, `proof`, active `styleSurface`, and `externalCheck` before reporting completion.
+
+Browser evidence covers the declared scenario matrix at 360, 768, and 1440 CSS pixels, including route/status identity, exact stylesheet order and hashes, horizontal/media overflow, keyboard focus, reduced motion, and semantic contrast pairs. It proves those checks ran against the immutable candidate; it does not prove visual taste or business quality. Set `ZEROY_BROWSER_EXECUTABLE` only when automatic Chromium discovery cannot find a compatible browser.
+
 ## Translation workflow
 
 1. Inspect `sites`, then the selected `site`, `release`, and active `themeFiles`.
@@ -91,6 +116,8 @@ ZEROY_REMOTE_ONLY_LOCALWP_PORT=10030 pnpm --filter @yansircc/pi-zeroy run accept
 ZEROY_BOOTSTRAP_LOCALWP_PORT=10022 pnpm --filter @yansircc/pi-zeroy run acceptance:bootstrap
 ZEROY_LOCALWP_PORT=10003 pnpm --filter @yansircc/pi-zeroy run acceptance:site-release
 ZEROY_UPGRADE_LOCALWP_PORT=10070 pnpm --filter @yansircc/pi-zeroy run acceptance:upgrade
+ZEROY_ZCSS_BROWSER_LOCALWP_PORT=10013 pnpm --filter @yansircc/pi-zeroy run acceptance:zcss-browser
+ZEROY_ACCEPTANCE_MODEL=k3 ZEROY_ZCSS_AGENT_LOCALWP_PORT=10013 pnpm --filter @yansircc/pi-zeroy run acceptance:zcss-agent
 ```
 
 `acceptance:bootstrap` and `acceptance:site-release` both require a fresh disposable LocalWP site. The SiteRelease runner checks that zeroY has no prior release, proof, Draft, or migration ledger before it starts; this prevents a reused site's storage epoch from masquerading as a product regression. It syncs the Connector, exercises candidate runtime verification, Theme boundary rejection, SiteLogic fatal recovery, capability migration/action execution, concurrent activation CAS, and stale-proof rejection.
@@ -98,3 +125,5 @@ ZEROY_UPGRADE_LOCALWP_PORT=10070 pnpm --filter @yansircc/pi-zeroy run acceptance
 `acceptance:remote-only` is a deterministic Pi transport/host acceptance, not a claim about a hosted model's reasoning quality. It first creates the production npm archive, extracts it into a temporary directory, and deploys both the Pi extension and WordPress connector from that one archive. Pi then starts in an empty temporary cwd with built-in tools, ambient extensions, skills, prompts, context files, and themes disabled; the only callable surface is the four zeroY tools. A local fake Anthropic provider drives the exact remote calls against a fresh LocalWP Connector and the resulting Pi session JSONL proves the single Draft → proof → active SiteRelease loop without a filesystem, database, SSH, or source-code tool.
 
 `acceptance:upgrade` begins with a real prior SiteRelease table shape, then starts a fresh WordPress process with the current Connector. It proves that exact columns are added without rebuilding unrelated tables, an old active Release becomes one proof-backed Snapshot Release, and no old Release/proof row remains exposed.
+
+`acceptance:zcss-browser` resets only zeroY-owned state on the explicitly named disposable site, prepares one immutable candidate, runs the bundled Pi Chromium verifier against the full challenge, and activates it with 36 browser results. `acceptance:zcss-agent` additionally installs its deterministic ACF/CPT facts and lets a real model build the bilingual site using only the four zeroY tools. It is a manual, credentialed dogfood gate rather than ordinary CI. See [the ZCSS developer runbook](docs/zcss-runbook.md).

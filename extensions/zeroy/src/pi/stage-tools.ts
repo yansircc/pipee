@@ -1,7 +1,8 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import type { NodeServices } from "@effect/platform-node/NodeServices";
 import { Effect } from "effect";
-import { connectorPost, decodeConnectorPayload } from "../domain/client.js";
+import { verifyBrowserChallenge } from "../domain/browser-verifier.js";
+import { connectorPost, decodeConnectorPayload, ZeroYConnectorError } from "../domain/client.js";
 import type {
   ContentStageInput,
   JsonRecord,
@@ -47,17 +48,22 @@ const stage = (
             ),
           ),
         ),
-        Effect.map((receipt) =>
-          result(
+        Effect.map((receipt) => {
+          const zcssFields: ReadonlyArray<readonly [string, string]> =
+            receipt.zcss === null
+              ? []
+              : [
+                  ["ZCSS compiler", receipt.zcss.compiler.id],
+                  ["Design", receipt.zcss.designHash.slice(0, 12)],
+                  ["Output", receipt.zcss.outputHash.slice(0, 12)],
+                ];
+          return result(
             text(receipt),
             "zeroY draft staged",
             "The operation is remote and not active until site commit.",
-            [
-              ["Site", siteId],
-              ["Draft", receipt.draftId],
-            ],
-          ),
-        ),
+            [["Site", siteId], ["Draft", receipt.draftId], ...zcssFields],
+          );
+        }),
       ),
     ),
   );
@@ -158,10 +164,29 @@ export const siteCommitTool = (
       ],
       Effect.gen(function* () {
         const site = yield* connection(active, input.siteId);
-        const committed = yield* connectorPost(
+        const preparedPayload = yield* connectorPost(
           site,
           `site-drafts/${input.draftId}/commit`,
           { expectedBaseReleaseId: input.expectedBaseReleaseId, message: input.message ?? "" },
+          signal,
+          active.draftOwnerId,
+        );
+        const prepared = yield* decodeConnectorPayload(
+          SiteReleaseReceiptContract,
+          "SiteRelease browser preparation receipt",
+          preparedPayload,
+        );
+        if (prepared.state !== "awaiting-browser" || prepared.browserVerification === null) {
+          return yield* new ZeroYConnectorError({
+            code: "zeroy_browser_challenge_missing",
+            message: "Connector prepared a SiteRelease without its required browser challenge.",
+          });
+        }
+        const browserEvidence = yield* verifyBrowserChallenge(prepared.browserVerification, signal);
+        const committed = yield* connectorPost(
+          site,
+          `site-releases/${prepared.releaseId}/browser-evidence`,
+          { browserEvidence },
           signal,
           active.draftOwnerId,
         );
@@ -178,6 +203,12 @@ export const siteCommitTool = (
             ["Site", input.siteId],
             ["Draft", input.draftId],
             ["Release", release.releaseId],
+            ...(release.zcss !== null &&
+            typeof release.zcss === "object" &&
+            "outputHash" in release.zcss &&
+            typeof release.zcss.outputHash === "string"
+              ? [["ZCSS output", release.zcss.outputHash.slice(0, 12)] as const]
+              : []),
           ],
         );
       }),

@@ -49,7 +49,11 @@
     "acceptance:agent-stage-recovery": "pnpm run pi:build && node scripts/agent-stage-recovery-acceptance.mjs",
     "acceptance:bootstrap": "node scripts/bootstrap-site-release-acceptance.mjs",
     "acceptance:upgrade": "node scripts/site-release-hard-cut-upgrade-acceptance.mjs",
-    "acceptance:site-release": "node scripts/site-release-acceptance.mjs"
+    "acceptance:site-release": "node scripts/site-release-acceptance.mjs",
+    "acceptance:zcss-browser": "pnpm run pi:build && node scripts/zcss-browser-acceptance.mjs",
+    "acceptance:zcss-agent": "pnpm run pi:build && node scripts/zcss-agent-acceptance.mjs",
+    "spike:zcss": "php test-suite/zcss-pure-spike.php",
+    "zcss:verify": "php test-suite/zcss-pure-spike.php"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "catalog:",

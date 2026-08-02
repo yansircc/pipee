@@ -2,6 +2,32 @@
 
 defined('ABSPATH') || exit;
 
+function zeroy_runtime_site_draft_zcss_summary(array $draft): array|WP_Error|null
+{
+    if (!in_array((string) ($draft['state'] ?? ''), ['open', 'committing'], true)) return null;
+    $active = zeroy_runtime_site_draft_active_base($draft);
+    if (is_wp_error($active)) return $active;
+    return zeroy_runtime_with_site_draft_artifact_directory(
+        $draft,
+        $active === [] ? null : $active,
+        'theme',
+        static function (string $directory): array|WP_Error {
+            $path = rtrim($directory, '/') . '/' . ZEROY_ZCSS_COMPILED_MANIFEST_PATH;
+            $compiled = is_file($path) ? zeroy_runtime_decode_json((string) file_get_contents($path)) : null;
+            if (!is_array($compiled) || ($compiled['contract'] ?? null) !== ZEROY_ZCSS_COMPILED_CONTRACT) return zeroy_runtime_error('zeroy_zcss_output_invalid', 'Draft ZCSS compiled manifest is unavailable.', 409);
+            return [
+                'contract' => ZEROY_ZCSS_COMPILED_CONTRACT,
+                'compiler' => $compiled['compiler'],
+                'designHash' => $compiled['designHash'],
+                'outputHash' => $compiled['outputHash'],
+                'tokenCount' => count($compiled['tokens'] ?? []),
+                'primitiveCount' => count($compiled['primitives'] ?? []),
+                'warningCount' => count($compiled['warnings'] ?? []),
+            ];
+        },
+    );
+}
+
 /**
  * Candidate discovery is a read-only projection of the same operation log
  * commit will compile. It never materializes an artifact, creates a release,

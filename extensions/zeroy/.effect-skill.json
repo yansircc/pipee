@@ -1,7 +1,14 @@
 {
   "shape": ["library"],
   "executableEdges": [],
-  "allowedAdapters": [],
+  "allowedAdapters": [
+    {
+      "path": "src/domain/browser-verifier.ts",
+      "owner": "@zeroy-browser-verifier",
+      "reason": "terminal Chromium DevTools WebSocket adapter",
+      "rules": ["EFF402"]
+    }
+  ],
   "hostTooling": [
     {
       "path": "scripts/**",

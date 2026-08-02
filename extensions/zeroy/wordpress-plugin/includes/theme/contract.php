@@ -6,6 +6,11 @@ const ZEROY_THEME_ARTIFACT_CONTRACT = 'zeroy/theme-artifact@1';
 const ZEROY_THEME_MANIFEST_CONTRACT = 'zeroy/theme-manifest@1';
 const ZEROY_THEME_POLICY_CONTRACT = 'zeroy/theme-artifact-policy@1';
 
+function zeroy_runtime_theme_required_files(): array
+{
+    return ['functions.php', 'zeroy.schema.json', 'zeroy.theme.json', 'zcss.design.json', 'assets/css/site.css'];
+}
+
 function zeroy_runtime_theme_policy(): array
 {
     return [

@@ -45,6 +45,7 @@ describe("zeroY remote stage contracts", () => {
       lastArtifactFiles: [
         { artifact: "theme", path: "style.css", state: "written", hash: "b".repeat(64) },
       ],
+      zcss: null,
       createdAt: "2026-08-02 00:00:00",
       updatedAt: "2026-08-02 00:00:00",
     };
@@ -64,6 +65,7 @@ describe("zeroY remote stage contracts", () => {
       themeArtifactId: "sha256:" + "c".repeat(64),
       siteLogicArtifactId: "sha256:" + "d".repeat(64),
       themeContractHash: "e".repeat(64),
+      zcss: null,
       siteLogicContractHash: "f".repeat(64),
       storageEpoch: 0,
       snapshotHash: "a".repeat(64),
@@ -77,6 +79,7 @@ describe("zeroY remote stage contracts", () => {
         migration: null,
         proof: { blockingFailures: [] },
       },
+      browserVerification: null,
       affectedSubjects: [],
       affectedArtifacts: [],
       createdAt: "2026-08-02 00:00:00",
@@ -99,6 +102,9 @@ describe("zeroY remote stage contracts", () => {
       { siteId, resource: "schema" },
       { siteId, resource: "inventory" },
       { siteId, resource: "acf" },
+      { siteId, resource: "zcssContract" },
+      { siteId, resource: "styleSurface" },
+      { siteId, resource: "styleSurface", draftId: "draft-1" },
       { siteId, resource: "release" },
       { siteId, resource: "draft", draftId: "draft-1" },
       { siteId, resource: "proof", proofId: "proof-1" },

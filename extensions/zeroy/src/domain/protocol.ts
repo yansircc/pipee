@@ -226,22 +226,46 @@ export const InspectInputContract = Type.Union([
     perPage: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
   }),
   Type.Object({ siteId: SiteId, resource: Type.Literal("acf") }),
-  Type.Object({ siteId: SiteId, resource: Type.Literal("release") }),
+  Type.Object({ siteId: SiteId, resource: Type.Literal("zcssContract") }),
   Type.Object({
     siteId: SiteId,
-    resource: Type.Literal("draft"),
-    draftId: Type.String({ minLength: 1 }),
+    resource: Type.Literal("styleSurface"),
+    draftId: Type.Optional(
+      Type.String({
+        minLength: 1,
+        description:
+          "Owner-scoped open SiteDraft. Omit to project the exact active SiteRelease StyleSurface.",
+      }),
+    ),
   }),
+  Type.Object({ siteId: SiteId, resource: Type.Literal("release") }),
+  Type.Object(
+    {
+      siteId: SiteId,
+      resource: Type.Literal("draft"),
+      draftId: Type.String({ minLength: 1 }),
+    },
+    {
+      description:
+        "Read the owner-scoped SiteDraft candidate, including artifactManifests whose entries are the current staged file hashes.",
+    },
+  ),
   Type.Object({
     siteId: SiteId,
     resource: Type.Literal("proof"),
     proofId: Type.String({ minLength: 1 }),
   }),
-  Type.Object({
-    siteId: SiteId,
-    resource: Type.Literal("themeFiles"),
-    path: Type.Optional(Type.String({ minLength: 1 })),
-  }),
+  Type.Object(
+    {
+      siteId: SiteId,
+      resource: Type.Literal("themeFiles"),
+      path: Type.Optional(Type.String({ minLength: 1 })),
+    },
+    {
+      description:
+        "Read files from the active SiteRelease ThemeArtifact only. For current staged hashes, inspect resource draft and read candidate.artifactManifests.theme.entries.",
+    },
+  ),
   Type.Object({
     siteId: SiteId,
     resource: Type.Literal("content"),
@@ -304,6 +328,25 @@ export const SiteDraftReceiptContract = Type.Object({
       hash: Type.Union([Type.String({ pattern: "^[a-f0-9]{64}$" }), Type.Null()]),
     }),
   ),
+  zcss: Type.Union([
+    Type.Object({
+      contract: Type.Literal("zeroy/zcss-compiled-contract@1"),
+      compiler: Type.Object({
+        id: Type.Literal("zeroy/zcss-compiler@1"),
+        version: Type.String({ minLength: 1 }),
+        sourceHash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+      }),
+      designHash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+      outputHash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+      tokenCount: Type.Integer({ minimum: 0 }),
+      primitiveCount: Type.Integer({ minimum: 0 }),
+      warningCount: Type.Integer({ minimum: 0 }),
+    }),
+    Type.Null({
+      description:
+        "The open Draft does not yet contain a complete compilable ThemeManifest v3 and ZCSS design.",
+    }),
+  ]),
   createdAt: Type.String({ minLength: 1 }),
   updatedAt: Type.String({ minLength: 1 }),
 });
@@ -374,7 +417,7 @@ export const ThemeStageInputContract = Type.Object(
         Type.Object({
           path: Type.String({
             minLength: 1,
-            description: "Path relative to the remote active theme root.",
+            description: "Path relative to the candidate ThemeArtifact root.",
           }),
           content: Type.String({
             description: "Complete replacement bytes for a created or existing file.",
@@ -382,7 +425,8 @@ export const ThemeStageInputContract = Type.Object(
           expectedHash: Type.Union([
             Type.String({
               pattern: "^[a-f0-9]{64}$",
-              description: "Hash returned by themeFiles when replacing an existing file.",
+              description:
+                "Current file hash. Read active hashes from themeFiles; after staging, recover the Draft hash from draft.candidate.artifactManifests.theme.entries.",
             }),
             Type.Null({ description: "Use only when creating a new file." }),
           ]),
@@ -390,12 +434,13 @@ export const ThemeStageInputContract = Type.Object(
         Type.Object({
           path: Type.String({
             minLength: 1,
-            description: "Path relative to the remote active theme root.",
+            description: "Path relative to the candidate ThemeArtifact root.",
           }),
           content: Type.Null({ description: "Delete the existing file." }),
           expectedHash: Type.String({
             pattern: "^[a-f0-9]{64}$",
-            description: "Current hash returned by themeFiles for the file being deleted.",
+            description:
+              "Current file hash. Read active hashes from themeFiles; after staging, recover the Draft hash from draft.candidate.artifactManifests.theme.entries.",
           }),
         }),
       ]),
@@ -527,6 +572,86 @@ export const SiteCommitInputContract = Type.Object({
 });
 export type SiteCommitInput = Static<typeof SiteCommitInputContract>;
 
+const BrowserViewportContract = Type.Object({
+  id: Type.Union([Type.Literal("mobile"), Type.Literal("tablet"), Type.Literal("desktop")]),
+  width: Type.Integer({ minimum: 1 }),
+  height: Type.Integer({ minimum: 1 }),
+});
+const BrowserContrastPairContract = Type.Object({
+  id: Type.String({ minLength: 1 }),
+  foreground: Type.String({ pattern: "^--z-" }),
+  background: Type.String({ pattern: "^--z-" }),
+  minimum: Type.Number({ minimum: 1 }),
+});
+export const BrowserVerificationChallengeContract = Type.Object({
+  contract: Type.Literal("zeroy/browser-verification-challenge@1"),
+  verifier: Type.Object({
+    id: Type.Literal("zeroy/pi-browser-verifier@1"),
+    version: Type.Literal("1"),
+  }),
+  releaseId: Type.String({ minLength: 1 }),
+  themeArtifactId: Type.String({ minLength: 1 }),
+  scenarioSetHash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+  stylesheetSetHash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+  stylesheets: Type.Array(
+    Type.Object({
+      path: Type.String({ minLength: 1 }),
+      hash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+      url: Type.String({ minLength: 1 }),
+    }),
+    { minItems: 1 },
+  ),
+  viewports: Type.Array(BrowserViewportContract, { minItems: 3, maxItems: 3 }),
+  contrastPairs: Type.Array(BrowserContrastPairContract, { minItems: 1 }),
+  scenarios: Type.Array(
+    Type.Object({
+      id: Type.String({ minLength: 1 }),
+      kind: Type.String({ minLength: 1 }),
+      locale: Type.String({ minLength: 1 }),
+      url: Type.String({ minLength: 1 }),
+      expectedStatus: Type.Integer({ minimum: 100, maximum: 599 }),
+      expectedRouteKind: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    }),
+    { minItems: 1 },
+  ),
+  challengeHash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+});
+export type BrowserVerificationChallenge = Static<typeof BrowserVerificationChallengeContract>;
+
+const BrowserResultContract = Type.Object({
+  scenario: Type.String({ minLength: 1 }),
+  viewport: Type.String({ minLength: 1 }),
+  status: Type.Integer({ minimum: 100, maximum: 599 }),
+  routeKind: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  stylesheetIdentity: Type.String(),
+  stylesheets: Type.Array(Type.String()),
+  documentClientWidth: Type.Integer({ minimum: 1 }),
+  documentScrollWidth: Type.Integer({ minimum: 1 }),
+  overflowElements: Type.Integer({ minimum: 0 }),
+  overflowSamples: Type.Array(Type.String({ minLength: 1 }), { maxItems: 5 }),
+  mediaOverflowElements: Type.Integer({ minimum: 0 }),
+  mediaOverflowSamples: Type.Array(Type.String({ minLength: 1 }), { maxItems: 5 }),
+  focusVisible: Type.Union([Type.Boolean(), Type.Null()]),
+  reducedMotion: Type.Boolean(),
+  contrastRatios: Type.Record(Type.String({ minLength: 1 }), Type.Number({ minimum: 0 })),
+});
+export const BrowserEvidenceContract = Type.Object({
+  contract: Type.Literal("zeroy/browser-evidence@1"),
+  challengeHash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+  releaseId: Type.String({ minLength: 1 }),
+  themeArtifactId: Type.String({ minLength: 1 }),
+  scenarioSetHash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+  stylesheetSetHash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
+  verifier: Type.Object({
+    id: Type.Literal("zeroy/pi-browser-verifier@1"),
+    version: Type.Literal("1"),
+    engine: Type.String({ minLength: 1 }),
+    engineVersion: Type.String({ minLength: 1 }),
+  }),
+  results: Type.Array(BrowserResultContract, { minItems: 1 }),
+});
+export type BrowserEvidence = Static<typeof BrowserEvidenceContract>;
+
 /** Compact public projection of the immutable SiteRelease fact. */
 export const SiteReleaseReceiptContract = Type.Object({
   contract: Type.Literal("zeroy/site-release@1"),
@@ -535,12 +660,14 @@ export const SiteReleaseReceiptContract = Type.Object({
   themeArtifactId: Type.String({ minLength: 1 }),
   siteLogicArtifactId: Type.String({ minLength: 1 }),
   themeContractHash: Type.String({ minLength: 64, maxLength: 64 }),
+  zcss: Type.Union([JsonValue, Type.Null()]),
   siteLogicContractHash: Type.String({ minLength: 64, maxLength: 64 }),
   storageEpoch: Type.Integer({ minimum: 0 }),
   snapshotHash: Type.String({ minLength: 64, maxLength: 64 }),
   expectedActiveReleaseId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   state: Type.Union([
     Type.Literal("preparing"),
+    Type.Literal("awaiting-browser"),
     Type.Literal("prepared"),
     Type.Literal("failed"),
     Type.Literal("active"),
@@ -554,6 +681,7 @@ export const SiteReleaseReceiptContract = Type.Object({
     migration: Type.Union([JsonValue, Type.Null()]),
     proof: Type.Union([JsonValue, Type.Null()]),
   }),
+  browserVerification: Type.Union([BrowserVerificationChallengeContract, Type.Null()]),
   affectedSubjects: Type.Array(JsonValue),
   affectedArtifacts: Type.Array(JsonValue),
   createdAt: Type.String({ minLength: 1 }),
@@ -948,6 +1076,6 @@ export const decodeSiteCommitInput = (input: unknown) =>
   decodeExact<SiteCommitInput>(SiteCommitInputContract, "site commit", input);
 
 export const CONTENT_PROMPT_GUIDELINES =
-  "Begin with zeroy_inspect resource sites, then inspect the selected site. Stage remote theme files and typed content operations into one remote SiteDraft. After staging a schema, inspect resource draft: its candidate ThemeContract and ThemeSchema are the only contract for subsequent content. For an unmanaged post, inspect content existing-post with draftId and schemaId to get its exact candidate FieldProjection. If staging reports zeroy_site_draft_base_changed, call replayDraft with sourceDraftId and no draftId; it either returns one new open Draft with the complete operation log or a structured conflict without changing either release. Inspect the draft and proof diagnostics, then call zeroy_site_commit with the expected base release. Never write local files, bypass the connector, or treat staging as live publication.";
+  "Begin with zeroy_inspect resource sites, then inspect the selected site and zcssContract. Inspect the active styleSurface before editing an existing theme. Stage zcss.design.json, manifest-declared custom CSS, templates, and typed content operations into one remote SiteDraft; generated ZCSS paths are compiler-owned and never writable. Inspect the Draft styleSurface and candidate ThemeSchema before commit. For an unmanaged post, inspect content existing-post with draftId and schemaId to get its exact candidate FieldProjection. If staging reports zeroy_site_draft_base_changed, call replayDraft with sourceDraftId and no draftId; it either returns one new open Draft with the complete operation log or a structured conflict without changing either release. Inspect the proof diagnostics, then call zeroy_site_commit with the expected base release and run externalCheck. Never write local files, bypass the connector, or treat staging as live publication.";
 
 export type JsonRecord = Readonly<Record<string, unknown>>;

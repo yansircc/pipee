@@ -1,0 +1,17 @@
+.production-lines__grid {
+  --z-grid-min: 18rem;
+}
+.production-card {
+  background: var(--z-color-surface-muted);
+  border: var(--z-border-width) solid var(--z-color-border);
+  border-radius: var(--z-radius);
+  box-shadow: var(--z-shadow);
+  padding: var(--z-space-l);
+}
+.eyebrow {
+  color: var(--z-color-accent-700);
+  font-size: var(--z-text-s);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

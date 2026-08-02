@@ -99,7 +99,12 @@ function zeroy_runtime_normalize_capability_reference(mixed $input): array|WP_Er
     $capability = is_string($input['capability'] ?? null) ? $input['capability'] : '';
     $version = is_string($input['version'] ?? null) ? $input['version'] : '';
     if (!preg_match('/\A[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*\z/', $capability) || !preg_match('/\A\^[1-9][0-9]*\z/', $version)) {
-        return zeroy_runtime_error('zeroy_capability_reference_invalid', 'Capability references require a stable capability name and a major version such as ^1.', 400);
+        return zeroy_runtime_error(
+            'zeroy_capability_reference_invalid',
+            'Capability references require a stable capability name and a major version such as ^1.',
+            400,
+            ['capability' => $capability, 'version' => $version],
+        );
     }
     return ['capability' => $capability, 'version' => $version];
 }

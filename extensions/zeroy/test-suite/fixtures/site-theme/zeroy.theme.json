@@ -1,4 +1,9 @@
 {
-  "contract": "zeroy/theme-manifest@2",
-  "requiresCapabilities": {}
+  "contract": "zeroy/theme-manifest@3",
+  "requiresCapabilities": {},
+  "zcss": {
+    "contract": "zeroy/zcss-design@1",
+    "design": "zcss.design.json",
+    "styles": ["assets/css/site.css"]
+  }
 }

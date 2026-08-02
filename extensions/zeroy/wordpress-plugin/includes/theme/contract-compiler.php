@@ -3,7 +3,7 @@
 defined('ABSPATH') || exit;
 
 const ZEROY_THEME_CONTRACT = 'zeroy/theme-contract@1';
-const ZEROY_THEME_RUNTIME_MANIFEST_CONTRACT = 'zeroy/theme-manifest@2';
+const ZEROY_THEME_RUNTIME_MANIFEST_CONTRACT = 'zeroy/theme-manifest@3';
 
 function zeroy_runtime_theme_runtime_manifest(string $directory): array|WP_Error
 {
@@ -12,21 +12,78 @@ function zeroy_runtime_theme_runtime_manifest(string $directory): array|WP_Error
         return zeroy_runtime_error('zeroy_theme_manifest_missing', 'ThemeArtifact requires zeroy.theme.json declaring its capability requirements.', 409);
     }
     $decoded = zeroy_runtime_decode_json((string) file_get_contents($path));
-    if (is_wp_error($decoded) || ($decoded['contract'] ?? null) !== ZEROY_THEME_RUNTIME_MANIFEST_CONTRACT || !is_array($decoded['requiresCapabilities'] ?? null) || !zeroy_runtime_is_keyed_map($decoded['requiresCapabilities'])) {
-        return zeroy_runtime_error('zeroy_theme_manifest_invalid', 'zeroy.theme.json must contain ThemeManifest contract and keyed requiresCapabilities.', 409);
+    if (
+        is_wp_error($decoded) || !zeroy_runtime_is_keyed_map($decoded) ||
+        count($decoded) !== 3 || array_diff(array_keys($decoded), ['contract', 'requiresCapabilities', 'zcss']) !== [] ||
+        ($decoded['contract'] ?? null) !== ZEROY_THEME_RUNTIME_MANIFEST_CONTRACT ||
+        !is_array($decoded['requiresCapabilities'] ?? null) || !zeroy_runtime_is_keyed_map($decoded['requiresCapabilities']) ||
+        !zeroy_runtime_is_keyed_map($decoded['zcss'] ?? null) ||
+        count($decoded['zcss']) !== 3 || array_diff(array_keys($decoded['zcss']), ['contract', 'design', 'styles']) !== [] ||
+        ($decoded['zcss']['contract'] ?? null) !== ZEROY_ZCSS_DESIGN_CONTRACT ||
+        ($decoded['zcss']['design'] ?? null) !== 'zcss.design.json' ||
+        !is_array($decoded['zcss']['styles'] ?? null) || !array_is_list($decoded['zcss']['styles']) || $decoded['zcss']['styles'] === []
+    ) {
+        return zeroy_runtime_error('zeroy_theme_manifest_invalid', 'zeroy.theme.json must be an exact ThemeManifest v3 with requiresCapabilities and the ZCSS design/style declaration.', 409);
     }
     $requirements = [];
     foreach ($decoded['requiresCapabilities'] as $capability => $version) {
         $reference = zeroy_runtime_normalize_capability_reference(['capability' => $capability, 'version' => $version]);
-        if (is_wp_error($reference)) return $reference;
+        if (is_wp_error($reference)) {
+            $data = $reference->get_error_data();
+            return zeroy_runtime_error(
+                $reference->get_error_code(),
+                $reference->get_error_message(),
+                400,
+                (is_array($data) ? array_diff_key($data, ['status' => true]) : []) + [
+                    'fieldId' => '/requiresCapabilities/' . str_replace(['~', '/'], ['~0', '~1'], (string) $capability),
+                    'repair' => 'Use {} unless the Theme calls a capability provided by the pinned SiteLogicArtifact; otherwise use that exact capability name with a value such as ^1.',
+                ],
+            );
+        }
         $requirements[$reference['capability']] = $reference;
     }
     ksort($requirements, SORT_STRING);
-    return ['contract' => ZEROY_THEME_RUNTIME_MANIFEST_CONTRACT, 'requiresCapabilities' => $requirements];
+    $styles = [];
+    foreach ($decoded['zcss']['styles'] as $index => $style) {
+        if (
+            !is_string($style) || !zeroy_runtime_artifact_path_valid($style) || zeroy_runtime_artifact_path_forbidden($style) ||
+            !str_ends_with(strtolower($style), '.css') || in_array($style, zeroy_zcss_reserved_paths(), true) || isset($styles[$style])
+        ) {
+            return zeroy_runtime_error('zeroy_theme_manifest_style_invalid', 'ThemeManifest zcss.styles must contain unique safe ThemeArtifact CSS paths.', 409, ['fieldId' => '/zcss/styles/' . $index, 'path' => $style]);
+        }
+        $path = rtrim($directory, '/') . '/' . $style;
+        if (!is_file($path) || is_link($path)) return zeroy_runtime_error('zeroy_theme_manifest_style_missing', 'ThemeManifest references a missing or unsafe custom stylesheet.', 409, ['fieldId' => '/zcss/styles/' . $index, 'path' => $style]);
+        $styles[$style] = true;
+    }
+    if (!isset($styles['assets/css/site.css'])) {
+        return zeroy_runtime_error('zeroy_theme_manifest_style_missing', 'ThemeManifest must declare assets/css/site.css as an Agent-owned stylesheet.', 409, ['fieldId' => '/zcss/styles']);
+    }
+    $design_path = rtrim($directory, '/') . '/zcss.design.json';
+    if (!is_file($design_path) || is_link($design_path)) return zeroy_runtime_error('zeroy_zcss_design_missing', 'ThemeArtifact requires a regular zcss.design.json.', 409, ['fieldId' => '/zcss/design']);
+    return [
+        'contract' => ZEROY_THEME_RUNTIME_MANIFEST_CONTRACT,
+        'requiresCapabilities' => $requirements,
+        'zcss' => ['contract' => ZEROY_ZCSS_DESIGN_CONTRACT, 'design' => 'zcss.design.json', 'styles' => array_keys($styles)],
+    ];
 }
 
 function zeroy_runtime_compile_theme_contract_from_directories(string $theme_directory, string $site_logic_directory): array|WP_Error
 {
+    foreach (zeroy_runtime_theme_required_files() as $required_file) {
+        $required_path = rtrim($theme_directory, '/') . '/' . $required_file;
+        if (!is_file($required_path) || is_link($required_path)) {
+            return zeroy_runtime_error(
+                'zeroy_theme_required_file_missing',
+                'ThemeArtifact is missing a required regular file.',
+                409,
+                [
+                    'path' => $required_file,
+                    'requiredFiles' => zeroy_runtime_theme_required_files(),
+                    'repair' => 'Stage the complete ThemeArtifact requiredFiles projection before compiling or committing the SiteDraft.',
+                ],
+            );
+        }
+    }
     $schema = zeroy_runtime_schema_diagnostics_from_path($theme_directory . '/zeroy.schema.json', $theme_directory);
     if (!$schema['valid']) return zeroy_runtime_error('zeroy_theme_contract_schema_invalid', 'ThemeArtifact has an invalid ThemeSchema.', 409, ['violations' => $schema['errors']]);
     $theme_manifest = zeroy_runtime_theme_runtime_manifest($theme_directory);
@@ -97,6 +154,7 @@ function zeroy_runtime_compile_theme_contract_from_directories(string $theme_dir
             ['capability' => 'collection.query', 'version' => '^1'],
         ],
         'siteLogicCapabilities' => array_map(static fn(array $provided): array => ['capability' => $provided['capability'], 'version' => '^' . $provided['version']], $site_logic_contract['provides']),
+        'stylesheets' => [ZEROY_ZCSS_GENERATED_CSS_PATH, ...$theme_manifest['zcss']['styles']],
         'templates' => $templates,
     ];
     return ['contract' => $contract, 'hash' => zeroy_runtime_hash($contract), 'schema' => $schema['schema'], 'schemaHash' => $schema['contractHash'], 'siteLogicContract' => $site_logic_contract, 'siteLogicContractHash' => zeroy_runtime_hash($site_logic_contract)];

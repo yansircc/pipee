@@ -173,6 +173,24 @@ const inspectResource = (
           payload: yield* connectorGet(site, "acf", signal),
           summary: "Read shared ACF structure",
         };
+      case "zcssContract":
+        return {
+          payload: yield* connectorGet(site, "zcss-contract", signal),
+          summary: "Read ZCSS authoring contract",
+        };
+      case "styleSurface": {
+        const query =
+          input.draftId === undefined ? "" : `?draftId=${encodeURIComponent(input.draftId)}`;
+        return {
+          payload: yield* connectorGet(
+            site,
+            `zcss-style-surface${query}`,
+            signal,
+            input.draftId === undefined ? undefined : active.draftOwnerId,
+          ),
+          summary: "Read compiled StyleSurface",
+        };
+      }
       case "release":
         return {
           payload: yield* connectorGet(site, "site-releases?limit=20", signal),

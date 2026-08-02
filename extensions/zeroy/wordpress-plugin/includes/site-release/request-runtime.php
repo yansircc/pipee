@@ -15,7 +15,7 @@ function zeroy_runtime_candidate_site_release_from_request(): ?array
     $token = isset($_GET['token']) && is_string($_GET['token']) ? $_GET['token'] : '';
     if ($release_id === '' || $token === '' || !hash_equals(hash_hmac('sha256', $release_id, zeroy_runtime_connection_key()), $token)) return null;
     $release = zeroy_runtime_site_release_row($release_id);
-    return is_array($release) && in_array($release['state'], ['preparing', 'prepared'], true) ? $release : null;
+    return is_array($release) && in_array($release['state'], ['preparing', 'awaiting-browser', 'prepared'], true) ? $release : null;
 }
 
 function zeroy_runtime_request_site_release(): ?array
@@ -36,6 +36,55 @@ function zeroy_runtime_request_snapshot(): array|WP_Error
     return is_array($snapshot) ? $snapshot : zeroy_runtime_error('zeroy_site_release_snapshot_missing', 'Current request has no DraftSnapshot.', 500);
 }
 
+function zeroy_runtime_request_stylesheet_projection(string $theme_directory): array|WP_Error
+{
+    $manifest = zeroy_runtime_theme_runtime_manifest($theme_directory);
+    if (is_wp_error($manifest)) return $manifest;
+    $compiled_path = rtrim($theme_directory, '/') . '/' . ZEROY_ZCSS_COMPILED_MANIFEST_PATH;
+    $generated_path = rtrim($theme_directory, '/') . '/' . ZEROY_ZCSS_GENERATED_CSS_PATH;
+    if (!is_file($compiled_path) || is_link($compiled_path) || !is_file($generated_path) || is_link($generated_path)) {
+        return zeroy_runtime_error('zeroy_zcss_output_missing', 'Pinned ThemeArtifact has no complete generated ZCSS output.', 503);
+    }
+    $compiled = zeroy_runtime_decode_json((string) file_get_contents($compiled_path));
+    $generated_hash = hash_file('sha256', $generated_path);
+    if (
+        is_wp_error($compiled) || ($compiled['contract'] ?? null) !== ZEROY_ZCSS_COMPILED_CONTRACT ||
+        ($compiled['compiler']['id'] ?? null) !== ZEROY_ZCSS_COMPILER_ID ||
+        !is_string($compiled['outputHash'] ?? null) || !is_string($generated_hash) ||
+        !hash_equals($compiled['outputHash'], $generated_hash)
+    ) {
+        return zeroy_runtime_error('zeroy_zcss_output_invalid', 'Pinned ThemeArtifact ZCSS identity does not match its generated stylesheet bytes.', 503);
+    }
+    $stylesheet_hashes = [];
+    foreach ([ZEROY_ZCSS_GENERATED_CSS_PATH, ...$manifest['zcss']['styles']] as $path) {
+        $hash = hash_file('sha256', rtrim($theme_directory, '/') . '/' . $path);
+        if (!is_string($hash)) return zeroy_runtime_error('zeroy_zcss_output_invalid', 'Pinned ThemeArtifact has an unreadable stylesheet.', 503, ['path' => $path]);
+        $stylesheet_hashes[$path] = $hash;
+    }
+    return [
+        'compiler' => $compiled['compiler'],
+        'designHash' => $compiled['designHash'],
+        'outputHash' => $compiled['outputHash'],
+        'stylesheets' => [ZEROY_ZCSS_GENERATED_CSS_PATH, ...$manifest['zcss']['styles']],
+        'stylesheetHashes' => $stylesheet_hashes,
+        'stylesheetSetHash' => zeroy_zcss_hash($stylesheet_hashes),
+    ];
+}
+
+function zeroy_runtime_enqueue_request_stylesheets(): void
+{
+    $release = zeroy_runtime_request_site_release();
+    $projection = $GLOBALS['zeroy_runtime_request_stylesheets'] ?? null;
+    if (!is_array($release) || !is_array($projection)) return;
+    $base = content_url('zeroy-runtime/artifacts/' . rawurlencode(str_replace(':', '-', $release['themeArtifactId'])));
+    $dependency = [];
+    foreach ($projection['stylesheets'] as $index => $path) {
+        $handle = $index === 0 ? 'zeroy-zcss-generated' : 'zeroy-theme-style-' . $index;
+        wp_enqueue_style($handle, rtrim($base, '/') . '/' . $path, $dependency, $projection['stylesheetHashes'][$path]);
+        $dependency = [$handle];
+    }
+}
+
 function zeroy_runtime_boot_site_release(): void
 {
     if (zeroy_runtime_is_connector_safe_request()) return;
@@ -54,6 +103,12 @@ function zeroy_runtime_boot_site_release(): void
     if (!is_file($functions) || is_link($functions) || !is_file($bootstrap) || is_link($bootstrap)) wp_die('The selected zeroY SiteRelease is incomplete.', 'zeroY release unavailable', ['response' => 503]);
     $GLOBALS['zeroy_runtime_request_release'] = ['releaseId' => $release['release_id'], 'themeArtifactId' => $theme_id, 'siteLogicArtifactId' => $logic_id, 'themeDirectory' => $theme_dir, 'siteLogicDirectory' => $logic_dir, 'candidate' => $candidate !== null];
     $GLOBALS['zeroy_runtime_request_snapshot'] = $snapshot;
+    $stylesheets = zeroy_runtime_request_stylesheet_projection($theme_dir);
+    if (is_wp_error($stylesheets)) wp_die($stylesheets->get_error_message(), 'zeroY release unavailable', ['response' => 503]);
+    $GLOBALS['zeroy_runtime_request_stylesheets'] = $stylesheets;
+    add_action('wp_enqueue_scripts', 'zeroy_runtime_enqueue_request_stylesheets', PHP_INT_MIN);
+    remove_action('wp_head', 'wp_custom_css_cb', 101);
+    if (!headers_sent()) header('X-ZeroY-Stylesheet-Identity: ' . $stylesheets['stylesheetSetHash'], true);
     foreach (['stylesheet_directory', 'template_directory'] as $filter) add_filter($filter, static fn(): string => $GLOBALS['zeroy_runtime_request_release']['themeDirectory'], PHP_INT_MIN);
     foreach (['stylesheet_directory_uri', 'template_directory_uri'] as $filter) add_filter($filter, static fn(): string => content_url('zeroy-runtime/artifacts/' . rawurlencode(str_replace(':', '-', $GLOBALS['zeroy_runtime_request_release']['themeArtifactId']))), PHP_INT_MIN);
     wp_set_template_globals();

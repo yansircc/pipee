@@ -47,15 +47,27 @@ function zeroy_runtime_theme_authoring_contract(): array
         'contract' => 'zeroy/theme-authoring@1',
         'artifact' => [
             'theme' => [
-                'requiredFiles' => ['zeroy.schema.json', 'zeroy.theme.json'],
+                'requiredFiles' => zeroy_runtime_theme_required_files(),
                 'requiredTemplateRules' => [
                     'Each schemas.*.template, routes.search.template, routes.notFound.template, and collections.*.template must name an existing regular PHP file inside the ThemeArtifact.',
                 ],
                 'filePolicy' => zeroy_runtime_theme_policy(),
                 'manifest' => [
                     'contract' => ZEROY_THEME_RUNTIME_MANIFEST_CONTRACT,
-                    'required' => ['requiresCapabilities'],
-                    'requiresCapabilities' => 'A keyed map from a stable capability name to its required major version reference.',
+                    'required' => ['requiresCapabilities', 'zcss'],
+                    'requiresCapabilities' => [
+                        'type' => 'keyed-map',
+                        'valuePattern' => '^\^[1-9][0-9]*$',
+                        'meaning' => 'Only SiteLogic capabilities called by Theme templates belong here. Connector runtime and ZCSS capabilities never belong in this map.',
+                        'bootstrapValue' => (object) [],
+                        'emptyWhen' => 'Use an empty object when the Theme calls no SiteLogic capability.',
+                    ],
+                    'zcss' => [
+                        'contract' => ZEROY_ZCSS_DESIGN_CONTRACT,
+                        'design' => 'zcss.design.json',
+                        'styles' => 'An ordered non-empty list of Agent-owned ThemeArtifact CSS paths beginning with the required assets/css/site.css ownership surface.',
+                        'generatedPaths' => zeroy_zcss_reserved_paths(),
+                    ],
                 ],
             ],
         ],

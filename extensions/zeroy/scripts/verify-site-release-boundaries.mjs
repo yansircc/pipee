@@ -79,12 +79,56 @@ for (const [path, text] of source) {
     /(?:mvp-theme|test-suite\/fixtures)/,
     `${path} reaches across the production/fixture boundary.`,
   );
+  assert.doesNotMatch(
+    text,
+    /(?:automatic\.?css|\bacss[-_]|--acss-)/iu,
+    `${path} violates the ZCSS clean-room identity boundary.`,
+  );
 }
 const releaseBundle = await readFile(join(root, "dist/pi/extension.js"), "utf8");
 assert.doesNotMatch(
   releaseBundle,
   /(?:localhost:\d+|LocalWP|MVP Showcase|Industrial Home|zeroy_mvp_theme_assets|mvp-theme|test-suite\/fixtures)/,
   "Production Pi bundle leaks fixture-only site data or a local-site identity.",
+);
+const repositoryRoot = resolve(root, "../..");
+const pipeeRendererFiles = await list(join(repositoryRoot, "apps/pipee/src"));
+for (const path of pipeeRendererFiles.filter((entry) => /\.(?:ts|tsx)$/u.test(entry))) {
+  const text = await readFile(path, "utf8");
+  assert.doesNotMatch(
+    text,
+    /(?:\bzeroY\b|\bZCSS\b|zeroy\/zcss-|pi-zeroy)/u,
+    `${relative(repositoryRoot, path)} recognizes zeroY or ZCSS instead of the generic Presentation protocol.`,
+  );
+}
+const fixtureFiles = await list(join(root, "test-suite/fixtures"));
+for (const path of fixtureFiles.filter((entry) => /\.(?:css|json|php)$/u.test(entry))) {
+  const text = await readFile(path, "utf8");
+  assert.doesNotMatch(
+    text,
+    /(?:automatic\.?css|\bacss[-_]|--acss-)/iu,
+    `${relative(root, path)} violates the ZCSS clean-room fixture boundary.`,
+  );
+}
+assert.equal(
+  source.reduce(
+    (count, [, text]) => count + (text.match(/function\s+zeroy_zcss_compile\s*\(/gu)?.length ?? 0),
+    0,
+  ),
+  1,
+  "Exactly one production ZCSS compiler implementation must exist.",
+);
+for (const [path, text] of source.filter(([entry]) => entry.includes("/includes/zcss/"))) {
+  assert.doesNotMatch(
+    text,
+    /\b(?:get_option|add_option|update_option|delete_option|zeroy_runtime_table)\s*\(/u,
+    `${path} persists ZCSS state instead of compiling the ThemeArtifact source document.`,
+  );
+}
+assert.doesNotMatch(
+  releaseBundle,
+  /(?:automatic\.?css|\bacss[-_]|--acss-)/iu,
+  "Production Pi bundle violates the ZCSS clean-room identity boundary.",
 );
 const theme = source.filter(([path]) => path.includes("/stable-shell/"));
 const connector = source.filter(([path]) => path.startsWith("wordpress-plugin/includes/"));
@@ -127,4 +171,22 @@ for (const [path, text] of source) {
     `${path} retains a legacy production identity after the hard cut.`,
   );
 }
+const requestRuntime = await readFile(
+  join(root, "wordpress-plugin/includes/site-release/request-runtime.php"),
+  "utf8",
+);
+assert.doesNotMatch(
+  requestRuntime,
+  /zeroy_(?:zcss|runtime)_compile_zcss|file_put_contents\s*\(/u,
+  "Request runtime must consume pinned stylesheet bytes without compiling or writing CSS.",
+);
+const draftSource = await readFile(
+  join(root, "wordpress-plugin/includes/site-release/draft.php"),
+  "utf8",
+);
+assert.match(
+  draftSource,
+  /zeroy_zcss_generated_path_reserved/u,
+  "SiteDraft operation validation must reject compiler-owned generated paths.",
+);
 process.stdout.write("zeroY SiteRelease boundary gate passed.\n");

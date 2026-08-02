@@ -108,6 +108,15 @@ function zeroy_runtime_validate_site_draft_operation(array $operation): true|WP_
             if (!zeroy_runtime_is_keyed_map($file) || !is_string($file['path'] ?? null) || (!$has_content || (!is_string($content) && $content !== null)) || (!$has_expected_hash || (!is_string($expected_hash) && $expected_hash !== null))) {
                 return zeroy_runtime_error('zeroy_site_draft_operation_invalid', 'Each staged artifact file requires path, content, and expectedHash.', 400, ['kind' => $kind]);
             }
+            if (($payload['artifact'] ?? null) === 'theme' && in_array($file['path'], zeroy_zcss_reserved_paths(), true)) {
+                return zeroy_runtime_error('zeroy_zcss_generated_path_reserved', 'Generated ZCSS paths are owned by the SiteDraft compiler and cannot be created, updated, or deleted by an Agent.', 400, ['kind' => $kind, 'path' => $file['path'], 'reservedPaths' => zeroy_zcss_reserved_paths()]);
+            }
+            if (($payload['artifact'] ?? null) === 'theme' && $file['path'] === 'zcss.design.json' && is_string($content)) {
+                $design = zeroy_runtime_decode_json($content);
+                if (is_wp_error($design)) return zeroy_runtime_error('zeroy_zcss_design_invalid', 'zcss.design.json must contain valid JSON.', 400, ['fieldId' => '/zcss/design']);
+                $compilation = zeroy_zcss_compile($design);
+                if (($compilation['ok'] ?? false) !== true) return zeroy_runtime_zcss_error($compilation);
+            }
             if ($content === null && !is_string($expected_hash)) {
                 return zeroy_runtime_error('zeroy_site_draft_operation_invalid', 'Deleting a staged artifact file requires its current expectedHash.', 400, ['kind' => $kind, 'path' => $file['path']]);
             }
@@ -365,6 +374,7 @@ function zeroy_runtime_site_draft_receipt(array $draft): array|WP_Error
         }
         usort($last_artifact_files, static fn(array $left, array $right): int => strcmp($left['path'], $right['path']));
     }
+    $zcss = function_exists('zeroy_runtime_site_draft_zcss_summary') ? zeroy_runtime_site_draft_zcss_summary($draft) : null;
     return [
         'contract' => ZEROY_SITE_DRAFT_CONTRACT,
         'draftId' => (string) $draft['draft_id'],
@@ -381,6 +391,7 @@ function zeroy_runtime_site_draft_receipt(array $draft): array|WP_Error
         'affectedSubjects' => $affected['affectedSubjects'],
         'affectedArtifacts' => $affected['affectedArtifacts'],
         'lastArtifactFiles' => $last_artifact_files,
+        'zcss' => is_wp_error($zcss) ? null : $zcss,
         'createdAt' => (string) $draft['created_at'],
         'updatedAt' => (string) $draft['updated_at'],
     ];
@@ -779,8 +790,33 @@ function zeroy_runtime_replay_site_draft(string $source_draft_id, string $owner_
     });
 }
 
-function zeroy_runtime_commit_site_draft(string $draft_id, ?string $expected_base_release_id, string $message, string $owner_id): array|WP_Error
+function zeroy_runtime_site_draft_awaiting_browser_candidate(string $draft_id): ?array
 {
+    global $wpdb;
+    $row = $wpdb->get_row(
+        $wpdb->prepare(
+            'SELECT * FROM ' . zeroy_runtime_table('site_releases') . ' WHERE draft_id = %s AND state = %s ORDER BY created_at DESC LIMIT 1',
+            $draft_id,
+            'awaiting-browser',
+        ),
+        ARRAY_A,
+    );
+    return is_array($row) ? $row : null;
+}
+
+function zeroy_runtime_prepare_site_draft_commit(string $draft_id, ?string $expected_base_release_id, string $message, string $owner_id): array|WP_Error
+{
+    $existing = zeroy_runtime_site_draft_row($draft_id);
+    if ($existing !== null && (string) $existing['state'] === 'committing') {
+        $owned = zeroy_runtime_site_draft_owned_by($existing, $owner_id);
+        if (is_wp_error($owned)) return $owned;
+        $base = is_string($existing['base_release_id'] ?? null) && $existing['base_release_id'] !== '' ? $existing['base_release_id'] : null;
+        if ($base !== $expected_base_release_id) return zeroy_runtime_error('zeroy_site_draft_base_changed', 'SiteDraft base release does not match the commit request.', 409, ['draftId' => $draft_id, 'baseReleaseId' => $base]);
+        $candidate = zeroy_runtime_site_draft_awaiting_browser_candidate($draft_id);
+        return $candidate === null
+            ? zeroy_runtime_error('zeroy_site_draft_commit_conflict', 'SiteDraft is committing without a recoverable browser candidate.', 409, ['draftId' => $draft_id])
+            : zeroy_runtime_site_release_receipt((string) $candidate['release_id']);
+    }
     $draft = zeroy_runtime_site_draft_claim_commit($draft_id, $expected_base_release_id, $owner_id);
     if (is_wp_error($draft)) return $draft;
     $restore = true;
@@ -798,7 +834,7 @@ function zeroy_runtime_commit_site_draft(string $draft_id, ?string $expected_bas
             $draft_id,
         );
         if (is_wp_error($release)) return $release;
-        if (($release['state'] ?? null) !== 'prepared') {
+        if (($release['state'] ?? null) !== 'awaiting-browser') {
             return zeroy_runtime_error(
                 'zeroy_site_commit_proof_failed',
                 'CandidateProof blocked SiteDraft commit. The Draft remains open for repair.',
@@ -813,13 +849,31 @@ function zeroy_runtime_commit_site_draft(string $draft_id, ?string $expected_bas
                 ],
             );
         }
-        $release_id = (string) ($release['releaseId'] ?? '');
-        if ($release_id === '') return zeroy_runtime_error('zeroy_site_draft_commit_failed', 'Prepared SiteRelease did not return releaseId.', 500);
-        $activated = zeroy_runtime_activate_site_release($release_id);
-        if (is_wp_error($activated)) return $activated;
         $restore = false;
-        return $activated;
+        return $release;
     } finally {
         if ($restore) zeroy_runtime_site_draft_reopen_after_commit_failure($draft_id);
     }
+}
+
+function zeroy_runtime_finalize_site_draft_commit(string $release_id, mixed $browser_evidence, string $owner_id): array|WP_Error
+{
+    $finalized = zeroy_runtime_finalize_site_release_browser_evidence($release_id, $browser_evidence, $owner_id);
+    if (is_wp_error($finalized)) return $finalized;
+    if (($finalized['state'] ?? null) !== 'prepared') {
+        return zeroy_runtime_error(
+            'zeroy_site_commit_proof_failed',
+            'CandidateProof blocked SiteDraft commit. The Draft remains open for repair.',
+            409,
+            [
+                'draftId' => $finalized['draftId'] ?? null,
+                'releaseId' => $finalized['releaseId'] ?? null,
+                'proofId' => $finalized['proofId'] ?? null,
+                'diagnostics' => $finalized['diagnostics'] ?? null,
+                'affectedSubjects' => $finalized['affectedSubjects'] ?? [],
+                'affectedArtifacts' => $finalized['affectedArtifacts'] ?? [],
+            ],
+        );
+    }
+    return zeroy_runtime_activate_site_release($release_id);
 }
