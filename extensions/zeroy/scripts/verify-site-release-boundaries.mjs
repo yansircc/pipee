@@ -91,24 +91,28 @@ assert.doesNotMatch(
   /(?:localhost:\d+|LocalWP|MVP Showcase|Industrial Home|zeroy_mvp_theme_assets|mvp-theme|test-suite\/fixtures)/,
   "Production Pi bundle leaks fixture-only site data or a local-site identity.",
 );
-const repositoryRoot = resolve(root, "../..");
-const pipeeRendererFiles = await list(join(repositoryRoot, "apps/pipee/src"));
-for (const path of pipeeRendererFiles.filter((entry) => /\.(?:ts|tsx)$/u.test(entry))) {
-  const text = await readFile(path, "utf8");
-  assert.doesNotMatch(
-    text,
-    /(?:\bzeroY\b|\bZCSS\b|zeroy\/zcss-|pi-zeroy)/u,
-    `${relative(repositoryRoot, path)} recognizes zeroY or ZCSS instead of the generic Presentation protocol.`,
-  );
+if (!rawPackageRoot) {
+  const repositoryRoot = resolve(root, "../..");
+  const pipeeRendererFiles = await list(join(repositoryRoot, "apps/pipee/src"));
+  for (const path of pipeeRendererFiles.filter((entry) => /\.(?:ts|tsx)$/u.test(entry))) {
+    const text = await readFile(path, "utf8");
+    assert.doesNotMatch(
+      text,
+      /(?:\bzeroY\b|\bZCSS\b|zeroy\/zcss-|pi-zeroy)/u,
+      `${relative(repositoryRoot, path)} recognizes zeroY or ZCSS instead of the generic Presentation protocol.`,
+    );
+  }
 }
-const fixtureFiles = await list(join(root, "test-suite/fixtures"));
-for (const path of fixtureFiles.filter((entry) => /\.(?:css|json|php)$/u.test(entry))) {
-  const text = await readFile(path, "utf8");
-  assert.doesNotMatch(
-    text,
-    /(?:automatic\.?css|\bacss[-_]|--acss-)/iu,
-    `${relative(root, path)} violates the ZCSS clean-room fixture boundary.`,
-  );
+if (!rawPackageRoot) {
+  const fixtureFiles = await list(join(root, "test-suite/fixtures"));
+  for (const path of fixtureFiles.filter((entry) => /\.(?:css|json|php)$/u.test(entry))) {
+    const text = await readFile(path, "utf8");
+    assert.doesNotMatch(
+      text,
+      /(?:automatic\.?css|\bacss[-_]|--acss-)/iu,
+      `${relative(root, path)} violates the ZCSS clean-room fixture boundary.`,
+    );
+  }
 }
 assert.equal(
   source.reduce(
@@ -186,7 +190,7 @@ const draftSource = await readFile(
 );
 assert.match(
   draftSource,
-  /zeroy_zcss_generated_path_reserved/u,
+  /zeroy_(?:zcss|theme)_generated_path_reserved/u,
   "SiteDraft operation validation must reject compiler-owned generated paths.",
 );
 process.stdout.write("zeroY SiteRelease boundary gate passed.\n");
