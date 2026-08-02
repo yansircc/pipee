@@ -107,6 +107,25 @@ it.effect("projects direct Action Graph refs into the single wire target algebra
   }),
 );
 
+it.effect("keeps flattened tool objects inside the exact operation algebra", () =>
+  Effect.forEach(
+    [
+      ["chrome_click", { ref: "el-1", selector: "#submit" }],
+      ["chrome_click", { x: 10 }],
+      ["chrome_fill", { text: "value" }],
+      ["chrome_press", { ref: "el-1", selector: "#input", key: "Enter" }],
+      ["chrome_upload", { selector: "input", ref: "el-1", paths: ["file.txt"] }],
+      ["chrome_screenshot", { capture: { kind: "viewport" }, format: "png", quality: 80 }],
+    ] as const,
+    ([toolName, parameters]) =>
+      Effect.gen(function* () {
+        const exit = yield* Effect.exit(decodeAtomicToolRequest(toolName, parameters));
+        expect(exit._tag, toolName).toBe("Failure");
+      }),
+    { discard: true },
+  ),
+);
+
 it.effect("rejects shapes outside the operation algebra", () =>
   Effect.gen(function* () {
     const invalidTab = yield* Effect.exit(decodeDomainRequest("tab", { op: "snapshot" }));

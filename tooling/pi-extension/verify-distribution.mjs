@@ -184,6 +184,11 @@ const verifyWithPiLoader = async (packageRoot, harnessRoot) => {
       "object",
       `archive tool ${String(tool)} parameters must be a top-level object schema`,
     );
+    assert.equal(
+      "anyOf" in registration.definition.parameters,
+      false,
+      `archive tool ${String(tool)} parameters must not use a top-level anyOf`,
+    );
   }
   for (const handler of config.expected.handlers) {
     assert.ok(extension.handlers.has(handler), `archive did not register ${String(handler)}`);

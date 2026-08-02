@@ -1,5 +1,6 @@
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as SchemaGetter from "effect/SchemaGetter";
 import type { ActionVerb } from "./action-graph.js";
@@ -562,11 +563,54 @@ const atomicParametersFor = (
   },
 ): Schema.ConstraintDecoder<unknown> => {
   const members = atomicParameterMembers(domain, contract);
-  return (members.length === 1
-    ? members[0]!
-    : Schema.Union(
-        members as [Schema.Constraint, Schema.Constraint, ...Array<Schema.Constraint>],
-      )) as unknown as Schema.ConstraintDecoder<unknown>;
+  if (members.length === 1) return members[0]! as Schema.ConstraintDecoder<unknown>;
+
+  const structs = members as ReadonlyArray<OperationStruct>;
+  const exact = Schema.Union(
+    structs as [OperationStruct, OperationStruct, ...Array<OperationStruct>],
+  );
+  const fieldSchema = (declaration: Schema.Constraint): Schema.Constraint =>
+    "schema" in declaration && Schema.isSchema(declaration.schema)
+      ? (declaration.schema as Schema.Constraint)
+      : declaration;
+  const isOptionalField = (declaration: Schema.Constraint): boolean =>
+    "schema" in declaration && Schema.isSchema(declaration.schema);
+  const fieldNames = new Set(structs.flatMap((member) => Object.keys(member.fields)));
+  const fields = Object.fromEntries(
+    [...fieldNames].map((name) => {
+      const declarations = structs.flatMap((member) =>
+        name in member.fields ? [member.fields[name]!] : [],
+      );
+      const schemas = declarations
+        .map(fieldSchema)
+        .filter((schema) => schema.ast._tag !== "Never")
+        .filter((schema, index, all) => all.indexOf(schema) === index);
+      const schema =
+        schemas.length === 0
+          ? Schema.Never
+          : schemas.length === 1
+            ? schemas[0]!
+            : Schema.Union(
+                schemas as [Schema.Constraint, Schema.Constraint, ...Array<Schema.Constraint>],
+              );
+      const required =
+        declarations.length === structs.length &&
+        declarations.every((declaration) => !isOptionalField(declaration));
+      return [name, required ? schema : optional(schema)];
+    }),
+  ) as Schema.Struct.Fields;
+  const decodeExact = Schema.decodeUnknownResult(
+    exact as unknown as Schema.ConstraintDecoder<unknown>,
+    { onExcessProperty: "error" },
+  );
+
+  return Schema.Struct(fields).check(
+    Schema.makeFilter((value) =>
+      Result.isSuccess(decodeExact(value))
+        ? undefined
+        : "Parameters must match one supported object shape",
+    ),
+  ) as unknown as Schema.ConstraintDecoder<unknown>;
 };
 
 export type AtomicToolDescriptor = {

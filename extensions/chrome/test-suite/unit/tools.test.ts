@@ -28,6 +28,7 @@ describe("atomic public tool surface", () => {
     expect(registered.map((tool) => tool.name)).toEqual(CHROME_TOOL_NAMES);
     for (const tool of registered) {
       expect(tool.parameters, String(tool.name)).toMatchObject({ type: "object" });
+      expect(tool.parameters, String(tool.name)).not.toHaveProperty("anyOf");
     }
     for (const name of ["chrome_status", "chrome_tab_list"]) {
       expect(registered.find((tool) => tool.name === name)?.parameters).toEqual({
@@ -43,9 +44,14 @@ describe("atomic public tool surface", () => {
     expect(clickSchema).not.toContain('"op"');
     expect(clickSchema).not.toContain('"operation"');
 
-    expect(registered.find((tool) => tool.name === "chrome_screenshot")?.parameters).toMatchObject({
+    const screenshot = registered.find((tool) => tool.name === "chrome_screenshot")!;
+    expect(screenshot.parameters).toMatchObject({
       type: "object",
-      anyOf: expect.any(Array),
+      properties: {
+        capture: expect.any(Object),
+        format: expect.any(Object),
+        quality: expect.any(Object),
+      },
     });
   });
 });
