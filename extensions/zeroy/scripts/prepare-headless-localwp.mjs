@@ -71,6 +71,9 @@ register_post_type('production_line', ['public' => true, 'show_ui' => true, 'rew
 register_post_type('service', ['public' => true, 'show_ui' => true, 'rewrite' => ['slug' => 'service']]);
 register_taxonomy('line_category', ['production_line'], ['public' => true, 'rewrite' => ['slug' => 'line-category']]);
 register_taxonomy('process_stage', ['machine'], ['public' => true, 'rewrite' => ['slug' => 'process-stage']]);
+foreach (['line_category', 'process_stage'] as $taxonomy) {
+    foreach (get_terms(['taxonomy' => $taxonomy, 'hide_empty' => false, 'fields' => 'ids']) as $term_id) wp_delete_term((int) $term_id, $taxonomy);
+}
 
 $pixel = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true);
 $uploaded = wp_upload_bits('industrial-demo.png', null, $pixel);
@@ -96,6 +99,12 @@ foreach ($machines as $index => $id) {
     update_field('field_machine_gallery', [$attachment], $id);
     update_field('field_machine_video', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', $id);
 }
+$processTerms = [];
+foreach ([['material-preparation', 'Material Preparation'], ['size-reduction', 'Size Reduction'], ['pellet-finishing', 'Pellet Finishing']] as $term) {
+    $created = wp_insert_term($term[1], 'process_stage', ['slug' => $term[0]]);
+    $processTerms[] = is_wp_error($created) ? 0 : (int) $created['term_id'];
+}
+foreach ($machines as $index => $id) if (($processTerms[$index] ?? 0) > 0) wp_set_object_terms($id, [$processTerms[$index]], 'process_stage');
 
 $lines = [
     $insert('production_line', 'Animal Feed Pellet Line', 'animal-feed-pellet-line', 'A complete automated line from raw material intake to bagging.', 'A scalable turnkey feed production system.'),
@@ -146,6 +155,7 @@ echo wp_json_encode([
     'siteId' => get_option(ZEROY_RUNTIME_SITE_ID_OPTION),
     'posts' => ['machine' => $machines, 'production_line' => $lines, 'service' => $services],
     'attachment' => $attachment,
+    'terms' => ['line_category' => $lineTerms, 'process_stage' => $processTerms],
     'zeroYRefs' => (int) $wpdb->get_var('SELECT COUNT(*) FROM ' . zeroy_runtime_table('site_refs')),
     'activeRelease' => zeroy_runtime_active_site_release(),
 ]);
@@ -186,6 +196,7 @@ foreach ($build['diagnostics']['authoredSeeds'] ?? [] as $path => $seed) {
 echo wp_json_encode([
     'collections' => array_keys($site['collections'] ?? []),
     'seedPaths' => array_keys($build['diagnostics']['authoredSeeds'] ?? []),
+    'termContracts' => array_values(array_filter(array_keys($build['diagnostics']['workspaceProjection'] ?? []), static fn(string $path): bool => str_starts_with($path, '.zeroy/contracts/content/terms/'))),
     'invalidSeedRoutes' => $invalidSeedRoutes,
 ]);`,
   ],
@@ -209,6 +220,14 @@ for (const expected of [
 ])
   assert(
     bootstrap.seedPaths.includes(expected),
+    `Bootstrap did not project ${expected}: ${JSON.stringify(bootstrap)}`,
+  );
+for (const expected of [
+  ".zeroy/contracts/content/terms/line_category.schema.json",
+  ".zeroy/contracts/content/terms/process_stage.schema.json",
+])
+  assert(
+    bootstrap.termContracts.includes(expected),
     `Bootstrap did not project ${expected}: ${JSON.stringify(bootstrap)}`,
   );
 process.stdout.write(`${JSON.stringify(result)}\n`);

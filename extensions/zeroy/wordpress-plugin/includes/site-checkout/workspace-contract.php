@@ -386,7 +386,11 @@ function zeroy_workspace_contract_projection(array $files, ?array $compiled, arr
         '.zeroy/templates/artifacts/theme/assets/css/site.css' => "body { margin: 0; }\n",
     ];
     $taxonomies = [];
-    foreach (array_keys($files) as $path) {
+    $document_paths = array_keys($files);
+    foreach ($failures as $failure) {
+        if (is_string($failure['documentPath'] ?? null)) $document_paths[] = $failure['documentPath'];
+    }
+    foreach (array_unique($document_paths) as $path) {
         $identity = zeroy_document_path($path, $site);
         if (($identity['kind'] ?? null) === 'term' && is_string($identity['taxonomy'] ?? null)) $taxonomies[$identity['taxonomy']] = true;
     }
