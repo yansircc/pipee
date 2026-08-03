@@ -143,6 +143,11 @@ function zeroy_adoption_collect_references(mixed $value, array &$terms, array &$
     foreach ($value as $entry) zeroy_adoption_collect_references($entry, $terms, $media);
 }
 
+function zeroy_adoption_term_assignment_reference(WP_Term $term): array
+{
+    return ['kind' => 'term', 'ref' => $term->slug];
+}
+
 function zeroy_adoption_acf_document(WP_Post $post, array $definition, string $path, array &$failures): array
 {
     $runtime = function_exists('get_fields') ? get_fields($post->ID, true) : [];
@@ -195,7 +200,7 @@ function zeroy_adoption_projection(array $files, ?array $compiled): array
                 $terms[$taxonomy] = [];
                 foreach ($assigned as $term) {
                     if (!$term instanceof WP_Term) continue;
-                    $terms[$taxonomy][] = ['kind' => 'term', 'taxonomy' => $taxonomy, 'ref' => $term->slug];
+                    $terms[$taxonomy][] = zeroy_adoption_term_assignment_reference($term);
                     $referenced_terms[$taxonomy . ':' . $term->slug] = true;
                 }
             }

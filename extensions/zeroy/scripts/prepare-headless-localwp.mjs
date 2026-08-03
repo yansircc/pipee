@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import Ajv2020 from "ajv/dist/2020.js";
 
 const port = process.env.ZEROY_LOCALWP_PORT ?? "10014";
 assert.equal(port, "10014", "Destructive headless preparation is restricted to LocalWP 10014.");
@@ -188,7 +189,13 @@ $commit = zeroy_checkout_commit_row($commitHash);
 $files = zeroy_checkout_read_tree_files((string) $commit['tree_hash']);
 $site = json_decode((string) $files['site.json']['bytes'], true);
 $invalidSeedRoutes = [];
+$seedContracts = [];
 foreach ($build['diagnostics']['authoredSeeds'] ?? [] as $path => $seed) {
+    if (($seed['encoding'] ?? null) === 'utf8' && str_ends_with($path, '.json')) {
+        $contractPath = zeroy_workspace_contract_for_document($path, $site);
+        $contractBytes = is_string($contractPath) ? ($build['diagnostics']['workspaceProjection'][$contractPath] ?? null) : null;
+        $seedContracts[] = ['path' => $path, 'contractPath' => $contractPath, 'document' => json_decode((string) $seed['content']), 'schema' => is_string($contractBytes) ? json_decode($contractBytes) : null];
+    }
     if (!str_starts_with($path, 'content/posts/') || ($seed['encoding'] ?? null) !== 'utf8') continue;
     $document = json_decode((string) ($seed['content'] ?? ''), true);
     if (!is_string($document['route'] ?? null) || !str_starts_with($document['route'], '/')) $invalidSeedRoutes[] = $path;
@@ -197,6 +204,7 @@ echo wp_json_encode([
     'collections' => array_keys($site['collections'] ?? []),
     'seedPaths' => array_keys($build['diagnostics']['authoredSeeds'] ?? []),
     'termContracts' => array_values(array_filter(array_keys($build['diagnostics']['workspaceProjection'] ?? []), static fn(string $path): bool => str_starts_with($path, '.zeroy/contracts/content/terms/'))),
+    'seedContracts' => $seedContracts,
     'invalidSeedRoutes' => $invalidSeedRoutes,
 ]);`,
   ],
@@ -204,6 +212,17 @@ echo wp_json_encode([
 );
 const bootstrap = JSON.parse(bootstrapOutput);
 assert.deepEqual(bootstrap.invalidSeedRoutes, []);
+const ajv = new Ajv2020({ allErrors: true, strict: false, validateFormats: false });
+for (const seed of bootstrap.seedContracts) {
+  assert.equal(typeof seed.contractPath, "string", `Connector-authored seed ${seed.path} has no WorkspaceContract.`);
+  assert.notEqual(seed.schema, null, `Connector-authored seed ${seed.path} has no projected ${seed.contractPath}.`);
+  const validate = ajv.compile(seed.schema);
+  assert.equal(
+    validate(seed.document),
+    true,
+    `Connector-authored seed ${seed.path} violates ${seed.contractPath}: ${JSON.stringify(validate.errors)}`,
+  );
+}
 assert.deepEqual(bootstrap.collections.sort(), [
   "front-page",
   "machine",
