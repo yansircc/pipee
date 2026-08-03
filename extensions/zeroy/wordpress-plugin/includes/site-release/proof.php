@@ -34,8 +34,8 @@ function zeroy_runtime_site_release_proof_projection(
     int $limit,
     ?string $cursor,
 ): array|WP_Error {
-    if (!in_array($view, ['summary', 'failures', 'repairGroups'], true)) {
-        return zeroy_runtime_error('zeroy_proof_view_invalid', 'Proof view is not supported.', 400, ['allowed' => ['summary', 'failures', 'repairGroups']]);
+    if (!in_array($view, ['summary', 'repairGroups', 'failureInstances'], true)) {
+        return zeroy_runtime_error('zeroy_proof_view_invalid', 'Proof view is not supported. Use repairGroups for normal repair work; failureInstances is low-level verifier evidence.', 400, ['allowed' => ['summary', 'repairGroups', 'failureInstances']]);
     }
     $failures = zeroy_runtime_site_release_proof_failures($proof);
     $base = [
@@ -61,23 +61,34 @@ function zeroy_runtime_site_release_proof_projection(
             $key = zeroy_runtime_hash(['code' => $failure['code'] ?? null, 'repair' => $failure['repair'] ?? null]);
             if (!isset($groups[$key])) {
                 $groups[$key] = [
+                    'repairGroupId' => $key,
                     'code' => $failure['code'] ?? 'unknown',
                     'repair' => $failure['repair'] ?? null,
-                    'count' => 0,
-                    'sampleSubjects' => [],
+                    'instanceCount' => 0,
+                    'examples' => [],
                 ];
             }
-            $groups[$key]['count']++;
-            if (count($groups[$key]['sampleSubjects']) < 3 && is_string($failure['subjectKey'] ?? null)) {
-                $groups[$key]['sampleSubjects'][] = $failure['subjectKey'];
+            $groups[$key]['instanceCount']++;
+            if (count($groups[$key]['examples']) < 3) {
+                $example = array_filter([
+                    'documentPath' => $failure['documentPath'] ?? null,
+                    'contentPath' => $failure['contentPath'] ?? null,
+                    'subjectKey' => $failure['subjectKey'] ?? null,
+                    'locale' => $failure['locale'] ?? null,
+                    'evidence' => $failure['evidence'] ?? null,
+                ], static fn(mixed $value): bool => $value !== null && $value !== '');
+                $example_key = zeroy_runtime_hash($example);
+                $existing_keys = array_map(static fn(array $item): string => zeroy_runtime_hash($item), $groups[$key]['examples']);
+                if (!in_array($example_key, $existing_keys, true)) $groups[$key]['examples'][] = $example;
             }
         }
         ksort($groups, SORT_STRING);
         $items = array_values($groups);
-        $contract = 'zeroy/site-release-proof-repair-groups@1';
+        $base['repairGroupCount'] = count($items);
+        $contract = 'zeroy/site-release-proof-repair-groups@2';
     } else {
         $items = $failures;
-        $contract = 'zeroy/site-release-proof-failures@1';
+        $contract = 'zeroy/site-release-proof-failure-instances@1';
     }
     return zeroy_checkout_page($items, $limit, $cursor, [
         'contract' => $contract,

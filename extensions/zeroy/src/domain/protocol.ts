@@ -50,8 +50,11 @@ export const InspectInputContract = Type.Union([
     proofId: Type.String({ minLength: 1 }),
     proofView: Type.Optional(
       Type.Union(
-        [Type.Literal("summary"), Type.Literal("failures"), Type.Literal("repairGroups")],
-        { description: "Optional when resource = proof; defaults to summary." },
+        [Type.Literal("summary"), Type.Literal("repairGroups"), Type.Literal("failureInstances")],
+        {
+          description:
+            "Optional when resource = proof; defaults to summary. Use repairGroups for normal repair work. failureInstances is low-level paginated verifier evidence and may repeat one defect across scenarios and viewports.",
+        },
       ),
     ),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),

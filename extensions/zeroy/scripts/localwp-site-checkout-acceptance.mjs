@@ -304,6 +304,27 @@ $frontPageFailure = zeroy_build_verification_failure(
     $fixtureSite,
     $leftBuild['candidate'],
 );
+$proofFailures = [];
+for ($index = 0; $index < 5; $index++) {
+    $proofFailures[] = [
+        'code' => 'candidate_browser_contrast_failed',
+        'repair' => 'Raise the foreground/background contrast.',
+        'evidence' => 'Scenario ' . $index . ' at viewport ' . ($index % 2),
+    ];
+}
+$proofFailures[] = [
+    'code' => 'candidate_browser_overflow_failed',
+    'repair' => 'Remove horizontal overflow.',
+    'evidence' => 'Homepage overflows at mobile.',
+];
+$proofProjection = zeroy_runtime_site_release_proof_projection(
+    'proof-fixture',
+    'release-fixture',
+    ['blockingFailures' => $proofFailures, 'verifiedAt' => '2026-08-03 00:00:00'],
+    'repairGroups',
+    20,
+    null,
+);
 echo wp_json_encode([
     'commits' => [$left, $right, $invalid],
     'readyBuild' => $leftBuild['result'],
@@ -313,6 +334,7 @@ echo wp_json_encode([
     'verificationInvalidBuild' => $verificationInvalidBuild['result'],
     'verificationFailures' => $verificationInvalidBuild['diagnostics']['failures'],
     'frontPageFailure' => $frontPageFailure,
+    'proofProjection' => is_wp_error($proofProjection) ? null : $proofProjection,
     'adoption' => $adoption,
     'relatedAdoption' => $relatedAdoption,
     'casRef' => 'refs/drafts/acceptance/' . wp_generate_uuid4(),
@@ -333,13 +355,29 @@ if (
   fixture.frontPageFailure?.documentPath !== "content/posts/pages-home/front-page.json" ||
   fixture.frontPageFailure?.contractPath !==
     ".zeroy/contracts/content/posts/pages-home.schema.json" ||
-  fixture.frontPageFailure?.templatePath !== ".zeroy/templates/content/posts/pages-home.json" ||
+  fixture.frontPageFailure?.templatePath !== ".zeroy/templates/content/posts/pages-home/new.json" ||
   fixture.readyBuild?.buildId !== fixture.sameBuild?.buildId ||
   fixture.readyBuild?.buildId === fixture.changedFactBuild?.buildId ||
   fixture.adoption?.ok !== true ||
   fixture.relatedAdoption?.ok !== true
 )
   fail("BuildResult identity or invalid-checkpoint preservation is broken.", fixture);
+const contrastRepairGroup = fixture.proofProjection?.items?.find(
+  (item) => item.code === "candidate_browser_contrast_failed",
+);
+if (
+  fixture.proofProjection?.contract !== "zeroy/site-release-proof-repair-groups@2" ||
+  fixture.proofProjection?.failureCount !== 6 ||
+  fixture.proofProjection?.repairGroupCount !== 2 ||
+  fixture.proofProjection?.items?.length !== 2 ||
+  contrastRepairGroup?.instanceCount !== 5 ||
+  contrastRepairGroup?.examples?.length !== 3 ||
+  typeof contrastRepairGroup?.repairGroupId !== "string"
+)
+  fail(
+    "Proof repair projection did not aggregate repeated verifier instances.",
+    fixture.proofProjection,
+  );
 
 const codec = JSON.parse(
   wp(
@@ -572,7 +610,7 @@ if (
   Array.isArray(workspace.body?.authoredSeeds) ||
   frontier?.state !== "ready" ||
   !projected?.[".zeroy/contracts/content/posts/machines.schema.json"] ||
-  !projected?.[".zeroy/templates/content/posts/machines.json"]
+  !projected?.[".zeroy/templates/content/posts/machines/new.json"]
 )
   fail("Ready BuildResult did not project concrete contracts and templates.", workspace);
 const machineContract = projectedJson(".zeroy/contracts/content/posts/machines.schema.json");
@@ -607,6 +645,8 @@ if (
   Array.isArray(siteCopyContract?.properties) ||
   siteCopyContract?.properties === null ||
   typeof siteCopyContract?.properties !== "object" ||
+  siteCopyContract?.additionalProperties?.type !== "string" ||
+  localeSiteCopyContract?.additionalProperties !== false ||
   Array.isArray(localeSiteCopyContract?.properties?.review?.properties) ||
   localeSiteCopyContract?.properties?.review?.properties === null ||
   typeof localeSiteCopyContract?.properties?.review?.properties !== "object" ||

@@ -29,9 +29,15 @@ describe("zeroY SiteCheckout tool contracts", () => {
         siteId,
         resource: "proof",
         proofId: "proof-1",
-        proofView: "failures",
+        proofView: "repairGroups",
         limit: 20,
         cursor: "next",
+      },
+      {
+        siteId,
+        resource: "proof",
+        proofId: "proof-1",
+        proofView: "failureInstances",
       },
       { siteId, resource: "integrity" },
       { siteId, resource: "externalCheck" },
@@ -56,6 +62,10 @@ describe("zeroY SiteCheckout tool contracts", () => {
     ]) {
       expect(decodeInspectInput({ siteId, resource })._tag).toBe("Failure");
     }
+    expect(
+      decodeInspectInput({ siteId, resource: "proof", proofId: "proof-1", proofView: "failures" })
+        ._tag,
+    ).toBe("Failure");
   });
 
   it("keeps checkout and push free of transport mechanics and file bytes", () => {

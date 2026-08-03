@@ -84,7 +84,7 @@ const proofFailureProjection = (value: unknown): JsonRecord | null => {
 
 const proofAgentProjection = (
   payload: JsonRecord,
-  view: "summary" | "failures" | "repairGroups",
+  view: "summary" | "repairGroups" | "failureInstances",
 ): JsonRecord => {
   if (view !== "summary") {
     return {
@@ -93,8 +93,11 @@ const proofAgentProjection = (
       releaseId: payload.releaseId,
       verifiedAt: payload.verifiedAt,
       failureCount: payload.failureCount,
+      repairGroupCount: payload.repairGroupCount,
       items: Array.isArray(payload.items)
-        ? payload.items.map((item) => (view === "failures" ? proofFailureProjection(item) : item))
+        ? payload.items.map((item) =>
+            view === "failureInstances" ? proofFailureProjection(item) : item,
+          )
         : [],
       nextCursor: payload.nextCursor ?? null,
       hasMore: payload.hasMore === true,
