@@ -325,6 +325,22 @@ $proofProjection = zeroy_runtime_site_release_proof_projection(
     20,
     null,
 );
+$repairProjection = zeroy_workspace_contract_projection($files, null, [
+    [
+        'phase' => 'candidate-verification',
+        'code' => 'zcss_template_primitive_unknown',
+        'documentPath' => 'artifacts/theme/front-page.php',
+        'evidence' => 'z-main',
+        'repair' => 'Use a published primitive or a non-reserved semantic class.',
+    ],
+    [
+        'phase' => 'theme-files',
+        'code' => 'zcss_template_primitive_unknown',
+        'documentPath' => 'artifacts/theme/search.php',
+        'evidence' => 'z-search',
+        'repair' => 'Use a published primitive or a non-reserved semantic class.',
+    ],
+], 'sha256:' . str_repeat('a', 64), 'invalid');
 echo wp_json_encode([
     'commits' => [$left, $right, $invalid],
     'readyBuild' => $leftBuild['result'],
@@ -335,6 +351,10 @@ echo wp_json_encode([
     'verificationFailures' => $verificationInvalidBuild['diagnostics']['failures'],
     'frontPageFailure' => $frontPageFailure,
     'proofProjection' => is_wp_error($proofProjection) ? null : $proofProjection,
+    'repairProjection' => [
+        'root' => $repairProjection['.zeroy/repair-frontier.json'] ?? null,
+        'phase' => $repairProjection['.zeroy/repair-frontier/candidate-verification.json'] ?? null,
+    ],
     'adoption' => $adoption,
     'relatedAdoption' => $relatedAdoption,
     'casRef' => 'refs/drafts/acceptance/' . wp_generate_uuid4(),
@@ -377,6 +397,19 @@ if (
   fail(
     "Proof repair projection did not aggregate repeated verifier instances.",
     fixture.proofProjection,
+  );
+const zcssRepairGroup = fixture.repairProjection?.phase?.groups?.[0];
+if (
+  fixture.repairProjection?.root?.repairGroupCount !== 1 ||
+  fixture.repairProjection?.phase?.repairGroupCount !== 1 ||
+  fixture.repairProjection?.phase?.groups?.length !== 1 ||
+  zcssRepairGroup?.code !== "zcss_template_primitive_unknown" ||
+  zcssRepairGroup?.files?.length !== 2 ||
+  !isDeepStrictEqual(zcssRepairGroup?.affectedPhases, ["candidate-verification", "theme-files"])
+)
+  fail(
+    "Build repair frontier did not group one repair across affected files.",
+    fixture.repairProjection,
   );
 
 const codec = JSON.parse(
