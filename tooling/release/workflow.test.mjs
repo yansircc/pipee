@@ -21,6 +21,14 @@ const candidatePipeline = readFileSync(
   "utf8",
 );
 
+const candidateJob = candidate.match(/  candidate:[\s\S]*?\n  consumer-witness:/)?.[0] ?? "";
+const consumerWitness =
+  candidate.match(/  consumer-witness:[\s\S]*?\n  chrome-witness:/)?.[0] ?? "";
+const chromeWitness =
+  candidate.match(/  chrome-witness:[\s\S]*?\n  platform-witness:/)?.[0] ?? "";
+const platformWitness = candidate.match(/  platform-witness:[\s\S]*?\n  witness:/)?.[0] ?? "";
+const finalWitness = candidate.match(/  witness:[\s\S]*$/)?.[0] ?? "";
+
 it("runs candidate code only in a manually dispatched read-only witness workflow", () => {
   assert.match(candidate, /workflow_dispatch:/);
   assert.doesNotMatch(candidate, /push:|pull_request:/);
@@ -39,19 +47,28 @@ it("owns one Linux archive set and fans out exact witnesses", () => {
   assert.equal(candidate.split(browserInstall).length - 1, 2);
   const quality = candidate.match(/quality:[\s\S]*?\n  candidate:/)?.[0] ?? "";
   assert.ok(quality.indexOf(browserInstall) < quality.indexOf("pnpm verify"));
-  const linuxCandidate = candidate.match(/  candidate:[\s\S]*?\n  chrome-witness:/)?.[0] ?? "";
+  assert.doesNotMatch(candidateJob, /playwright install|pnpm verify:consumers/);
+  assert.ok(candidateJob.indexOf("pnpm verify:candidates") < candidateJob.indexOf("id: upload"));
+  assert.match(consumerWitness, /needs: \[identity, candidate\]/);
   assert.ok(
-    linuxCandidate.indexOf(browserInstall) < linuxCandidate.indexOf("pnpm verify:consumers"),
+    consumerWitness.indexOf("actions/download-artifact@v7") <
+      consumerWitness.indexOf(browserInstall),
   );
-  assert.match(candidate, /- run: pnpm verify:consumers/);
+  assert.ok(
+    consumerWitness.indexOf(browserInstall) < consumerWitness.indexOf("pnpm verify:consumers"),
+  );
+  for (const witness of [consumerWitness, chromeWitness, platformWitness]) {
+    assert.match(witness, /name: \$\{\{ needs\.candidate\.outputs\.artifact \}\}/);
+    assert.doesNotMatch(witness, /build-candidates|candidate-pipeline\.mjs build|\bpack\b/);
+  }
   assert.match(candidate, /pnpm --filter @yansircc\/pi-chrome run release:check/);
   assert.match(candidate, /- run: pnpm verify:chrome-candidate/);
   assert.match(candidate, /matrix:[\s\S]*os: \[macos-14, windows-2022\]/);
   assert.match(candidate, /actions\/download-artifact@v7/);
   assert.match(candidate, /retention-days: 14/);
-  assert.doesNotMatch(
-    candidate.match(/platform-witness:[\s\S]*?\n  witness:/)?.[0] ?? "",
-    /build-candidates|candidate-pipeline\.mjs build|\bpack\b/,
+  assert.match(
+    finalWitness,
+    /needs: \[identity, quality, candidate, consumer-witness, chrome-witness, platform-witness\]/,
   );
 });
 
@@ -129,7 +146,7 @@ it("reconstructs the release artifact root for every downstream consumer", () =>
       /- (?:if: [^\n]+\n        )?uses: actions\/download-artifact@v7\n([\s\S]*?)(?=\n      - )/g,
     ),
   ];
-  assert.equal(downloads.length, 5);
+  assert.equal(downloads.length, 6);
   for (const [, options] of downloads) {
     assert.match(options, /\n          path: release(?:\n|$)/);
     assert.doesNotMatch(options, /\n          path: \.(?:\n|$)/);
