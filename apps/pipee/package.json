@@ -46,7 +46,7 @@
     "release:platform-check:macos": "node scripts/test-package.mjs --consumer pnpm --checks install,bin,health,cleanup,port-release",
     "release:platform-check:windows": "node scripts/test-package.mjs --consumer npm --checks install,bin,health,cleanup,port-release",
     "effect:scan": "vp run ci:effect",
-    "verify": "pnpm run check && pnpm run test:e2e:run",
+    "verify": "node ../../tooling/run-parallel-package-scripts.mjs check test:e2e:run",
     "check": "vp run ci:verify",
     "check:ui-governance": "node scripts/check-ui-governance.mjs"
   },
