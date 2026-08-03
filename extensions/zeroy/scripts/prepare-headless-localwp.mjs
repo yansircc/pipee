@@ -214,8 +214,16 @@ const bootstrap = JSON.parse(bootstrapOutput);
 assert.deepEqual(bootstrap.invalidSeedRoutes, []);
 const ajv = new Ajv2020({ allErrors: true, strict: false, validateFormats: false });
 for (const seed of bootstrap.seedContracts) {
-  assert.equal(typeof seed.contractPath, "string", `Connector-authored seed ${seed.path} has no WorkspaceContract.`);
-  assert.notEqual(seed.schema, null, `Connector-authored seed ${seed.path} has no projected ${seed.contractPath}.`);
+  assert.equal(
+    typeof seed.contractPath,
+    "string",
+    `Connector-authored seed ${seed.path} has no WorkspaceContract.`,
+  );
+  assert.notEqual(
+    seed.schema,
+    null,
+    `Connector-authored seed ${seed.path} has no projected ${seed.contractPath}.`,
+  );
   const validate = ajv.compile(seed.schema);
   assert.equal(
     validate(seed.document),

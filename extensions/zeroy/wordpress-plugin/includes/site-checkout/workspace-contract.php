@@ -259,9 +259,8 @@ function zeroy_workspace_site_copy_schema(array $keys, bool $locale): array
     return [
         '$schema' => 'https://json-schema.org/draft/2020-12/schema',
         'type' => 'object',
-        'additionalProperties' => false,
+        'additionalProperties' => $locale ? false : ['type' => 'string'],
         'properties' => zeroy_runtime_json_map($properties),
-        ...(!$locale && $keys !== [] ? ['required' => $keys] : []),
     ];
 }
 
@@ -396,20 +395,20 @@ function zeroy_workspace_contract_projection(array $files, ?array $compiled, arr
     }
     foreach (array_keys($taxonomies) as $taxonomy) {
         $contracts[".zeroy/contracts/content/terms/{$taxonomy}.schema.json"] = zeroy_workspace_term_schema(false);
-        $templates[".zeroy/templates/content/terms/{$taxonomy}.json"] = ['slug' => '', 'name' => '', 'description' => ''];
+        $templates[".zeroy/templates/content/terms/{$taxonomy}/new.json"] = ['slug' => '', 'name' => '', 'description' => ''];
         foreach ($site['locales'] as $locale) if ($locale !== $site['defaultLocale']) {
             $contracts[".zeroy/contracts/locales/{$locale}/terms/{$taxonomy}.schema.json"] = zeroy_workspace_term_schema(true);
-            $templates[".zeroy/templates/locales/{$locale}/terms/{$taxonomy}.json"] = new stdClass();
+            $templates[".zeroy/templates/locales/{$locale}/terms/{$taxonomy}/new.json"] = new stdClass();
         }
     }
     if (is_array($compiled)) foreach ($site['collections'] as $collection_id => $collection) {
         $definition = $compiled['schema']['schemas'][$collection['schemaId']] ?? null;
         if (!is_array($definition)) continue;
         $contracts[".zeroy/contracts/content/posts/{$collection_id}.schema.json"] = zeroy_workspace_post_schema($collection, $definition, false);
-        $templates[".zeroy/templates/content/posts/{$collection_id}.json"] = ['route' => '/', 'post' => ['title' => '', 'content' => '', 'excerpt' => ''], 'acf' => new stdClass(), 'templateContent' => new stdClass(), 'terms' => new stdClass()];
+        $templates[".zeroy/templates/content/posts/{$collection_id}/new.json"] = ['route' => '/', 'post' => ['title' => '', 'content' => '', 'excerpt' => ''], 'acf' => new stdClass(), 'templateContent' => new stdClass(), 'terms' => new stdClass()];
         foreach ($site['locales'] as $locale) if ($locale !== $site['defaultLocale']) {
             $contracts[".zeroy/contracts/locales/{$locale}/posts/{$collection_id}.schema.json"] = zeroy_workspace_post_schema($collection, $definition, true);
-            $templates[".zeroy/templates/locales/{$locale}/posts/{$collection_id}.json"] = new stdClass();
+            $templates[".zeroy/templates/locales/{$locale}/posts/{$collection_id}/new.json"] = new stdClass();
         }
     }
     foreach ($site['locales'] as $locale) if ($locale !== $site['defaultLocale']) {
@@ -600,5 +599,8 @@ function zeroy_workspace_template_for_document(string $path, array $site): strin
 {
     if (str_starts_with($path, 'artifacts/theme/')) return '.zeroy/templates/' . $path;
     if (str_starts_with($path, 'artifacts/site-logic/')) return '.zeroy/templates/' . $path;
+    $identity = zeroy_document_path($path, $site);
+    if (($identity['kind'] ?? null) === 'post') return '.zeroy/templates/' . (is_string($identity['locale'] ?? null) ? 'locales/' . $identity['locale'] . '/' : 'content/') . 'posts/' . $identity['collection'] . '/new.json';
+    if (($identity['kind'] ?? null) === 'term') return '.zeroy/templates/' . (is_string($identity['locale'] ?? null) ? 'locales/' . $identity['locale'] . '/' : 'content/') . 'terms/' . $identity['taxonomy'] . '/new.json';
     return str_replace('/contracts/', '/templates/', preg_replace('/\.schema\.json$/', '.json', zeroy_workspace_contract_for_document($path, $site)));
 }

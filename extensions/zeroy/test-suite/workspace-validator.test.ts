@@ -57,7 +57,7 @@ describe("projected WorkspaceContract validation", () => {
     ).toEqual({ failures: [], stalePaths: ["content/posts/machines/mill.json"] });
   });
 
-  it("treats canonical SiteCopy key expansion as a contract refresh boundary", async () => {
+  it("does not override the projected SiteCopy contract", async () => {
     const root = await workspace();
     await mkdir(join(root, "content"), { recursive: true });
     await mkdir(join(root, ".zeroy", "contracts", "content"), { recursive: true });
@@ -73,9 +73,9 @@ describe("projected WorkspaceContract validation", () => {
       join(root, "content", "site-copy.json"),
       JSON.stringify({ nav_home: "Home", nav_contact: "Contact" }),
     );
-    expect(await run(validateWorkspaceDocuments(root, ["content/site-copy.json"]))).toEqual({
-      failures: [],
-      stalePaths: ["content/site-copy.json"],
-    });
+    const result = await run(validateWorkspaceDocuments(root, ["content/site-copy.json"]));
+    expect(result.stalePaths).toEqual([]);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]?.path).toBe("content/site-copy.json");
   });
 });

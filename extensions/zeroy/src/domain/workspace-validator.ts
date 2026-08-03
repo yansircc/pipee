@@ -105,15 +105,6 @@ export const validateWorkspaceDocuments = (root: string, authoredPaths: readonly
       const checked = yield* compileAndValidate(ajv, schema as object, document).pipe(
         Effect.result,
       );
-      if (
-        relative === "content/site-copy.json" &&
-        Result.isSuccess(checked) &&
-        checked.success.length > 0 &&
-        checked.success.every((issue) => issue.includes("additional properties"))
-      ) {
-        stalePaths.push(relative);
-        continue;
-      }
       if (Result.isFailure(checked) || checked.success.length > 0) {
         failures.push({
           path: relative,
