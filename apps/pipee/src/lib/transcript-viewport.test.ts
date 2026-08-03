@@ -16,36 +16,32 @@ describe("isViewportNavigationGesture", () => {
 })
 
 describe("restoreScrollOffset", () => {
-  it("preserves the anchor's logical viewport offset after rows are prepended", () => {
+  it("preserves the anchor's actual viewport offset after rows are prepended", () => {
     expect(
       restoreScrollOffset(
         {
           rowId: "turn-20",
           dataLength: 20,
-          rowPosition: 640,
-          headerSize: 40,
-          scrollOffset: 600,
+          viewportTop: 184,
           userScrollGeneration: 4,
         },
-        { rowPosition: 1_240, headerSize: 40 },
+        { scrollOffset: 600, viewportTop: 784 },
       ),
     ).toBe(1_200)
   })
 
-  it("includes changes to the list header's logical leading inset", () => {
+  it("is unaffected by virtual-list measurement drift unrelated to the rendered anchor", () => {
     expect(
       restoreScrollOffset(
         {
           rowId: "turn-20",
           dataLength: 20,
-          rowPosition: 640,
-          headerSize: 40,
-          scrollOffset: 600,
+          viewportTop: 184,
           userScrollGeneration: 4,
         },
-        { rowPosition: 1_240, headerSize: 54 },
+        { scrollOffset: 600, viewportTop: 198 },
       ),
-    ).toBe(1_214)
+    ).toBe(614)
   })
 })
 

@@ -12,9 +12,12 @@ export const initialViewportMode: ViewportMode = { kind: "following-end" }
 export interface LogicalViewportAnchor {
   readonly rowId: string
   readonly dataLength: number
-  readonly rowPosition: number
-  readonly headerSize: number
-  readonly scrollOffset: number
+  /**
+   * This is the visual fact that must survive a prepend. Virtual-list item
+   * positions are estimates while rows and the header are being measured, so
+   * they are not an anchor source of truth.
+   */
+  readonly viewportTop: number
   readonly userScrollGeneration: number
 }
 
@@ -25,9 +28,9 @@ export const isViewportNavigationGesture = (
 
 export function restoreScrollOffset(
   anchor: LogicalViewportAnchor,
-  next: { readonly rowPosition: number; readonly headerSize: number },
+  next: { readonly scrollOffset: number; readonly viewportTop: number },
 ): number {
-  return anchor.scrollOffset + next.rowPosition - anchor.rowPosition + next.headerSize - anchor.headerSize
+  return next.scrollOffset + next.viewportTop - anchor.viewportTop
 }
 
 export function reduceViewportMode(mode: ViewportMode, event: ViewportEvent): ViewportMode {

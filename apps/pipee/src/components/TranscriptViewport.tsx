@@ -83,7 +83,6 @@ export function TranscriptViewport(props: Props) {
   const previousLastTurnId = useRef<string | null>(null)
   const currentViewportAnchor = useRef<LogicalViewportAnchor | null>(null)
   const pendingPrependAnchor = useRef<LogicalViewportAnchor | null>(null)
-  const headerSize = useRef(0)
   const restorePrependAnchor = useRef<Cancel | null>(null)
   const cancelLiveFollowForUserNavigation = useCallback(() => {
     userScrollGeneration.current += 1
@@ -108,14 +107,10 @@ export function TranscriptViewport(props: Props) {
     const rowId = row.dataset.transcriptRow
     const index = state.data.findIndex((candidate) => (candidate as DisplayRow).id === rowId)
     if (index < 0) return null
-    const rowPosition = state.positionAtIndex(index)
-    if (!Number.isFinite(rowPosition) || !Number.isFinite(state.scroll)) return null
     return {
       rowId,
       dataLength: state.data.length,
-      rowPosition,
-      headerSize: headerSize.current,
-      scrollOffset: state.scroll,
+      viewportTop: row.getBoundingClientRect().top,
       userScrollGeneration: userScrollGeneration.current,
     }
   }, [])
@@ -223,18 +218,19 @@ export function TranscriptViewport(props: Props) {
           const settled = yield* Effect.sync(() => {
             const list = listRef.current
             const state = list?.getState()
-            if (!list || !state) return false
+            const scroll = list?.getScrollableNode()
+            if (!list || !state || !(scroll instanceof HTMLElement)) return false
             if (state.data.length <= anchor.dataLength) return false
-            const index = state.data.findIndex((candidate) => (candidate as DisplayRow).id === anchor.rowId)
-            if (index < 0) return false
-            const nextRowPosition = state.positionAtIndex(index)
-            if (!Number.isFinite(nextRowPosition) || !Number.isFinite(state.scroll)) return false
+            const row = [...scroll.querySelectorAll<HTMLElement>("[data-transcript-row]")].find(
+              (candidate) => candidate.dataset.transcriptRow === anchor.rowId,
+            )
+            if (row === undefined) return false
             const target = restoreScrollOffset(anchor, {
-              rowPosition: nextRowPosition,
-              headerSize: headerSize.current,
+              scrollOffset: scroll.scrollTop,
+              viewportTop: row.getBoundingClientRect().top,
             })
             const measurementStable = previousTarget !== null && Math.abs(target - previousTarget) <= 1
-            const scrollStable = Math.abs(state.scroll - target) <= 1
+            const scrollStable = Math.abs(scroll.scrollTop - target) <= 1
             previousTarget = target
             if (measurementStable && scrollStable) {
               settledMeasurements += 1
@@ -331,9 +327,6 @@ export function TranscriptViewport(props: Props) {
         maintainScrollAtEnd={{
           animated: false,
           on: { dataChange: true, itemLayout: true, layout: true },
-        }}
-        onMetricsChange={(metrics) => {
-          headerSize.current = metrics.headerSize
         }}
         onItemSizeChanged={() => {
           if (modeRef.current.kind === "free-scrolling" && pendingPrependAnchor.current === null) {
