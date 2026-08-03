@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { runVerificationPool, verificationJobs } from "./verification-pool.mjs";
 
@@ -49,6 +52,7 @@ test("aborts running work and does not schedule the remaining queue after failur
       jobs: 2,
       onStart: () => {},
       onFinish: () => {},
+      onFailure: () => {},
       run: (task, signal) => {
         started.push(task.id);
         if (task.id === "task-0") return Promise.reject(new Error("gate failed"));
@@ -70,3 +74,40 @@ test("aborts running work and does not schedule the remaining queue after failur
 
   assert.deepEqual(started, ["task-0", "task-1"]);
 });
+
+test(
+  "terminates the running task process tree after a sibling failure",
+  { skip: process.platform === "win32" },
+  async () => {
+    const directory = mkdtempSync(join(tmpdir(), "pipee-verification-pool-"));
+    const marker = join(directory, "survived");
+    try {
+      await assert.rejects(
+        runVerificationPool(
+          [
+            {
+              id: "failure",
+              command: process.execPath,
+              arguments: ["-e", "setTimeout(() => process.exit(1), 100)"],
+            },
+            {
+              id: "process-tree",
+              command: process.execPath,
+              arguments: [
+                "-e",
+                `require("node:child_process").spawn(process.execPath, ["-e", "setTimeout(() => require('node:fs').writeFileSync(process.argv[1], 'survived'), 400)", process.argv[1]], { stdio: "ignore" }); setTimeout(() => {}, 5_000)`,
+                marker,
+              ],
+            },
+          ],
+          { jobs: 2, onStart: () => {}, onFinish: () => {}, onFailure: () => {} },
+        ),
+        /verification task failure exited 1/,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      assert.equal(existsSync(marker), false, "aborted task left a descendant process running");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);

@@ -38,6 +38,7 @@ export const runCommandTask = (task, signal) =>
       cwd: task.cwd,
       env: task.environment ?? process.env,
       stdio: "inherit",
+      detached: process.platform !== "win32",
     });
     let settled = false;
     const settle = (complete) => {
@@ -47,7 +48,19 @@ export const runCommandTask = (task, signal) =>
       complete();
     };
     const abort = () => {
-      if (child.exitCode === null) child.kill("SIGTERM");
+      if (child.exitCode !== null) return;
+      if (process.platform === "win32") {
+        spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+      } else {
+        try {
+          process.kill(-child.pid, "SIGTERM");
+        } catch {
+          child.kill("SIGTERM");
+        }
+      }
     };
     child.once("error", (error) => settle(() => reject(error)));
     child.once("exit", (code) => {
@@ -68,6 +81,8 @@ export const runVerificationPool = async (
     onStart = (task) => process.stdout.write(`[verify:start] ${task.id}\n`),
     onFinish = (task, elapsed) =>
       process.stdout.write(`[verify:pass] ${task.id} (${(elapsed / 1_000).toFixed(1)}s)\n`),
+    onFailure = (task, elapsed) =>
+      process.stderr.write(`[verify:fail] ${task.id} (${(elapsed / 1_000).toFixed(1)}s)\n`),
   } = {},
 ) => {
   if (!Number.isSafeInteger(jobs) || jobs < 1)
@@ -91,6 +106,7 @@ export const runVerificationPool = async (
         await run(task, controller.signal);
         onFinish(task, Date.now() - startedAt);
       } catch (error) {
+        onFailure(task, Date.now() - startedAt, error);
         if (failure === undefined) {
           failure = error;
           controller.abort(error);

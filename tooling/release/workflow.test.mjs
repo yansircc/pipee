@@ -21,13 +21,39 @@ const candidatePipeline = readFileSync(
   "utf8",
 );
 
-const candidateJob = candidate.match(/  candidate:[\s\S]*?\n  consumer-witness:/)?.[0] ?? "";
-const consumerWitness =
-  candidate.match(/  consumer-witness:[\s\S]*?\n  chrome-witness:/)?.[0] ?? "";
-const chromeWitness =
-  candidate.match(/  chrome-witness:[\s\S]*?\n  platform-witness:/)?.[0] ?? "";
-const platformWitness = candidate.match(/  platform-witness:[\s\S]*?\n  witness:/)?.[0] ?? "";
-const finalWitness = candidate.match(/  witness:[\s\S]*$/)?.[0] ?? "";
+const workflowJobs = (source) => {
+  const body = source.slice(source.indexOf("\njobs:\n") + "\njobs:\n".length);
+  const headers = [...body.matchAll(/^  ([a-z][a-z0-9-]*):$/gm)];
+  return new Map(
+    headers.map((header, index) => [
+      header[1],
+      body.slice(header.index, headers[index + 1]?.index ?? body.length),
+    ]),
+  );
+};
+
+const assertCandidateWitnessTopology = (source) => {
+  const jobs = workflowJobs(source);
+  const candidateJob = jobs.get("candidate") ?? "";
+  const consumerWitness = jobs.get("consumer-witness") ?? "";
+  assert.doesNotMatch(
+    candidateJob,
+    /playwright install|pnpm verify:consumers/,
+    "candidate job must only produce and upload the candidate",
+  );
+  assert.match(consumerWitness, /needs: \[identity, candidate\]/);
+  assert.ok(
+    consumerWitness.indexOf("actions/download-artifact@v7") <
+      consumerWitness.indexOf("pnpm verify:consumers"),
+    "consumer witness must download the candidate before verification",
+  );
+  assert.match(
+    jobs.get("witness") ?? "",
+    /needs: \[identity, quality, candidate, consumer-witness, chrome-witness, platform-witness\]/,
+    "final witness must require every witness job",
+  );
+  return jobs;
+};
 
 it("runs candidate code only in a manually dispatched read-only witness workflow", () => {
   assert.match(candidate, /workflow_dispatch:/);
@@ -40,6 +66,11 @@ it("runs candidate code only in a manually dispatched read-only witness workflow
 });
 
 it("owns one Linux archive set and fans out exact witnesses", () => {
+  const jobs = assertCandidateWitnessTopology(candidate);
+  const candidateJob = jobs.get("candidate") ?? "";
+  const consumerWitness = jobs.get("consumer-witness") ?? "";
+  const chromeWitness = jobs.get("chrome-witness") ?? "";
+  const platformWitness = jobs.get("platform-witness") ?? "";
   assert.equal((candidate.match(/candidate-pipeline\.mjs build/g) ?? []).length, 1);
   assert.match(candidate, /- run: pnpm verify\s/);
   assert.match(candidate, /- run: pnpm verify:candidates/);
@@ -47,9 +78,7 @@ it("owns one Linux archive set and fans out exact witnesses", () => {
   assert.equal(candidate.split(browserInstall).length - 1, 2);
   const quality = candidate.match(/quality:[\s\S]*?\n  candidate:/)?.[0] ?? "";
   assert.ok(quality.indexOf(browserInstall) < quality.indexOf("pnpm verify"));
-  assert.doesNotMatch(candidateJob, /playwright install|pnpm verify:consumers/);
   assert.ok(candidateJob.indexOf("pnpm verify:candidates") < candidateJob.indexOf("id: upload"));
-  assert.match(consumerWitness, /needs: \[identity, candidate\]/);
   assert.ok(
     consumerWitness.indexOf("actions/download-artifact@v7") <
       consumerWitness.indexOf(browserInstall),
@@ -66,9 +95,38 @@ it("owns one Linux archive set and fans out exact witnesses", () => {
   assert.match(candidate, /matrix:[\s\S]*os: \[macos-14, windows-2022\]/);
   assert.match(candidate, /actions\/download-artifact@v7/);
   assert.match(candidate, /retention-days: 14/);
-  assert.match(
-    finalWitness,
-    /needs: \[identity, quality, candidate, consumer-witness, chrome-witness, platform-witness\]/,
+});
+
+it("rejects missing or reordered required witness edges", () => {
+  assert.throws(
+    () =>
+      assertCandidateWitnessTopology(
+        candidate.replace(
+          "needs: [identity, quality, candidate, consumer-witness, chrome-witness, platform-witness]",
+          "needs: [identity, quality, candidate, chrome-witness, platform-witness]",
+        ),
+      ),
+    /final witness must require every witness job/,
+  );
+  assert.throws(
+    () =>
+      assertCandidateWitnessTopology(
+        candidate.replace(
+          "      - run: pnpm verify:candidates",
+          "      - run: pnpm verify:candidates\n      - run: pnpm verify:consumers",
+        ),
+      ),
+    /candidate job must only produce and upload the candidate/,
+  );
+  assert.throws(
+    () =>
+      assertCandidateWitnessTopology(
+        candidate.replace(
+          "      - uses: actions/download-artifact@v7",
+          "      - run: pnpm verify:consumers\n      - uses: actions/download-artifact@v7",
+        ),
+      ),
+    /consumer witness must download the candidate before verification/,
   );
 });
 
