@@ -33,7 +33,7 @@ function zeroy_runtime_request_is_candidate_site_release(): bool
 function zeroy_runtime_request_snapshot(): array|WP_Error
 {
     $snapshot = $GLOBALS['zeroy_runtime_request_snapshot'] ?? null;
-    return is_array($snapshot) ? $snapshot : zeroy_runtime_error('zeroy_site_release_snapshot_missing', 'Current request has no DraftSnapshot.', 500);
+    return is_array($snapshot) ? $snapshot : zeroy_runtime_error('zeroy_site_release_snapshot_missing', 'Current request has no SiteSnapshot.', 500);
 }
 
 function zeroy_runtime_request_stylesheet_projection(string $theme_directory): array|WP_Error

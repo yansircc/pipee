@@ -64,7 +64,7 @@ function zeroy_runtime_render_snapshot_route(): void
     header('X-zeroY-schema-id: ' . (string) ($context['subject']['schemaId'] ?? ''), true);
     zeroy_runtime_set_theme_context($context);
     $template = rtrim((string) $release['themeDirectory'], '/') . '/' . ltrim((string) $projection['template'], '/');
-    if (!is_file($template) || is_link($template)) wp_die('DraftSnapshot references a missing template.', 'zeroY render unavailable', ['response' => 500]);
+    if (!is_file($template) || is_link($template)) wp_die('SiteSnapshot references a missing template.', 'zeroY render unavailable', ['response' => 500]);
     include $template;
     zeroy_runtime_clear_theme_context();
     exit;

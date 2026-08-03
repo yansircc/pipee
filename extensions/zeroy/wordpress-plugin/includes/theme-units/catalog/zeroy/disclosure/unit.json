@@ -1,0 +1,18 @@
+{
+  "contract": "zeroy/theme-unit@1",
+  "id": "zeroy/disclosure",
+  "php": {
+    "entrypoints": ["render.php"],
+    "exports": [{ "name": "render", "symbol": "ZeroY\\ThemeUnit\\Disclosure\\render" }]
+  },
+  "styles": ["mechanical.css"],
+  "interface": {
+    "props": {
+      "summary": { "description": "Visible disclosure summary.", "required": true },
+      "content": { "description": "Trusted Theme-authored disclosure HTML.", "required": true },
+      "open": { "description": "Initial expanded state.", "required": false }
+    },
+    "slots": []
+  },
+  "behaviors": ["disclosure"]
+}

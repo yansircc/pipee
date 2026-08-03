@@ -1,0 +1,18 @@
+{
+  "contract": "zeroy/theme-unit@1",
+  "id": "zeroy/site-navigation",
+  "php": {
+    "entrypoints": ["render.php"],
+    "exports": [{ "name": "render", "symbol": "ZeroY\\ThemeUnit\\SiteNavigation\\render" }]
+  },
+  "interface": {
+    "props": {
+      "items": {
+        "description": "Ordered list of label and URL navigation items.",
+        "required": true
+      },
+      "label": { "description": "Accessible navigation landmark label.", "required": true }
+    },
+    "slots": []
+  }
+}

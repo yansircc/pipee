@@ -9,6 +9,8 @@ const root = resolve(
   rawPackageRoot ?? dirname(fileURLToPath(import.meta.url)),
   rawPackageRoot ? "." : "..",
 );
+const connectorIncludeAsset =
+  /^wordpress-plugin\/includes\/(?:[a-z0-9][a-z0-9._-]*\/)*[a-z0-9][a-z0-9._-]*\.(?:php|json|css|js)$/u;
 const pluginArchiveAllowlist = (path) =>
   path === "wordpress-plugin/zeroy-runtime-connector.php" ||
   path === "wordpress-plugin/default-site-logic/bootstrap.php" ||
@@ -16,7 +18,7 @@ const pluginArchiveAllowlist = (path) =>
   path === "wordpress-plugin/stable-shell/functions.php" ||
   path === "wordpress-plugin/stable-shell/index.php" ||
   path === "wordpress-plugin/stable-shell/style.css" ||
-  (/^wordpress-plugin\/includes\/.+\.php$/u.test(path) && !path.includes("//"));
+  connectorIncludeAsset.test(path);
 const archiveAllowlist = (path) =>
   path === "package.json" ||
   path === "README.md" ||
@@ -83,6 +85,11 @@ for (const [path, text] of source) {
     text,
     /(?:automatic\.?css|\bacss[-_]|--acss-)/iu,
     `${path} violates the ZCSS clean-room identity boundary.`,
+  );
+  assert.doesNotMatch(
+    text,
+    /\b(?:SiteDraft|DraftSnapshot|operationSummaries|zeroy_theme_stage|zeroy_content_stage|zeroy_site_commit)\b|\bsite_draft\b/u,
+    `${path} retains the deleted mutable authoring protocol.`,
   );
 }
 const releaseBundle = await readFile(join(root, "dist/pi/extension.js"), "utf8");
@@ -184,13 +191,26 @@ assert.doesNotMatch(
   /zeroy_(?:zcss|runtime)_compile_zcss|file_put_contents\s*\(/u,
   "Request runtime must consume pinned stylesheet bytes without compiling or writing CSS.",
 );
-const draftSource = await readFile(
-  join(root, "wordpress-plugin/includes/site-release/draft.php"),
+const checkoutCompiler = await readFile(
+  join(root, "wordpress-plugin/includes/site-checkout/compiler.php"),
   "utf8",
 );
 assert.match(
-  draftSource,
-  /zeroy_(?:zcss|theme)_generated_path_reserved/u,
-  "SiteDraft operation validation must reject compiler-owned generated paths.",
+  checkoutCompiler,
+  /zeroy_runtime_compile_zcss_directory/u,
+  "SiteCheckout compilation must derive ZCSS outputs before hashing artifacts.",
 );
+assert.match(
+  checkoutCompiler,
+  /zeroy_runtime_compile_theme_units_directory/u,
+  "SiteCheckout compilation must derive ThemeUnit outputs before hashing artifacts.",
+);
+const routes = source
+  .filter(([path]) => path.endsWith("/site-checkout/rest.php"))
+  .map(([, text]) => text)
+  .join("\n");
+for (const route of ["site-checkout", "site-objects", "site-commits", "site-refs", "site-push"]) {
+  assert.match(routes, new RegExp(`/${route}`), `SiteCheckout route ${route} is missing.`);
+}
+assert.doesNotMatch(routes, /site-drafts|site-draft-stages/u, "Deleted SiteDraft routes survived.");
 process.stdout.write("zeroY SiteRelease boundary gate passed.\n");

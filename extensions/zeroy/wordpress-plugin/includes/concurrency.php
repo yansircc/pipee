@@ -51,6 +51,24 @@ function zeroy_runtime_acquire_content_lease(): true|WP_Error
     return zeroy_runtime_acquire_lease('content', 'zeroy_content_lease_unavailable', 'content');
 }
 
+function zeroy_runtime_with_process_file_lock(string $name, string $error_code, string $description, callable $operation): mixed
+{
+    if (preg_match('/\A[a-z0-9-]+\z/', $name) !== 1) return zeroy_runtime_error($error_code, "Invalid {$description} lock identity.", 500);
+    $directory = WP_CONTENT_DIR . '/zeroy-runtime/locks';
+    if (!wp_mkdir_p($directory)) return zeroy_runtime_error($error_code, "Could not create the {$description} lock directory.", 500);
+    $handle = fopen($directory . '/' . $name . '.lock', 'c');
+    if (!is_resource($handle) || !flock($handle, LOCK_EX)) {
+        if (is_resource($handle)) fclose($handle);
+        return zeroy_runtime_error($error_code, "Could not acquire the {$description} file lock.", 409);
+    }
+    try {
+        return $operation();
+    } finally {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+}
+
 /**
  * DDL-backed SiteLogic migrations cannot participate in an SQL transaction:
  * MySQL commits around ALTER TABLE/dbDelta.  The advisory lock therefore owns
@@ -60,11 +78,15 @@ function zeroy_runtime_acquire_content_lease(): true|WP_Error
 function zeroy_runtime_with_site_release_lock(callable $operation): mixed
 {
     global $wpdb;
-    // The SQLite adapter implements DDL transactionally but has no
-    // MySQL advisory-lock functions. The same runtime lock is therefore the
-    // transaction itself. MySQL needs GET_LOCK because its DDL commits an SQL
-    // transaction implicitly.
-    if (get_class($wpdb) === 'WP_SQLite_DB') return zeroy_runtime_transaction($operation);
+    // Candidate verification crosses into a second HTTP request. A SQLite
+    // transaction would hide the candidate row from that verifier, so SQLite
+    // uses one process-safe file lease for the whole corridor. The actual
+    // content/pointer mutation still opens its own SQL transaction.
+    if (get_class($wpdb) === 'WP_SQLite_DB') {
+        return zeroy_runtime_with_process_file_lock('site-release', 'zeroy_site_release_lock_unavailable', 'SiteRelease', $operation);
+    }
+    // MySQL needs GET_LOCK because its DDL commits an SQL transaction
+    // implicitly.
     $database = defined('DB_NAME') ? (string) DB_NAME : '';
     $lock_name = 'zeroy-release-' . substr(hash('sha256', $database . '|' . $wpdb->prefix), 0, 40);
     $locked = $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, %d)', $lock_name, 30));

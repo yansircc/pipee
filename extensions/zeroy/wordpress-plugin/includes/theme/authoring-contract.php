@@ -66,7 +66,7 @@ function zeroy_runtime_theme_authoring_contract(): array
                         'contract' => ZEROY_ZCSS_DESIGN_CONTRACT,
                         'design' => 'zcss.design.json',
                         'styles' => 'An ordered non-empty list of Agent-owned ThemeArtifact CSS paths beginning with the required assets/css/site.css ownership surface.',
-                        'generatedPaths' => zeroy_zcss_reserved_paths(),
+                        'generatedPaths' => zeroy_runtime_theme_generated_paths(),
                     ],
                 ],
             ],

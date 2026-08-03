@@ -2,18 +2,24 @@
 
 defined('ABSPATH') || exit;
 
-const ZEROY_ZCSS_STYLE_SURFACE_MAX_BYTES = 2_000_000;
-const ZEROY_ZCSS_STYLE_SURFACE_MAX_NODES = 10_000;
-
-function zeroy_zcss_stylesheet_ast(string $directory, string $path): array|WP_Error
+function zeroy_zcss_stylesheet_ast(string $directory, string $path, int $remaining_nodes, int $remaining_declarations): array|WP_Error
 {
     $absolute = rtrim($directory, '/') . '/' . $path;
     if (!is_file($absolute) || is_link($absolute)) return zeroy_runtime_error('zeroy_zcss_stylesheet_missing', 'StyleSurface references a missing or unsafe stylesheet.', 409, ['path' => $path]);
     $css = file_get_contents($absolute);
     if (!is_string($css) || strlen($css) > ZEROY_ZCSS_STYLE_SURFACE_MAX_BYTES) return zeroy_runtime_error('zeroy_zcss_stylesheet_limit', 'Stylesheet exceeds the StyleSurface byte limit.', 409, ['path' => $path, 'limit' => ZEROY_ZCSS_STYLE_SURFACE_MAX_BYTES]);
-    $parsed = zeroy_zcss_parse_css($css);
-    if (!$parsed['ok']) return zeroy_runtime_error('zeroy_zcss_css_invalid', 'Stylesheet cannot be parsed as a complete CSS AST.', 409, ['path' => $path, 'errors' => $parsed['errors']]);
-    return ['path' => $path, 'css' => $css, 'nodes' => $parsed['nodes']];
+    $parsed = zeroy_zcss_parse_css($css, $remaining_nodes, ZEROY_ZCSS_STYLE_SURFACE_MAX_NESTING, $remaining_declarations);
+    if (!$parsed['ok']) {
+        $limit = array_values(array_filter(
+            $parsed['errors'],
+            static fn(array $error): bool => in_array($error['code'] ?? null, ['zcss_css_node_limit', 'zcss_css_declaration_limit', 'zcss_css_nesting_limit'], true),
+        ))[0] ?? null;
+        if (is_array($limit)) {
+            return zeroy_runtime_error('zeroy_zcss_stylesheet_limit', 'Stylesheet exceeds the bounded StyleSurface parse budget.', 409, ['path' => $path, 'budget' => $limit]);
+        }
+        return zeroy_runtime_error('zeroy_zcss_css_invalid', 'Stylesheet cannot be parsed as a complete CSS AST.', 409, ['path' => $path, 'errors' => $parsed['errors']]);
+    }
+    return ['path' => $path, 'css' => $css, 'nodes' => $parsed['nodes'], 'nodeCount' => $parsed['nodeCount'], 'declarationCount' => $parsed['declarationCount']];
 }
 
 function zeroy_zcss_style_surface_from_directory(string $directory): array|WP_Error
@@ -39,13 +45,42 @@ function zeroy_zcss_style_surface_from_directory(string $directory): array|WP_Er
     }
     $sources = [];
     $stylesheet_hashes = [];
-    foreach ([ZEROY_ZCSS_GENERATED_CSS_PATH, ...$manifest['zcss']['styles']] as $path) {
-        $source = zeroy_zcss_stylesheet_ast($directory, $path);
+    $stylesheet_paths = [ZEROY_ZCSS_GENERATED_CSS_PATH, ...$manifest['zcss']['styles']];
+    if (count($stylesheet_paths) > ZEROY_ZCSS_STYLE_SURFACE_MAX_STYLESHEETS) {
+        return zeroy_runtime_error('zeroy_zcss_stylesheet_limit', 'StyleSurface has too many stylesheets.', 409, ['stylesheets' => count($stylesheet_paths), 'limit' => ZEROY_ZCSS_STYLE_SURFACE_MAX_STYLESHEETS]);
+    }
+    $total_bytes = 0;
+    foreach ($stylesheet_paths as $path) {
+        $absolute = rtrim($directory, '/') . '/' . $path;
+        if (!is_file($absolute) || is_link($absolute)) return zeroy_runtime_error('zeroy_zcss_stylesheet_missing', 'StyleSurface references a missing or unsafe stylesheet.', 409, ['path' => $path]);
+        $bytes = filesize($absolute);
+        if (!is_int($bytes) || $bytes < 0) return zeroy_runtime_error('zeroy_zcss_stylesheet_missing', 'StyleSurface could not measure a stylesheet.', 409, ['path' => $path]);
+        $total_bytes += $bytes;
+        if ($total_bytes > ZEROY_ZCSS_STYLE_SURFACE_MAX_BYTES) {
+            return zeroy_runtime_error('zeroy_zcss_stylesheet_limit', 'StyleSurface exceeds its total stylesheet byte limit.', 409, ['bytes' => $total_bytes, 'limit' => ZEROY_ZCSS_STYLE_SURFACE_MAX_BYTES]);
+        }
+    }
+    $node_count = 0;
+    $declaration_count = 0;
+    foreach ($stylesheet_paths as $path) {
+        $source = zeroy_zcss_stylesheet_ast($directory, $path, ZEROY_ZCSS_STYLE_SURFACE_MAX_NODES - $node_count, ZEROY_ZCSS_STYLE_SURFACE_MAX_DECLARATIONS - $declaration_count);
         if (is_wp_error($source)) return $source;
+        $node_count += $source['nodeCount'];
+        $declaration_count += $source['declarationCount'];
+        if ($path !== ZEROY_ZCSS_GENERATED_CSS_PATH) {
+            $import = null;
+            zeroy_zcss_walk_css_nodes($source['nodes'], static function (array $node) use (&$import): void {
+                if ($import !== null || ($node['type'] ?? null) !== 'at-rule') return;
+                $prelude = (string) ($node['prelude'] ?? '');
+                if (preg_match('/^@import\b/i', $prelude) === 1) $import = ['line' => (int) ($node['line'] ?? 1), 'prelude' => $prelude];
+            });
+            if ($import !== null) {
+                return zeroy_runtime_error('zeroy_zcss_stylesheet_import_forbidden', 'Manifest-declared custom CSS cannot import another stylesheet.', 409, ['path' => $path, 'line' => $import['line'], 'atRule' => $import['prelude'], 'repair' => 'Place the required CSS in one manifest-declared ThemeArtifact stylesheet.']);
+            }
+        }
         $sources[] = $source;
         $stylesheet_hashes[$path] = hash('sha256', $source['css']);
     }
-    $node_count = 0;
     $site_tokens = [];
     $private_properties = [];
     $custom_selectors = [];
@@ -55,8 +90,7 @@ function zeroy_zcss_style_surface_from_directory(string $directory): array|WP_Er
     $violations = [];
     foreach ($sources as $source_index => $source) {
         $generated = $source_index === 0;
-        zeroy_zcss_walk_css_nodes($source['nodes'], static function (array $node) use (&$node_count, &$site_tokens, &$private_properties, &$custom_selectors, &$source_mapping, &$references, &$declared, &$violations, $source, $generated, $known_primitives, $configurable): void {
-            $node_count++;
+        zeroy_zcss_walk_css_nodes($source['nodes'], static function (array $node) use (&$site_tokens, &$private_properties, &$custom_selectors, &$source_mapping, &$references, &$declared, &$violations, $source, $generated, $known_primitives, $configurable): void {
             if (($node['type'] ?? null) === 'rule') {
                 $selector = (string) ($node['prelude'] ?? '');
                 if (!$generated) {
@@ -81,7 +115,6 @@ function zeroy_zcss_style_surface_from_directory(string $directory): array|WP_Er
             }
         });
     }
-    if ($node_count > ZEROY_ZCSS_STYLE_SURFACE_MAX_NODES) return zeroy_runtime_error('zeroy_zcss_stylesheet_limit', 'Stylesheet AST exceeds the StyleSurface node limit.', 409, ['nodes' => $node_count, 'limit' => ZEROY_ZCSS_STYLE_SURFACE_MAX_NODES]);
     $undefined = array_values(array_diff(array_keys($references), array_keys($declared)));
     sort($undefined, SORT_STRING);
     ksort($site_tokens, SORT_STRING);
@@ -104,6 +137,6 @@ function zeroy_zcss_style_surface_from_directory(string $directory): array|WP_Er
         'sourceMapping' => $source_mapping,
         'undefinedReferences' => $undefined,
         'reservedNamespaceViolations' => $violations,
-        'summary' => ['stylesheets' => count($sources), 'nodes' => $node_count, 'customSelectors' => count($selectors), 'siteTokens' => count($site_tokens), 'privateProperties' => count($private)],
+        'summary' => ['stylesheets' => count($sources), 'nodes' => $node_count, 'declarations' => $declaration_count, 'customSelectors' => count($selectors), 'siteTokens' => count($site_tokens), 'privateProperties' => count($private)],
     ];
 }

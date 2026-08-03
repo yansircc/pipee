@@ -31,7 +31,7 @@
   },
   "scripts": {
     "verify": "pnpm run repo:verify && pnpm run pi:verify",
-    "repo:verify": "vp run quality",
+    "repo:verify": "vp run quality && pnpm run site-objects:verify",
     "archive:verify": "node scripts/verify-site-release-boundaries.mjs",
     "test": "vp test",
     "pi:web-build": "node ../../tooling/pi-extension/build-web.mjs .",
@@ -45,15 +45,12 @@
     "release:archive-check": "node ../../tooling/pi-extension/verify-distribution.mjs . archive",
     "release:platform-check": "node ../../tooling/pi-extension/verify-distribution.mjs . platform",
     "acceptance:headless": "pnpm run pi:build && node scripts/headless-acceptance.mjs",
-    "acceptance:remote-only": "pnpm run pi:build && node scripts/remote-only-acceptance.mjs",
-    "acceptance:agent-stage-recovery": "pnpm run pi:build && node scripts/agent-stage-recovery-acceptance.mjs",
-    "acceptance:bootstrap": "node scripts/bootstrap-site-release-acceptance.mjs",
-    "acceptance:upgrade": "node scripts/site-release-hard-cut-upgrade-acceptance.mjs",
-    "acceptance:site-release": "node scripts/site-release-acceptance.mjs",
+    "acceptance:localwp-checkout": "node scripts/localwp-site-checkout-acceptance.mjs",
     "acceptance:zcss-browser": "pnpm run pi:build && node scripts/zcss-browser-acceptance.mjs",
-    "acceptance:zcss-agent": "pnpm run pi:build && node scripts/zcss-agent-acceptance.mjs",
     "spike:zcss": "php test-suite/zcss-pure-spike.php",
-    "zcss:verify": "php test-suite/zcss-pure-spike.php"
+    "zcss:verify": "php test-suite/zcss-pure-spike.php",
+    "theme-units:verify": "php test-suite/theme-units-pure-spike.php",
+    "site-objects:verify": "php test-suite/site-objects-cross-language.php"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "catalog:",

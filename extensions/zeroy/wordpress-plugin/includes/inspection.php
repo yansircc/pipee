@@ -99,5 +99,7 @@ function zeroy_runtime_integrity(): array
             $issues[] = ['code' => is_wp_error($logic) ? $logic->get_error_code() : 'site-logic-drift'];
         }
     }
+    $checkout = zeroy_checkout_reachability();
+    $issues = [...$issues, ...$checkout['issues']];
     return ['ok' => $issues === [], 'issues' => $issues];
 }

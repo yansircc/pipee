@@ -7,6 +7,18 @@ function zeroy_zcss_diagnostic(string $code, string $path, mixed $value, string 
     return ['code' => $code, 'path' => $path, 'value' => $value, 'constraint' => $constraint, 'repair' => $repair];
 }
 
+function zeroy_zcss_font_family_valid(string $value): bool
+{
+    if (preg_match('/\A[\p{L}\p{M}\p{N}\s,.\'"_+-]+\z/u', $value) !== 1) return false;
+    foreach (explode(',', $value) as $family) {
+        $family = trim($family);
+        if ($family === '') return false;
+        $quote = $family[0] ?? '';
+        if (($quote === '"' || $quote === "'") && (strlen($family) < 2 || !str_ends_with($family, $quote))) return false;
+    }
+    return true;
+}
+
 function zeroy_zcss_decode_spec(array $spec, mixed $value, string $path, array &$errors): mixed
 {
     if ($spec['kind'] === 'object') {
@@ -50,8 +62,8 @@ function zeroy_zcss_decode_spec(array $spec, mixed $value, string $path, array &
         return strtolower($value);
     }
     if ($spec['kind'] === 'font-family') {
-        if (!is_string($value) || trim($value) === '' || strlen($value) > $spec['maxLength'] || preg_match('/[{};<>\r\n]/', $value) === 1) {
-            $errors[] = zeroy_zcss_diagnostic('zcss_font_family_invalid', $path, $value, 'Must be a non-empty CSS font-family declaration without rule delimiters.', 'Provide only a local or system font-family list; load no network resource.');
+        if (!is_string($value) || trim($value) === '' || strlen($value) > $spec['maxLength'] || !zeroy_zcss_font_family_valid($value)) {
+            $errors[] = zeroy_zcss_diagnostic('zcss_font_family_invalid', $path, $value, 'Must be a non-empty comma-separated CSS font-family declaration with complete optional quotes and no URL, comment, or rule syntax.', 'Provide only local or system font family names; load no network resource.');
             return null;
         }
         return trim($value);
@@ -82,5 +94,10 @@ function zeroy_zcss_decode_design(mixed $input): array
         }
         if ($design['layout']['textWidth'] > $design['layout']['contentWidth']) $errors[] = zeroy_zcss_diagnostic('zcss_range_invalid', '/layout/textWidth', $design['layout']['textWidth'], 'textWidth must not exceed contentWidth.', 'Use a readable text width inside the content width.');
     }
-    return $errors === [] && is_array($design) ? ['ok' => true, 'design' => zeroy_zcss_canonical_value($design)] : ['ok' => false, 'diagnostics' => $errors];
+    if ($errors !== [] || !is_array($design)) return ['ok' => false, 'diagnostics' => $errors];
+    try {
+        return ['ok' => true, 'design' => zeroy_zcss_canonical_value($design)];
+    } catch (LogicException $error) {
+        return ['ok' => false, 'diagnostics' => [zeroy_zcss_diagnostic('zcss_unicode_normalization_unavailable', '/', null, $error->getMessage(), 'Install PHP ext-intl or use ASCII-only DesignDocument strings.')]];
+    }
 }

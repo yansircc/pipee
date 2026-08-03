@@ -5,19 +5,17 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Effect } from "effect";
 import {
-  CONTENT_PROMPT_GUIDELINES,
-  ContentStageProviderProjection,
+  CHECKOUT_PROMPT_GUIDELINES,
+  CheckoutProviderProjection,
   InspectProviderProjection,
-  SiteCommitProviderProjection,
-  ThemeStageProviderProjection,
+  PushProviderProjection,
+  decodeCheckoutInput,
   decodeInspectInput,
-  decodeThemeStageInput,
-  decodeContentStageInput,
-  decodeSiteCommitInput,
+  decodePushInput,
 } from "../domain/protocol.js";
 import { inspectTool, refreshSurface } from "./inspect-tools.js";
 import { activeSession, run, startSession, stopSession, withSession } from "./session.js";
-import { contentStageTool, siteCommitTool, themeStageTool } from "./stage-tools.js";
+import { checkoutTool, pushTool } from "./checkout-tools.js";
 import { errorMessage, runTool, type ZeroYToolFailure } from "./tool-result.js";
 
 export { verifyBrowserChallengeWithLocalBrowser } from "../domain/browser-verifier.js";
@@ -44,28 +42,21 @@ export default function piZeroY(pi: ExtensionAPI): void {
     pi.on("session_start", (_event, context) => run(notifySessionFailure(context, error)));
     return;
   }
-  const contentStageProjection = ContentStageProviderProjection;
-  if (contentStageProjection._tag === "Failure") {
-    const error = contentStageProjection.error;
+  const checkoutProjection = CheckoutProviderProjection;
+  if (checkoutProjection._tag === "Failure") {
+    const error = checkoutProjection.error;
     pi.on("session_start", (_event, context) => run(notifySessionFailure(context, error)));
     return;
   }
   const inspectParameters = inspectProjection.value;
-  const contentStageParameters = contentStageProjection.value;
-  const themeStageProjection = ThemeStageProviderProjection;
-  if (themeStageProjection._tag === "Failure") {
-    const error = themeStageProjection.error;
+  const pushProjection = PushProviderProjection;
+  if (pushProjection._tag === "Failure") {
+    const error = pushProjection.error;
     pi.on("session_start", (_event, context) => run(notifySessionFailure(context, error)));
     return;
   }
-  const siteCommitProjection = SiteCommitProviderProjection;
-  if (siteCommitProjection._tag === "Failure") {
-    const error = siteCommitProjection.error;
-    pi.on("session_start", (_event, context) => run(notifySessionFailure(context, error)));
-    return;
-  }
-  const themeStageParameters = themeStageProjection.value;
-  const siteCommitParameters = siteCommitProjection.value;
+  const checkoutParameters = checkoutProjection.value;
+  const pushParameters = pushProjection.value;
   pi.registerTool({
     name: "zeroy_inspect",
     label: "Inspect zeroY site",
@@ -83,49 +74,32 @@ export default function piZeroY(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "zeroy_theme_stage",
-    label: "Stage zeroY theme",
-    description:
-      "Stage remote WordPress theme file changes into one SiteDraft; changes are not live until commit.",
-    parameters: themeStageParameters,
+    name: "zeroy_checkout",
+    label: "Checkout zeroY site",
+    description: `Materialize one remote SiteCommit as a local SiteCheckout. ${CHECKOUT_PROMPT_GUIDELINES}`,
+    parameters: checkoutParameters,
     execute: (_id, input, signal) =>
       runTool(
         withSession<AgentToolResult<unknown>, ZeroYToolFailure>(pi, (active) => {
-          const decoded = decodeThemeStageInput(input);
+          const decoded = decodeCheckoutInput(input);
           return decoded._tag === "Failure"
             ? Effect.fail(decoded.error)
-            : themeStageTool(active, decoded.value, signal);
+            : checkoutTool(active, decoded.value, signal);
         }),
       ),
   });
   pi.registerTool({
-    name: "zeroy_content_stage",
-    label: "Stage zeroY content",
-    description: `Stage typed content and translation operations into one remote SiteDraft. ${CONTENT_PROMPT_GUIDELINES}`,
-    parameters: contentStageParameters,
+    name: "zeroy_push",
+    label: "Push zeroY checkout",
+    description: `Push one local checkout as a checkpoint or verified release. ${CHECKOUT_PROMPT_GUIDELINES}`,
+    parameters: pushParameters,
     execute: (_id, input, signal) =>
       runTool(
         withSession<AgentToolResult<unknown>, ZeroYToolFailure>(pi, (active) => {
-          const decoded = decodeContentStageInput(input);
+          const decoded = decodePushInput(input);
           return decoded._tag === "Failure"
             ? Effect.fail(decoded.error)
-            : contentStageTool(active, decoded.value, signal);
-        }),
-      ),
-  });
-  pi.registerTool({
-    name: "zeroy_site_commit",
-    label: "Commit zeroY site",
-    description:
-      "Compile one remote SiteDraft, run its CandidateProof, and atomically activate one SiteRelease.",
-    parameters: siteCommitParameters,
-    execute: (_id, input, signal) =>
-      runTool(
-        withSession<AgentToolResult<unknown>, ZeroYToolFailure>(pi, (active) => {
-          const decoded = decodeSiteCommitInput(input);
-          return decoded._tag === "Failure"
-            ? Effect.fail(decoded.error)
-            : siteCommitTool(active, decoded.value, signal);
+            : pushTool(active, decoded.value, signal);
         }),
       ),
   });

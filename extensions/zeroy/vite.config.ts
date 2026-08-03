@@ -23,6 +23,7 @@ export default defineConfig({
           "vp run typecheck",
           "vp test",
           "pnpm run zcss:verify",
+          "pnpm run theme-units:verify",
           "vp run lint:effect",
         ],
         cache: false,

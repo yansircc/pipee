@@ -2,18 +2,18 @@
 
 defined('ABSPATH') || exit;
 
-const ZEROY_DRAFT_SNAPSHOT_CONTRACT = 'zeroy/draft-snapshot@1';
+const ZEROY_SITE_SNAPSHOT_CONTRACT = 'zeroy/site-snapshot@1';
 
 function zeroy_runtime_snapshot_relative_request(array $snapshot, string $request_path): array|WP_Error
 {
     $site = $snapshot['site'] ?? null;
     if (!is_array($site) || !is_string($site['defaultLocale'] ?? null) || !is_array($site['enabledLocales'] ?? null)) {
-        return zeroy_runtime_error('zeroy_draft_snapshot_invalid', 'DraftSnapshot has no valid site projection.', 500);
+        return zeroy_runtime_error('zeroy_site_snapshot_invalid', 'SiteSnapshot has no valid site projection.', 500);
     }
     $path = strtolower(trim(rawurldecode($request_path), '/'));
     foreach ($site['enabledLocales'] as $locale) {
         if (!is_array($locale) || !is_string($locale['locale'] ?? null) || !is_string($locale['urlPrefix'] ?? null)) {
-            return zeroy_runtime_error('zeroy_draft_snapshot_invalid', 'DraftSnapshot contains an invalid locale projection.', 500);
+            return zeroy_runtime_error('zeroy_site_snapshot_invalid', 'SiteSnapshot contains an invalid locale projection.', 500);
         }
         $prefix = trim(strtolower($locale['urlPrefix']), '/');
         if ($prefix !== '' && ($path === $prefix || str_starts_with($path, $prefix . '/'))) {
@@ -27,7 +27,7 @@ function zeroy_runtime_snapshot_route_url(array $snapshot, string $locale, strin
 {
     $site = $snapshot['site'] ?? null;
     if (!is_array($site) || !is_string($site['baseUrl'] ?? null) || !is_array($site['enabledLocales'] ?? null)) {
-        return zeroy_runtime_error('zeroy_draft_snapshot_invalid', 'DraftSnapshot has no valid URL projection.', 500);
+        return zeroy_runtime_error('zeroy_site_snapshot_invalid', 'SiteSnapshot has no valid URL projection.', 500);
     }
     foreach ($site['enabledLocales'] as $locale_config) {
         if (!is_array($locale_config) || ($locale_config['locale'] ?? null) !== $locale) continue;
@@ -35,7 +35,7 @@ function zeroy_runtime_snapshot_route_url(array $snapshot, string $locale, strin
         $path = trim(($prefix === '' ? '' : $prefix . '/') . trim($route, '/'), '/');
         return rtrim($site['baseUrl'], '/') . '/' . ($path === '' ? '' : $path . '/');
     }
-    return zeroy_runtime_error('zeroy_draft_snapshot_locale_missing', 'DraftSnapshot does not contain the requested locale.', 404, ['locale' => $locale]);
+    return zeroy_runtime_error('zeroy_site_snapshot_locale_missing', 'SiteSnapshot does not contain the requested locale.', 404, ['locale' => $locale]);
 }
 
 function zeroy_runtime_snapshot_route_links(array $snapshot, string $route_id): array|WP_Error
@@ -43,12 +43,12 @@ function zeroy_runtime_snapshot_route_links(array $snapshot, string $route_id): 
     $site = $snapshot['site'] ?? null;
     $routes = $snapshot['routeUrls'][$route_id] ?? null;
     if (!is_array($site) || !is_array($site['enabledLocales'] ?? null) || !is_array($routes)) {
-        return zeroy_runtime_error('zeroy_draft_snapshot_route_invalid', 'DraftSnapshot route identity is incomplete.', 500, ['routeId' => $route_id]);
+        return zeroy_runtime_error('zeroy_site_snapshot_route_invalid', 'SiteSnapshot route identity is incomplete.', 500, ['routeId' => $route_id]);
     }
     $links = [];
     foreach ($site['enabledLocales'] as $locale) {
         $name = is_array($locale) ? ($locale['locale'] ?? null) : null;
-        if (!is_string($name)) return zeroy_runtime_error('zeroy_draft_snapshot_invalid', 'DraftSnapshot contains an invalid locale.', 500);
+        if (!is_string($name)) return zeroy_runtime_error('zeroy_site_snapshot_invalid', 'SiteSnapshot contains an invalid locale.', 500);
         $route = $routes[$name] ?? null;
         $url = is_string($route) ? zeroy_runtime_snapshot_route_url($snapshot, $name, $route) : null;
         if (is_wp_error($url)) return $url;
@@ -83,16 +83,16 @@ function zeroy_runtime_snapshot_search(array $items, string $query, int $page, i
 
 function zeroy_runtime_snapshot_context(array $snapshot, string $request_path, array $query = [], bool $preview = true): array|WP_Error
 {
-    if (($snapshot['contract'] ?? null) !== ZEROY_DRAFT_SNAPSHOT_CONTRACT || !is_array($snapshot['routes'] ?? null)) {
-        return zeroy_runtime_error('zeroy_draft_snapshot_invalid', 'DraftSnapshot contract or route projection is invalid.', 500);
+    if (($snapshot['contract'] ?? null) !== ZEROY_SITE_SNAPSHOT_CONTRACT || !is_array($snapshot['routes'] ?? null)) {
+        return zeroy_runtime_error('zeroy_site_snapshot_invalid', 'SiteSnapshot contract or route projection is invalid.', 500);
     }
     $request = zeroy_runtime_snapshot_relative_request($snapshot, $request_path);
     if (is_wp_error($request)) return $request;
     $locale_routes = $snapshot['routes'][$request['locale']] ?? null;
-    if (!is_array($locale_routes)) return zeroy_runtime_error('zeroy_draft_snapshot_locale_missing', 'DraftSnapshot has no routes for the requested locale.', 404, ['locale' => $request['locale']]);
+    if (!is_array($locale_routes)) return zeroy_runtime_error('zeroy_site_snapshot_locale_missing', 'SiteSnapshot has no routes for the requested locale.', 404, ['locale' => $request['locale']]);
     $descriptor = $locale_routes[$request['route']] ?? ($snapshot['notFound'][$request['locale']] ?? null);
     if (!is_array($descriptor) || !is_string($descriptor['routeKind'] ?? null) || !is_string($descriptor['routeId'] ?? null) || !is_string($descriptor['template'] ?? null)) {
-        return zeroy_runtime_error('zeroy_draft_snapshot_route_invalid', 'DraftSnapshot route descriptor is invalid.', 500, ['locale' => $request['locale'], 'route' => $request['route']]);
+        return zeroy_runtime_error('zeroy_site_snapshot_route_invalid', 'SiteSnapshot route descriptor is invalid.', 500, ['locale' => $request['locale'], 'route' => $request['route']]);
     }
     $links = zeroy_runtime_snapshot_route_links($snapshot, $descriptor['routeId']);
     if (is_wp_error($links)) return $links;

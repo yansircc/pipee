@@ -26,11 +26,9 @@ export const safeToolLedgerSummary = (entries) =>
     const scope =
       typeof input.resource === "string"
         ? `resource:${input.resource}`
-        : typeof input.operation?.kind === "string"
-          ? `operation:${input.operation.kind}`
-          : Array.isArray(input.files)
-            ? "theme-files"
-            : "commit";
+        : typeof input.checkoutId === "string"
+          ? `checkout:${input.mode ?? "materialize"}`
+          : "local";
     const connectorError = entry.result?.payload?.error;
     const result =
       entry.result === null
@@ -74,9 +72,6 @@ export const runHeadlessPi = async ({
     "--mode",
     "json",
     "--print",
-    "--no-builtin-tools",
-    "--tools",
-    "zeroy_inspect,zeroy_theme_stage,zeroy_content_stage,zeroy_site_commit",
     "--extension",
     extension,
     "--no-extensions",

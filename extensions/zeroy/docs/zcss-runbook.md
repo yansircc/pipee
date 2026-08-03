@@ -2,7 +2,7 @@
 
 ## Ownership
 
-The stable input is `ZcssDesignDocument + compiler identity`; the sole output owner is the remote SiteDraft compiler. Agent-authored files are `functions.php`, `zcss.design.json`, `zeroy.theme.json`, `zeroy.schema.json`, templates, and manifest-declared custom CSS. Generated CSS and its manifest are immutable ThemeArtifact bytes, never editable inputs. Live requests read only the stylesheet set pinned by one SiteRelease.
+The stable input is `ZcssDesignDocument + compiler identity`; the sole output owner is the SiteCheckout compiler. Agent-authored files are `functions.php`, `zcss.design.json`, `zeroy.theme.json`, `zeroy.schema.json`, templates, and manifest-declared custom CSS. Generated CSS and its manifest are immutable ThemeArtifact bytes, never editable inputs. Live requests read only the stylesheet set pinned by one SiteRelease.
 
 Changing a design, compiler algorithm, browser policy, token generator, or primitive definition must change the appropriate design, source, or output hash. Custom CSS changes the ThemeArtifact and stylesheet-set hashes without impersonating a ZCSS compiler change.
 

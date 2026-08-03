@@ -31,7 +31,7 @@ function zeroy_runtime_create_canonical(string $post_type, string $schema_id, ar
         if (is_wp_error($route)) return $route;
         $object_id = wp_insert_post([
             'post_type' => $post_type,
-            // SiteDraft is the only draft layer. This write runs inside
+            // SiteCheckout is the only draft layer. This write runs inside
             // SiteRelease activation, so a newly materialized canonical is
             // published exactly when its immutable snapshot becomes active.
             'post_status' => 'publish',

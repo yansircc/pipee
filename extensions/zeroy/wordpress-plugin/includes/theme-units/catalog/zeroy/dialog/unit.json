@@ -1,0 +1,20 @@
+{
+  "contract": "zeroy/theme-unit@1",
+  "id": "zeroy/dialog",
+  "php": {
+    "entrypoints": ["render.php"],
+    "exports": [{ "name": "render", "symbol": "ZeroY\\ThemeUnit\\Dialog\\render" }]
+  },
+  "styles": ["mechanical.css"],
+  "scripts": ["behavior.js"],
+  "interface": {
+    "props": {
+      "id": { "description": "Document-unique dialog ID.", "required": true },
+      "label": { "description": "Visible trigger and accessible dialog label.", "required": true },
+      "content": { "description": "Trusted Theme-authored dialog HTML.", "required": true },
+      "closeLabel": { "description": "Visible close control label.", "required": true }
+    },
+    "slots": []
+  },
+  "behaviors": ["dialog"]
+}

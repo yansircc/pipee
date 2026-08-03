@@ -79,7 +79,7 @@ try {
       "--print",
       "--no-builtin-tools",
       "--tools",
-      "zeroy_inspect,zeroy_theme_stage,zeroy_content_stage,zeroy_site_commit",
+      "zeroy_inspect,zeroy_checkout,zeroy_push",
       "--extension",
       extension,
       "--no-extensions",
@@ -120,10 +120,7 @@ try {
   assert(captured, "Pi did not send an Anthropic Messages request.");
 
   const tools = new Map(captured.tools.map((tool) => [tool.name, tool]));
-  assert.deepEqual(
-    [...tools.keys()],
-    ["zeroy_inspect", "zeroy_theme_stage", "zeroy_content_stage", "zeroy_site_commit"],
-  );
+  assert.deepEqual([...tools.keys()], ["zeroy_inspect", "zeroy_checkout", "zeroy_push"]);
   const { validateProviderSchemaDocument } = await import(pathToFileURL(extension).href);
   for (const [name, tool] of tools) {
     const validation = validateProviderSchemaDocument(tool.input_schema);
@@ -139,79 +136,35 @@ try {
   assert.deepEqual(inspect?.required, ["resource"]);
   assert.deepEqual(inspect?.properties?.resource?.enum, [
     "sites",
+    "refs",
+    "commit",
+    "releaseHistory",
     "site",
     "schema",
     "inventory",
     "acf",
     "zcssContract",
-    "styleSurface",
-    "release",
-    "draft",
     "proof",
-    "themeFiles",
-    "content",
     "integrity",
     "externalCheck",
   ]);
   assert(Object.keys(inspect?.properties ?? {}).length > 2);
-  const inspectedContent = inspect?.properties?.content;
-  assert.equal(inspectedContent?.type, "object");
-  assert.deepEqual(inspectedContent?.required, ["kind"]);
-  assert.deepEqual(inspectedContent?.properties?.kind?.enum, [
-    "canonical",
-    "adoption-candidates",
-    "existing-post",
-    "translation",
-  ]);
-  assert.match(
-    inspectedContent?.properties?.objectId?.description ?? "",
-    /Required when kind = canonical/u,
-  );
+  assert.match(inspect?.properties?.commitView?.description ?? "", /resource = commit/u);
+  assert.match(inspect?.properties?.inventoryView?.description ?? "", /resource = inventory/u);
 
-  const content = tools.get("zeroy_content_stage")?.input_schema;
-  assert.equal(content?.type, "object");
-  assert.doesNotMatch(JSON.stringify(content), /"\$(?:id|ref)"/u);
-  assert.deepEqual(content?.required, ["siteId", "operation"]);
-  const operation = content?.properties?.operation;
-  assert.equal(operation?.type, "object");
-  assert.deepEqual(operation?.required, ["kind"]);
-  assert.deepEqual(operation?.properties?.kind?.enum, [
-    "replayDraft",
-    "siteConfig",
-    "createCanonical",
-    "adoptCanonical",
-    "retireCanonical",
-    "assignSchema",
-    "writeTemplateContent",
-    "writeCanonicalContent",
-    "writeTranslationDraft",
-    "publishTranslation",
-    "unpublishTranslation",
-  ]);
-  assert.match(
-    operation?.properties?.ref?.description ?? "",
-    /Required when kind = createCanonical/u,
-  );
-  assert.match(
-    operation?.properties?.sourceDraftId?.description ?? "",
-    /Omit draftId for this operation/u,
-  );
-  assert.match(
-    operation?.properties?.route?.description ?? "",
-    /never derives a public route from a WordPress slug/u,
-  );
-  assert.match(
-    operation?.properties?.expectedRevision?.description ?? "",
-    /new locale starts at 0 independently/u,
-  );
-  const theme = tools.get("zeroy_theme_stage")?.input_schema;
-  assert.equal(theme?.type, "object");
-  assert.deepEqual(theme?.required, ["siteId", "files"]);
-  assert.equal("artifact" in (theme?.properties ?? {}), false);
-  assert.match(JSON.stringify(theme?.properties?.files ?? {}), /expectedHash/u);
-  const commit = tools.get("zeroy_site_commit")?.input_schema;
-  assert.equal(commit?.type, "object");
-  assert.deepEqual(commit?.required, ["siteId", "draftId", "expectedBaseReleaseId"]);
+  const checkout = tools.get("zeroy_checkout")?.input_schema;
+  assert.equal(checkout?.type, "object");
+  assert.deepEqual(checkout?.required, ["siteId", "source"]);
+  const push = tools.get("zeroy_push")?.input_schema;
+  assert.equal(push?.type, "object");
+  assert.deepEqual(push?.required, ["siteId", "checkoutId", "mode"]);
+  for (const schema of [checkout, push]) {
+    const encoded = JSON.stringify(schema);
+    assert.doesNotMatch(
+      encoded,
+      /fileContent|blobRef|commandId|headHash|expectedRevision|expectedBaseReleaseId/u,
+    );
+  }
 
   process.stdout.write("Pi Anthropic schema transport gate passed.\n");
 } finally {

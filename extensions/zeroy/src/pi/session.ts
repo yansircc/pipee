@@ -19,8 +19,8 @@ import { zeroYPresentation } from "./presentation.js";
  */
 export type ActiveSession = {
   readonly context: ExtensionContext;
-  /** Pi session identity, forwarded only as the remote SiteDraft owner. */
-  readonly draftOwnerId: string;
+  /** Pi session identity is audit metadata, never Draft ownership. */
+  readonly draftActorId: string;
   readonly scope: Scope.Closeable;
   readonly connections: ReadonlyArray<SiteConnection>;
   readonly presentation: LivePresentationPort | undefined;
@@ -121,10 +121,10 @@ export const startSession = (
     const scope = yield* Scope.make("sequential");
     yield* Effect.gen(function* () {
       const connections = yield* loadSiteConnections();
-      const draftOwnerId = context.sessionManager.getSessionId().trim();
-      if (draftOwnerId === "") {
+      const draftActorId = context.sessionManager.getSessionId().trim();
+      if (draftActorId === "") {
         return yield* new ZeroYSessionUnavailable({
-          message: "zeroY requires a stable Pi session ID to own remote SiteDrafts.",
+          message: "zeroY requires a Pi session ID for SiteCommit author metadata.",
         });
       }
       const mutationGates = new Map(
@@ -145,7 +145,7 @@ export const startSession = (
         : undefined;
       const active: ActiveSession = {
         context,
-        draftOwnerId,
+        draftActorId,
         scope,
         connections,
         presentation: context.hasUI ? livePresentation(context.ui, packageJson.name) : undefined,

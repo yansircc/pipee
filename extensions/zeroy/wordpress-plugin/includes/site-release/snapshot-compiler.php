@@ -10,7 +10,7 @@ function zeroy_runtime_snapshot_apply_overlay(array $localizable, array $overlay
     foreach (($overlay['values'] ?? []) as $field_id => $stored) {
         $field = $compiled['fields'][$field_id] ?? null;
         if (!is_array($field) || !is_array($stored) || !array_key_exists('value', $stored)) {
-            return zeroy_runtime_error('zeroy_draft_snapshot_overlay_invalid', 'DraftSnapshot overlay contains an unknown field.', 409, ['fieldId' => $field_id]);
+            return zeroy_runtime_error('zeroy_site_snapshot_overlay_invalid', 'SiteSnapshot overlay contains an unknown field.', 409, ['fieldId' => $field_id]);
         }
         zeroy_localization_set_view_value($view, $field['viewPath'], $stored['value']);
     }
@@ -62,7 +62,7 @@ function zeroy_runtime_snapshot_resolved_locales(array $subject, array $localiza
         foreach ($overlay['values'] as $field_id => $stored) {
             $field = $compiled['fields'][$field_id] ?? null;
             if (!is_array($field) || !is_array($stored) || !array_key_exists('value', $stored)) {
-                return zeroy_runtime_error('zeroy_draft_snapshot_overlay_invalid', 'LocaleOverlay cannot be projected into DraftSnapshot.', 409, ['subject' => $subject, 'locale' => $locale, 'fieldId' => $field_id]);
+                return zeroy_runtime_error('zeroy_site_snapshot_overlay_invalid', 'LocaleOverlay cannot be projected into SiteSnapshot.', 409, ['subject' => $subject, 'locale' => $locale, 'fieldId' => $field_id]);
             }
             zeroy_localization_set_view_value($view, $field['viewPath'], $stored['value']);
         }
@@ -82,13 +82,13 @@ function zeroy_runtime_snapshot_post_entity(int $post_id, string $schema_id, arr
     $localizable = zeroy_localization_post_subject($post_id, $definition, $schema_id);
     if (is_wp_error($localizable)) return $localizable;
     $route = $canonical['route'];
-    if (!is_string($route)) return zeroy_runtime_error('zeroy_draft_snapshot_route_missing', 'Canonical object has no explicit route.', 409, ['objectId' => $post_id]);
+    if (!is_string($route)) return zeroy_runtime_error('zeroy_site_snapshot_route_missing', 'Canonical object has no explicit route.', 409, ['objectId' => $post_id]);
     $route_kind = $definition['routeKind'] ?? null;
     if (!is_string($route_kind) || !in_array($route_kind, ['front-page', 'document', 'singular'], true)) {
-        return zeroy_runtime_error('zeroy_draft_snapshot_route_kind_invalid', 'Canonical ThemeSchema has no explicit routeKind.', 409, ['objectId' => $post_id, 'schemaId' => $schema_id]);
+        return zeroy_runtime_error('zeroy_site_snapshot_route_kind_invalid', 'Canonical ThemeSchema has no explicit routeKind.', 409, ['objectId' => $post_id, 'schemaId' => $schema_id]);
     }
     if (($route_kind === 'front-page') !== ($route === '')) {
-        return zeroy_runtime_error('zeroy_draft_snapshot_route_kind_conflict', 'front-page must own / and document/singular routes must be non-root.', 409, ['objectId' => $post_id, 'schemaId' => $schema_id, 'routeKind' => $route_kind, 'route' => $route]);
+        return zeroy_runtime_error('zeroy_site_snapshot_route_kind_conflict', 'front-page must own / and document/singular routes must be non-root.', 409, ['objectId' => $post_id, 'schemaId' => $schema_id, 'routeKind' => $route_kind, 'route' => $route]);
     }
     $locales = zeroy_runtime_snapshot_resolved_locales(['kind' => 'post', 'id' => $post_id], $localizable, $definition, $site_config);
     if (is_wp_error($locales)) return $locales;
@@ -169,7 +169,7 @@ function zeroy_runtime_snapshot_register_route(array &$routes, array &$route_url
 {
     if (array_key_exists($route, $routes[$locale])) {
         return zeroy_runtime_error(
-            'zeroy_draft_snapshot_route_conflict',
+            'zeroy_site_snapshot_route_conflict',
             'Two candidate route owners declare the same locale path.',
             409,
             ['locale' => $locale, 'route' => $route, 'existingRouteId' => $routes[$locale][$route]['routeId'] ?? null, 'candidateRouteId' => $route_id]
@@ -250,7 +250,7 @@ function zeroy_runtime_snapshot_entity_identity(mixed $reference): string|WP_Err
         if (is_int($reference['id'] ?? null) && $reference['id'] > 0) return 'post:' . $reference['id'];
         if (is_string($reference['ref'] ?? null) && $reference['ref'] !== '') return 'draft:' . $reference['ref'];
     }
-    return zeroy_runtime_error('zeroy_site_draft_ref_missing', 'SiteDraft subject does not identify a candidate post.', 409, ['reference' => $reference]);
+    return zeroy_runtime_error('zeroy_site_checkout_ref_missing', 'SiteCheckout subject does not identify a candidate post.', 409, ['reference' => $reference]);
 }
 
 function zeroy_runtime_snapshot_subject_address(array $snapshot, mixed $reference): array|WP_Error
@@ -259,23 +259,26 @@ function zeroy_runtime_snapshot_subject_address(array $snapshot, mixed $referenc
     if (!is_wp_error($post_identity)) {
         return isset($snapshot['entities'][$post_identity])
             ? ['collection' => 'entities', 'key' => $post_identity]
-            : zeroy_runtime_error('zeroy_site_draft_ref_missing', 'SiteDraft subject does not exist in the candidate snapshot.', 409, ['identity' => $post_identity]);
+            : zeroy_runtime_error('zeroy_site_checkout_ref_missing', 'SiteCheckout subject does not exist in the candidate snapshot.', 409, ['identity' => $post_identity]);
     }
     if (!is_array($reference)) return $post_identity;
     if (($reference['kind'] ?? null) === 'site-copy' && ($reference['id'] ?? null) === 'default') {
         return is_array($snapshot['siteCopy']['localizable'] ?? null)
             ? ['collection' => 'siteCopy', 'key' => null]
-            : zeroy_runtime_error('zeroy_site_draft_ref_missing', 'Candidate ThemeSchema does not declare SiteCopy.', 409);
+            : zeroy_runtime_error('zeroy_site_checkout_ref_missing', 'Candidate ThemeSchema does not declare SiteCopy.', 409);
     }
-    if (($reference['kind'] ?? null) === 'term' && is_string($reference['taxonomy'] ?? null) && is_int($reference['id'] ?? null)) {
+    if (($reference['kind'] ?? null) === 'term' && is_string($reference['taxonomy'] ?? null) && (is_int($reference['id'] ?? null) || is_string($reference['ref'] ?? null))) {
         foreach ($snapshot['terms'] as $key => $entry) {
-            if (($entry['subject']['kind'] ?? null) === 'term' && ($entry['subject']['taxonomy'] ?? null) === $reference['taxonomy'] && ($entry['subject']['id'] ?? null) === $reference['id']) {
+            $same_identity = is_int($reference['id'] ?? null)
+                ? ($entry['subject']['id'] ?? null) === $reference['id']
+                : ($entry['subject']['ref'] ?? null) === $reference['ref'];
+            if (($entry['subject']['kind'] ?? null) === 'term' && ($entry['subject']['taxonomy'] ?? null) === $reference['taxonomy'] && $same_identity) {
                 return ['collection' => 'terms', 'key' => $key];
             }
         }
-        return zeroy_runtime_error('zeroy_site_draft_ref_missing', 'Taxonomy term does not exist in the candidate snapshot.', 409, ['subject' => $reference]);
+        return zeroy_runtime_error('zeroy_site_checkout_ref_missing', 'Taxonomy term does not exist in the candidate snapshot.', 409, ['subject' => $reference]);
     }
-    return zeroy_runtime_error('zeroy_site_draft_subject_unsupported', 'SiteDraft translation subject is not owned by DraftSnapshot.', 409, ['subject' => $reference]);
+    return zeroy_runtime_error('zeroy_site_checkout_subject_unsupported', 'SiteCheckout translation subject is not owned by SiteSnapshot.', 409, ['subject' => $reference]);
 }
 
 function zeroy_runtime_snapshot_subject_entry(array $snapshot, array $address): array
@@ -306,7 +309,7 @@ function zeroy_runtime_snapshot_overlay_view(array $localizable, array $compiled
     $view = $localizable['view'];
     foreach (($overlay['values'] ?? []) as $field_id => $stored) {
         $field = $compiled['fields'][$field_id] ?? null;
-        if (!is_array($field) || !is_array($stored) || !array_key_exists('value', $stored)) return zeroy_runtime_error('zeroy_draft_snapshot_overlay_invalid', 'Candidate overlay contains an unknown field.', 409, ['fieldId' => $field_id]);
+        if (!is_array($field) || !is_array($stored) || !array_key_exists('value', $stored)) return zeroy_runtime_error('zeroy_site_snapshot_overlay_invalid', 'Candidate overlay contains an unknown field.', 409, ['fieldId' => $field_id]);
         zeroy_localization_set_view_value($view, $field['viewPath'], $stored['value']);
     }
     return $view;
@@ -340,10 +343,10 @@ function zeroy_runtime_snapshot_refresh_entity(array $entity, array $schema, arr
     $route_kind = $definition['routeKind'] ?? null;
     $route = $entity['route'] ?? null;
     if (!is_string($route_kind) || !in_array($route_kind, ['front-page', 'document', 'singular'], true) || !is_string($route)) {
-        return zeroy_runtime_error('zeroy_draft_snapshot_route_kind_invalid', 'Candidate entity has no valid explicit route contract.', 409, ['subject' => $entity['subject'] ?? null, 'schemaId' => $entity['schemaId']]);
+        return zeroy_runtime_error('zeroy_site_snapshot_route_kind_invalid', 'Candidate entity has no valid explicit route contract.', 409, ['subject' => $entity['subject'] ?? null, 'schemaId' => $entity['schemaId']]);
     }
     if (($route_kind === 'front-page') !== ($route === '')) {
-        return zeroy_runtime_error('zeroy_draft_snapshot_route_kind_conflict', 'front-page must own / and document/singular routes must be non-root.', 409, ['subject' => $entity['subject'] ?? null, 'schemaId' => $entity['schemaId'], 'routeKind' => $route_kind, 'route' => $route]);
+        return zeroy_runtime_error('zeroy_site_snapshot_route_kind_conflict', 'front-page must own / and document/singular routes must be non-root.', 409, ['subject' => $entity['subject'] ?? null, 'schemaId' => $entity['schemaId'], 'routeKind' => $route_kind, 'route' => $route]);
     }
     $localizable = zeroy_localization_post_subject_from_view(
         $entity['subject'],
@@ -417,7 +420,7 @@ function zeroy_runtime_apply_operations_to_snapshot(array $snapshot, array $oper
         $kind = $operation['kind'] ?? null;
         $payload = $operation['payload'] ?? null;
         if ($kind === 'artifact.files') continue;
-        if (!is_string($kind) || !is_array($payload)) return zeroy_runtime_error('zeroy_site_draft_operation_invalid', 'SiteDraft operation is malformed.', 409);
+        if (!is_string($kind) || !is_array($payload)) return zeroy_runtime_error('zeroy_site_checkout_operation_invalid', 'SiteCheckout operation is malformed.', 409);
         if ($kind === 'siteConfig') {
             if ((int) ($snapshot['siteConfig']['revision'] ?? -1) !== (int) $payload['expectedRevision']) return zeroy_runtime_error('zeroy_site_config_conflict', 'Candidate SiteConfig revision changed.', 409, ['currentRevision' => $snapshot['siteConfig']['revision'] ?? null]);
             $snapshot['siteConfig'] = [...$payload['siteConfig'], 'revision' => (int) $payload['expectedRevision'] + 1];
@@ -445,7 +448,7 @@ function zeroy_runtime_apply_operations_to_snapshot(array $snapshot, array $oper
         }
         if ($kind === 'createCanonical') {
             $identity = 'draft:' . $payload['ref'];
-            if (isset($snapshot['entities'][$identity])) return zeroy_runtime_error('zeroy_site_draft_ref_conflict', 'Staged canonical ref is duplicated.', 409, ['ref' => $payload['ref']]);
+            if (isset($snapshot['entities'][$identity])) return zeroy_runtime_error('zeroy_site_checkout_ref_conflict', 'Staged canonical ref is duplicated.', 409, ['ref' => $payload['ref']]);
             $definition = $schema['schemas'][$payload['schemaId']] ?? null;
             if (!is_array($definition)) return zeroy_runtime_error('zeroy_schema_not_found', 'createCanonical references an unknown candidate schema.', 409, ['schemaId' => $payload['schemaId']]);
             $route = zeroy_runtime_normalize_route((string) $payload['route']);
@@ -488,6 +491,40 @@ function zeroy_runtime_apply_operations_to_snapshot(array $snapshot, array $oper
             unset($snapshot['entities'][$identity]);
             continue;
         }
+        if ($kind === 'createTerm') {
+            $key = (string) $payload['taxonomy'] . ':' . (string) $payload['slug'];
+            if (isset($snapshot['terms'][$key])) return zeroy_runtime_error('zeroy_term_conflict', 'SiteCommit term ref or slug is duplicated.', 409, ['ref' => $payload['ref'] ?? null]);
+            $definition = $schema['localizationSubjects']['term'] ?? null;
+            if (!is_array($definition)) return zeroy_runtime_error('zeroy_schema_not_found', 'Candidate ThemeSchema does not define term localization.', 409);
+            $subject = ['kind' => 'term', 'taxonomy' => (string) $payload['taxonomy'], 'ref' => (string) $payload['ref']];
+            $localizable = zeroy_localization_term_subject_from_values($subject, (string) $payload['taxonomy'], (string) $payload['name'], (string) ($payload['description'] ?? ''));
+            $entry = ['subject' => $subject, 'taxonomy' => (string) $payload['taxonomy'], 'slug' => (string) $payload['slug'], 'localizable' => $localizable, 'definition' => $definition, 'locales' => []];
+            $entry = zeroy_runtime_snapshot_refresh_locales($entry, $definition, $snapshot['siteConfig'], true);
+            if (is_wp_error($entry)) return $entry;
+            $snapshot['terms'][$key] = $entry;
+            continue;
+        }
+        if ($kind === 'updateTerm' || $kind === 'retireTerm') {
+            $found_key = null;
+            foreach ($snapshot['terms'] as $key => $term) if (($term['subject']['id'] ?? null) === ($payload['termId'] ?? null) && ($term['taxonomy'] ?? null) === ($payload['taxonomy'] ?? null)) $found_key = $key;
+            if ($found_key === null) return zeroy_runtime_error('zeroy_term_missing', 'SiteCommit references a missing taxonomy term.', 409, ['termId' => $payload['termId'] ?? null]);
+            $term = $snapshot['terms'][$found_key];
+            if (!hash_equals((string) ($term['localizable']['canonicalRevision'] ?? ''), (string) ($payload['expectedSourceHash'] ?? ''))) return zeroy_runtime_error('zeroy_term_source_conflict', 'Taxonomy term changed after checkout.', 409, ['termId' => $payload['termId']]);
+            unset($snapshot['terms'][$found_key]);
+            if ($kind === 'retireTerm') continue;
+            $term['slug'] = (string) $payload['slug'];
+            $term['localizable'] = zeroy_localization_term_subject_from_values($term['subject'], (string) $payload['taxonomy'], (string) $payload['name'], (string) ($payload['description'] ?? ''));
+            $term = zeroy_runtime_snapshot_refresh_locales($term, $term['definition'], $snapshot['siteConfig'], true);
+            if (is_wp_error($term)) return $term;
+            $snapshot['terms'][(string) $payload['taxonomy'] . ':' . (string) $payload['slug']] = $term;
+            continue;
+        }
+        if ($kind === 'assignTerms') {
+            $identity = zeroy_runtime_snapshot_entity_identity($payload['objectRef'] ?? null);
+            if (is_wp_error($identity) || !isset($snapshot['entities'][$identity])) return is_wp_error($identity) ? $identity : zeroy_runtime_error('zeroy_site_commit_ref_missing', 'Term assignment references a missing candidate entity.', 409);
+            $snapshot['entities'][$identity]['terms'] = is_array($payload['terms'] ?? null) ? $payload['terms'] : [];
+            continue;
+        }
         if (in_array($kind, ['writeTranslationDraft', 'publishTranslation', 'unpublishTranslation'], true)) {
             $address = zeroy_runtime_snapshot_subject_address($snapshot, $payload['subject'] ?? null);
             if (is_wp_error($address)) return $address;
@@ -506,7 +543,7 @@ function zeroy_runtime_apply_operations_to_snapshot(array $snapshot, array $oper
             continue;
         }
         $identity = zeroy_runtime_snapshot_entity_identity($payload['objectRef'] ?? ($payload['subject'] ?? null));
-        if (is_wp_error($identity) || !isset($snapshot['entities'][$identity])) return is_wp_error($identity) ? $identity : zeroy_runtime_error('zeroy_site_draft_ref_missing', 'Operation references a missing candidate entity.', 409, ['identity' => $identity]);
+        if (is_wp_error($identity) || !isset($snapshot['entities'][$identity])) return is_wp_error($identity) ? $identity : zeroy_runtime_error('zeroy_site_checkout_ref_missing', 'Operation references a missing candidate entity.', 409, ['identity' => $identity]);
         $entity = $snapshot['entities'][$identity];
         if (in_array($kind, ['assignSchema', 'writeTemplateContent', 'writeCanonicalContent'], true)) {
             if ((int) $entity['revision'] !== (int) $payload['expectedRevision']) return zeroy_runtime_error('zeroy_canonical_conflict', 'Candidate canonical revision changed.', 409, ['currentRevision' => $entity['revision']]);
@@ -523,7 +560,7 @@ function zeroy_runtime_apply_operations_to_snapshot(array $snapshot, array $oper
             }
             $entity['revision']++;
             $entity = zeroy_runtime_snapshot_refresh_entity($entity, $schema, $snapshot['siteConfig']);
-        } else return zeroy_runtime_error('zeroy_site_draft_operation_invalid', 'Unsupported SiteDraft operation.', 409, ['kind' => $kind]);
+        } else return zeroy_runtime_error('zeroy_site_checkout_operation_invalid', 'Unsupported SiteCheckout operation.', 409, ['kind' => $kind]);
         if (is_wp_error($entity)) return $entity;
         $entity = zeroy_runtime_snapshot_refresh_entity($entity, $schema, $snapshot['siteConfig']);
         if (is_wp_error($entity)) return $entity;
@@ -537,7 +574,7 @@ function zeroy_runtime_compile_base_snapshot(array $theme_contract, array $schem
     $site_config = zeroy_runtime_site_config();
     if (is_wp_error($site_config)) return $site_config;
     $snapshot = [
-        'contract' => ZEROY_DRAFT_SNAPSHOT_CONTRACT,
+        'contract' => ZEROY_SITE_SNAPSHOT_CONTRACT,
         'site' => ['baseUrl' => home_url('/'), 'defaultLocale' => $site_config['defaultLocale'], 'enabledLocales' => array_map(static fn(array $locale): array => ['locale' => $locale['locale'], 'urlPrefix' => $locale['urlPrefix']], $site_config['enabledLocales'])],
         'siteConfig' => $site_config,
         'entities' => [],
@@ -561,47 +598,6 @@ function zeroy_runtime_compile_base_snapshot(array $theme_contract, array $schem
     return zeroy_runtime_snapshot_compile_routes($snapshot, $theme_contract, $schema);
 }
 
-function zeroy_runtime_compile_draft_snapshot(array $draft, array $theme_contract, array $schema): array|WP_Error
-{
-    $operations = zeroy_runtime_site_draft_operations($draft);
-    if (is_wp_error($operations)) return $operations;
-    $base_id = is_string($draft['base_release_id'] ?? null) ? $draft['base_release_id'] : '';
-    $base = $base_id === '' ? null : zeroy_runtime_site_release_row($base_id);
-    if ($base === null && $base_id !== '') return zeroy_runtime_error('zeroy_site_draft_base_missing', 'SiteDraft base SiteRelease does not exist.', 409, ['baseReleaseId' => $base_id]);
-    if ($base === null) {
-        $snapshot = zeroy_runtime_compile_base_snapshot($theme_contract, $schema);
-        if (is_wp_error($snapshot)) return $snapshot;
-    } else {
-        $snapshot = zeroy_runtime_site_release_snapshot($base);
-        if (is_wp_error($snapshot)) return $snapshot;
-        unset($snapshot['snapshotHash'], $snapshot['operationsHash'], $snapshot['themeArtifactId'], $snapshot['siteLogicArtifactId']);
-        foreach ($snapshot['entities'] as $identity => $entity) {
-            $refreshed = zeroy_runtime_snapshot_refresh_entity($entity, $schema, $snapshot['siteConfig']);
-            if (is_wp_error($refreshed)) return $refreshed;
-            $snapshot['entities'][$identity] = $refreshed;
-        }
-        if (is_array($snapshot['siteCopy']['localizable'] ?? null)) {
-            $definition = $schema['localizationSubjects']['siteCopy'] ?? null;
-            if (!is_array($definition)) return zeroy_runtime_error('zeroy_schema_not_found', 'Candidate SiteCopy definition is missing.', 409);
-            $refreshed = zeroy_runtime_snapshot_refresh_locales([...$snapshot['siteCopy'], 'definition' => $definition], $definition, $snapshot['siteConfig'], true);
-            if (is_wp_error($refreshed)) return $refreshed;
-            $snapshot['siteCopy'] = $refreshed;
-        }
-        foreach ($snapshot['terms'] as $term_key => $term) {
-            $definition = $schema['localizationSubjects']['term'] ?? null;
-            if (!is_array($definition)) return zeroy_runtime_error('zeroy_schema_not_found', 'Candidate term localization definition is missing.', 409);
-            $refreshed = zeroy_runtime_snapshot_refresh_locales([...$term, 'definition' => $definition], $definition, $snapshot['siteConfig'], true);
-            if (is_wp_error($refreshed)) return $refreshed;
-            $snapshot['terms'][$term_key] = $refreshed;
-        }
-    }
-    $snapshot = zeroy_runtime_apply_operations_to_snapshot($snapshot, $operations, $theme_contract, $schema);
-    if (is_wp_error($snapshot)) return $snapshot;
-    $snapshot['materializationPlan'] = array_values(array_filter($operations, static fn(array $operation): bool => ($operation['kind'] ?? null) !== 'artifact.files'));
-    $snapshot['operationsHash'] = zeroy_runtime_hash($operations);
-    return $snapshot;
-}
-
 function zeroy_runtime_snapshot_required_content_failure(string $code, array $subject, string $locale, string $field_id, string $evidence): array
 {
     return [
@@ -622,18 +618,18 @@ function zeroy_runtime_snapshot_required_entry_checks(array $entry, array $site_
     $compiled = zeroy_localization_compile_subject_policy($entry['localizable'], $entry['definition']);
     if (is_wp_error($compiled)) return ['checks' => [], 'failures' => [['code' => $compiled->get_error_code(), 'message' => $compiled->get_error_message(), 'subject' => $entry['subject']]]];
     $required = array_filter($compiled['fields'], static fn(array $field): bool => ($field['policy']['required'] ?? false) === true);
-    foreach ($required as $field) if (!zeroy_localization_value_is_present($field['value'])) $failures[] = zeroy_runtime_snapshot_required_content_failure('candidate_required_source_missing', $entry['subject'], (string) $site_config['defaultLocale'], (string) $field['fieldId'], 'The DraftSnapshot canonical source value is empty.');
+    foreach ($required as $field) if (!zeroy_localization_value_is_present($field['value'])) $failures[] = zeroy_runtime_snapshot_required_content_failure('candidate_required_source_missing', $entry['subject'], (string) $site_config['defaultLocale'], (string) $field['fieldId'], 'The SiteSnapshot canonical source value is empty.');
     $checks[] = ['subject' => $entry['subject'], 'locale' => $site_config['defaultLocale'], 'requiredFields' => count($required)];
     foreach ($entry['locales'] as $locale => $state) {
         if ($locale === $site_config['defaultLocale'] || ($state['available'] ?? false) !== true) continue;
         $overlay = $state['publishedOverlay'] ?? null;
         if (!is_array($overlay)) {
-            $failures[] = zeroy_runtime_snapshot_required_content_failure('candidate_required_locale_unreadable', $entry['subject'], (string) $locale, '', 'DraftSnapshot marks a locale available without a published overlay.');
+            $failures[] = zeroy_runtime_snapshot_required_content_failure('candidate_required_locale_unreadable', $entry['subject'], (string) $locale, '', 'SiteSnapshot marks a locale available without a published overlay.');
             continue;
         }
         foreach ($required as $field) {
             $status = zeroy_localization_translation_status($field, $overlay);
-            if ($status['status'] !== 'current') $failures[] = zeroy_runtime_snapshot_required_content_failure('candidate_required_locale_not_current', $entry['subject'], (string) $locale, (string) $field['fieldId'], 'DraftSnapshot locale value is ' . $status['status'] . '.');
+            if ($status['status'] !== 'current') $failures[] = zeroy_runtime_snapshot_required_content_failure('candidate_required_locale_not_current', $entry['subject'], (string) $locale, (string) $field['fieldId'], 'SiteSnapshot locale value is ' . $status['status'] . '.');
         }
         $checks[] = ['subject' => $entry['subject'], 'locale' => $locale, 'requiredFields' => count($required)];
     }
@@ -656,7 +652,7 @@ function zeroy_runtime_snapshot_required_content_checks(array $snapshot, array $
             'code' => 'candidate_default_front_page_missing',
             'invariant' => 'A releasable site has exactly one default-locale front page at /.',
             'locale' => $default_locale,
-            'evidence' => 'Candidate DraftSnapshot has ' . count($front_pages) . ' available front-page route owners for the default locale.',
+            'evidence' => 'Candidate SiteSnapshot has ' . count($front_pages) . ' available front-page route owners for the default locale.',
             'repair' => 'Stage one front-page canonical with route / and all required default-locale content before committing.',
         ];
     }

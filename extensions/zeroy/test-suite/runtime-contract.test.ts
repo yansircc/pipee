@@ -9,26 +9,25 @@ import { activeSession, run, startSession, stopSession } from "../src/pi/session
 const readFixture = (relative: string): string =>
   readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8");
 
-describe("zeroY SiteRelease hard cut", () => {
+describe("zeroY SiteCheckout hard cut", () => {
   it("keeps the production registration independent from a site ThemeSchema", () => {
     const registration = readFixture("../src/pi/extension.ts");
     expect(registration).not.toContain("test-suite/fixtures");
     expect(registration).not.toContain("zeroy.schema.json");
   });
 
-  it("uses SiteRelease as the only active composition and keeps Connector recovery code separate", () => {
+  it("uses immutable commits for authoring and SiteRelease as the only active composition", () => {
     const connector = readFixture("../wordpress-plugin/zeroy-runtime-connector.php");
     const store = readFixture("../wordpress-plugin/includes/site-release/store.php");
     const request = readFixture("../wordpress-plugin/includes/site-release/request-runtime.php");
     const resolver = readFixture("../wordpress-plugin/includes/localization/locale-resolver.php");
     const activation = readFixture("../wordpress-plugin/includes/site-release/activation.php");
-    const draft = readFixture("../wordpress-plugin/includes/site-release/draft.php");
-    const draftInspection = readFixture(
-      "../wordpress-plugin/includes/site-release/draft-inspection.php",
-    );
+    const checkoutStore = readFixture("../wordpress-plugin/includes/site-checkout/store.php");
+    const checkoutRest = readFixture("../wordpress-plugin/includes/site-checkout/rest.php");
+    const checkoutRelease = readFixture("../wordpress-plugin/includes/site-checkout/release.php");
     const read = readFixture("../wordpress-plugin/includes/rest/read.php");
     const themeAuthoring = readFixture("../wordpress-plugin/includes/theme/authoring-contract.php");
-    const releaseRest = readFixture("../wordpress-plugin/includes/site-release/rest.php");
+    const releaseRest = readFixture("../wordpress-plugin/includes/site-checkout/read-rest.php");
     const proof = readFixture("../wordpress-plugin/includes/site-release/proof.php");
     const snapshotCompiler = readFixture(
       "../wordpress-plugin/includes/site-release/snapshot-compiler.php",
@@ -46,13 +45,14 @@ describe("zeroY SiteRelease hard cut", () => {
     expect(store).toContain("site_release_state");
     expect(store).toContain("theme_artifact_id");
     expect(store).toContain("site_logic_artifact_id");
-    expect(store).toContain("draft_id");
-    expect(draft).toContain("ZEROY_SITE_DRAFT_CONTRACT");
-    expect(draft).toContain("zeroy_runtime_stage_site_draft_operation");
-    expect(draftInspection).toContain("zeroy_runtime_with_site_draft_artifact_directory");
-    expect(draftInspection).toContain("zeroy_runtime_compile_theme_contract_from_directories");
-    expect(releaseRest).toContain("/site-drafts");
-    expect(releaseRest).toContain("/site-draft-stages");
+    expect(store).toContain("commit_hash");
+    expect(checkoutStore).toContain("zeroy_checkout_store_object");
+    expect(checkoutStore).toContain("zeroy_checkout_update_ref_locked");
+    expect(checkoutRest).toContain("/site-checkout");
+    expect(checkoutRest).toContain("/site-push");
+    expect(checkoutRelease).toContain("zeroy_checkout_prepare_release");
+    expect(releaseRest).not.toContain("register_rest_route('zeroy/v1', '/site-drafts");
+    expect(releaseRest).not.toContain("register_rest_route('zeroy/v1', '/site-draft-stages");
     expect(releaseRest).toContain("zeroy_runtime_site_release_owned_candidate");
     expect(releaseRest).toContain("WHERE state IN ('active', 'superseded')");
     expect(store).toContain("zeroy_runtime_site_release_artifact_owned_candidate");
@@ -67,7 +67,7 @@ describe("zeroY SiteRelease hard cut", () => {
     expect(resolver).not.toContain("zeroy_runtime_is_candidate_artifact_request");
     expect(activation).toContain("zeroy_runtime_acquire_content_lease()");
     expect(activation).toContain("zeroy_localization_apply_overlay_reconciliation($schema)");
-    expect(activation.indexOf("zeroy_runtime_apply_site_draft_content_operations")).toBeLessThan(
+    expect(activation.indexOf("zeroy_checkout_apply_materialization_plan")).toBeLessThan(
       activation.indexOf("zeroy_localization_apply_overlay_reconciliation($schema)"),
     );
     expect(
@@ -100,7 +100,7 @@ describe("zeroY SiteRelease hard cut", () => {
     expect(verifier).not.toContain("zeroy_weixin");
   });
 
-  it("gives Pi one remote inspect/stage/commit surface", () => {
+  it("gives Pi only inspect, checkout, and push", () => {
     const tools: string[] = [];
     const handlers: string[] = [];
     const pi = {
@@ -108,19 +108,14 @@ describe("zeroY SiteRelease hard cut", () => {
       on: (event: string) => handlers.push(event),
     } as unknown as ExtensionAPI;
     piZeroY(pi);
-    expect(tools).toEqual([
-      "zeroy_inspect",
-      "zeroy_theme_stage",
-      "zeroy_content_stage",
-      "zeroy_site_commit",
-    ]);
+    expect(tools).toEqual(["zeroy_inspect", "zeroy_checkout", "zeroy_push"]);
     expect(handlers).toEqual(["session_start", "session_shutdown"]);
   });
 
   it("keeps Pi registration as composition rather than a deployment implementation bucket", () => {
     const registration = readFixture("../src/pi/extension.ts");
     expect(registration.split("\n").length).toBeLessThan(190);
-    expect(registration).toContain('from "./stage-tools.js"');
+    expect(registration).toContain('from "./checkout-tools.js"');
     expect(registration).not.toContain("connectorGet(");
     expect(registration).not.toContain("connectorPost(");
     expect(registration).not.toContain("prepareSitePush(");

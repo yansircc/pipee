@@ -1,0 +1,18 @@
+{
+  "contract": "zeroy/theme-unit@1",
+  "id": "zeroy/pagination",
+  "php": {
+    "entrypoints": ["render.php"],
+    "exports": [{ "name": "render", "symbol": "ZeroY\\ThemeUnit\\Pagination\\render" }]
+  },
+  "interface": {
+    "props": {
+      "pages": {
+        "description": "Ordered page links with label, URL and current state.",
+        "required": true
+      },
+      "label": { "description": "Accessible pagination landmark label.", "required": true }
+    },
+    "slots": []
+  }
+}

@@ -2,7 +2,7 @@
 
 defined('ABSPATH') || exit;
 
-const ZEROY_THEME_CONTRACT = 'zeroy/theme-contract@1';
+const ZEROY_THEME_CONTRACT = 'zeroy/theme-contract@2';
 const ZEROY_THEME_RUNTIME_MANIFEST_CONTRACT = 'zeroy/theme-manifest@3';
 
 function zeroy_runtime_theme_runtime_manifest(string $directory): array|WP_Error
@@ -24,6 +24,9 @@ function zeroy_runtime_theme_runtime_manifest(string $directory): array|WP_Error
         !is_array($decoded['zcss']['styles'] ?? null) || !array_is_list($decoded['zcss']['styles']) || $decoded['zcss']['styles'] === []
     ) {
         return zeroy_runtime_error('zeroy_theme_manifest_invalid', 'zeroy.theme.json must be an exact ThemeManifest v3 with requiresCapabilities and the ZCSS design/style declaration.', 409);
+    }
+    if (count($decoded['zcss']['styles']) >= ZEROY_ZCSS_STYLE_SURFACE_MAX_STYLESHEETS) {
+        return zeroy_runtime_error('zeroy_theme_manifest_style_limit', 'ThemeManifest declares too many custom stylesheets for one bounded StyleSurface.', 409, ['limit' => ZEROY_ZCSS_STYLE_SURFACE_MAX_STYLESHEETS - 1]);
     }
     $requirements = [];
     foreach ($decoded['requiresCapabilities'] as $capability => $version) {
@@ -47,7 +50,7 @@ function zeroy_runtime_theme_runtime_manifest(string $directory): array|WP_Error
     foreach ($decoded['zcss']['styles'] as $index => $style) {
         if (
             !is_string($style) || !zeroy_runtime_artifact_path_valid($style) || zeroy_runtime_artifact_path_forbidden($style) ||
-            !str_ends_with(strtolower($style), '.css') || in_array($style, zeroy_zcss_reserved_paths(), true) || isset($styles[$style])
+            !str_ends_with(strtolower($style), '.css') || zeroy_runtime_theme_generated_path($style) || isset($styles[$style])
         ) {
             return zeroy_runtime_error('zeroy_theme_manifest_style_invalid', 'ThemeManifest zcss.styles must contain unique safe ThemeArtifact CSS paths.', 409, ['fieldId' => '/zcss/styles/' . $index, 'path' => $style]);
         }
@@ -79,7 +82,7 @@ function zeroy_runtime_compile_theme_contract_from_directories(string $theme_dir
                 [
                     'path' => $required_file,
                     'requiredFiles' => zeroy_runtime_theme_required_files(),
-                    'repair' => 'Stage the complete ThemeArtifact requiredFiles projection before compiling or committing the SiteDraft.',
+                    'repair' => 'Stage the complete ThemeArtifact requiredFiles projection before compiling or committing the SiteCheckout.',
                 ],
             );
         }
@@ -88,6 +91,8 @@ function zeroy_runtime_compile_theme_contract_from_directories(string $theme_dir
     if (!$schema['valid']) return zeroy_runtime_error('zeroy_theme_contract_schema_invalid', 'ThemeArtifact has an invalid ThemeSchema.', 409, ['violations' => $schema['errors']]);
     $theme_manifest = zeroy_runtime_theme_runtime_manifest($theme_directory);
     if (is_wp_error($theme_manifest)) return $theme_manifest;
+    $unit_assets = zeroy_runtime_theme_unit_compiled_assets($theme_directory);
+    if (is_wp_error($unit_assets)) return $unit_assets;
     $site_logic_contract = zeroy_runtime_site_logic_contract_from_directory($site_logic_directory);
     if (is_wp_error($site_logic_contract)) return zeroy_runtime_error('zeroy_site_logic_contract_invalid', 'Stored SiteLogicContract is invalid.', 409);
     $runtime_contract = ['provides' => [
@@ -154,7 +159,9 @@ function zeroy_runtime_compile_theme_contract_from_directories(string $theme_dir
             ['capability' => 'collection.query', 'version' => '^1'],
         ],
         'siteLogicCapabilities' => array_map(static fn(array $provided): array => ['capability' => $provided['capability'], 'version' => '^' . $provided['version']], $site_logic_contract['provides']),
-        'stylesheets' => [ZEROY_ZCSS_GENERATED_CSS_PATH, ...$theme_manifest['zcss']['styles']],
+        'themeProgram' => $unit_assets['themeProgram'],
+        'stylesheets' => [ZEROY_ZCSS_GENERATED_CSS_PATH, ...$unit_assets['stylesheets'], ...$theme_manifest['zcss']['styles']],
+        'scripts' => $unit_assets['scripts'],
         'templates' => $templates,
     ];
     return ['contract' => $contract, 'hash' => zeroy_runtime_hash($contract), 'schema' => $schema['schema'], 'schemaHash' => $schema['contractHash'], 'siteLogicContract' => $site_logic_contract, 'siteLogicContractHash' => zeroy_runtime_hash($site_logic_contract)];

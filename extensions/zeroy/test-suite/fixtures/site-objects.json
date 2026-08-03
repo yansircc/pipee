@@ -1,0 +1,41 @@
+{
+  "blobText": "hello\n",
+  "blobHash": "sha256:e2f0d11f7d341d7c1636d1b5dc562216578f5766e2f7dffa96e0a743390d390a",
+  "treeEntries": [
+    {
+      "name": "index.php",
+      "kind": "blob",
+      "hash": "sha256:e2f0d11f7d341d7c1636d1b5dc562216578f5766e2f7dffa96e0a743390d390a",
+      "mode": "file"
+    }
+  ],
+  "treeHash": "sha256:28c8305d303b32095da91f9c87e29d2291e13663d41d2f04960d6ffb83b46435",
+  "commit": {
+    "contract": "zeroy/site-commit@1",
+    "tree": "sha256:28c8305d303b32095da91f9c87e29d2291e13663d41d2f04960d6ffb83b46435",
+    "parents": [],
+    "baseReleaseId": null,
+    "author": {
+      "principal": "agent:test",
+      "actorSessionId": "session:test"
+    },
+    "message": "fixture",
+    "createdAt": "2026-08-03T00:00:00.000Z"
+  },
+  "commitHash": "sha256:a35512b54199d1c4fedf8036881b7936a786301872f08701c9c2a2275a958ead",
+  "pushRequest": {
+    "checkoutId": "checkout-fixture",
+    "refName": "refs/drafts/connector/fixture",
+    "expectedCommit": null,
+    "commitHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "mode": "checkpoint",
+    "message": "fixture",
+    "changeSummary": {
+      "changedPathCount": 1,
+      "changedSubjectCount": 0,
+      "uploadedObjectCount": 2,
+      "uploadedBytes": 42
+    }
+  },
+  "pushRequestHash": "fa5831f92aedafbb2c46a9975aa73797cac81e1c4c939b54091ce708464f3ec1"
+}

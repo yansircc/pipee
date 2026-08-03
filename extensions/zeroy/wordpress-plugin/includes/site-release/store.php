@@ -2,7 +2,7 @@
 
 defined('ABSPATH') || exit;
 
-const ZEROY_SITE_RELEASE_CONTRACT = 'zeroy/site-release@1';
+const ZEROY_SITE_RELEASE_CONTRACT = 'zeroy/site-release@3';
 const ZEROY_VERIFICATION_PROOF_CONTRACT = 'zeroy/verification-proof@1';
 const ZEROY_SITE_RELEASE_PROOF_CONTRACT = 'zeroy/site-release-proof@1';
 const ZEROY_SITE_RELEASE_VERIFIER_VERSION = '6';
@@ -16,8 +16,7 @@ function zeroy_runtime_site_release_row(string $release_id): ?array
 
 /**
  * A SiteRelease becomes a site-wide fact only after activation. Candidate
- * releases are the compiler output of one owner's SiteDraft, not history for
- * other authoring sessions to browse.
+ * releases are the compiler output of one immutable SiteCommit.
  */
 function zeroy_runtime_site_release_is_public(array $release): bool
 {
@@ -32,13 +31,10 @@ function zeroy_runtime_site_release_is_public(array $release): bool
 function zeroy_runtime_site_release_owned_candidate(array $release, string $owner_id): true|WP_Error
 {
     if (zeroy_runtime_site_release_is_public($release)) return true;
-    $draft_id = (string) ($release['draft_id'] ?? '');
-    $draft = $draft_id === '' ? null : zeroy_runtime_site_draft_row($draft_id);
-    if ($draft === null) return zeroy_runtime_error('zeroy_site_release_missing', 'SiteRelease does not exist.', 404);
-    $owned = zeroy_runtime_site_draft_owned_by($draft, $owner_id);
-    return is_wp_error($owned)
-        ? zeroy_runtime_error('zeroy_site_release_missing', 'SiteRelease does not exist.', 404)
-        : true;
+    $commit = zeroy_checkout_commit_row((string) ($release['commit_hash'] ?? ''));
+    return is_array($commit) && hash_equals((string) $commit['author_principal'], $owner_id)
+        ? true
+        : zeroy_runtime_error('zeroy_site_release_missing', 'SiteRelease does not exist.', 404);
 }
 
 /**
@@ -58,16 +54,15 @@ function zeroy_runtime_site_release_artifact_owned_candidate(string $kind, strin
         ),
     );
     if ((int) $public > 0) return true;
-    if (!zeroy_runtime_site_draft_owner_valid($owner_id)) return zeroy_runtime_error('zeroy_artifact_missing', 'Artifact does not exist.', 404);
-    $draft_ids = $wpdb->get_col(
+    $commit_hashes = $wpdb->get_col(
         $wpdb->prepare(
-            "SELECT draft_id FROM {$release_table} WHERE {$column} = %s AND state NOT IN ('active', 'superseded') AND draft_id IS NOT NULL",
+            "SELECT commit_hash FROM {$release_table} WHERE {$column} = %s AND state NOT IN ('active', 'superseded') AND commit_hash IS NOT NULL",
             $artifact_id,
         ),
     );
-    foreach (is_array($draft_ids) ? $draft_ids : [] as $draft_id) {
-        $draft = is_string($draft_id) ? zeroy_runtime_site_draft_row($draft_id) : null;
-        if ($draft !== null && !is_wp_error(zeroy_runtime_site_draft_owned_by($draft, $owner_id))) return true;
+    foreach (is_array($commit_hashes) ? $commit_hashes : [] as $commit_hash) {
+        $commit = is_string($commit_hash) ? zeroy_checkout_commit_row($commit_hash) : null;
+        if (is_array($commit) && hash_equals((string) $commit['author_principal'], $owner_id)) return true;
     }
     return zeroy_runtime_error('zeroy_artifact_missing', 'Artifact does not exist.', 404);
 }
@@ -94,17 +89,16 @@ function zeroy_runtime_site_release_receipt(string $release_id): array|WP_Error
     $active = zeroy_runtime_active_site_release();
     $diagnostics = zeroy_runtime_decode_json((string) $release['diagnostics_json']);
     $provenance = zeroy_runtime_decode_json((string) $release['provenance_json']);
-    $draft = !empty($release['draft_id']) ? zeroy_runtime_site_draft_row((string) $release['draft_id']) : null;
-    $operations = is_array($draft) ? zeroy_runtime_site_draft_operations($draft) : [];
-    $affected = is_array($operations) ? zeroy_runtime_site_draft_affected_projection($operations) : ['affectedSubjects' => [], 'affectedArtifacts' => []];
     $proof = is_array($diagnostics) && is_array($diagnostics['proof'] ?? null) ? $diagnostics['proof'] : null;
     $theme_proof = is_array($proof['themeProof'] ?? null) ? $proof['themeProof'] : [];
     $integration_scenarios = is_array($proof['integrationScenarios'] ?? null) ? $proof['integrationScenarios'] : [];
     $proof_diagnostics = $proof === null
         ? null
         : [
-            'blockingFailures' => is_array($proof['blockingFailures'] ?? null) ? $proof['blockingFailures'] : [],
-            'warnings' => is_array($theme_proof['warnings'] ?? null) ? $theme_proof['warnings'] : [],
+            'failureCount' => count(is_array($proof['blockingFailures'] ?? null) ? $proof['blockingFailures'] : []),
+            'blockingFailures' => array_slice(is_array($proof['blockingFailures'] ?? null) ? $proof['blockingFailures'] : [], 0, 20),
+            'warningCount' => count(is_array($theme_proof['warnings'] ?? null) ? $theme_proof['warnings'] : []),
+            'warnings' => array_slice(is_array($theme_proof['warnings'] ?? null) ? $theme_proof['warnings'] : [], 0, 20),
             'declaredScenarioCount' => count(is_array($integration_scenarios['declared'] ?? null) ? $integration_scenarios['declared'] : []),
             'executedScenarioCount' => count(is_array($integration_scenarios['executed'] ?? null) ? $integration_scenarios['executed'] : []),
         ];
@@ -119,7 +113,8 @@ function zeroy_runtime_site_release_receipt(string $release_id): array|WP_Error
     return [
         'contract' => ZEROY_SITE_RELEASE_CONTRACT,
         'releaseId' => $release['release_id'],
-        'draftId' => $release['draft_id'] ?: null,
+        'commit' => $release['commit_hash'] ?: null,
+        'previousReleaseId' => $release['previous_release_id'] ?: null,
         'themeArtifactId' => $release['theme_artifact_id'],
         'siteLogicArtifactId' => $release['site_logic_artifact_id'],
         'themeContractHash' => $release['theme_contract_hash'],
@@ -144,8 +139,6 @@ function zeroy_runtime_site_release_receipt(string $release_id): array|WP_Error
                 'proof' => $proof_diagnostics,
             ],
         'browserVerification' => $browser_verification,
-        'affectedSubjects' => $affected['affectedSubjects'],
-        'affectedArtifacts' => $affected['affectedArtifacts'],
         'createdAt' => $release['created_at'],
         'activatedAt' => $release['activated_at'],
         'previewUrl' => in_array($release['state'], ['preparing', 'awaiting-browser', 'prepared'], true)
@@ -171,8 +164,11 @@ function zeroy_runtime_site_release_proof_valid(array $release, array $proof): b
     $diagnostics = zeroy_runtime_decode_json((string) $release['diagnostics_json']);
     $theme_contract = is_array($diagnostics) ? ($diagnostics['themeContract'] ?? null) : null;
     $snapshot = zeroy_runtime_site_release_snapshot($release);
-    $scenario_hash = is_wp_error($snapshot) ? null : zeroy_runtime_hash(zeroy_runtime_snapshot_scenarios($snapshot));
+    $scenarios = is_wp_error($snapshot) ? null : zeroy_runtime_snapshot_scenarios($snapshot);
+    $scenario_hash = is_array($scenarios) ? zeroy_runtime_hash($scenarios) : null;
+    $challenge = is_array($scenarios) ? zeroy_runtime_browser_verification_challenge($release, $scenarios) : null;
     return ($proof['contract'] ?? null) === ZEROY_SITE_RELEASE_PROOF_CONTRACT
+        && (($proof['commit'] ?? null) === ($release['commit_hash'] ?? null))
         && ($proof['releaseCandidateHash'] ?? null) === zeroy_runtime_site_release_candidate_hash($release)
         && (($proof['themeProof']['artifactId'] ?? null) === $release['theme_artifact_id'])
         && (($proof['themeProof']['snapshotHash'] ?? null) === $release['snapshot_hash'])
@@ -182,6 +178,8 @@ function zeroy_runtime_site_release_proof_valid(array $release, array $proof): b
         && (($proof['themeProof']['verifierVersion'] ?? null) === ZEROY_SITE_RELEASE_VERIFIER_VERSION)
         && (($proof['themeProof']['scenarioSetHash'] ?? null) === $scenario_hash)
         && (($proof['themeProof']['browserChecks']['kind'] ?? null) === 'browser-executed')
+        && is_array($challenge)
+        && (($proof['themeProof']['browserChecks']['challengeHash'] ?? null) === ($challenge['challengeHash'] ?? null))
         && (($proof['themeProof']['browserChecks']['failures'] ?? null) === [])
         && (($proof['siteLogicProof']['artifactId'] ?? null) === $release['site_logic_artifact_id'])
         && (($proof['siteLogicProof']['contractHash'] ?? null) === $release['site_logic_contract_hash'])
@@ -191,17 +189,8 @@ function zeroy_runtime_site_release_proof_valid(array $release, array $proof): b
 
 function zeroy_runtime_site_release_candidate_hash(array $release): string
 {
-    $draft_hash = null;
-    if (!empty($release['draft_id'])) {
-        $draft = zeroy_runtime_site_draft_row((string) $release['draft_id']);
-        if (is_array($draft)) {
-            $operations = zeroy_runtime_site_draft_operations($draft);
-            $draft_hash = is_wp_error($operations) ? null : zeroy_runtime_hash($operations);
-        }
-    }
     return zeroy_runtime_hash([
-        'draftId' => $release['draft_id'] ?: null,
-        'draftOperationsHash' => $draft_hash,
+        'commit' => $release['commit_hash'] ?: null,
         'themeArtifactId' => $release['theme_artifact_id'],
         'siteLogicArtifactId' => $release['site_logic_artifact_id'],
         'themeContractHash' => $release['theme_contract_hash'],
@@ -214,12 +203,12 @@ function zeroy_runtime_site_release_candidate_hash(array $release): string
 function zeroy_runtime_site_release_snapshot(array $release): array|WP_Error
 {
     $snapshot = zeroy_runtime_decode_json((string) ($release['snapshot_json'] ?? ''));
-    if (is_wp_error($snapshot) || ($snapshot['contract'] ?? null) !== ZEROY_DRAFT_SNAPSHOT_CONTRACT || !is_string($snapshot['snapshotHash'] ?? null)) return zeroy_runtime_error('zeroy_site_release_snapshot_invalid', 'SiteRelease has no valid DraftSnapshot.', 409);
+    if (is_wp_error($snapshot) || ($snapshot['contract'] ?? null) !== ZEROY_SITE_SNAPSHOT_CONTRACT || !is_string($snapshot['snapshotHash'] ?? null)) return zeroy_runtime_error('zeroy_site_release_snapshot_invalid', 'SiteRelease has no valid commit-derived SiteSnapshot.', 409);
     $claimed = $snapshot['snapshotHash'];
     unset($snapshot['snapshotHash']);
     $actual = zeroy_runtime_hash($snapshot);
     $snapshot['snapshotHash'] = $claimed;
     return hash_equals((string) ($release['snapshot_hash'] ?? ''), $claimed) && hash_equals($claimed, $actual)
         ? $snapshot
-        : zeroy_runtime_error('zeroy_site_release_snapshot_invalid', 'SiteRelease DraftSnapshot hash does not match its content.', 409);
+        : zeroy_runtime_error('zeroy_site_release_snapshot_invalid', 'SiteRelease SiteSnapshot hash does not match its content.', 409);
 }

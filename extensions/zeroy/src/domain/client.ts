@@ -34,13 +34,13 @@ export const connectorCall = (
   path: string,
   init: RequestInit,
   signal: AbortSignal | undefined,
-  draftOwnerId?: string,
+  draftActorId?: string,
 ): Effect.Effect<JsonRecord, ZeroYConnectorError> =>
   Effect.gen(function* () {
     const headers = new Headers(init.headers);
     headers.set("accept", "application/json");
     headers.set("x-zeroy-key", connection.connectionKey);
-    if (draftOwnerId !== undefined) headers.set("x-zeroy-draft-owner", draftOwnerId);
+    if (draftActorId !== undefined) headers.set("x-zeroy-draft-actor", draftActorId);
     if (init.body !== undefined) headers.set("content-type", "application/json");
     const response = yield* Effect.tryPromise({
       try: () =>
@@ -97,22 +97,22 @@ export const connectorGet = (
   connection: SiteConnection,
   path: string,
   signal?: AbortSignal,
-  draftOwnerId?: string,
-) => connectorCall(connection, path, { method: "GET" }, signal, draftOwnerId);
+  draftActorId?: string,
+) => connectorCall(connection, path, { method: "GET" }, signal, draftActorId);
 
 export const connectorPost = (
   connection: SiteConnection,
   path: string,
   payload: Readonly<Record<string, unknown>>,
   signal?: AbortSignal,
-  draftOwnerId?: string,
+  draftActorId?: string,
 ) =>
   connectorCall(
     connection,
     path,
     { method: "POST", body: JSON.stringify(payload) },
     signal,
-    draftOwnerId,
+    draftActorId,
   );
 
 /**

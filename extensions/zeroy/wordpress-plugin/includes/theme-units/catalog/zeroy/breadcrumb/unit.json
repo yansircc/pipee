@@ -1,0 +1,18 @@
+{
+  "contract": "zeroy/theme-unit@1",
+  "id": "zeroy/breadcrumb",
+  "php": {
+    "entrypoints": ["render.php"],
+    "exports": [{ "name": "render", "symbol": "ZeroY\\ThemeUnit\\Breadcrumb\\render" }]
+  },
+  "interface": {
+    "props": {
+      "items": {
+        "description": "Ordered breadcrumb items with label and optional URL.",
+        "required": true
+      },
+      "label": { "description": "Accessible breadcrumb landmark label.", "required": true }
+    },
+    "slots": []
+  }
+}

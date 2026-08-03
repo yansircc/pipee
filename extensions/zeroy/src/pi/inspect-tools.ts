@@ -6,13 +6,9 @@ import {
   runExternalCheck,
   sameOriginExternalCheckUrls,
 } from "../domain/checker.js";
-import { ZeroYConnectorError, connectorGet, decodeConnectorPayload } from "../domain/client.js";
+import { ZeroYConnectorError, connectorGet } from "../domain/client.js";
 import { type ZeroYConnectionConfigError, type SiteConnection } from "../domain/connection.js";
-import {
-  SiteDraftInspectionContract,
-  type InspectInput,
-  type JsonRecord,
-} from "../domain/protocol.js";
+import { type InspectInput, type JsonRecord } from "../domain/protocol.js";
 import { failedSiteView, projectZeroYWebView, type ZeroYSiteView } from "./web-surface.js";
 import { connection, type ActiveSession, withLivePresentation } from "./session.js";
 import { errorMessage, result, text } from "./tool-result.js";
@@ -150,6 +146,43 @@ const inspectResource = (
     }
     const site = yield* connection(active, input.siteId);
     switch (input.resource) {
+      case "refs": {
+        const parameters = new URLSearchParams({ limit: String(input.limit ?? 20) });
+        if (input.cursor !== undefined) parameters.set("cursor", input.cursor);
+        return {
+          payload: yield* connectorGet(site, `site-refs?${parameters.toString()}`, signal),
+          summary: "Read DraftRefs",
+        };
+      }
+      case "commit": {
+        const view = input.commitView ?? "summary";
+        if (view === "summary") {
+          return {
+            payload: yield* connectorGet(site, `site-commits/${input.commit ?? ""}`, signal),
+            summary: "Read immutable SiteCommit",
+          };
+        }
+        const parameters = new URLSearchParams({ limit: String(input.limit ?? 20) });
+        if (input.cursor !== undefined) parameters.set("cursor", input.cursor);
+        if (input.commit !== undefined) parameters.set("commit", input.commit);
+        if (view === "diff" && input.base !== undefined) parameters.set("base", input.base);
+        return {
+          payload: yield* connectorGet(
+            site,
+            `${view === "diff" ? "site-commit-diff" : "site-commits"}?${parameters.toString()}`,
+            signal,
+          ),
+          summary: view === "diff" ? "Read bounded SiteCommit diff" : "Read SiteCommit history",
+        };
+      }
+      case "releaseHistory": {
+        const parameters = new URLSearchParams({ limit: String(input.limit ?? 20) });
+        if (input.cursor !== undefined) parameters.set("cursor", input.cursor);
+        return {
+          payload: yield* connectorGet(site, `site-releases?${parameters.toString()}`, signal),
+          summary: "Read SiteRelease history",
+        };
+      }
       case "site":
         return {
           payload: yield* connectorGet(site, "site", signal),
@@ -163,6 +196,31 @@ const inspectResource = (
       case "inventory": {
         const page = input.page ?? 1;
         const perPage = input.perPage ?? 50;
+        if (input.inventoryView === "existingPost") {
+          const parameters = new URLSearchParams();
+          if (input.schemaId !== undefined) parameters.set("schemaId", input.schemaId);
+          return {
+            payload: yield* connectorGet(
+              site,
+              `existing-post?postId=${input.objectId ?? 0}&${parameters.toString()}`,
+              signal,
+            ),
+            summary: "Read one unmanaged WordPress post with sourceHash",
+          };
+        }
+        if (input.inventoryView === "adoptionCandidates") {
+          const parameters = new URLSearchParams({ page: String(page), perPage: String(perPage) });
+          if (input.schemaId !== undefined) parameters.set("schemaId", input.schemaId);
+          if (input.postType !== undefined) parameters.set("postType", input.postType);
+          return {
+            payload: yield* connectorGet(
+              site,
+              `adoption-candidates?${parameters.toString()}`,
+              signal,
+            ),
+            summary: "Read unmanaged WordPress adoption candidates",
+          };
+        }
         return {
           payload: yield* connectorGet(site, `inventory?page=${page}&perPage=${perPage}`, signal),
           summary: "Read canonical inventory",
@@ -178,112 +236,22 @@ const inspectResource = (
           payload: yield* connectorGet(site, "zcss-contract", signal),
           summary: "Read ZCSS authoring contract",
         };
-      case "styleSurface": {
-        const query =
-          input.draftId === undefined ? "" : `?draftId=${encodeURIComponent(input.draftId)}`;
+      case "proof": {
+        const parameters = new URLSearchParams({
+          view: input.proofView ?? "summary",
+          limit: String(input.proofLimit ?? 20),
+        });
+        if (input.proofCursor !== undefined) parameters.set("cursor", input.proofCursor);
         return {
           payload: yield* connectorGet(
             site,
-            `zcss-style-surface${query}`,
+            `site-release-proofs/${input.proofId}?${parameters.toString()}`,
             signal,
-            input.draftId === undefined ? undefined : active.draftOwnerId,
-          ),
-          summary: "Read compiled StyleSurface",
-        };
-      }
-      case "release":
-        return {
-          payload: yield* connectorGet(site, "site-releases?limit=20", signal),
-          summary: "Read SiteRelease history",
-        };
-      case "draft":
-        return {
-          payload: yield* connectorGet(
-            site,
-            `site-drafts/${input.draftId}`,
-            signal,
-            active.draftOwnerId,
-          ).pipe(
-            Effect.flatMap((payload) =>
-              decodeConnectorPayload(SiteDraftInspectionContract, "SiteDraft inspection", payload),
-            ),
-          ),
-          summary: "Read remote SiteDraft",
-        };
-      case "proof":
-        return {
-          payload: yield* connectorGet(
-            site,
-            `site-release-proofs/${input.proofId}`,
-            signal,
-            active.draftOwnerId,
+            active.draftActorId,
           ),
           summary: "Read CandidateProof diagnostics",
         };
-      case "themeFiles":
-        return {
-          payload: yield* connectorGet(
-            site,
-            `site-artifacts/theme/files?path=${encodeURIComponent(input.path ?? "")}`,
-            signal,
-          ),
-          summary: "Read active remote theme file",
-        };
-      case "content":
-        switch (input.content.kind) {
-          case "canonical":
-            return {
-              payload: yield* connectorGet(
-                site,
-                `canonical-content?objectId=${input.content.objectId}`,
-                signal,
-              ),
-              summary: "Read canonical content projection",
-            };
-          case "adoption-candidates": {
-            const parameters = new URLSearchParams({
-              page: String(input.content.page ?? 1),
-              perPage: String(input.content.perPage ?? 50),
-            });
-            if (input.content.postType !== undefined)
-              parameters.set("postType", input.content.postType);
-            if (input.content.schemaId !== undefined)
-              parameters.set("schemaId", input.content.schemaId);
-            return {
-              payload: yield* connectorGet(
-                site,
-                `adoption-candidates?${parameters.toString()}`,
-                signal,
-              ),
-              summary: "Read unmanaged WordPress adoption candidates",
-            };
-          }
-          case "existing-post": {
-            const parameters = new URLSearchParams({ postId: String(input.content.postId) });
-            if (input.content.schemaId !== undefined)
-              parameters.set("schemaId", input.content.schemaId);
-            if (input.content.draftId !== undefined)
-              parameters.set("draftId", input.content.draftId);
-            return {
-              payload: yield* connectorGet(
-                site,
-                `existing-post?${parameters.toString()}`,
-                signal,
-                input.content.draftId === undefined ? undefined : active.draftOwnerId,
-              ),
-              summary: "Read existing WordPress and ACF facts",
-            };
-          }
-          case "translation":
-            return {
-              payload: yield* connectorGet(
-                site,
-                `translation-job?subject=${encodeURIComponent(JSON.stringify(input.content.subject))}&locale=${encodeURIComponent(input.content.locale)}`,
-                signal,
-              ),
-              summary: "Read derived translation projection",
-            };
-        }
+      }
       case "integrity":
         return {
           payload: yield* connectorGet(site, "integrity", signal),

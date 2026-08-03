@@ -14,7 +14,7 @@ function zeroy_runtime_site_endpoint(): WP_REST_Response
         'contentOwnership' => zeroy_runtime_content_ownership(),
         'themeSchema' => ['valid' => $schema['valid'], 'contractHash' => $schema['contractHash'] ?? null, 'schemaHashes' => $schema['schemaHashes'] ?? [], 'errors' => $schema['errors']],
         'themeAuthoring' => zeroy_runtime_theme_authoring_contract(),
-        'capabilities' => ['siteConfig' => true, 'schema' => true, 'inventory' => true, 'acf' => true, 'adoptionCandidates' => true, 'existingPost' => true, 'canonicalContent' => true, 'themeArtifacts' => true, 'translationJob' => true, 'canonicalObjects' => true, 'siteDrafts' => true, 'integrity' => true],
+        'capabilities' => ['siteConfig' => true, 'schema' => true, 'inventory' => true, 'acf' => true, 'adoptionCandidates' => true, 'existingPost' => true, 'canonicalContent' => true, 'themeArtifacts' => true, 'translationJob' => true, 'canonicalObjects' => true, 'siteCheckout' => true, 'integrity' => true],
     ]);
 }
 
@@ -48,8 +48,8 @@ function zeroy_runtime_zcss_contract_endpoint(): WP_REST_Response
         'tokenCategories' => ['color', 'typography', 'spacing', 'foundation'],
         'primitives' => zeroy_zcss_public_primitives(),
         'namespaces' => ['compilerClasses' => '.z-*', 'compilerProperties' => '--z-*', 'siteProperties' => '--site-*', 'stateClasses' => '.is-*'],
-        'generatedPaths' => zeroy_zcss_reserved_paths(),
-        'guidance' => 'Inspect styleSurface, stage zcss.design.json and manifest-declared custom CSS, inspect the Draft styleSurface, commit, then inspect CandidateProof and externalCheck. Never write generated paths.',
+        'generatedPaths' => zeroy_runtime_theme_generated_paths(),
+        'guidance' => 'Edit zcss.design.json and manifest-declared custom CSS in the local SiteCheckout. Generated paths remain compiler-owned. Push a release, inspect CandidateProof, then run externalCheck.',
     ]);
 }
 
@@ -59,37 +59,14 @@ function zeroy_runtime_adoption_candidates_endpoint(WP_REST_Request $request): W
     return is_wp_error($result) ? zeroy_runtime_response_error($result) : new WP_REST_Response(['contract' => 'zeroy/adoption-candidates@1', ...$result]);
 }
 
-function zeroy_runtime_existing_post_candidate_definition(WP_REST_Request $request, ?string $schema_id): array|WP_Error|null
-{
-    $draft_id = $request->get_param('draftId');
-    if ($draft_id === null || $draft_id === '') return null;
-    if (!is_string($draft_id) || !preg_match('/^[a-f0-9-]{36}$/', $draft_id) || !is_string($schema_id) || $schema_id === '') {
-        return zeroy_runtime_error('zeroy_site_draft_candidate_request_invalid', 'Candidate existing-post inspection requires draftId and schemaId.', 400, ['fieldId' => $schema_id === null || $schema_id === '' ? 'schemaId' : 'draftId']);
-    }
-    $draft = zeroy_runtime_site_draft_row($draft_id);
-    if ($draft === null) return zeroy_runtime_error('zeroy_site_draft_missing', 'SiteDraft does not exist.', 404, ['draftId' => $draft_id]);
-    $owner_id = zeroy_runtime_site_draft_request_owner($request);
-    if (is_wp_error($owner_id)) return $owner_id;
-    $owned = zeroy_runtime_site_draft_owned_by($draft, $owner_id);
-    if (is_wp_error($owned)) return $owned;
-    $candidate = zeroy_runtime_site_draft_candidate_contract($draft);
-    if (is_wp_error($candidate)) return $candidate;
-    $definition = $candidate['themeSchema']['schemas'][$schema_id] ?? null;
-    return is_array($definition)
-        ? $definition
-        : zeroy_runtime_error('zeroy_schema_not_found', 'Candidate ThemeSchema does not define the requested schemaId.', 404, ['draftId' => $draft_id, 'schemaId' => $schema_id]);
-}
-
 function zeroy_runtime_existing_post_endpoint(WP_REST_Request $request): WP_REST_Response
 {
     $schema_id = $request->get_param('schemaId');
     $schema_id = is_string($schema_id) && $schema_id !== '' ? $schema_id : null;
-    $candidate_definition = zeroy_runtime_existing_post_candidate_definition($request, $schema_id);
-    if (is_wp_error($candidate_definition)) return zeroy_runtime_response_error($candidate_definition);
     $result = zeroy_runtime_existing_unmanaged_post(
         (int) $request->get_param('postId'),
         $schema_id,
-        $candidate_definition,
+        null,
     );
     return is_wp_error($result) ? zeroy_runtime_response_error($result) : new WP_REST_Response(['contract' => 'zeroy/existing-post@1', 'existingPost' => $result]);
 }

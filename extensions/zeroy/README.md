@@ -1,110 +1,70 @@
 # zeroY Runtime Connector
 
-zeroY lets a Pi Agent author a complete remote WordPress site through one disposable SiteDraft. Theme files, schema, canonical content and locale overlays are staged remotely; only a verified SiteRelease becomes active. WordPress and ACF remain the canonical source for business facts; language presentation is derived from the active ThemeSchema policy and immutable LocaleOverlay values.
+zeroY lets a Pi Agent build a remote WordPress site through a local, Git-backed SiteCheckout. WordPress owns the canonical business facts; one immutable SiteCommit owns the exact Theme, SiteLogic, content, taxonomy, and locale source selected for a release.
 
 ```text
-WordPress / ACF canonical facts
-× ThemeSchema LocalizationPolicy
-× LocaleOverlay for a target locale
-→ resolved theme projection
-```
-
-The Connector has four agent tools: `zeroy_inspect`, `zeroy_theme_stage`, `zeroy_content_stage`, and `zeroy_site_commit`.
-
-## ZCSS Core v1
-
-ZCSS is the deterministic style compiler inside the remote SiteDraft compiler. The Agent owns `zcss.design.json` and manifest-declared custom CSS; the Connector alone writes `assets/css/zcss.generated.css` and `assets/css/zcss.manifest.json`. The same DesignDocument and compiler identity always produce the same bytes and hashes. Request-time code only reads stylesheets pinned by one active SiteRelease.
-
-The public v1 surface is:
-
-- contract `zeroy/zcss-design@1`, compiler `zeroy/zcss-compiler@1` version `1.0.0`;
-- generated namespace `.z-*` and `--z-*`;
-- site namespace `--site-*`, component-private properties outside both reserved namespaces, and state classes `.is-*`;
-- primitives `z-container`, `z-section`, `z-stack`, `z-cluster`, `z-grid`, `z-sidebar`, `z-switcher`, `z-content-grid`, `z-reel`, and `z-visually-hidden`;
-- generated stylesheet first, followed by the exact ordered custom styles declared in ThemeManifest v3.
-
-Do not copy a token list from documentation. `zeroy_inspect { "resource": "zcssContract" }` is the authoring source for the exact DesignDocument schema, minimal document, primitives, namespaces, compiler identity, and generated paths. `styleSurface` is the read-only projection of the active Release or an owner-scoped Draft; it reports selectors, custom properties, references, stylesheet hashes, and namespace violations without becoming a second style store.
-
-Compact Agent workflow:
-
-1. Inspect `sites`, `site`, `acf`, and `zcssContract`.
-2. Stage a complete ThemeManifest v3, ThemeSchema, DesignDocument, custom CSS, and templates into one Draft. `requiresCapabilities` is `{}` unless a template calls a capability supplied by the pinned SiteLogicArtifact; Connector and ZCSS capabilities never belong there.
-3. Inspect the Draft `styleSurface`, then reuse or refine the projected component surface. Never write a generated path.
-4. Stage typed canonical and locale operations into the same Draft.
-5. Commit the exact Draft and base Release. The tool pauses at an immutable browser challenge, runs Chromium through CDP, submits evidence bound to that challenge, and activates only when CandidateProof is green.
-6. Inspect `release`, `proof`, active `styleSurface`, and `externalCheck` before reporting completion.
-
-Browser evidence covers the declared scenario matrix at 360, 768, and 1440 CSS pixels, including route/status identity, exact stylesheet order and hashes, horizontal/media overflow, keyboard focus, reduced motion, and semantic contrast pairs. It proves those checks ran against the immutable candidate; it does not prove visual taste or business quality. Set `ZEROY_BROWSER_EXECUTABLE` only when automatic Chromium discovery cannot find a compatible browser.
-
-## Translation workflow
-
-1. Inspect `sites`, then the selected `site`, `release`, and active `themeFiles`.
-2. Stage remote Theme and typed content operations into one SiteDraft. Omitting `draftId` atomically creates the Draft and appends that first operation; a failed first operation leaves no empty Draft behind.
-3. After staging or changing a ThemeSchema, inspect `resource: "draft"`. Its candidate ThemeContract, ThemeSchema, ACF projection, and virtual theme manifest are the exact contract that commit will compile. This inspection is read-only: it neither writes artifacts nor creates a release.
-4. For an unmanaged WordPress post, inspect `content.kind: "existing-post"` with that `draftId` and candidate `schemaId`. The returned FieldProjection is the exact candidate field identity, item-key, source-hash, value-shape, and localization-policy input for adoption and translation.
-5. Inspect `content.kind: "translation"` for an adopted/published subject and stage its locale draft operation. Reinspect the Draft after meaningful changes.
-6. Commit once with the Draft's expected base release. If CandidateProof blocks it, inspect `resource: "proof"`, repair the Draft, and commit again. Nothing is live before this step.
-
-`unpublishTranslation` is the inverse public-route operation: it removes only the published pointer and retains the immutable Overlay history and any draft.
-
-The provider-visible tool schema explicitly lists the content inspection modes and typed `writeTranslationDraft`, `publishTranslation`, and `unpublishTranslation` operations. A normal translation never needs raw ACF, source hashes, or `inherit` decisions.
-
-## ThemeSchema
-
-Every post schema declares a `zeroy/localization-policy@1`:
-
-```json
-{
-  "localization": {
-    "contract": "zeroy/localization-policy@1",
-    "rules": [
-      {
-        "fieldPattern": "/post/title",
-        "mode": "translated",
-        "required": true,
-        "contextWeight": "primary"
-      },
-      {
-        "fieldPattern": "/post/content",
-        "mode": "translated",
-        "required": true,
-        "contextWeight": "primary"
-      },
-      {
-        "fieldPattern": "/acf/**",
-        "mode": "overridable",
-        "required": false,
-        "contextWeight": "supporting"
-      }
-    ],
-    "repeaterItemKeys": { "/acf/field_specs": "field_spec_code" }
-  }
-}
-```
-
-Each canonical field must match exactly one rule. `shared` and `derived` values cannot be written to an Overlay. Existing `overridable` values and all `translated` values retain their source hash, so only the affected field becomes stale when canonical content changes.
-
-Repeater and flexible-content fields that are localizable per row must declare a stable ACF item key. Position is never an identity.
-
-Every post schema also declares one `routeKind`: `front-page`, `document`, or `singular`. Each canonical object owns its explicit route; a schema never silently supplies one. Exactly one `front-page` schema may own `/`; every `document` and `singular` route must be non-root. Search, archive, taxonomy, and 404 are the remaining explicit RouteSpec kinds.
-
-The default locale must have exactly one committed `front-page` canonical at `/`. A candidate that omits it cannot activate, even if every other route renders.
-
-## Site release
-
-`zeroy_theme_stage` and `zeroy_content_stage` append remote operations to one SiteDraft. Theme staging is the only Agent file-write operation; connector-owned SiteLogic participates in CandidateProof but is not an Agent-editable file tree. `zeroy_site_commit` is the only operation that can activate a SiteRelease after CandidateProof succeeds. `zeroy_inspect { resource: "draft" }` compiles an ephemeral candidate from the same ordered operation log that commit uses, so it is the contract-discovery boundary for staged schemas; it is not a preview cache or second mutable store. A stage receipt's `lastOperation.nextRevision` is the exact `expectedRevision` for the same subject's next mutation; only a new locale begins at `0`. Draft receipts expose compact operation summaries, affected subjects/artifacts, and staged file hashes—not staged source or document bytes. Candidate releases and their proofs are readable only by the Pi session that owns the source Draft; history contains only activated or superseded Releases. `zeroy_inspect { resource: "proof" }` is the explicit path for complete CandidateProof evidence. All are read-only projections of the same Draft and proof facts.
-
-```text
-ThemeArtifact × SiteLogicArtifact × exact VerificationProof
+local SiteCheckout
+→ Blob / Tree
+→ SiteCommit
+→ CAS DraftRef
+→ commit-bound VerificationProof
 → SiteRelease
 → activeSiteReleaseId
 ```
 
-The Connector verifies static boundaries before it ever loads a candidate, then runs representative front page, singular, archive/taxonomy, search, pagination and 404 requests where current site facts make them available. It pins one SiteRelease for the entire front-end request and never loads Agent Theme or SiteLogic code on `/wp-json/zeroy/*`. Theme may render and read; it cannot own persistence, migration, background work, Connector routes, request-time file writes, or inferred WordPress permalinks. SiteLogic owns declared business capabilities, state and additive storage migrations. Its capability port validates input/output, authorization and observed database effects.
+The extension exposes exactly three zeroY tools:
 
-On a site with no active release, `themeFiles` returns an explicit empty bootstrap projection. `zeroy_inspect { resource: "site" }` also returns `themeAuthoring`: the generic ThemeSchema, RouteSpec, localization, theme-file, and `zeroy_theme_context()` grammar required to author the first release. The first theme stage must provide the complete ThemeArtifact; its Draft has `baseReleaseId: null`, and the first commit must return that exact `null` as `expectedBaseReleaseId`.
+- `zeroy_inspect` reads bounded canonical projections such as sites, refs, commit history/diff, schema, inventory, ACF, proof diagnostics, integrity, and external checks.
+- `zeroy_checkout` materializes the active release or a DraftRef beneath the Pi working directory and initializes a local Git baseline.
+- `zeroy_push` computes objects, uploads only missing bytes, moves the DraftRef with CAS, and optionally verifies and activates the exact commit.
 
-LocaleOverlay is the only locale document protocol. Per-leaf inherit decisions, ThemeCopy, file-by-file theme mutation, ThemeDeployment and their runtime paths are retired. No old deployment endpoint, tool alias, reader, writer, or request-time fallback remains. A single upgrade-time conversion writer turns an already-active pre-SiteDraft release into a normal immutable Snapshot release, then deletes the old Release/proof rows; it is not a compatibility API or reader.
+File bytes never enter a zeroY tool argument or result. The Agent edits the returned local checkout with ordinary local file tools. Transport IDs, object hashes, revision chains, retries, browser evidence, and activation remain extension-owned.
+
+## Checkout layout
+
+```text
+site.json
+artifacts/theme/
+artifacts/site-logic/
+content/posts/*.json
+content/terms/*.json
+content/site-copy.json
+translations/<locale>/posts/*.json
+translations/<locale>/terms/*.json
+translations/<locale>/site-copy.json
+media/
+```
+
+`site.json` owns site configuration. `content/site-copy.json` is the only canonical SiteCopy owner. Post and term filenames are stable refs; WordPress IDs are materialization details. Deleting a managed content or translation document expresses retirement or unpublish in the next release.
+
+The descriptor and unresolved push envelope live under `.zeroy/` and are extension-owned. A pending envelope freezes the complete SiteCommit, so retry after a lost response replays the same command and identity.
+
+## Workflow
+
+1. Inspect `sites`, then the selected site's refs, schema, inventory, ACF, and authoring contracts.
+2. Checkout `active-release`, or resume a named `refs/drafts/...` ref.
+3. Edit only the returned directory. Use `git status` and `git diff` locally.
+4. Push `checkpoint` at recovery milestones.
+5. Push `release`. If proof blocks, inspect `proof` with `repairGroups` or paginated `failures`, repair the same checkout, and push again.
+6. Finish with `integrity` and `externalCheck`.
+
+A checkpoint never activates the public site. A release only activates when its Proof binds the same SiteCommit and the active release CAS still matches its base.
+
+## Theme, SiteLogic, and localization
+
+Theme is read-only presentation. SiteLogic owns declared effects and additive storage migrations. One request pins one SiteRelease, so runtime code cannot mix artifact or content versions.
+
+ThemeSchema localization policy maps every canonical field to exactly one rule. Locale overlays retain source hashes, so a canonical change stales only affected translated fields. Repeater or flexible-content rows that are translated independently require stable item keys; position is not identity.
+
+ZCSS and Theme Units are deterministic checkout compilers. The Agent edits source documents; generated paths are compiler-owned and are verified against fresh compilation before release.
+
+## Storage and recovery
+
+The Connector stores immutable blobs, trees, commits, proofs, releases, and idempotent push receipts. DraftRefs are recovery pointers, not runtime selection pointers. `activeSiteReleaseId` is the sole owner of the live version.
+
+All collection inspection is paginated and byte-bounded. Reachability GC treats refs, releases, proofs, recent receipts, and explicit pins as roots and refuses deletion when canonical reachability is corrupt.
+
+The hard cut has no SiteDraft reader, writer, route, tool alias, migration shim, or synchronization path. Upgrade converts the one active artifact-backed release in place to a SiteSnapshot, seeds its first SiteCommit, binds a proof, and deletes unreadable legacy history.
 
 ## Verification
 
@@ -112,18 +72,8 @@ LocaleOverlay is the only locale document protocol. Per-leaf inherit decisions, 
 pnpm --filter @yansircc/pi-zeroy run repo:verify
 pnpm --filter @yansircc/pi-zeroy run pi:verify
 pnpm --filter @yansircc/pi-zeroy run acceptance:headless
-ZEROY_REMOTE_ONLY_LOCALWP_PORT=10030 pnpm --filter @yansircc/pi-zeroy run acceptance:remote-only
-ZEROY_BOOTSTRAP_LOCALWP_PORT=10022 pnpm --filter @yansircc/pi-zeroy run acceptance:bootstrap
-ZEROY_LOCALWP_PORT=10003 pnpm --filter @yansircc/pi-zeroy run acceptance:site-release
-ZEROY_UPGRADE_LOCALWP_PORT=10070 pnpm --filter @yansircc/pi-zeroy run acceptance:upgrade
-ZEROY_ZCSS_BROWSER_LOCALWP_PORT=10013 pnpm --filter @yansircc/pi-zeroy run acceptance:zcss-browser
-ZEROY_ACCEPTANCE_MODEL=k3 ZEROY_ZCSS_AGENT_LOCALWP_PORT=10013 pnpm --filter @yansircc/pi-zeroy run acceptance:zcss-agent
+pnpm verify
+git diff --check
 ```
 
-`acceptance:bootstrap` and `acceptance:site-release` both require a fresh disposable LocalWP site. The SiteRelease runner checks that zeroY has no prior release, proof, Draft, or migration ledger before it starts; this prevents a reused site's storage epoch from masquerading as a product regression. It syncs the Connector, exercises candidate runtime verification, Theme boundary rejection, SiteLogic fatal recovery, capability migration/action execution, concurrent activation CAS, and stale-proof rejection.
-
-`acceptance:remote-only` is a deterministic Pi transport/host acceptance, not a claim about a hosted model's reasoning quality. It first creates the production npm archive, extracts it into a temporary directory, and deploys both the Pi extension and WordPress connector from that one archive. Pi then starts in an empty temporary cwd with built-in tools, ambient extensions, skills, prompts, context files, and themes disabled; the only callable surface is the four zeroY tools. A local fake Anthropic provider drives the exact remote calls against a fresh LocalWP Connector and the resulting Pi session JSONL proves the single Draft → proof → active SiteRelease loop without a filesystem, database, SSH, or source-code tool.
-
-`acceptance:upgrade` begins with a real prior SiteRelease table shape, then starts a fresh WordPress process with the current Connector. It proves that exact columns are added without rebuilding unrelated tables, an old active Release becomes one proof-backed Snapshot Release, and no old Release/proof row remains exposed.
-
-`acceptance:zcss-browser` resets only zeroY-owned state on the explicitly named disposable site, prepares one immutable candidate, runs the bundled Pi Chromium verifier against the full challenge, and activates it with 36 browser results. `acceptance:zcss-agent` additionally installs its deterministic ACF/CPT facts and lets a real model build the bilingual site using only the four zeroY tools. It is a manual, credentialed dogfood gate rather than ordinary CI. See [the ZCSS developer runbook](docs/zcss-runbook.md).
+`acceptance:headless` requires `ZEROY_SITES`, `ZEROY_ACCEPTANCE_SITE_ID`, and `ZEROY_ACCEPTANCE_MODEL`. It gives Pi the three zeroY tools plus ordinary local file tools, then verifies checkout, local editing, release push, integrity, and external page evidence from the persisted Pi session ledger.

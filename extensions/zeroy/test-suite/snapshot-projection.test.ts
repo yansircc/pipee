@@ -9,7 +9,7 @@ const projectionPath = fileURLToPath(
 
 const phpString = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 
-describe("DraftSnapshot request projection spike", () => {
+describe("SiteSnapshot request projection spike", () => {
   it("projects singular, archive, search, locale links, and ACF content without live WordPress reads", () => {
     const source = readFileSync(projectionPath, "utf8");
     for (const forbidden of [
@@ -33,7 +33,7 @@ describe("DraftSnapshot request projection spike", () => {
       $enItem = ['objectId' => 'draft:machine-1', 'locale' => 'en', 'schemaId' => 'machine', 'url' => 'https://example.test/machines/press/', 'fields' => ['post' => ['title' => 'Press', 'excerpt' => 'Industrial press'], 'acf' => ['capacity' => '20 t/h']]];
       $zhItem = ['objectId' => 'draft:machine-1', 'locale' => 'zh', 'schemaId' => 'machine', 'url' => 'https://example.test/zh/machines/press/', 'fields' => ['post' => ['title' => '压机', 'excerpt' => '工业压机'], 'acf' => ['capacity' => '20 吨/时']]];
       $snapshot = [
-        'contract' => ZEROY_DRAFT_SNAPSHOT_CONTRACT,
+        'contract' => ZEROY_SITE_SNAPSHOT_CONTRACT,
         'site' => ['baseUrl' => 'https://example.test', 'defaultLocale' => 'en', 'enabledLocales' => [['locale' => 'en', 'urlPrefix' => ''], ['locale' => 'zh', 'urlPrefix' => 'zh']]],
         'routes' => [
           'en' => [

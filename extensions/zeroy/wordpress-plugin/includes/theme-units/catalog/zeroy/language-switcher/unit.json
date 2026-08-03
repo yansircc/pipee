@@ -1,0 +1,18 @@
+{
+  "contract": "zeroy/theme-unit@1",
+  "id": "zeroy/language-switcher",
+  "php": {
+    "entrypoints": ["render.php"],
+    "exports": [{ "name": "render", "symbol": "ZeroY\\ThemeUnit\\LanguageSwitcher\\render" }]
+  },
+  "interface": {
+    "props": {
+      "alternates": {
+        "description": "Ordered locale, label and URL alternatives.",
+        "required": true
+      },
+      "label": { "description": "Accessible language navigation label.", "required": true }
+    },
+    "slots": []
+  }
+}

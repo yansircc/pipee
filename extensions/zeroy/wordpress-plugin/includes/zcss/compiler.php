@@ -69,7 +69,7 @@ function zeroy_runtime_zcss_error(array $compilation): WP_Error
 }
 
 /**
- * The SiteDraft compiler is the only filesystem adapter around the pure ZCSS
+ * The SiteCheckout compiler is the only filesystem adapter around the pure ZCSS
  * compiler. It always replaces both derived paths before ThemeArtifact bytes
  * are hashed; request runtime never calls this function.
  */
@@ -85,7 +85,7 @@ function zeroy_runtime_compile_zcss_directory(string $directory): array|WP_Error
     foreach ([ZEROY_ZCSS_GENERATED_CSS_PATH => $compilation['css'], ZEROY_ZCSS_COMPILED_MANIFEST_PATH => $compilation['manifestJson']] as $path => $bytes) {
         $target = rtrim($directory, '/') . '/' . $path;
         if (!wp_mkdir_p(dirname($target)) || file_put_contents($target, $bytes, LOCK_EX) !== strlen($bytes)) {
-            return zeroy_runtime_error('zeroy_zcss_output_write_failed', 'SiteDraft compiler could not write a derived ZCSS file.', 500, ['path' => $path]);
+            return zeroy_runtime_error('zeroy_zcss_output_write_failed', 'SiteCheckout compiler could not write a derived ZCSS file.', 500, ['path' => $path]);
         }
     }
     return [

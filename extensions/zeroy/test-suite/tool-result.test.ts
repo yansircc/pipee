@@ -12,7 +12,7 @@ describe("zeroY Pi tool failure projection", () => {
     expect(
       toolFailurePayload(
         new ZeroYConnectorError({
-          message: "CandidateProof blocked SiteDraft commit.",
+          message: "CandidateProof blocked SiteCheckout release.",
           status: 409,
           code: "zeroy_site_commit_proof_failed",
           data: {
@@ -28,7 +28,7 @@ describe("zeroY Pi tool failure projection", () => {
     ).toEqual({
       error: {
         code: "zeroy_site_commit_proof_failed",
-        message: "CandidateProof blocked SiteDraft commit.",
+        message: "CandidateProof blocked SiteCheckout release.",
         status: 409,
         data: {
           draftId: "draft-1",

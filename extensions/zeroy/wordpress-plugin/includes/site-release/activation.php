@@ -29,6 +29,8 @@ function zeroy_runtime_site_release_activation_preflight(string $release_id): ar
     $proof_row = zeroy_runtime_site_release_proof_row((string) $release['proof_id']);
     $proof = $proof_row === null ? null : zeroy_runtime_decode_json((string) $proof_row['proof_json']);
     if (!is_array($proof) || !zeroy_runtime_site_release_proof_valid($release, $proof)) return zeroy_runtime_error('zeroy_site_release_proof_stale', 'VerificationProof does not exactly bind this SiteRelease candidate.', 409);
+    $commit = zeroy_checkout_commit_row((string) ($release['commit_hash'] ?? ''));
+    if ($commit === null || ($proof['commit'] ?? null) !== ($release['commit_hash'] ?? null) || ($commit['base_release_id'] ?: null) !== ($release['expected_active_release_id'] ?: null)) return zeroy_runtime_error('zeroy_site_release_commit_stale', 'SiteRelease, proof, commit, and active base do not identify one snapshot.', 409);
     return ['release' => $release, 'active' => $active, 'proof' => $proof];
 }
 
@@ -74,16 +76,8 @@ function zeroy_runtime_activate_site_release_locked(string $release_id): array|W
         if (is_wp_error($schema)) return $schema;
         $snapshot = zeroy_runtime_site_release_snapshot($release);
         if (is_wp_error($snapshot)) return $snapshot;
-        if (!empty($release['draft_id'])) {
-            $draft = zeroy_runtime_site_draft_row((string) $release['draft_id']);
-            $draft_state = is_array($draft) ? (string) $draft['state'] : '';
-            // Public commit claims `committing` before candidate compilation.
-            // `open` remains valid only for internal direct preparation used by
-            // the runtime's own candidate/activation acceptance harness.
-            if ($draft === null || !in_array($draft_state, ['open', 'committing'], true)) return zeroy_runtime_error('zeroy_site_draft_commit_conflict', 'Bound SiteDraft is no longer ready for activation.', 409, ['draftId' => $release['draft_id']]);
-            $content_applied = zeroy_runtime_apply_site_draft_content_operations($snapshot['materializationPlan'] ?? null, $schema);
-            if (is_wp_error($content_applied)) return $content_applied;
-        }
+        $content_applied = zeroy_checkout_apply_materialization_plan($snapshot['materializationPlan'] ?? null, $schema);
+        if (is_wp_error($content_applied)) return $content_applied;
         // Reconciliation observes the final materialized canonical state. The
         // active pointer remains last, so public readers only select the exact
         // immutable snapshot already bound by CandidateProof.
@@ -100,16 +94,6 @@ function zeroy_runtime_activate_site_release_locked(string $release_id): array|W
             $state = $wpdb->update(zeroy_runtime_table('site_release_state'), ['active_release_id' => $release_id, 'revision' => (int) $active['revision'] + 1, 'activated_at' => $now], ['singleton' => 1, 'active_release_id' => $active['active_release_id'], 'revision' => $active['revision']]);
         }
         if ($state !== 1) return zeroy_runtime_error('zeroy_site_release_activate_failed', $wpdb->last_error ?: 'Could not move the active SiteRelease pointer.', 409);
-        if (!empty($release['draft_id'])) {
-            $draft_updated = $wpdb->update(
-                zeroy_runtime_table('site_drafts'),
-                ['state' => 'committed', 'proof_id' => $release['proof_id'], 'updated_at' => $now],
-                ['draft_id' => $release['draft_id'], 'state' => $draft_state],
-                ['%s', '%s', '%s'],
-                ['%s', '%s'],
-            );
-            if ($draft_updated !== 1) return zeroy_runtime_error('zeroy_site_draft_commit_conflict', 'SiteDraft changed before SiteRelease activation completed.', 409, ['draftId' => $release['draft_id']]);
-        }
         return zeroy_runtime_site_release_receipt($release_id);
     });
     if (!is_wp_error($result)) {

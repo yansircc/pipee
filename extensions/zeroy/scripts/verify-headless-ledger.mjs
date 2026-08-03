@@ -16,8 +16,14 @@ const calls = readToolLedger([
         {
           type: "toolCall",
           id: "call-2",
-          name: "zeroy_content_stage",
-          arguments: { operation: { kind: "publishTranslation", expectedRevision: 1 } },
+          name: "zeroy_checkout",
+          arguments: { siteId: "site-1", source: "active-release" },
+        },
+        {
+          type: "toolCall",
+          id: "call-3",
+          name: "zeroy_push",
+          arguments: { siteId: "site-1", checkoutId: "checkout-1", mode: "checkpoint" },
         },
       ],
     },
@@ -49,8 +55,15 @@ assert.deepEqual(calls, [
   {
     index: 0,
     id: "call-2",
-    name: "zeroy_content_stage",
-    input: { operation: { kind: "publishTranslation", expectedRevision: 1 } },
+    name: "zeroy_checkout",
+    input: { siteId: "site-1", source: "active-release" },
+    result: null,
+  },
+  {
+    index: 0,
+    id: "call-3",
+    name: "zeroy_push",
+    input: { siteId: "site-1", checkoutId: "checkout-1", mode: "checkpoint" },
     result: null,
   },
 ]);

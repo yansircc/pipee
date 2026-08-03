@@ -1,0 +1,3 @@
+[data-zeroy-behavior="disclosure"] > summary {
+  cursor: pointer;
+}

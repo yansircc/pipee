@@ -17,11 +17,11 @@ function zeroy_zcss_verification_failures(string $theme_directory): array
     $actual_css = file_get_contents(rtrim($theme_directory, '/') . '/' . ZEROY_ZCSS_GENERATED_CSS_PATH);
     $actual_manifest = file_get_contents(rtrim($theme_directory, '/') . '/' . ZEROY_ZCSS_COMPILED_MANIFEST_PATH);
     if (!is_string($actual_css) || !is_string($actual_manifest) || $actual_css !== $recompiled['css'] || $actual_manifest !== $recompiled['manifestJson']) {
-        return [zeroy_runtime_verification_failure('zcss_generated_output_mismatch', 'Generated ZCSS bytes must equal a fresh compilation of the pinned DesignDocument.', ZEROY_ZCSS_GENERATED_CSS_PATH, 1, 'Generated CSS or compiled manifest differs from deterministic recompilation.', 'Do not write generated paths; restage the design so the SiteDraft compiler replaces both outputs.')];
+        return [zeroy_runtime_verification_failure('zcss_generated_output_mismatch', 'Generated ZCSS bytes must equal a fresh compilation of the pinned DesignDocument.', ZEROY_ZCSS_GENERATED_CSS_PATH, 1, 'Generated CSS or compiled manifest differs from deterministic recompilation.', 'Do not write generated paths; restage the design so the SiteCheckout compiler replaces both outputs.')];
     }
     $surface = zeroy_zcss_style_surface_from_directory($theme_directory);
     if (is_wp_error($surface)) {
-        return [zeroy_runtime_verification_failure($surface->get_error_code(), 'ThemeArtifact stylesheets must form one valid compiled StyleSurface.', ZEROY_ZCSS_COMPILED_MANIFEST_PATH, 1, $surface->get_error_message(), 'Repair the ZCSS design or custom CSS, then retry the same SiteDraft.')];
+        return [zeroy_runtime_verification_failure($surface->get_error_code(), 'ThemeArtifact stylesheets must form one valid compiled StyleSurface.', ZEROY_ZCSS_COMPILED_MANIFEST_PATH, 1, $surface->get_error_message(), 'Repair the ZCSS design or custom CSS, then retry the same SiteCheckout.')];
     }
     $failures = [];
     foreach ($surface['reservedNamespaceViolations'] as $violation) {

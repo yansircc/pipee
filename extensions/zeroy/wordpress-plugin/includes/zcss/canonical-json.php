@@ -2,8 +2,31 @@
 
 defined('ABSPATH') || exit;
 
+/**
+ * Canonical JSON is the compiler's input identity boundary.  Key ordering
+ * alone is insufficient: the same visible font family can otherwise arrive
+ * as decomposed Unicode or with platform-specific line endings and produce a
+ * different DesignDocument hash.
+ *
+ * ASCII values do not require an optional PHP extension.  A non-ASCII value
+ * requires ext-intl so the compiler either emits NFC bytes everywhere or
+ * rejects the input; it never silently makes host-dependent bytes.
+ */
+function zeroy_zcss_canonical_string(string $value): string
+{
+    $value = str_replace(["\r\n", "\r"], "\n", $value);
+    if (preg_match('/[^\x00-\x7f]/', $value) !== 1) return $value;
+    if (!class_exists('Normalizer')) {
+        throw new LogicException('ZCSS requires ext-intl to normalize non-ASCII DesignDocument strings.');
+    }
+    $normalized = Normalizer::normalize($value, Normalizer::FORM_C);
+    if (!is_string($normalized)) throw new LogicException('ZCSS could not normalize a DesignDocument string as Unicode NFC.');
+    return $normalized;
+}
+
 function zeroy_zcss_canonical_value(mixed $value): mixed
 {
+    if (is_string($value)) return zeroy_zcss_canonical_string($value);
     if (!is_array($value)) return $value;
     if (array_is_list($value)) return array_map('zeroy_zcss_canonical_value', $value);
     ksort($value, SORT_STRING);
