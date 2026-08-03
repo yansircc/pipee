@@ -2,10 +2,10 @@
 
 defined('ABSPATH') || exit;
 
-function zeroy_checkout_release_row_by_commit(string $commit_hash): ?array
+function zeroy_checkout_release_row_by_build(string $commit_hash, string $build_id): ?array
 {
     global $wpdb;
-    $row = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . zeroy_runtime_table('site_releases') . ' WHERE commit_hash = %s ORDER BY created_at DESC LIMIT 1', $commit_hash), ARRAY_A);
+    $row = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . zeroy_runtime_table('site_releases') . ' WHERE commit_hash = %s AND build_id = %s ORDER BY created_at DESC LIMIT 1', $commit_hash, $build_id), ARRAY_A);
     return is_array($row) ? $row : null;
 }
 
@@ -14,7 +14,7 @@ function zeroy_checkout_release_push_projection(array $release): array|WP_Error
     $state = (string) $release['state'];
     $proof_id = is_string($release['proof_id'] ?? null) && $release['proof_id'] !== '' ? $release['proof_id'] : null;
     if (in_array($state, ['active', 'superseded'], true)) return [
-        'proof' => ['proofId' => $proof_id, 'state' => 'passed', 'failureCount' => 0],
+        'proof' => ['proofId' => $proof_id, 'state' => 'verified', 'failureCount' => 0],
         'release' => ['releaseId' => (string) $release['release_id'], 'state' => 'activated'],
     ];
     $receipt = zeroy_runtime_site_release_receipt((string) $release['release_id']);
@@ -26,7 +26,7 @@ function zeroy_checkout_release_push_projection(array $release): array|WP_Error
     ];
 }
 
-function zeroy_checkout_prepare_release_locked(string $commit_hash, string $ref_name, string $message, string $owner_principal): array|WP_Error
+function zeroy_checkout_prepare_release_locked(string $commit_hash, string $build_id, string $ref_name, string $message, string $owner_principal): array|WP_Error
 {
     $commit = zeroy_checkout_commit_row($commit_hash);
     if ($commit === null || !hash_equals((string) $commit['author_principal'], $owner_principal)) return zeroy_runtime_error('zeroy_site_commit_missing', 'SiteCommit does not exist for this Connector principal.', 404);
@@ -35,10 +35,23 @@ function zeroy_checkout_prepare_release_locked(string $commit_hash, string $ref_
     $active = zeroy_runtime_active_site_release();
     $active_id = $active['active_release_id'] ?? null;
     if (($commit['base_release_id'] ?: null) !== $active_id) return zeroy_runtime_error('zeroy_active_site_release_changed', 'SiteCommit base does not match the active SiteRelease.', 409, ['commitBaseReleaseId' => $commit['base_release_id'] ?: null, 'activeReleaseId' => $active_id]);
-    $existing = zeroy_checkout_release_row_by_commit($commit_hash);
+    $existing = zeroy_checkout_release_row_by_build($commit_hash, $build_id);
+    if ($existing !== null && (string) $existing['state'] === 'prepared') {
+        $activated = zeroy_runtime_activate_site_release_locked((string) $existing['release_id']);
+        if (is_wp_error($activated)) return $activated;
+        $existing = zeroy_runtime_site_release_row((string) $existing['release_id']);
+        if ($existing === null) return zeroy_runtime_error('zeroy_site_release_missing', 'Activated SiteRelease disappeared.', 500);
+    }
     if ($existing !== null && (string) $existing['state'] !== 'preparing') return zeroy_checkout_release_push_projection($existing);
-    $candidate = zeroy_checkout_compile_commit($commit_hash);
-    if (is_wp_error($candidate)) return $candidate;
+    $build_row = zeroy_build_row($build_id);
+    $build = is_array($build_row) ? zeroy_build_result_projection($build_row) : null;
+    if (!is_array($build) || ($build['commit'] ?? null) !== $commit_hash || ($build['state'] ?? null) !== 'ready') return zeroy_runtime_error('zeroy_build_not_ready', 'Release requires the exact ready BuildResult produced by checkpoint.', 409, ['buildId' => $build_id]);
+    $current_external_facts_hash = zeroy_build_external_facts_hash_for_commit($commit_hash);
+    if (is_wp_error($current_external_facts_hash)) return $current_external_facts_hash;
+    if (!hash_equals((string) $build['externalFactsHash'], $current_external_facts_hash)) return zeroy_runtime_error('zeroy_build_external_facts_changed', 'Relevant external facts changed after checkpoint.', 409, ['buildId' => $build_id, 'next' => 'push another checkpoint']);
+    $diagnostics = zeroy_build_diagnostics((string) $build_row['diagnostics_hash']);
+    $candidate = is_array($diagnostics['candidate'] ?? null) ? $diagnostics['candidate'] : null;
+    if (!is_array($candidate)) return zeroy_runtime_error('zeroy_build_candidate_missing', 'Ready BuildResult has no immutable candidate payload.', 500, ['buildId' => $build_id]);
     $compiled = $candidate['compiled'];
     $snapshot = $candidate['snapshot'];
     if (!hash_equals((string) $commit['tree_hash'], (string) ($candidate['commit']['tree_hash'] ?? ''))) return zeroy_runtime_error('zeroy_candidate_materialization_mismatch', 'Candidate materialization root does not match SiteCommit tree.', 500);
@@ -55,6 +68,7 @@ function zeroy_checkout_prepare_release_locked(string $commit_hash, string $ref_
     $release_id = $existing === null ? wp_generate_uuid4() : (string) $existing['release_id'];
     $release_values = [
         'commit_hash' => $commit_hash,
+        'build_id' => $build_id,
         'previous_release_id' => $active_id,
         'theme_artifact_id' => $candidate['artifacts']['theme']['artifactId'],
         'site_logic_artifact_id' => $candidate['artifacts']['siteLogic']['artifactId'],
@@ -66,7 +80,7 @@ function zeroy_checkout_prepare_release_locked(string $commit_hash, string $ref_
         'expected_active_release_id' => $active_id,
         'state' => 'preparing',
         'proof_id' => null,
-        'provenance_json' => zeroy_runtime_json(['source' => 'site-checkout', 'commit' => $commit_hash, 'draftRef' => $ref_name, 'message' => $message]),
+        'provenance_json' => zeroy_runtime_json(['source' => 'site-checkout', 'commit' => $commit_hash, 'buildId' => $build_id, 'draftRef' => $ref_name, 'message' => $message]),
         'diagnostics_json' => zeroy_runtime_json(['themeContract' => $compiled['contract'], 'themeSchema' => $compiled['schema'], 'migration' => $migration]),
         'created_at' => current_time('mysql', true),
         'activated_at' => null,
@@ -77,35 +91,46 @@ function zeroy_checkout_prepare_release_locked(string $commit_hash, string $ref_
     if ($written === false || ($existing === null && $written !== 1)) return zeroy_runtime_error('zeroy_site_release_prepare_failed', $wpdb->last_error ?: 'Could not create commit-bound SiteRelease candidate.', 500);
     $release = zeroy_runtime_site_release_row($release_id);
     if ($release === null) return zeroy_runtime_error('zeroy_site_release_prepare_failed', 'Candidate SiteRelease disappeared.', 500);
-    $proof = zeroy_runtime_verify_candidate_site_release($release, $compiled);
-    if (is_wp_error($proof)) return $proof;
+    $proof = is_array($candidate['verificationProof'] ?? null) ? $candidate['verificationProof'] : null;
+    if (!is_array($proof) || ($proof['blockingFailures'] ?? null) !== []) {
+        return zeroy_runtime_error('zeroy_build_verification_missing', 'Ready BuildResult has no successful deterministic verification proof.', 500, ['buildId' => $build_id]);
+    }
     $proof_id = zeroy_runtime_store_site_release_proof($release_id, $proof);
     if (is_wp_error($proof_id)) return $proof_id;
-    $state = $proof['blockingFailures'] === [] ? 'awaiting-browser' : 'failed';
+    $state = 'awaiting-browser';
     $updated = $wpdb->update(zeroy_runtime_table('site_releases'), ['state' => $state, 'proof_id' => $proof_id, 'diagnostics_json' => zeroy_runtime_json(['themeContract' => $compiled['contract'], 'themeSchema' => $compiled['schema'], 'migration' => $migration, 'proof' => $proof])], ['release_id' => $release_id]);
     if ($updated !== 1) return zeroy_runtime_error('zeroy_site_release_prepare_failed', 'Could not finalize commit-bound CandidateProof.', 500);
     $release = zeroy_runtime_site_release_row($release_id);
     return $release === null ? zeroy_runtime_error('zeroy_site_release_prepare_failed', 'Candidate SiteRelease disappeared.', 500) : zeroy_checkout_release_push_projection($release);
 }
 
-function zeroy_checkout_prepare_release(string $commit_hash, string $ref_name, string $message, string $owner_principal): array|WP_Error
+function zeroy_checkout_prepare_release(string $commit_hash, string $build_id, string $ref_name, string $message, string $owner_principal): array|WP_Error
 {
     return zeroy_runtime_with_site_release_lock(
-        static fn(): array|WP_Error => zeroy_checkout_prepare_release_locked($commit_hash, $ref_name, $message, $owner_principal),
+        static fn(): array|WP_Error => zeroy_checkout_prepare_release_locked($commit_hash, $build_id, $ref_name, $message, $owner_principal),
     );
 }
 
 function zeroy_checkout_finalize_release(string $release_id, mixed $browser_evidence, string $owner_principal): array|WP_Error
 {
     $release = zeroy_runtime_site_release_row($release_id);
-    if ($release === null || (string) $release['state'] !== 'awaiting-browser') return zeroy_runtime_error('zeroy_site_release_not_awaiting_browser', 'SiteRelease is not awaiting browser evidence.', 409, ['releaseId' => $release_id, 'state' => $release['state'] ?? null]);
+    if ($release === null) return zeroy_runtime_error('zeroy_site_release_missing', 'SiteRelease does not exist.', 404, ['releaseId' => $release_id]);
     $owned = zeroy_runtime_site_release_owned_candidate($release, $owner_principal);
     if (is_wp_error($owned)) return $owned;
+    if ((string) $release['state'] === 'prepared') {
+        $activated = zeroy_runtime_activate_site_release($release_id);
+        if (is_wp_error($activated)) return $activated;
+        $release = zeroy_runtime_site_release_row($release_id);
+        return $release === null ? zeroy_runtime_error('zeroy_site_release_missing', 'Activated SiteRelease disappeared.', 500) : zeroy_checkout_release_push_projection($release);
+    }
+    if (zeroy_runtime_site_release_is_public($release) || (string) $release['state'] === 'failed') return zeroy_checkout_release_push_projection($release);
+    if ((string) $release['state'] !== 'awaiting-browser') return zeroy_runtime_error('zeroy_site_release_not_awaiting_browser', 'SiteRelease is not awaiting browser evidence.', 409, ['releaseId' => $release_id, 'state' => $release['state']]);
     $evidence = zeroy_runtime_decode_browser_evidence($browser_evidence);
     if (is_wp_error($evidence)) return $evidence;
-    $compiled = zeroy_runtime_compile_theme_contract((string) $release['theme_artifact_id'], (string) $release['site_logic_artifact_id']);
-    if (is_wp_error($compiled)) return $compiled;
-    $proof = zeroy_runtime_verify_candidate_site_release_with_browser($release, $compiled, $evidence);
+    $prior_proof_row = is_string($release['proof_id'] ?? null) ? zeroy_runtime_site_release_proof_row((string) $release['proof_id']) : null;
+    $prior_proof = is_array($prior_proof_row) ? zeroy_runtime_decode_json((string) $prior_proof_row['proof_json']) : null;
+    if (!is_array($prior_proof) || ($prior_proof['buildId'] ?? null) !== ($release['build_id'] ?? null)) return zeroy_runtime_error('zeroy_build_verification_missing', 'Release has no exact BuildResult verification proof.', 409, ['buildId' => $release['build_id'] ?? null]);
+    $proof = zeroy_runtime_attach_browser_evidence($release, $prior_proof, $evidence);
     if (is_wp_error($proof)) return $proof;
     $proof_id = zeroy_runtime_store_site_release_proof($release_id, $proof);
     if (is_wp_error($proof_id)) return $proof_id;
@@ -124,7 +149,7 @@ function zeroy_checkout_finalize_release(string $release_id, mixed $browser_evid
     $active = zeroy_runtime_activate_site_release($release_id);
     if (is_wp_error($active)) return $active;
     return [
-        'proof' => ['proofId' => $active['proofId'], 'state' => 'passed', 'failureCount' => 0],
+        'proof' => ['proofId' => $active['proofId'], 'state' => 'verified', 'failureCount' => 0],
         'release' => ['releaseId' => $release_id, 'state' => 'activated'],
     ];
 }

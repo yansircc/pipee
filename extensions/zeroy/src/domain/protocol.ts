@@ -44,38 +44,30 @@ export const InspectInputContract = Type.Union([
     cursor: Type.Optional(Type.String({ minLength: 1 })),
   }),
   Type.Object({ siteId: SiteId, resource: Type.Literal("site") }),
-  Type.Object({ siteId: SiteId, resource: Type.Literal("schema") }),
-  Type.Object({
-    siteId: SiteId,
-    resource: Type.Literal("inventory"),
-    inventoryView: Type.Optional(
-      Type.Union(
-        [Type.Literal("managed"), Type.Literal("adoptionCandidates"), Type.Literal("existingPost")],
-        { description: "Optional when resource = inventory; defaults to managed." },
-      ),
-    ),
-    objectId: Type.Optional(Type.Integer({ minimum: 1 })),
-    schemaId: Type.Optional(Type.String({ minLength: 1 })),
-    postType: Type.Optional(Type.String({ minLength: 1 })),
-    page: Type.Optional(Type.Integer({ minimum: 1 })),
-    perPage: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
-  }),
-  Type.Object({ siteId: SiteId, resource: Type.Literal("acf") }),
-  Type.Object({ siteId: SiteId, resource: Type.Literal("zcssContract") }),
   Type.Object({
     siteId: SiteId,
     resource: Type.Literal("proof"),
     proofId: Type.String({ minLength: 1 }),
     proofView: Type.Optional(
-      Type.Union([Type.Literal("summary"), Type.Literal("failures"), Type.Literal("repairGroups")]),
+      Type.Union(
+        [Type.Literal("summary"), Type.Literal("failures"), Type.Literal("repairGroups")],
+        { description: "Optional when resource = proof; defaults to summary." },
+      ),
     ),
-    proofLimit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
-    proofCursor: Type.Optional(Type.String({ minLength: 1 })),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+    cursor: Type.Optional(Type.String({ minLength: 1 })),
   }),
   Type.Object({ siteId: SiteId, resource: Type.Literal("integrity") }),
   Type.Object({
     siteId: SiteId,
     resource: Type.Literal("externalCheck"),
+    externalCheckView: Type.Optional(
+      Type.Union([Type.Literal("summary"), Type.Literal("pages"), Type.Literal("failures")], {
+        description: "Optional when resource = externalCheck; defaults to summary.",
+      }),
+    ),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+    cursor: Type.Optional(Type.String({ minLength: 1 })),
     urls: Type.Optional(
       Type.Array(Type.String({ minLength: 1, maxLength: 2048 }), {
         maxItems: 20,
@@ -86,16 +78,20 @@ export const InspectInputContract = Type.Union([
 ]);
 export type InspectInput = Static<typeof InspectInputContract>;
 
-export const CheckoutInputContract = Type.Object(
-  {
-    siteId: SiteId,
-    source: Type.Union([
-      Type.Literal("active-release"),
-      Type.Object({ draftRef: Type.String({ pattern: "^refs/drafts/" }) }),
-    ]),
-  },
-  { additionalProperties: false },
-);
+export const CheckoutInputContract = Type.Union([
+  Type.Object(
+    { siteId: SiteId, source: Type.Literal("active-release") },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      siteId: SiteId,
+      source: Type.Literal("draft-ref"),
+      draftRef: Type.String({ pattern: "^refs/drafts/" }),
+    },
+    { additionalProperties: false },
+  ),
+]);
 export type CheckoutInput = Static<typeof CheckoutInputContract>;
 
 export const PushInputContract = Type.Object(
@@ -193,6 +189,7 @@ export const SiteReleaseReceiptContract = Type.Object({
   contract: Type.Literal("zeroy/site-release@3"),
   releaseId: Type.String({ minLength: 1 }),
   commit: Type.Union([ObjectHash, Type.Null()]),
+  buildId: Type.Union([ObjectHash, Type.Null()]),
   previousReleaseId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   themeArtifactId: Type.String({ minLength: 1 }),
   siteLogicArtifactId: Type.String({ minLength: 1 }),
@@ -462,7 +459,7 @@ const decodeExact = <Output>(
 };
 
 export const InspectProviderProjection = providerSafeParameters(InspectInputContract, "resource");
-export const CheckoutProviderProjection = providerSafeObject(CheckoutInputContract);
+export const CheckoutProviderProjection = providerSafeParameters(CheckoutInputContract, "source");
 export const PushProviderProjection = providerSafeObject(PushInputContract);
 
 export const decodeInspectInput = (
@@ -470,15 +467,6 @@ export const decodeInspectInput = (
 ): ProtocolResult<InspectInput, ToolInputValidationError | ProviderSchemaProjectionError> => {
   const decoded = decodeDiscriminated<InspectInput>(InspectInputContract, "resource", input);
   if (decoded._tag === "Failure") return decoded;
-  if (
-    decoded.value.resource === "inventory" &&
-    decoded.value.inventoryView === "existingPost" &&
-    decoded.value.objectId === undefined
-  ) {
-    return failure(
-      new ToolInputValidationError({ message: "inventory existingPost requires objectId." }),
-    );
-  }
   if (decoded.value.resource !== "commit") return decoded;
   const view = decoded.value.commitView ?? "summary";
   if (view === "summary" && decoded.value.commit === undefined) {
@@ -493,11 +481,11 @@ export const decodeInspectInput = (
 };
 
 export const decodeCheckoutInput = (input: unknown) =>
-  decodeExact<CheckoutInput>(CheckoutInputContract, "checkout", input);
+  decodeDiscriminated<CheckoutInput>(CheckoutInputContract, "source", input);
 export const decodePushInput = (input: unknown) =>
   decodeExact<PushInput>(PushInputContract, "push", input);
 
 export const CHECKOUT_PROMPT_GUIDELINES =
-  "Inspect sites and refs, checkout one active release or DraftRef, edit only the returned local checkout, run local checks, push checkpoints at milestones, then push release. The extension owns object hashes, CAS, retries, revisions, CandidateProof, and activation. After a blocked release, inspect proof repairGroups or failures, repair the same checkout, and push again.";
+  "Inspect sites and refs, checkout one active release or DraftRef, then begin at .zeroy/README.md. Edit only normal authored files in that checkout; .zeroy is a derived, read-only contract and diagnostic projection. Push checkpoints at milestones and release only when .zeroy/status.md reports ready. The extension owns object hashes, CAS, rebase, retries, BuildResult, proof, and activation.";
 
 export type JsonRecord = Readonly<Record<string, unknown>>;

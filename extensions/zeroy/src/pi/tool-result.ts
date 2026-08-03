@@ -19,7 +19,64 @@ export type ZeroYToolFailure =
   | ProviderSchemaProjectionError
   | ToolInputValidationError;
 
-export const text = (value: unknown): string => JSON.stringify(value, null, 2);
+const forbiddenAgentResultKeys = new Set([
+  "fieldId",
+  "sourceHash",
+  "revision",
+  "currentRevision",
+  "expectedRevision",
+  "overlay",
+  "operationSummaries",
+  "bytesBase64",
+  "fileContent",
+]);
+
+export const agentResultBoundary = (
+  value: unknown,
+  maxBytes = 16 * 1024,
+):
+  | { readonly ok: true; readonly encoded: string }
+  | { readonly ok: false; readonly reason: string } => {
+  const visit = (entry: unknown, path: string): string | null => {
+    if (Array.isArray(entry)) {
+      for (let index = 0; index < entry.length; index++) {
+        const violation = visit(entry[index], `${path}[${index}]`);
+        if (violation !== null) return violation;
+      }
+      return null;
+    }
+    if (typeof entry !== "object" || entry === null) return null;
+    for (const [key, child] of Object.entries(entry)) {
+      if (forbiddenAgentResultKeys.has(key)) return `${path}.${key}`;
+      const violation = visit(child, `${path}.${key}`);
+      if (violation !== null) return violation;
+    }
+    return null;
+  };
+  const violation = visit(value, "$");
+  if (violation !== null) return { ok: false, reason: `forbidden internal field at ${violation}` };
+  const encoded = JSON.stringify(value, null, 2);
+  const bytes = Buffer.byteLength(encoded, "utf8");
+  return bytes <= maxBytes
+    ? { ok: true, encoded }
+    : { ok: false, reason: `encoded result is ${bytes} bytes; limit is ${maxBytes}` };
+};
+
+export const text = (value: unknown): string => {
+  const boundary = agentResultBoundary(value);
+  return boundary.ok
+    ? boundary.encoded
+    : JSON.stringify(
+        {
+          error: {
+            code: "zeroy_agent_result_boundary_failed",
+            message: boundary.reason,
+          },
+        },
+        null,
+        2,
+      );
+};
 
 export const asRecord = (value: unknown): JsonRecord | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -37,12 +94,13 @@ export const errorMessage = (error: unknown): string =>
 
 export const toolFailurePayload = (error: unknown): JsonRecord => {
   if (error instanceof ZeroYConnectorError) {
+    const data = error.data === undefined ? undefined : agentResultBoundary(error.data, 8 * 1024);
     return {
       error: {
         code: error.code ?? "zeroy_connector_error",
         message: error.message,
         ...(error.status === undefined ? {} : { status: error.status }),
-        ...(error.data === undefined ? {} : { data: error.data }),
+        ...(data?.ok === true ? { data: error.data } : {}),
       },
     };
   }

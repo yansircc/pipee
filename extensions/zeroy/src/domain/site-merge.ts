@@ -84,5 +84,8 @@ export const isMergeableTextPath = (path: string): boolean =>
     path.toLowerCase().endsWith(extension),
   );
 
+export const incompleteMergeConflictKind = (path: string): "content" | "binary" =>
+  isMergeableTextPath(path) ? "content" : "binary";
+
 export const normalizedTextBytes = (value: string): Uint8Array =>
   new TextEncoder().encode(normalizeCheckoutText(value));

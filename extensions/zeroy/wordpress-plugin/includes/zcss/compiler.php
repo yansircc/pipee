@@ -53,6 +53,30 @@ function zeroy_zcss_compile(mixed $input): array
     ];
 }
 
+function zeroy_zcss_authoring_contract(): array
+{
+    $compiled = zeroy_zcss_compile(zeroy_zcss_minimal_design_document());
+    $tokens = array_map(
+        static fn(array $token): array => array_intersect_key($token, ['name' => true, 'category' => true]),
+        $compiled['manifest']['tokens'],
+    );
+    return [
+        'contract' => 'zeroy/zcss-authoring@1',
+        'designContract' => ZEROY_ZCSS_DESIGN_CONTRACT,
+        'compiledContract' => ZEROY_ZCSS_COMPILED_CONTRACT,
+        'compiler' => ['id' => ZEROY_ZCSS_COMPILER_ID, 'version' => ZEROY_ZCSS_COMPILER_VERSION, 'sourceHash' => zeroy_zcss_compiler_source_hash()],
+        'schema' => zeroy_zcss_design_json_schema(),
+        'minimalDocument' => zeroy_zcss_minimal_design_document(),
+        'tokens' => $tokens,
+        'primitives' => zeroy_zcss_public_primitives(),
+        'browserPolicy' => zeroy_zcss_browser_policy(),
+        'contrastPairs' => zeroy_zcss_contrast_pairs(),
+        'namespaces' => ['compilerClasses' => '.z-*', 'compilerProperties' => '--z-*', 'siteProperties' => '--site-*', 'stateClasses' => '.is-*'],
+        'generatedPaths' => zeroy_runtime_theme_generated_paths(),
+        'guidance' => 'Edit zcss.design.json for generated tokens and manifest-declared custom CSS for site rules. Use only tokens and primitives declared here. Generated paths remain compiler-owned.',
+    ];
+}
+
 function zeroy_runtime_zcss_error(array $compilation): WP_Error
 {
     $diagnostics = is_array($compilation['diagnostics'] ?? null) ? $compilation['diagnostics'] : [];

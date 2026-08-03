@@ -14,8 +14,6 @@ function zeroy_checkout_source_endpoint(WP_REST_Request $request): WP_REST_Respo
     $ref_name = is_string($request->get_param('draftRef')) ? $request->get_param('draftRef') : null;
     $requested_commit = is_string($request->get_param('commit')) ? $request->get_param('commit') : null;
     if ($source === 'active-release') {
-        $seeded = zeroy_checkout_seed_active_release_commit();
-        if (is_wp_error($seeded)) return zeroy_runtime_response_error($seeded);
         $active = zeroy_runtime_active_site_release();
         if ($active === null) {
             $commit_hash = zeroy_checkout_seed_bootstrap_commit();
@@ -47,6 +45,8 @@ function zeroy_checkout_source_endpoint(WP_REST_Request $request): WP_REST_Respo
     if (!is_array($commit)) return zeroy_runtime_response_error(zeroy_runtime_error('zeroy_site_commit_missing', 'Checkout source commit does not exist.', 409, ['commit' => $commit_hash]));
     $files = zeroy_checkout_flatten_tree((string) $commit['tree_hash']);
     if (is_wp_error($files)) return zeroy_runtime_response_error($files);
+    $build = zeroy_build_compile($commit_hash);
+    if (is_wp_error($build)) return zeroy_runtime_response_error($build);
     return new WP_REST_Response([
         'contract' => 'zeroy/checkout-source@1',
         'source' => $source,
@@ -54,6 +54,12 @@ function zeroy_checkout_source_endpoint(WP_REST_Request $request): WP_REST_Respo
         'tree' => $commit['tree_hash'],
         'baseReleaseId' => $base_release_id ?: null,
         'draftRef' => $draft_ref,
+        'build' => [
+            'buildId' => $build['result']['buildId'],
+            'state' => $build['result']['state'],
+            'failureCount' => $build['result']['failureCount'],
+            'repairGroupCount' => $build['result']['repairGroupCount'],
+        ],
         'files' => array_map(static fn(string $path, array $file): array => ['path' => $path, ...$file], array_keys($files), array_values($files)),
     ]);
 }
@@ -153,16 +159,29 @@ function zeroy_checkout_checkpoint_push(array $payload): array|WP_Error
     $ref = zeroy_checkout_update_ref_locked($payload['refName'], is_string($payload['expectedCommit'] ?? null) ? $payload['expectedCommit'] : null, $payload['commitHash']);
     if (is_wp_error($ref)) return $ref;
     $result = [
-        'contract' => 'zeroy/push-receipt@1',
+        'contract' => 'zeroy/push-receipt@2',
         'checkoutId' => (string) ($payload['checkoutId'] ?? ''),
         'mode' => $payload['mode'],
         'commit' => $payload['commitHash'],
         'draftRef' => $payload['refName'],
-        'refState' => $ref['state'],
-        'changeSummary' => is_array($payload['changeSummary'] ?? null) ? $payload['changeSummary'] : ['changedPathCount' => 0, 'changedSubjectCount' => 0, 'uploadedObjectCount' => 0, 'uploadedBytes' => 0],
     ];
     $recorded = zeroy_checkout_record_push_receipt($payload['commandId'], $payload['requestHash'], $result);
     return is_wp_error($recorded) ? $recorded : $result;
+}
+
+function zeroy_checkout_complete_checkpoint_push(string $command_id, string $request_hash, array $checkpoint): array|WP_Error
+{
+    if (is_array($checkpoint['build'] ?? null)) return $checkpoint;
+    $build = zeroy_build_compile((string) $checkpoint['commit']);
+    if (is_wp_error($build)) return $build;
+    $result = $checkpoint + ['build' => [
+        'buildId' => $build['result']['buildId'],
+        'state' => $build['result']['state'],
+        'failureCount' => $build['result']['failureCount'],
+        'repairGroupCount' => $build['result']['repairGroupCount'],
+    ]];
+    $updated = zeroy_checkout_replace_push_receipt($command_id, $request_hash, $result);
+    return is_wp_error($updated) ? $updated : $result;
 }
 
 function zeroy_checkout_push_change_summary(mixed $value): array|WP_Error
@@ -201,18 +220,20 @@ function zeroy_checkout_push_endpoint(WP_REST_Request $request): WP_REST_Respons
     $existing = zeroy_checkout_push_receipt($payload['commandId']);
     if ($existing !== null) {
         if (!hash_equals($existing['requestHash'], $payload['requestHash']) || !hash_equals($actual_request_hash, $payload['requestHash'])) return zeroy_runtime_response_error(zeroy_runtime_error('zeroy_push_command_reused', 'commandId was already used for a different push request.', 409));
-        if (($existing['result']['mode'] ?? null) === 'release' && !isset($existing['result']['candidate']) && !isset($existing['result']['proof']) && !isset($existing['result']['release']) && !isset($existing['result']['preflight'])) {
-            $resumed = zeroy_checkout_complete_release_push($payload['commandId'], $payload['requestHash'], $existing['result'], (string) ($payload['message'] ?? ''));
-            return is_wp_error($resumed) ? zeroy_runtime_response_error($resumed) : new WP_REST_Response($resumed);
+        $resumed = zeroy_checkout_complete_checkpoint_push($payload['commandId'], $payload['requestHash'], $existing['result']);
+        if (!is_wp_error($resumed) && ($resumed['mode'] ?? null) === 'release' && !isset($resumed['candidate']) && !isset($resumed['proof']) && !isset($resumed['release']) && !isset($resumed['preflight'])) {
+            $resumed = zeroy_checkout_complete_release_push($payload['commandId'], $payload['requestHash'], $resumed, (string) ($payload['message'] ?? ''));
         }
-        return new WP_REST_Response($existing['result']);
+        return is_wp_error($resumed) ? zeroy_runtime_response_error($resumed) : new WP_REST_Response($resumed);
     }
     if (!hash_equals($actual_request_hash, $payload['requestHash'])) return zeroy_runtime_response_error(zeroy_runtime_error('zeroy_push_request_hash_mismatch', 'requestHash does not bind the canonical push request.', 409, ['actualRequestHash' => $actual_request_hash]));
     global $wpdb;
     $checkpoint = static fn(): array|WP_Error => zeroy_runtime_transaction(static fn(): array|WP_Error => zeroy_checkout_checkpoint_push($payload));
-    $result = get_class($wpdb) === 'WP_SQLite_DB'
+    $checkpoint = get_class($wpdb) === 'WP_SQLite_DB'
         ? zeroy_runtime_with_process_file_lock('site-ref', 'zeroy_site_ref_lock_unavailable', 'SiteCheckout ref mutation', $checkpoint)
         : $checkpoint();
+    if (is_wp_error($checkpoint)) return zeroy_runtime_response_error($checkpoint);
+    $result = zeroy_checkout_complete_checkpoint_push($payload['commandId'], $payload['requestHash'], $checkpoint);
     if (is_wp_error($result)) return zeroy_runtime_response_error($result);
     if ($payload['mode'] === 'release') {
         $completed = zeroy_checkout_complete_release_push($payload['commandId'], $payload['requestHash'], $result, (string) ($payload['message'] ?? ''));
@@ -223,9 +244,9 @@ function zeroy_checkout_push_endpoint(WP_REST_Request $request): WP_REST_Respons
 
 function zeroy_checkout_complete_release_push(string $command_id, string $request_hash, array $checkpoint, string $message): array|WP_Error
 {
-    $release = zeroy_checkout_prepare_release((string) $checkpoint['commit'], (string) $checkpoint['draftRef'], $message, zeroy_checkout_owner_principal());
+    $release = zeroy_checkout_prepare_release((string) $checkpoint['commit'], (string) ($checkpoint['build']['buildId'] ?? ''), (string) $checkpoint['draftRef'], $message, zeroy_checkout_owner_principal());
     $result = is_wp_error($release)
-        ? $checkpoint + ['preflight' => ['state' => 'blocked', 'code' => $release->get_error_code(), 'message' => $release->get_error_message(), 'data' => $release->get_error_data()]]
+        ? $checkpoint + ['preflight' => ['state' => 'blocked', 'code' => $release->get_error_code(), 'message' => $release->get_error_message(), 'next' => '.zeroy/status.md']]
         : $checkpoint + $release;
     $updated = zeroy_checkout_replace_push_receipt($command_id, $request_hash, $result);
     return is_wp_error($updated) ? $updated : $result;
@@ -253,6 +274,15 @@ function zeroy_checkout_push_finalize_endpoint(WP_REST_Request $request): WP_RES
     return is_wp_error($updated) ? zeroy_runtime_response_error($updated) : new WP_REST_Response($result);
 }
 
+function zeroy_checkout_workspace_projection_endpoint(WP_REST_Request $request): WP_REST_Response
+{
+    $build_id = (string) $request['buildId'];
+    $projection = zeroy_build_workspace_projection($build_id);
+    return is_wp_error($projection)
+        ? zeroy_runtime_response_error($projection)
+        : new WP_REST_Response(['contract' => 'zeroy/workspace-projection@2', 'buildId' => $build_id, ...$projection]);
+}
+
 function zeroy_checkout_register_routes(): void
 {
     $permission = ['permission_callback' => 'zeroy_runtime_authorized'];
@@ -267,5 +297,6 @@ function zeroy_checkout_register_routes(): void
     register_rest_route('zeroy/v1', '/site-refs', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_checkout_refs_endpoint']);
     register_rest_route('zeroy/v1', '/site-push', $permission + ['methods' => WP_REST_Server::CREATABLE, 'callback' => 'zeroy_checkout_push_endpoint']);
     register_rest_route('zeroy/v1', '/site-push/finalize', $permission + ['methods' => WP_REST_Server::CREATABLE, 'callback' => 'zeroy_checkout_push_finalize_endpoint']);
+    register_rest_route('zeroy/v1', '/site-builds/(?P<buildId>sha256:[0-9a-f]{64})/workspace', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_checkout_workspace_projection_endpoint']);
 }
 add_action('rest_api_init', 'zeroy_checkout_register_routes');

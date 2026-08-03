@@ -13,8 +13,8 @@ function zeroy_runtime_site_endpoint(): WP_REST_Response
         'siteConfig' => $config,
         'contentOwnership' => zeroy_runtime_content_ownership(),
         'themeSchema' => ['valid' => $schema['valid'], 'contractHash' => $schema['contractHash'] ?? null, 'schemaHashes' => $schema['schemaHashes'] ?? [], 'errors' => $schema['errors']],
-        'themeAuthoring' => zeroy_runtime_theme_authoring_contract(),
-        'capabilities' => ['siteConfig' => true, 'schema' => true, 'inventory' => true, 'acf' => true, 'adoptionCandidates' => true, 'existingPost' => true, 'canonicalContent' => true, 'themeArtifacts' => true, 'translationJob' => true, 'canonicalObjects' => true, 'siteCheckout' => true, 'integrity' => true],
+        'workspaceContract' => ['workspaceFormat' => ZEROY_SITE_TREE_CONTRACT, 'projection' => '.zeroy/', 'buildContract' => 'zeroy/build-result@1'],
+        'capabilities' => ['siteCheckout' => true, 'buildResult' => true, 'workspaceProjection' => true, 'integrity' => true],
     ]);
 }
 
@@ -38,19 +38,7 @@ function zeroy_runtime_acf_endpoint(): WP_REST_Response
 
 function zeroy_runtime_zcss_contract_endpoint(): WP_REST_Response
 {
-    return new WP_REST_Response([
-        'contract' => 'zeroy/zcss-authoring@1',
-        'designContract' => ZEROY_ZCSS_DESIGN_CONTRACT,
-        'compiledContract' => ZEROY_ZCSS_COMPILED_CONTRACT,
-        'compiler' => ['id' => ZEROY_ZCSS_COMPILER_ID, 'version' => ZEROY_ZCSS_COMPILER_VERSION, 'sourceHash' => zeroy_zcss_compiler_source_hash()],
-        'schema' => zeroy_zcss_design_json_schema(),
-        'minimalDocument' => zeroy_zcss_minimal_design_document(),
-        'tokenCategories' => ['color', 'typography', 'spacing', 'foundation'],
-        'primitives' => zeroy_zcss_public_primitives(),
-        'namespaces' => ['compilerClasses' => '.z-*', 'compilerProperties' => '--z-*', 'siteProperties' => '--site-*', 'stateClasses' => '.is-*'],
-        'generatedPaths' => zeroy_runtime_theme_generated_paths(),
-        'guidance' => 'Edit zcss.design.json and manifest-declared custom CSS in the local SiteCheckout. Generated paths remain compiler-owned. Push a release, inspect CandidateProof, then run externalCheck.',
-    ]);
+    return new WP_REST_Response(zeroy_zcss_authoring_contract());
 }
 
 function zeroy_runtime_adoption_candidates_endpoint(WP_REST_Request $request): WP_REST_Response

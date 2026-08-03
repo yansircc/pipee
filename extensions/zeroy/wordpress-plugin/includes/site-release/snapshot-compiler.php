@@ -419,11 +419,13 @@ function zeroy_runtime_apply_operations_to_snapshot(array $snapshot, array $oper
     foreach ($operations as $operation) {
         $kind = $operation['kind'] ?? null;
         $payload = $operation['payload'] ?? null;
-        if ($kind === 'artifact.files') continue;
+        if ($kind === 'artifact.files' || $kind === 'upsertMedia' || $kind === 'adoptMedia') continue;
         if (!is_string($kind) || !is_array($payload)) return zeroy_runtime_error('zeroy_site_checkout_operation_invalid', 'SiteCheckout operation is malformed.', 409);
         if ($kind === 'siteConfig') {
             if ((int) ($snapshot['siteConfig']['revision'] ?? -1) !== (int) $payload['expectedRevision']) return zeroy_runtime_error('zeroy_site_config_conflict', 'Candidate SiteConfig revision changed.', 409, ['currentRevision' => $snapshot['siteConfig']['revision'] ?? null]);
-            $snapshot['siteConfig'] = [...$payload['siteConfig'], 'revision' => (int) $payload['expectedRevision'] + 1];
+            $site_config = zeroy_runtime_validate_site_config(is_array($payload['siteConfig'] ?? null) ? $payload['siteConfig'] : []);
+            if (is_wp_error($site_config)) return $site_config;
+            $snapshot['siteConfig'] = [...$site_config, 'revision' => (int) $payload['expectedRevision'] + 1];
             $snapshot['site'] = ['baseUrl' => $snapshot['site']['baseUrl'], 'defaultLocale' => $payload['siteConfig']['defaultLocale'], 'enabledLocales' => array_map(static fn(array $locale): array => ['locale' => $locale['locale'], 'urlPrefix' => $locale['urlPrefix']], $payload['siteConfig']['enabledLocales'])];
             foreach ($snapshot['entities'] as $identity => $entity) {
                 $refreshed = zeroy_runtime_snapshot_refresh_entity($entity, $schema, $snapshot['siteConfig']);
@@ -497,6 +499,21 @@ function zeroy_runtime_apply_operations_to_snapshot(array $snapshot, array $oper
             $definition = $schema['localizationSubjects']['term'] ?? null;
             if (!is_array($definition)) return zeroy_runtime_error('zeroy_schema_not_found', 'Candidate ThemeSchema does not define term localization.', 409);
             $subject = ['kind' => 'term', 'taxonomy' => (string) $payload['taxonomy'], 'ref' => (string) $payload['ref']];
+            $localizable = zeroy_localization_term_subject_from_values($subject, (string) $payload['taxonomy'], (string) $payload['name'], (string) ($payload['description'] ?? ''));
+            $entry = ['subject' => $subject, 'taxonomy' => (string) $payload['taxonomy'], 'slug' => (string) $payload['slug'], 'localizable' => $localizable, 'definition' => $definition, 'locales' => []];
+            $entry = zeroy_runtime_snapshot_refresh_locales($entry, $definition, $snapshot['siteConfig'], true);
+            if (is_wp_error($entry)) return $entry;
+            $snapshot['terms'][$key] = $entry;
+            continue;
+        }
+        if ($kind === 'adoptTerm') {
+            $key = (string) $payload['taxonomy'] . ':' . (string) $payload['slug'];
+            $definition = $schema['localizationSubjects']['term'] ?? null;
+            if (!is_array($definition)) return zeroy_runtime_error('zeroy_schema_not_found', 'Candidate ThemeSchema does not define term localization.', 409);
+            $current = zeroy_localization_term_subject((string) $payload['taxonomy'], (int) $payload['termId']);
+            if (is_wp_error($current) || !hash_equals((string) ($current['canonicalRevision'] ?? ''), (string) ($payload['expectedSourceHash'] ?? ''))) return zeroy_runtime_error('zeroy_term_source_conflict', 'Taxonomy term changed after checkout.', 409, ['termId' => $payload['termId'] ?? null]);
+            if (isset($snapshot['terms'][$key]) && (int) ($snapshot['terms'][$key]['subject']['id'] ?? 0) !== (int) $payload['termId']) return zeroy_runtime_error('zeroy_term_conflict', 'SiteCommit term ref or slug is duplicated.', 409, ['ref' => $payload['ref'] ?? null]);
+            $subject = ['kind' => 'term', 'taxonomy' => (string) $payload['taxonomy'], 'id' => (int) $payload['termId']];
             $localizable = zeroy_localization_term_subject_from_values($subject, (string) $payload['taxonomy'], (string) $payload['name'], (string) ($payload['description'] ?? ''));
             $entry = ['subject' => $subject, 'taxonomy' => (string) $payload['taxonomy'], 'slug' => (string) $payload['slug'], 'localizable' => $localizable, 'definition' => $definition, 'locales' => []];
             $entry = zeroy_runtime_snapshot_refresh_locales($entry, $definition, $snapshot['siteConfig'], true);

@@ -125,6 +125,7 @@ function zeroy_runtime_snapshot_context(array $snapshot, string $request_path, a
         'resolvedContent' => $resolved_content,
         'searchQuery' => $search_query,
         'archiveItems' => $archive['items'],
+        'collection' => null,
         'seo' => ['canonical' => $descriptor['routeKind'] === 'not-found' ? null : $canonical, 'alternates' => $links],
         'route' => (string) ($descriptor['route'] ?? $request['route']),
     ];

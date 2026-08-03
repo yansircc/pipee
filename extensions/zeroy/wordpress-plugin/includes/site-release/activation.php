@@ -31,6 +31,12 @@ function zeroy_runtime_site_release_activation_preflight(string $release_id): ar
     if (!is_array($proof) || !zeroy_runtime_site_release_proof_valid($release, $proof)) return zeroy_runtime_error('zeroy_site_release_proof_stale', 'VerificationProof does not exactly bind this SiteRelease candidate.', 409);
     $commit = zeroy_checkout_commit_row((string) ($release['commit_hash'] ?? ''));
     if ($commit === null || ($proof['commit'] ?? null) !== ($release['commit_hash'] ?? null) || ($commit['base_release_id'] ?: null) !== ($release['expected_active_release_id'] ?: null)) return zeroy_runtime_error('zeroy_site_release_commit_stale', 'SiteRelease, proof, commit, and active base do not identify one snapshot.', 409);
+    $build_row = zeroy_build_row((string) ($release['build_id'] ?? ''));
+    $build = is_array($build_row) ? zeroy_build_result_projection($build_row) : null;
+    if (!is_array($build) || ($build['state'] ?? null) !== 'ready' || ($build['commit'] ?? null) !== ($release['commit_hash'] ?? null) || ($build['snapshotHash'] ?? null) !== ($release['snapshot_hash'] ?? null) || ($proof['buildId'] ?? null) !== ($build['buildId'] ?? null)) return zeroy_runtime_error('zeroy_site_release_build_stale', 'SiteRelease, proof, BuildResult, and snapshot do not identify one immutable build.', 409);
+    $current_external_facts_hash = zeroy_build_external_facts_hash_for_commit((string) $release['commit_hash']);
+    if (is_wp_error($current_external_facts_hash)) return $current_external_facts_hash;
+    if (!hash_equals((string) $build['externalFactsHash'], $current_external_facts_hash)) return zeroy_runtime_error('zeroy_site_release_external_facts_stale', 'External facts changed after BuildResult verification.', 409, ['buildId' => $build['buildId']]);
     return ['release' => $release, 'active' => $active, 'proof' => $proof];
 }
 

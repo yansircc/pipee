@@ -330,6 +330,69 @@ function zeroy_runtime_write_template_content(int $object_id, array $definition,
     });
 }
 
+function zeroy_runtime_acf_comparable_value(array $field, mixed $value): mixed
+{
+    $type = (string) ($field['type'] ?? '');
+    if ($value === null) return null;
+    if ($type === 'group' && is_array($value)) {
+        $result = [];
+        foreach (is_array($field['sub_fields'] ?? null) ? $field['sub_fields'] : [] as $child) {
+            $name = (string) ($child['name'] ?? '');
+            if ($name !== '' && array_key_exists($name, $value)) $result[$name] = zeroy_runtime_acf_comparable_value($child, $value[$name]);
+        }
+        return $result;
+    }
+    if (in_array($type, ['repeater', 'flexible_content'], true) && is_array($value)) {
+        $layouts = [];
+        foreach (is_array($field['layouts'] ?? null) ? $field['layouts'] : [] as $layout) {
+            if (is_string($layout['name'] ?? null)) $layouts[$layout['name']] = is_array($layout['sub_fields'] ?? null) ? $layout['sub_fields'] : [];
+        }
+        $default_children = is_array($field['sub_fields'] ?? null) ? $field['sub_fields'] : [];
+        return array_map(static function (mixed $row) use ($type, $layouts, $default_children): mixed {
+            if (!is_array($row)) return $row;
+            $children = $type === 'flexible_content' ? ($layouts[(string) ($row['acf_fc_layout'] ?? '')] ?? []) : $default_children;
+            $result = [];
+            if ($type === 'flexible_content' && is_string($row['acf_fc_layout'] ?? null)) $result['acf_fc_layout'] = $row['acf_fc_layout'];
+            foreach ($children as $child) {
+                $name = (string) ($child['name'] ?? '');
+                if ($name !== '' && array_key_exists($name, $row)) $result[$name] = zeroy_runtime_acf_comparable_value($child, $row[$name]);
+            }
+            return $result;
+        }, $value);
+    }
+    $reference = in_array($type, ['image', 'file', 'post_object', 'taxonomy'], true);
+    $reference_list = in_array($type, ['gallery', 'relationship'], true) || ($reference && !empty($field['multiple']));
+    if ($reference_list && is_array($value)) return array_map(static fn(mixed $item): mixed => is_numeric($item) ? (int) $item : $item, array_values($value));
+    if ($reference && is_numeric($value)) return (int) $value;
+    if (in_array($type, ['number', 'range'], true) && is_numeric($value)) return (float) $value;
+    if ($type === 'true_false') return (bool) $value;
+    return $value;
+}
+
+function zeroy_runtime_acf_values_equal(int $object_id, string $name, mixed $value): bool
+{
+    if (!function_exists('get_field')) return hash_equals(zeroy_runtime_hash(get_post_meta($object_id, $name, true)), zeroy_runtime_hash($value));
+    $field = function_exists('acf_maybe_get_field') ? acf_maybe_get_field($name, $object_id, false) : get_field_object($name, $object_id, false, false);
+    $observed = get_field($name, $object_id, false);
+    if (!is_array($field)) return hash_equals(zeroy_runtime_hash($observed), zeroy_runtime_hash($value));
+    return hash_equals(
+        zeroy_runtime_hash(zeroy_runtime_acf_comparable_value($field, $observed)),
+        zeroy_runtime_hash(zeroy_runtime_acf_comparable_value($field, $value)),
+    );
+}
+
+function zeroy_runtime_write_canonical_acf_field(int $object_id, string $name, mixed $value): true|WP_Error
+{
+    if (zeroy_runtime_acf_values_equal($object_id, $name, $value)) return true;
+    $written = function_exists('update_field')
+        ? update_field($name, $value, $object_id)
+        : update_post_meta($object_id, $name, $value);
+    if ($written === false && !zeroy_runtime_acf_values_equal($object_id, $name, $value)) {
+        return zeroy_runtime_error('zeroy_canonical_content_write_failed', "ACF field {$name} could not be updated.", 500, ['fieldId' => '/acf/' . $name]);
+    }
+    return true;
+}
+
 function zeroy_runtime_write_canonical_content(int $object_id, array $payload): array|WP_Error
 {
     return zeroy_runtime_transaction(function () use ($object_id, $payload) {
@@ -355,8 +418,8 @@ function zeroy_runtime_write_canonical_content(int $object_id, array $payload): 
             if (!zeroy_runtime_is_keyed_map($payload['acf'])) return zeroy_runtime_error('zeroy_canonical_content_invalid', 'acf must be a keyed object.', 400);
             foreach ($payload['acf'] as $name => $value) {
                 if (!is_string($name) || $name === '') return zeroy_runtime_error('zeroy_canonical_content_invalid', 'ACF field names must be non-empty strings.', 400);
-                $written = function_exists('update_field') ? update_field($name, $value, $object_id) : update_post_meta($object_id, $name, $value);
-                if ($written === false) return zeroy_runtime_error('zeroy_canonical_content_write_failed', "ACF field {$name} could not be updated.", 500, ['fieldId' => '/acf/' . $name]);
+                $written = zeroy_runtime_write_canonical_acf_field($object_id, $name, $value);
+                if (is_wp_error($written)) return $written;
             }
         }
         if (array_key_exists('route', $payload)) {

@@ -7,90 +7,6 @@ function zeroy_checkout_json_bytes(mixed $value): string
     return zeroy_checkout_canonical_json($value) . "\n";
 }
 
-function zeroy_checkout_release_files(array $release): array|WP_Error
-{
-    $snapshot = zeroy_runtime_site_release_snapshot($release);
-    if (is_wp_error($snapshot)) return $snapshot;
-    $files = [];
-    foreach ([
-        'artifacts/theme' => zeroy_runtime_artifact_directory((string) $release['theme_artifact_id']),
-        'artifacts/site-logic' => zeroy_runtime_site_logic_directory((string) $release['site_logic_artifact_id']),
-    ] as $prefix => $directory) {
-        if (!is_dir($directory) || is_link($directory)) return zeroy_runtime_error('zeroy_checkout_artifact_missing', 'Active SiteRelease artifact tree is unavailable.', 409, ['path' => $prefix]);
-        $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::LEAVES_ONLY);
-        foreach ($iterator as $file) {
-            if (!$file instanceof SplFileInfo || !$file->isFile() || $file->isLink()) return zeroy_runtime_error('zeroy_checkout_artifact_invalid', 'Active SiteRelease artifact contains an unsupported entry.', 409, ['path' => $prefix]);
-            $absolute = wp_normalize_path($file->getPathname());
-            $relative = ltrim(substr($absolute, strlen(rtrim(wp_normalize_path($directory), '/'))), '/');
-            $path = $prefix . '/' . $relative;
-            if (!zeroy_checkout_path_is_safe($path)) return zeroy_runtime_error('zeroy_checkout_path_invalid', 'Active SiteRelease contains an unsafe checkout path.', 409, ['path' => $path]);
-            $bytes = file_get_contents($absolute);
-            if (!is_string($bytes)) return zeroy_runtime_error('zeroy_checkout_artifact_unreadable', 'Could not read active SiteRelease artifact.', 500, ['path' => $path]);
-            $files[$path] = ['bytes' => $bytes, 'mode' => $file->isExecutable() ? 'executable' : 'file'];
-        }
-    }
-    $files['site.json'] = ['bytes' => zeroy_checkout_json_bytes([
-        'contract' => 'zeroy/site@1',
-        'config' => array_diff_key(is_array($snapshot['siteConfig'] ?? null) ? $snapshot['siteConfig'] : [], ['revision' => true, 'siteCopy' => true]),
-    ]), 'mode' => 'file'];
-    foreach (is_array($snapshot['entities'] ?? null) ? $snapshot['entities'] : [] as $identity => $entity) {
-        if (!is_array($entity)) continue;
-        $ref = preg_replace('/[^a-zA-Z0-9._-]+/', '-', (string) $identity);
-        $document = [
-            'contract' => 'zeroy/post@1',
-            'ref' => $ref,
-            'sourceObjectId' => $entity['objectId'] ?? null,
-            'postType' => $entity['postType'] ?? null,
-            'schemaId' => $entity['schemaId'] ?? null,
-            'routeKind' => $entity['routeKind'] ?? null,
-            'route' => $entity['route'] ?? null,
-            'canonical' => $entity['localizable']['view'] ?? [],
-            'terms' => $entity['terms'] ?? [],
-        ];
-        $files["content/posts/{$ref}.json"] = ['bytes' => zeroy_checkout_json_bytes($document), 'mode' => 'file'];
-        foreach (is_array($entity['locales'] ?? null) ? $entity['locales'] : [] as $locale => $state) {
-            if ($locale === ($snapshot['siteConfig']['defaultLocale'] ?? null) || !is_array($state) || ($state['available'] ?? false) !== true) continue;
-            $files["translations/{$locale}/posts/{$ref}.json"] = ['bytes' => zeroy_checkout_json_bytes([
-                'contract' => 'zeroy/post-translation@1',
-                'ref' => $ref,
-                'locale' => $locale,
-                'overlay' => $state['publishedOverlay'] ?? null,
-            ]), 'mode' => 'file'];
-        }
-    }
-    foreach (is_array($snapshot['terms'] ?? null) ? $snapshot['terms'] : [] as $identity => $term) {
-        if (!is_array($term)) continue;
-        $ref = preg_replace('/[^a-zA-Z0-9._-]+/', '-', (string) $identity);
-        $files["content/terms/{$ref}.json"] = ['bytes' => zeroy_checkout_json_bytes([
-            'contract' => 'zeroy/term@1',
-            'ref' => $ref,
-            'sourceObjectId' => $term['subject']['id'] ?? null,
-            'taxonomy' => $term['taxonomy'] ?? null,
-            'slug' => $term['slug'] ?? null,
-            'canonical' => $term['localizable']['view'] ?? [],
-        ]), 'mode' => 'file'];
-        foreach (is_array($term['locales'] ?? null) ? $term['locales'] : [] as $locale => $state) {
-            if ($locale === ($snapshot['siteConfig']['defaultLocale'] ?? null) || !is_array($state) || ($state['available'] ?? false) !== true) continue;
-            $files["translations/{$locale}/terms/{$ref}.json"] = ['bytes' => zeroy_checkout_json_bytes([
-                'contract' => 'zeroy/term-translation@1',
-                'ref' => $ref,
-                'locale' => $locale,
-                'overlay' => $state['publishedOverlay'] ?? null,
-            ]), 'mode' => 'file'];
-        }
-    }
-    $site_copy = $snapshot['siteCopy'] ?? null;
-    if (is_array($site_copy)) {
-        $files['content/site-copy.json'] = ['bytes' => zeroy_checkout_json_bytes(['contract' => 'zeroy/site-copy@1', 'canonical' => $site_copy['localizable']['view']['siteCopy'] ?? []]), 'mode' => 'file'];
-        foreach (is_array($site_copy['locales'] ?? null) ? $site_copy['locales'] : [] as $locale => $state) {
-            if ($locale === ($snapshot['siteConfig']['defaultLocale'] ?? null) || !is_array($state) || ($state['available'] ?? false) !== true) continue;
-            $files["translations/{$locale}/site-copy.json"] = ['bytes' => zeroy_checkout_json_bytes(['contract' => 'zeroy/site-copy-translation@1', 'locale' => $locale, 'overlay' => $state['publishedOverlay'] ?? null]), 'mode' => 'file'];
-        }
-    }
-    ksort($files, SORT_STRING);
-    return $files;
-}
-
 function zeroy_checkout_store_file_tree(array $files): string|WP_Error
 {
     $root = [];
@@ -132,46 +48,138 @@ function zeroy_checkout_store_tree_node(array $node): string|WP_Error
     return is_wp_error($stored) ? $stored : $hash;
 }
 
-function zeroy_checkout_store_release_commit(array $release): string|WP_Error
+function zeroy_checkout_bootstrap_repeater_item_keys(string $post_type): array
 {
-    $files = zeroy_checkout_release_files($release);
-    if (is_wp_error($files)) return $files;
-    $tree = zeroy_checkout_store_file_tree($files);
-    if (is_wp_error($tree)) return $tree;
-    $created = (string) ($release['activated_at'] ?: $release['created_at']);
-    $commit = [
-        'contract' => 'zeroy/site-commit@1',
-        'tree' => $tree,
-        'parents' => [],
-        'baseReleaseId' => (string) $release['release_id'],
-        'author' => ['principal' => 'system:migration', 'actorSessionId' => 'hard-cut'],
-        'message' => 'Import active SiteRelease into SiteCheckout history',
-        'createdAt' => gmdate('c', strtotime($created . ' UTC')),
-    ];
-    $hash = zeroy_checkout_commit_hash($commit);
-    if (is_wp_error($hash)) return $hash;
-    $stored = zeroy_checkout_store_commit($commit, $hash);
-    if (is_wp_error($stored)) return $stored;
-    return $hash;
+    $keys = [];
+    $visit = static function (array $fields, string $prefix = '/acf') use (&$visit, &$keys): void {
+        foreach ($fields as $field) {
+            if (!is_array($field) || !is_string($field['key'] ?? null)) continue;
+            $path = $prefix . '/' . zeroy_localization_pointer_segment($field['key']);
+            $children = is_array($field['sub_fields'] ?? null) ? $field['sub_fields'] : [];
+            if (in_array($field['type'] ?? null, ['repeater', 'flexible_content'], true)) {
+                $candidates = array_values(array_filter($children, static fn(array $child): bool =>
+                    is_string($child['key'] ?? null) && in_array($child['type'] ?? null, ['text', 'select'], true)
+                ));
+                usort($candidates, static function (array $left, array $right): int {
+                    $rank = static function (array $candidate): int {
+                        $name = strtolower((string) ($candidate['name'] ?? ''));
+                        foreach (['key', 'name', 'title', 'label'] as $index => $token) if (str_contains($name, $token)) return $index;
+                        return 10;
+                    };
+                    return [$rank($left), (string) $left['key']] <=> [$rank($right), (string) $right['key']];
+                });
+                if (isset($candidates[0])) $keys[$path] = (string) $candidates[0]['key'];
+            }
+            if ($children !== []) $visit($children, $path);
+            foreach (is_array($field['layouts'] ?? null) ? $field['layouts'] : [] as $layout) {
+                if (is_array($layout['sub_fields'] ?? null)) $visit($layout['sub_fields'], $path);
+            }
+        }
+    };
+    $visit(array_values(zeroy_document_acf_fields($post_type)));
+    ksort($keys, SORT_STRING);
+    return $keys;
 }
 
-function zeroy_checkout_seed_active_release_commit(): true|WP_Error
+function zeroy_checkout_bootstrap_localization_policy(string $post_type): array
 {
-    $active = zeroy_runtime_active_site_release();
-    if ($active === null || !empty($active['commit_hash'])) return true;
-    $hash = zeroy_checkout_store_release_commit($active);
-    if (is_wp_error($hash)) return $hash;
-    global $wpdb;
-    $updated = $wpdb->update(zeroy_runtime_table('site_releases'), ['commit_hash' => $hash], ['release_id' => $active['release_id'], 'commit_hash' => null], ['%s'], ['%s', '%s']);
-    if ($updated !== 1) return zeroy_runtime_error('zeroy_site_release_commit_migration_failed', $wpdb->last_error ?: 'Could not bind active SiteRelease to imported SiteCommit.', 500);
-    if (!empty($active['proof_id'])) $wpdb->update(zeroy_runtime_table('verification_proofs'), ['commit_hash' => $hash], ['proof_id' => $active['proof_id']], ['%s'], ['%s']);
-    return true;
+    return [
+        'contract' => zeroy_localization_policy_contract(),
+        'rules' => [
+            ['fieldPattern' => '/post/title', 'mode' => 'translated', 'required' => true, 'contextWeight' => 'primary'],
+            ['fieldPattern' => '/post/content', 'mode' => 'translated', 'required' => false, 'contextWeight' => 'primary'],
+            ['fieldPattern' => '/post/excerpt', 'mode' => 'overridable', 'required' => false, 'contextWeight' => 'supporting'],
+            ['fieldPattern' => '/post/featured_media', 'mode' => 'shared', 'required' => false, 'contextWeight' => 'supporting'],
+            ['fieldPattern' => '/acf/**', 'mode' => 'overridable', 'required' => false, 'contextWeight' => 'supporting'],
+        ],
+        'repeaterItemKeys' => zeroy_runtime_json_map(zeroy_checkout_bootstrap_repeater_item_keys($post_type)),
+    ];
+}
+
+function zeroy_checkout_bootstrap_workspace(): array
+{
+    $post_types = [];
+    foreach (get_post_types(['public' => true], 'objects') as $post_type => $object) {
+        if (!is_string($post_type) || in_array($post_type, ['attachment'], true)) continue;
+        $count = wp_count_posts($post_type);
+        $has_content = $post_type === 'page';
+        if (is_object($count)) foreach (get_object_vars($count) as $status => $value) {
+            if (!in_array($status, ['trash', 'auto-draft'], true) && (int) $value > 0) $has_content = true;
+        }
+        if ($has_content) $post_types[$post_type] = is_object($object) ? $object : null;
+    }
+    if (!isset($post_types['page'])) $post_types['page'] = get_post_type_object('page');
+    ksort($post_types, SORT_STRING);
+    $schemas = [];
+    $site_collections = [];
+    $route_collections = [];
+    $templates = [];
+    $page_policy = zeroy_checkout_bootstrap_localization_policy('page');
+    $schemas['front-page'] = ['label' => 'Front page', 'template' => 'front-page.php', 'routeKind' => 'front-page', 'canonicalPostTypes' => ['page'], 'localization' => $page_policy];
+    $site_collections['front-page'] = ['subjectKind' => 'post', 'postType' => 'page', 'schemaId' => 'front-page'];
+    $templates['front-page.php'] = true;
+    foreach ($post_types as $post_type => $object) {
+        $schema_id = $post_type === 'page' ? 'page' : str_replace('_', '-', sanitize_key($post_type));
+        $collection_id = $post_type === 'page' ? 'pages' : $schema_id;
+        $label = is_object($object) && is_string($object->labels->singular_name ?? null) ? $object->labels->singular_name : ucwords(str_replace(['_', '-'], ' ', $post_type));
+        $template = $post_type === 'page' ? 'page.php' : 'single-' . $post_type . '.php';
+        $schemas[$schema_id] = ['label' => $label, 'template' => $template, 'routeKind' => $post_type === 'page' ? 'document' : 'singular', 'canonicalPostTypes' => [$post_type], 'localization' => zeroy_checkout_bootstrap_localization_policy($post_type)];
+        $site_collections[$collection_id] = ['subjectKind' => 'post', 'postType' => $post_type, 'schemaId' => $schema_id];
+        $templates[$template] = true;
+        if ($post_type === 'page') continue;
+        $route = is_object($object) && is_array($object->rewrite ?? null) && is_string($object->rewrite['slug'] ?? null)
+            ? trim($object->rewrite['slug'], '/')
+            : str_replace('_', '-', $post_type);
+        $archive_id = $collection_id . '-archive';
+        $archive_template = 'archive-' . $post_type . '.php';
+        $route_collections[$archive_id] = ['kind' => 'post-archive', 'label' => is_object($object) && is_string($object->labels->name ?? null) ? $object->labels->name : $label, 'route' => $route, 'template' => $archive_template, 'schemaId' => $schema_id];
+        $templates[$archive_template] = true;
+        foreach (get_object_taxonomies($post_type, 'objects') as $taxonomy => $taxonomy_object) {
+            if (!is_string($taxonomy) || !is_object($taxonomy_object) || ($taxonomy_object->public ?? false) !== true) continue;
+            $taxonomy_id = str_replace('_', '-', sanitize_key($taxonomy));
+            if (isset($route_collections[$taxonomy_id])) continue;
+            $taxonomy_route = is_array($taxonomy_object->rewrite ?? null) && is_string($taxonomy_object->rewrite['slug'] ?? null)
+                ? trim($taxonomy_object->rewrite['slug'], '/')
+                : str_replace('_', '-', $taxonomy);
+            $taxonomy_template = 'taxonomy-' . $taxonomy . '.php';
+            $route_collections[$taxonomy_id] = ['kind' => 'taxonomy', 'label' => (string) ($taxonomy_object->labels->name ?? $taxonomy), 'route' => $taxonomy_route, 'template' => $taxonomy_template, 'schemaId' => $schema_id, 'taxonomy' => $taxonomy];
+            $templates[$taxonomy_template] = true;
+        }
+    }
+    $base = zeroy_workspace_theme_schema_template();
+    $schema = [...$base, 'schemas' => $schemas, 'collections' => zeroy_runtime_json_map($route_collections)];
+    return ['collections' => $site_collections, 'schema' => $schema, 'templates' => array_keys($templates)];
+}
+
+function zeroy_checkout_bootstrap_theme_files(array $workspace): array
+{
+    $render = <<<'PHP'
+<?php
+defined('ABSPATH') || exit;
+$zeroy_context = zeroy_theme_context();
+$zeroy_content = is_array($zeroy_context['resolvedContent'] ?? null) ? $zeroy_context['resolvedContent'] : [];
+$zeroy_post = is_array($zeroy_content['post'] ?? null) ? $zeroy_content['post'] : [];
+$zeroy_title = (string) ($zeroy_post['title'] ?? ($zeroy_context['collection']['title'] ?? ''));
+?>
+<main><h1><?php echo htmlspecialchars($zeroy_title, ENT_QUOTES, 'UTF-8'); ?></h1></main>
+PHP;
+    $files = [
+        'functions.php' => "<?php\n\ndefined('ABSPATH') || exit;\n",
+        'zeroy.schema.json' => zeroy_checkout_json_bytes($workspace['schema']),
+        'zeroy.theme.json' => zeroy_checkout_json_bytes(['contract' => ZEROY_THEME_RUNTIME_MANIFEST_CONTRACT, 'requiresCapabilities' => new stdClass(), 'zcss' => ['contract' => ZEROY_ZCSS_DESIGN_CONTRACT, 'design' => 'zcss.design.json', 'styles' => ['assets/css/site.css']]]),
+        'zcss.design.json' => zeroy_checkout_json_bytes(zeroy_zcss_minimal_design_document()),
+        'assets/css/site.css' => "body { margin: 0; font-family: sans-serif; }\nmain { padding: 2rem; }\n",
+        'index.php' => $render,
+        'search.php' => $render,
+        '404.php' => $render,
+    ];
+    foreach ($workspace['templates'] as $template) $files[$template] = $render;
+    ksort($files, SORT_STRING);
+    return $files;
 }
 
 function zeroy_checkout_seed_bootstrap_commit(): string|WP_Error
 {
-    $stored_hash = get_option('zeroy_checkout_bootstrap_commit', '');
-    if (is_string($stored_hash) && preg_match('/\Asha256:[a-f0-9]{64}\z/', $stored_hash) === 1 && zeroy_checkout_commit_row($stored_hash) !== null) return $stored_hash;
     $files = [];
     $directory = dirname(__DIR__, 2) . '/default-site-logic';
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::LEAVES_ONLY);
@@ -185,8 +193,16 @@ function zeroy_checkout_seed_bootstrap_commit(): string|WP_Error
     }
     $config = zeroy_runtime_site_config();
     if (is_wp_error($config)) return $config;
-    $files['site.json'] = ['bytes' => zeroy_checkout_json_bytes(['contract' => 'zeroy/site@1', 'config' => array_diff_key($config, ['revision' => true, 'siteCopy' => true])]), 'mode' => 'file'];
-    $files['content/site-copy.json'] = ['bytes' => zeroy_checkout_json_bytes(['contract' => 'zeroy/site-copy@1', 'canonical' => is_array($config['siteCopy'] ?? null) ? $config['siteCopy'] : []]), 'mode' => 'file'];
+    $workspace = zeroy_checkout_bootstrap_workspace();
+    foreach (zeroy_checkout_bootstrap_theme_files($workspace) as $relative => $bytes) $files['artifacts/theme/' . $relative] = ['bytes' => $bytes, 'mode' => 'file'];
+    $files['site.json'] = ['bytes' => zeroy_checkout_json_bytes([
+        'workspaceFormat' => ZEROY_SITE_TREE_CONTRACT,
+        'defaultLocale' => (string) $config['defaultLocale'],
+        'locales' => array_values(array_map(static fn(array $locale): string => (string) $locale['locale'], $config['enabledLocales'])),
+        'collections' => zeroy_runtime_json_map($workspace['collections']),
+    ]), 'mode' => 'file'];
+    $site_copy = is_array($config['siteCopy'] ?? null) ? $config['siteCopy'] : [];
+    $files['content/site-copy.json'] = ['bytes' => zeroy_checkout_json_bytes(zeroy_runtime_json_map($site_copy)), 'mode' => 'file'];
     $tree = zeroy_checkout_store_file_tree($files);
     if (is_wp_error($tree)) return $tree;
     $commit = ['contract' => 'zeroy/site-commit@1', 'tree' => $tree, 'parents' => [], 'baseReleaseId' => null, 'author' => ['principal' => 'system:bootstrap', 'actorSessionId' => 'hard-cut'], 'message' => 'Bootstrap SiteCheckout', 'createdAt' => '2026-08-03T00:00:00+00:00'];

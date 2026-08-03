@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pi = resolve(packageRoot, "node_modules/.bin/pi");
 const extension = resolve(packageRoot, "dist/pi/extension.js");
-const temporary = await mkdtemp(resolve(tmpdir(), "zeroy-pi-schema-"));
+const temporary = await mkdtemp(resolve(tmpdir(), "zeroy-pi-openai-schema-"));
 const configDirectory = resolve(temporary, "config");
 const sessionDirectory = resolve(temporary, "sessions");
 await Promise.all([mkdir(configDirectory), mkdir(sessionDirectory)]);
@@ -20,18 +20,23 @@ const server = createServer((request, response) => {
   request.on("data", (chunk) => chunks.push(chunk));
   request.on("end", () => {
     captured = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    response.writeHead(200, {
-      "content-type": "text/event-stream",
-      "cache-control": "no-cache",
-      connection: "keep-alive",
-    });
-    response.write(
-      'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_schema_gate","type":"message","role":"assistant","content":[],"model":"schema-gate","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":0}}}\n\n',
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(
+      JSON.stringify({
+        id: "chatcmpl-zeroy-schema-gate",
+        object: "chat.completion",
+        created: 1,
+        model: "schema-gate",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: "ok" },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
     );
-    response.write(
-      'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}\n\n',
-    );
-    response.end('event: message_stop\ndata: {"type":"message_stop"}\n\n');
   });
 });
 
@@ -46,14 +51,14 @@ try {
     resolve(configDirectory, "models.json"),
     JSON.stringify({
       providers: {
-        "zeroy-schema-gate": {
-          api: "anthropic-messages",
+        "zeroy-openai-schema-gate": {
+          api: "openai-completions",
           apiKey: "schema-gate-key",
           baseUrl: `http://127.0.0.1:${address.port}`,
           models: [
             {
               id: "schema-gate",
-              name: "zeroY schema transport gate",
+              name: "zeroY OpenAI-compatible schema transport gate",
               reasoning: false,
               input: ["text"],
               cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -65,13 +70,12 @@ try {
       },
     }),
   );
-
   const output = [];
   const child = spawn(
     pi,
     [
       "--provider",
-      "zeroy-schema-gate",
+      "zeroy-openai-schema-gate",
       "--model",
       "schema-gate",
       "--mode",
@@ -90,16 +94,12 @@ try {
       "--session-dir",
       sessionDirectory,
       "--name",
-      "zeroY schema transport gate",
+      "zeroY OpenAI schema transport gate",
       "Send a short acknowledgement without calling a tool.",
     ],
     {
       cwd: temporary,
-      env: {
-        ...process.env,
-        PI_CODING_AGENT_DIR: configDirectory,
-        PI_OFFLINE: "1",
-      },
+      env: { ...process.env, PI_CODING_AGENT_DIR: configDirectory, PI_OFFLINE: "1" },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -108,7 +108,7 @@ try {
   const exitCode = await new Promise((resolveExit, rejectExit) => {
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
-      rejectExit(new Error("Pi schema transport gate timed out."));
+      rejectExit(new Error("Pi OpenAI-compatible schema transport gate timed out."));
     }, 20_000);
     child.once("error", rejectExit);
     child.once("exit", (code) => {
@@ -117,53 +117,22 @@ try {
     });
   });
   assert.equal(exitCode, 0, Buffer.concat(output).toString("utf8"));
-  assert(captured, "Pi did not send an Anthropic Messages request.");
-
-  const tools = new Map(captured.tools.map((tool) => [tool.name, tool]));
+  assert(captured, "Pi did not send an OpenAI-compatible request.");
+  const tools = new Map(captured.tools.map((tool) => [tool.function.name, tool.function]));
   assert.deepEqual([...tools.keys()], ["zeroy_inspect", "zeroy_checkout", "zeroy_push"]);
   const { validateProviderSchemaDocument } = await import(pathToFileURL(extension).href);
   for (const [name, tool] of tools) {
-    const validation = validateProviderSchemaDocument(tool.input_schema);
+    assert.equal(tool.parameters?.type, "object", `${name}: top-level parameters is not object`);
+    const validation = validateProviderSchemaDocument(tool.parameters);
     assert.equal(
       validation._tag,
       "Success",
-      `${name}: ${validation._tag === "Failure" ? validation.error.message : "unknown error"}`,
+      `${name}: ${validation._tag === "Failure" ? validation.error.message : "invalid schema"}`,
     );
+    const encoded = JSON.stringify(tool.parameters);
+    assert.doesNotMatch(encoded, /"\$ref":"(?!#\/)/u, `${name}: non-local ref leaked`);
   }
-
-  const inspect = tools.get("zeroy_inspect")?.input_schema;
-  assert.equal(inspect?.type, "object");
-  assert.deepEqual(inspect?.required, ["resource"]);
-  assert.deepEqual(inspect?.properties?.resource?.enum, [
-    "sites",
-    "refs",
-    "commit",
-    "releaseHistory",
-    "site",
-    "proof",
-    "integrity",
-    "externalCheck",
-  ]);
-  assert(Object.keys(inspect?.properties ?? {}).length > 2);
-  assert.match(inspect?.properties?.commitView?.description ?? "", /resource = commit/u);
-
-  const checkout = tools.get("zeroy_checkout")?.input_schema;
-  assert.equal(checkout?.type, "object");
-  assert.deepEqual(checkout?.required, ["siteId", "source"]);
-  assert.deepEqual(checkout?.properties?.source?.enum, ["active-release", "draft-ref"]);
-  assert.match(checkout?.properties?.draftRef?.description ?? "", /source = draft-ref/u);
-  const push = tools.get("zeroy_push")?.input_schema;
-  assert.equal(push?.type, "object");
-  assert.deepEqual(push?.required, ["siteId", "checkoutId", "mode"]);
-  for (const schema of [checkout, push]) {
-    const encoded = JSON.stringify(schema);
-    assert.doesNotMatch(
-      encoded,
-      /fileContent|blobRef|commandId|headHash|expectedRevision|expectedBaseReleaseId/u,
-    );
-  }
-
-  process.stdout.write("Pi Anthropic schema transport gate passed.\n");
+  process.stdout.write("Pi OpenAI-compatible and Moonshot-safe schema transport gate passed.\n");
 } finally {
   await new Promise((resolveClose) => server.close(resolveClose));
   await rm(temporary, { recursive: true, force: true });

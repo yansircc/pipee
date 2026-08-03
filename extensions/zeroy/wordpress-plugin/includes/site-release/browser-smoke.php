@@ -8,7 +8,7 @@ defined('ABSPATH') || exit;
  * deterministic HTML violations; a future browser runner can append evidence
  * without changing SiteRelease identity or activation semantics.
  */
-function zeroy_runtime_candidate_browser_smoke(array $checks, string $release_id): array
+function zeroy_runtime_candidate_browser_smoke(array $checks, string $candidate_kind, string $candidate_id): array
 {
     $scenarios = [];
     $warnings = [];
@@ -18,7 +18,7 @@ function zeroy_runtime_candidate_browser_smoke(array $checks, string $release_id
             continue;
         }
         $scenario = ['id' => $check['scenario'], 'path' => $check['path'], 'query' => $check['query']];
-        $response = wp_remote_get(zeroy_runtime_candidate_scenario_url($release_id, $scenario), ['timeout' => 20, 'redirection' => 0]);
+        $response = wp_remote_get(zeroy_runtime_candidate_scenario_url($candidate_kind, $candidate_id, $scenario), ['timeout' => 20, 'redirection' => 0]);
         if (is_wp_error($response)) {
             $warnings[] = ['code' => 'browser_smoke_unavailable', 'scenario' => $check['scenario'], 'evidence' => $response->get_error_message()];
             continue;

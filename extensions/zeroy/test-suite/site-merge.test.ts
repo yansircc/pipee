@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
-import { mergeJsonDocuments } from "../src/domain/site-merge.js";
+import { incompleteMergeConflictKind, mergeJsonDocuments } from "../src/domain/site-merge.js";
 
 describe("zeroY SiteCheckout three-way merge algebra", () => {
+  it("classifies non-text add/add as a binary conflict", () => {
+    expect(incompleteMergeConflictKind("media/hero.webp")).toBe("binary");
+    expect(incompleteMergeConflictKind("artifacts/theme/index.php")).toBe("content");
+  });
   it("merges independent field-path changes in one JSON document", () => {
     const base = { canonical: { title: "Old", body: "Old body" }, terms: [1] };
     const ours = { canonical: { title: "Ours", body: "Old body" }, terms: [1] };

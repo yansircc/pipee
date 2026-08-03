@@ -11,7 +11,13 @@ function zeroy_checkout_object_row(string $hash): ?array
 {
     global $wpdb;
     $row = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . zeroy_runtime_table('site_objects') . ' WHERE object_hash = %s', $hash), ARRAY_A);
-    return is_array($row) ? $row : null;
+    if (!is_array($row)) return null;
+    $stored = $row['object_bytes'] ?? null;
+    if (!is_string($stored) || !str_starts_with($stored, 'zeroy-b64-v1:')) return null;
+    $decoded = base64_decode(substr($stored, strlen('zeroy-b64-v1:')), true);
+    if (!is_string($decoded) || strlen($decoded) !== (int) $row['byte_count']) return null;
+    $row['object_bytes'] = $decoded;
+    return $row;
 }
 
 function zeroy_checkout_object_hash(string $type, string $bytes): string|WP_Error
@@ -42,7 +48,7 @@ function zeroy_checkout_store_object(string $type, string $claimed_hash, string 
         'object_hash' => $actual,
         'object_type' => $type,
         'byte_count' => strlen($bytes),
-        'object_bytes' => $bytes,
+        'object_bytes' => 'zeroy-b64-v1:' . base64_encode($bytes),
         'created_at' => current_time('mysql', true),
     ], ['%s', '%s', '%d', '%s', '%s']);
     return $written === 1

@@ -16,7 +16,7 @@ const identity = commitHash(commit);
 if (identity._tag === "Failure") throw new Error(identity.error.message);
 
 const pending = {
-  contract: "zeroy/pending-push@1",
+  contract: "zeroy/pending-push@2",
   commandId: "12345678-1234-1234-1234-123456789abc",
   requestHash: "2".repeat(64),
   commitHash: identity.value,

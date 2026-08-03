@@ -319,3 +319,58 @@ export const externalCheckSummary = (check: ExternalCheck): string => {
   const brokenLinks = check.pages.reduce((total, page) => total + page.brokenLinks.length, 0);
   return `${check.pages.length} page(s), ${failures} HTTP failure(s), ${brokenLinks} broken link(s)`;
 };
+
+export type ExternalCheckView = "summary" | "pages" | "failures";
+
+const pageFailed = (page: PageCheck): boolean =>
+  page.status !== page.expectedStatus || page.error !== null || page.brokenLinks.length > 0;
+
+const externalCheckPageProjection = (page: PageCheck): JsonRecord => ({
+  scenarioId: page.scenarioId,
+  routeKind: page.routeKind,
+  objectId: page.objectId,
+  locale: page.locale,
+  url: page.url,
+  expectedStatus: page.expectedStatus,
+  finalUrl: page.finalUrl,
+  status: page.status,
+  title: page.title,
+  h1: page.h1,
+  canonical: page.canonical,
+  hreflang: page.hreflang,
+  checkedLinks: page.checkedLinks,
+  brokenLinkCount: page.brokenLinks.length,
+  error: page.error,
+});
+
+export const externalCheckProjection = (
+  check: ExternalCheck,
+  view: ExternalCheckView = "summary",
+  limit = 10,
+  cursor?: string,
+): JsonRecord => {
+  const failures = check.pages.filter(pageFailed);
+  const brokenLinkCount = check.pages.reduce((total, page) => total + page.brokenLinks.length, 0);
+  const routeKinds = [...new Set(check.pages.map((page) => page.routeKind))].sort();
+  const base = {
+    checkedAt: check.checkedAt,
+    pageCount: check.pages.length,
+    failureCount: failures.length,
+    brokenLinkCount,
+    routeKinds,
+    pageSpeed: check.pageSpeed,
+  };
+  if (view === "summary") return { contract: "zeroy/external-check-summary@1", ...base };
+  const source = view === "failures" ? failures : check.pages;
+  const offset = cursor === undefined ? 0 : Number.parseInt(cursor, 10);
+  const boundedLimit = Math.min(10, Math.max(1, limit));
+  const items = source.slice(offset, offset + boundedLimit).map(externalCheckPageProjection);
+  const next = offset + items.length;
+  return {
+    contract: `zeroy/external-check-${view}@1`,
+    ...base,
+    items,
+    nextCursor: next < source.length ? String(next) : null,
+    hasMore: next < source.length,
+  };
+};

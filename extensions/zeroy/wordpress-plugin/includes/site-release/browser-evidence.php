@@ -18,13 +18,7 @@ function zeroy_runtime_browser_viewports(): array
 
 function zeroy_runtime_browser_contrast_pairs(): array
 {
-    return [
-        ['id' => 'surface', 'foreground' => '--z-color-on-surface', 'background' => '--z-color-surface', 'minimum' => 4.5],
-        ['id' => 'action', 'foreground' => '--z-color-on-action', 'background' => '--z-color-action', 'minimum' => 4.5],
-        ['id' => 'success', 'foreground' => '--z-color-on-status-success', 'background' => '--z-color-status-success', 'minimum' => 4.5],
-        ['id' => 'warning', 'foreground' => '--z-color-on-status-warning', 'background' => '--z-color-status-warning', 'minimum' => 4.5],
-        ['id' => 'danger', 'foreground' => '--z-color-on-status-danger', 'background' => '--z-color-status-danger', 'minimum' => 4.5],
-    ];
+    return zeroy_zcss_contrast_pairs();
 }
 
 /**
@@ -60,7 +54,7 @@ function zeroy_runtime_browser_verification_challenge(array $release, array $sce
                 'id' => (string) $scenario['id'],
                 'kind' => (string) $scenario['kind'],
                 'locale' => (string) $scenario['locale'],
-                'url' => zeroy_runtime_candidate_scenario_url((string) $release['release_id'], $scenario),
+                'url' => zeroy_runtime_candidate_scenario_url('release', (string) $release['release_id'], $scenario),
                 'expectedStatus' => (int) $scenario['expectedStatus'],
                 'expectedRouteKind' => is_string($scenario['expectedRouteKind'] ?? null) ? $scenario['expectedRouteKind'] : null,
             ],
@@ -128,7 +122,7 @@ function zeroy_runtime_decode_browser_evidence(mixed $input): array|WP_Error
     return $input;
 }
 
-function zeroy_runtime_browser_failure(string $code, string $invariant, string $evidence, string $repair, ?string $scenario = null, ?string $viewport = null): array
+function zeroy_runtime_browser_failure(string $code, string $invariant, string $evidence, string $repair, ?string $scenario = null, ?string $viewport = null, ?string $document_path = null): array
 {
     return [
         'code' => $code,
@@ -137,7 +131,32 @@ function zeroy_runtime_browser_failure(string $code, string $invariant, string $
         'viewport' => $viewport,
         'evidence' => $evidence,
         'repair' => $repair,
+        ...($document_path === null ? [] : ['documentPath' => $document_path]),
     ];
+}
+
+function zeroy_runtime_browser_stylesheet_mismatch_evidence(array $expected_urls, array $observed_urls, string $expected_identity, string $observed_identity): string
+{
+    $limit = 4;
+    $truncate = static fn(string $value): string => strlen($value) <= 256 ? $value : substr($value, 0, 253) . '...';
+    $first_difference = null;
+    $length = max(count($expected_urls), count($observed_urls));
+    for ($index = 0; $index < $length; $index++) {
+        if (($expected_urls[$index] ?? null) !== ($observed_urls[$index] ?? null)) {
+            $first_difference = $index;
+            break;
+        }
+    }
+    return (string) wp_json_encode([
+        'expectedIdentity' => $truncate($expected_identity),
+        'observedIdentity' => $truncate($observed_identity),
+        'expectedCount' => count($expected_urls),
+        'observedCount' => count($observed_urls),
+        'firstDifferenceIndex' => $first_difference,
+        'expectedUrls' => array_map($truncate, array_slice($expected_urls, 0, $limit)),
+        'observedUrls' => array_map($truncate, array_slice($observed_urls, 0, $limit)),
+        'urlListTruncated' => count($expected_urls) > $limit || count($observed_urls) > $limit,
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 }
 
 function zeroy_runtime_verify_browser_evidence(array $challenge, array $evidence): array|WP_Error
@@ -164,6 +183,7 @@ function zeroy_runtime_verify_browser_evidence(array $challenge, array $evidence
         $results[$key] = $result;
     }
     $failures = [];
+    $stylesheet_mismatches = [];
     $focus_observed = false;
     foreach ($expected_scenarios as $scenario_id => $scenario) {
         foreach ($expected_viewports as $viewport_id => $_viewport) {
@@ -177,24 +197,35 @@ function zeroy_runtime_verify_browser_evidence(array $challenge, array $evidence
                 $failures[] = zeroy_runtime_browser_failure('candidate_browser_route_failed', 'Browser navigation must observe the declared HTTP and route identity.', 'Expected HTTP ' . $scenario['expectedStatus'] . ' and route ' . ($scenario['expectedRouteKind'] ?? '<none>') . '; observed HTTP ' . $result['status'] . ' and route ' . ($result['routeKind'] ?? '<none>') . '.', 'Repair the candidate route or template.', $scenario_id, $viewport_id);
             }
             if ($result['stylesheetIdentity'] !== $challenge['stylesheetSetHash'] || $result['stylesheets'] !== $expected_stylesheets) {
-                $failures[] = zeroy_runtime_browser_failure('candidate_browser_stylesheet_identity_failed', 'Every browser scenario must load the exact ordered stylesheet set pinned by the candidate ThemeArtifact.', 'Browser stylesheet identity or ordered URLs differ from the candidate challenge.', 'Remove stylesheet side paths and restore the manifest-declared generated plus custom order.', $scenario_id, $viewport_id);
+                $mismatch_key = zeroy_runtime_hash([$result['stylesheetIdentity'], $result['stylesheets']]);
+                if (!isset($stylesheet_mismatches[$mismatch_key])) {
+                    $stylesheet_mismatches[$mismatch_key] = true;
+                    $failures[] = zeroy_runtime_browser_failure(
+                        'candidate_browser_stylesheet_identity_failed',
+                        'Every browser scenario must load the exact ordered stylesheet set pinned by the candidate ThemeArtifact.',
+                        zeroy_runtime_browser_stylesheet_mismatch_evidence($expected_stylesheets, $result['stylesheets'], (string) $challenge['stylesheetSetHash'], (string) $result['stylesheetIdentity']),
+                        'Ensure every rendered Theme template calls wp_head() and wp_footer(), then remove stylesheet side paths so only the manifest-declared generated plus custom order remains.',
+                        $scenario_id,
+                        $viewport_id,
+                    );
+                }
             }
             if ($result['documentScrollWidth'] > $result['documentClientWidth'] || $result['overflowElements'] > 0) {
-                $failures[] = zeroy_runtime_browser_failure('candidate_browser_overflow', 'Executed viewports must not produce document-level horizontal overflow.', 'clientWidth=' . $result['documentClientWidth'] . ', scrollWidth=' . $result['documentScrollWidth'] . ', overflowingElements=' . $result['overflowElements'] . ', samples=' . implode(', ', $result['overflowSamples']) . '.', 'Repair the component or layout rule that exceeds the viewport.', $scenario_id, $viewport_id);
+                $failures[] = zeroy_runtime_browser_failure('candidate_browser_overflow', 'Executed viewports must not produce document-level horizontal overflow.', 'clientWidth=' . $result['documentClientWidth'] . ', scrollWidth=' . $result['documentScrollWidth'] . ', overflowingElements=' . $result['overflowElements'] . ', samples=' . implode(', ', $result['overflowSamples']) . '.', 'Repair the component or layout rule that exceeds the viewport.', $scenario_id, $viewport_id, 'artifacts/theme/assets/css/site.css');
             }
             if ($result['mediaOverflowElements'] > 0) {
-                $failures[] = zeroy_runtime_browser_failure('candidate_browser_media_overflow', 'Images, video, canvas, SVG, and iframe media must remain inside their layout boundary.', 'Overflowing media elements=' . $result['mediaOverflowElements'] . ', samples=' . implode(', ', $result['mediaOverflowSamples']) . '.', 'Constrain the reported media to its container.', $scenario_id, $viewport_id);
+                $failures[] = zeroy_runtime_browser_failure('candidate_browser_media_overflow', 'Images, video, canvas, SVG, and iframe media must remain inside their layout boundary.', 'Overflowing media elements=' . $result['mediaOverflowElements'] . ', samples=' . implode(', ', $result['mediaOverflowSamples']) . '.', 'Constrain the reported media to its container.', $scenario_id, $viewport_id, 'artifacts/theme/assets/css/site.css');
             }
             if ($result['focusVisible'] === false) {
-                $failures[] = zeroy_runtime_browser_failure('candidate_browser_focus_visible_failed', 'A keyboard-focusable control must expose a visible focus indicator.', 'The focused control did not match :focus-visible with a visible outline.', 'Restore the ZCSS focus-visible rule or remove the overriding site rule.', $scenario_id, $viewport_id);
+                $failures[] = zeroy_runtime_browser_failure('candidate_browser_focus_visible_failed', 'A keyboard-focusable control must expose a visible focus indicator.', 'The focused control did not match :focus-visible with a visible outline.', 'Restore the ZCSS focus-visible rule or remove the overriding site rule.', $scenario_id, $viewport_id, 'artifacts/theme/assets/css/site.css');
             } elseif ($result['focusVisible'] === true) $focus_observed = true;
             if ($result['reducedMotion'] !== true) {
-                $failures[] = zeroy_runtime_browser_failure('candidate_browser_reduced_motion_failed', 'The reduced-motion media preference must suppress executed CSS animations and transitions.', 'At least one executed animation or transition exceeded the reduced-motion bound.', 'Remove the override that defeats the ZCSS reduced-motion rule.', $scenario_id, $viewport_id);
+                $failures[] = zeroy_runtime_browser_failure('candidate_browser_reduced_motion_failed', 'The reduced-motion media preference must suppress executed CSS animations and transitions.', 'At least one executed animation or transition exceeded the reduced-motion bound.', 'Remove the override that defeats the ZCSS reduced-motion rule.', $scenario_id, $viewport_id, 'artifacts/theme/assets/css/site.css');
             }
             foreach ($expected_pairs as $pair_id => $pair) {
                 $ratio = (float) $result['contrastRatios'][$pair_id];
                 if ($ratio + 0.0001 < (float) $pair['minimum']) {
-                    $failures[] = zeroy_runtime_browser_failure('candidate_browser_contrast_failed', 'Declared ZCSS semantic foreground and background pairs must meet their contrast threshold in the executed browser.', $pair_id . ' contrast=' . $ratio . ', minimum=' . $pair['minimum'] . '.', 'Repair the ZCSS palette or a site override of the semantic color pair.', $scenario_id, $viewport_id);
+                    $failures[] = zeroy_runtime_browser_failure('candidate_browser_contrast_failed', 'Declared ZCSS semantic foreground and background pairs must meet their contrast threshold in the executed browser.', $pair_id . ' contrast=' . $ratio . ', minimum=' . $pair['minimum'] . '.', 'Repair the site CSS override using the exact semantic token pair in .zeroy/contracts/zcss-authoring.json.', $scenario_id, $viewport_id, 'artifacts/theme/assets/css/site.css');
                 }
             }
         }

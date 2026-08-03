@@ -182,6 +182,7 @@ function zeroy_runtime_build_site_release_proof(array $release, array $foundatio
     return [
         'contract' => ZEROY_SITE_RELEASE_PROOF_CONTRACT,
         'commit' => $release['commit_hash'] ?? null,
+        'buildId' => $release['build_id'] ?? null,
         'releaseCandidateHash' => zeroy_runtime_site_release_candidate_hash($release),
         'themeProof' => $theme_proof,
         'siteLogicProof' => $logic_proof,
@@ -191,23 +192,27 @@ function zeroy_runtime_build_site_release_proof(array $release, array $foundatio
     ];
 }
 
-function zeroy_runtime_verify_candidate_site_release(array $release, array $compiled): array|WP_Error
+function zeroy_runtime_verify_candidate_site_release(
+    array $release,
+    array $compiled,
+    string $candidate_kind = 'release',
+    ?string $candidate_id = null,
+): array|WP_Error
 {
+    $candidate_id ??= (string) $release['release_id'];
     $foundation = zeroy_runtime_verify_site_release_foundation($release, $compiled);
     $runtime = ['checks' => [], 'failures' => []];
     $html = ['kind' => 'not-run', 'scenarios' => [], 'failures' => [], 'warnings' => []];
     $browser = ['kind' => 'awaiting-browser-witness', 'declared' => ['scenarios' => array_column($foundation['declaredScenarios'], 'id'), 'viewports' => array_column(zeroy_runtime_browser_viewports(), 'id')], 'executed' => [], 'failures' => [], 'warnings' => []];
     if ($foundation['static']['failures'] === [] && !is_wp_error($foundation['snapshot'])) {
-        $runtime = zeroy_runtime_candidate_runtime_checks((string) $release['release_id'], $foundation['declaredScenarios']);
-        $html = zeroy_runtime_candidate_browser_smoke($runtime['checks'], (string) $release['release_id']);
+        $runtime = zeroy_runtime_candidate_runtime_checks($candidate_kind, $candidate_id, $foundation['declaredScenarios']);
+        $html = zeroy_runtime_candidate_browser_smoke($runtime['checks'], $candidate_kind, $candidate_id);
     }
     return zeroy_runtime_build_site_release_proof($release, $foundation, $runtime, $html, $browser);
 }
 
-function zeroy_runtime_verify_candidate_site_release_with_browser(array $release, array $compiled, array $evidence): array|WP_Error
+function zeroy_runtime_attach_browser_evidence(array $release, array $proof, array $evidence): array|WP_Error
 {
-    $proof = zeroy_runtime_verify_candidate_site_release($release, $compiled);
-    if (is_wp_error($proof)) return $proof;
     if (($proof['blockingFailures'] ?? []) !== []) return $proof;
     $scenarios = $proof['integrationScenarios']['declared'] ?? [];
     $challenge = zeroy_runtime_browser_verification_challenge($release, is_array($scenarios) ? $scenarios : []);
@@ -227,6 +232,6 @@ function zeroy_runtime_store_site_release_proof(string $release_id, array $proof
 {
     $proof_id = 'proof-' . wp_generate_uuid4();
     global $wpdb;
-    $written = $wpdb->insert(zeroy_runtime_table('verification_proofs'), ['proof_id' => $proof_id, 'release_id' => $release_id, 'commit_hash' => $proof['commit'] ?? null, 'proof_json' => zeroy_runtime_json($proof), 'verified_at' => $proof['verifiedAt']], ['%s', '%s', '%s', '%s', '%s']);
+    $written = $wpdb->insert(zeroy_runtime_table('verification_proofs'), ['proof_id' => $proof_id, 'release_id' => $release_id, 'commit_hash' => $proof['commit'] ?? null, 'build_id' => $proof['buildId'] ?? null, 'proof_json' => zeroy_runtime_json($proof), 'verified_at' => $proof['verifiedAt']], ['%s', '%s', '%s', '%s', '%s', '%s']);
     return $written === 1 ? $proof_id : zeroy_runtime_error('zeroy_proof_store_failed', $wpdb->last_error ?: 'Could not store VerificationProof.', 500);
 }

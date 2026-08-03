@@ -114,6 +114,7 @@ function zeroy_runtime_site_release_receipt(string $release_id): array|WP_Error
         'contract' => ZEROY_SITE_RELEASE_CONTRACT,
         'releaseId' => $release['release_id'],
         'commit' => $release['commit_hash'] ?: null,
+        'buildId' => $release['build_id'] ?: null,
         'previousReleaseId' => $release['previous_release_id'] ?: null,
         'themeArtifactId' => $release['theme_artifact_id'],
         'siteLogicArtifactId' => $release['site_logic_artifact_id'],
@@ -142,7 +143,7 @@ function zeroy_runtime_site_release_receipt(string $release_id): array|WP_Error
         'createdAt' => $release['created_at'],
         'activatedAt' => $release['activated_at'],
         'previewUrl' => in_array($release['state'], ['preparing', 'awaiting-browser', 'prepared'], true)
-            ? add_query_arg(['zeroy_candidate_release' => $release['release_id'], 'token' => hash_hmac('sha256', $release['release_id'], zeroy_runtime_connection_key())], home_url('/'))
+            ? zeroy_runtime_candidate_scenario_url('release', (string) $release['release_id'], ['path' => '/', 'query' => []])
             : null,
     ];
 }
@@ -169,6 +170,7 @@ function zeroy_runtime_site_release_proof_valid(array $release, array $proof): b
     $challenge = is_array($scenarios) ? zeroy_runtime_browser_verification_challenge($release, $scenarios) : null;
     return ($proof['contract'] ?? null) === ZEROY_SITE_RELEASE_PROOF_CONTRACT
         && (($proof['commit'] ?? null) === ($release['commit_hash'] ?? null))
+        && (($proof['buildId'] ?? null) === ($release['build_id'] ?? null))
         && ($proof['releaseCandidateHash'] ?? null) === zeroy_runtime_site_release_candidate_hash($release)
         && (($proof['themeProof']['artifactId'] ?? null) === $release['theme_artifact_id'])
         && (($proof['themeProof']['snapshotHash'] ?? null) === $release['snapshot_hash'])
@@ -191,6 +193,7 @@ function zeroy_runtime_site_release_candidate_hash(array $release): string
 {
     return zeroy_runtime_hash([
         'commit' => $release['commit_hash'] ?: null,
+        'buildId' => $release['build_id'] ?: null,
         'themeArtifactId' => $release['theme_artifact_id'],
         'siteLogicArtifactId' => $release['site_logic_artifact_id'],
         'themeContractHash' => $release['theme_contract_hash'],

@@ -11,10 +11,18 @@ function zeroy_runtime_is_connector_safe_request(): bool
 
 function zeroy_runtime_candidate_site_release_from_request(): ?array
 {
-    $release_id = isset($_GET['zeroy_candidate_release']) && is_string($_GET['zeroy_candidate_release']) ? $_GET['zeroy_candidate_release'] : '';
     $token = isset($_GET['token']) && is_string($_GET['token']) ? $_GET['token'] : '';
-    if ($release_id === '' || $token === '' || !hash_equals(hash_hmac('sha256', $release_id, zeroy_runtime_connection_key()), $token)) return null;
-    $release = zeroy_runtime_site_release_row($release_id);
+    $candidates = [];
+    foreach (['build', 'release'] as $kind) {
+        $key = 'zeroy_candidate_' . $kind;
+        if (isset($_GET[$key]) && is_string($_GET[$key]) && $_GET[$key] !== '') $candidates[$kind] = $_GET[$key];
+    }
+    if (count($candidates) !== 1 || $token === '') return null;
+    $kind = array_key_first($candidates);
+    $candidate_id = $candidates[$kind];
+    if (!hash_equals(hash_hmac('sha256', $kind . ':' . $candidate_id, zeroy_runtime_connection_key()), $token)) return null;
+    if ($kind === 'build') return zeroy_build_verification_candidate($candidate_id);
+    $release = zeroy_runtime_site_release_row($candidate_id);
     return is_array($release) && in_array($release['state'], ['preparing', 'awaiting-browser', 'prepared'], true) ? $release : null;
 }
 
@@ -101,7 +109,7 @@ function zeroy_runtime_boot_site_release(): void
     $functions = $theme_dir . '/functions.php';
     $bootstrap = $logic_dir . '/bootstrap.php';
     if (!is_file($functions) || is_link($functions) || !is_file($bootstrap) || is_link($bootstrap)) wp_die('The selected zeroY SiteRelease is incomplete.', 'zeroY release unavailable', ['response' => 503]);
-    $GLOBALS['zeroy_runtime_request_release'] = ['releaseId' => $release['release_id'], 'themeArtifactId' => $theme_id, 'siteLogicArtifactId' => $logic_id, 'themeDirectory' => $theme_dir, 'siteLogicDirectory' => $logic_dir, 'candidate' => $candidate !== null];
+    $GLOBALS['zeroy_runtime_request_release'] = ['releaseId' => $release['release_id'] ?? null, 'buildId' => $release['build_id'] ?? null, 'themeArtifactId' => $theme_id, 'siteLogicArtifactId' => $logic_id, 'themeDirectory' => $theme_dir, 'siteLogicDirectory' => $logic_dir, 'candidate' => $candidate !== null];
     $GLOBALS['zeroy_runtime_request_snapshot'] = $snapshot;
     $stylesheets = zeroy_runtime_request_stylesheet_projection($theme_dir);
     if (is_wp_error($stylesheets)) wp_die($stylesheets->get_error_message(), 'zeroY release unavailable', ['response' => 503]);

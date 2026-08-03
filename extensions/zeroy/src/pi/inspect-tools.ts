@@ -2,6 +2,7 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { Clock, Effect } from "effect";
 import type { NodeServices } from "@effect/platform-node/NodeServices";
 import {
+  externalCheckProjection,
   externalCheckSummary,
   runExternalCheck,
   sameOriginExternalCheckUrls,
@@ -39,6 +40,112 @@ const activeReleaseExternalTargets = (payload: JsonRecord) => {
 
 const inspectSiteLabel = (input: InspectInput): string =>
   input.resource === "sites" ? "Configured zeroY sites" : input.siteId;
+
+const asRecord = (value: unknown): JsonRecord | null =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : null;
+
+const boundedRefProjection = (payload: JsonRecord): JsonRecord => ({
+  contract: payload.contract,
+  items: Array.isArray(payload.items)
+    ? payload.items.map((value) => {
+        const item = asRecord(value);
+        return item === null
+          ? null
+          : { refName: item.refName, commit: item.commit, updatedAt: item.updatedAt };
+      })
+    : [],
+  nextCursor: payload.nextCursor ?? null,
+  hasMore: payload.hasMore === true,
+});
+
+const siteAgentProjection = (payload: JsonRecord): JsonRecord => ({
+  contract: payload.contract,
+  runtimeVersion: payload.runtimeVersion,
+  siteId: payload.siteId,
+  workspaceContract: payload.workspaceContract,
+  capabilities: payload.capabilities,
+});
+
+const proofFailureProjection = (value: unknown): JsonRecord | null => {
+  const failure = asRecord(value);
+  if (failure === null) return null;
+  return {
+    code: failure.code,
+    documentPath: failure.documentPath,
+    contentPath: failure.contentPath,
+    subjectKey: failure.subjectKey,
+    locale: failure.locale,
+    evidence: failure.evidence,
+    repair: failure.repair,
+  };
+};
+
+const proofAgentProjection = (
+  payload: JsonRecord,
+  view: "summary" | "failures" | "repairGroups",
+): JsonRecord => {
+  if (view !== "summary") {
+    return {
+      contract: payload.contract,
+      proofId: payload.proofId,
+      releaseId: payload.releaseId,
+      verifiedAt: payload.verifiedAt,
+      failureCount: payload.failureCount,
+      items: Array.isArray(payload.items)
+        ? payload.items.map((item) => (view === "failures" ? proofFailureProjection(item) : item))
+        : [],
+      nextCursor: payload.nextCursor ?? null,
+      hasMore: payload.hasMore === true,
+    };
+  }
+  const proof = asRecord(payload.proof) ?? payload;
+  return {
+    contract: payload.contract,
+    proof: {
+      proofId: proof.proofId,
+      releaseId: proof.releaseId,
+      commit: proof.commit,
+      buildId: proof.buildId,
+      snapshotHash: proof.snapshotHash,
+      state: proof.state,
+      failureCount: proof.failureCount,
+      scenarioCount: proof.scenarioCount,
+      createdAt: proof.createdAt,
+    },
+  };
+};
+
+const releaseHistoryAgentProjection = (payload: JsonRecord): JsonRecord => ({
+  contract: payload.contract,
+  items: Array.isArray(payload.items)
+    ? payload.items.map((value) => {
+        const item = asRecord(value);
+        return item === null
+          ? null
+          : {
+              releaseId: item.releaseId,
+              commit: item.commit,
+              buildId: item.buildId,
+              state: item.state,
+              proofId: item.proofId,
+              createdAt: item.createdAt,
+              activatedAt: item.activatedAt,
+            };
+      })
+    : [],
+  nextCursor: payload.nextCursor ?? null,
+  hasMore: payload.hasMore === true,
+});
+
+const integrityAgentProjection = (payload: JsonRecord): JsonRecord => ({
+  contract: payload.contract,
+  ok: payload.ok === true,
+  issueCount: Array.isArray(payload.issues)
+    ? payload.issues.length
+    : Number(payload.issueCount ?? 0),
+});
 
 const inspectConnection = (
   active: ActiveSession,
@@ -150,7 +257,9 @@ const inspectResource = (
         const parameters = new URLSearchParams({ limit: String(input.limit ?? 20) });
         if (input.cursor !== undefined) parameters.set("cursor", input.cursor);
         return {
-          payload: yield* connectorGet(site, `site-refs?${parameters.toString()}`, signal),
+          payload: boundedRefProjection(
+            yield* connectorGet(site, `site-refs?${parameters.toString()}`, signal),
+          ),
           summary: "Read DraftRefs",
         };
       }
@@ -179,85 +288,47 @@ const inspectResource = (
         const parameters = new URLSearchParams({ limit: String(input.limit ?? 20) });
         if (input.cursor !== undefined) parameters.set("cursor", input.cursor);
         return {
-          payload: yield* connectorGet(site, `site-releases?${parameters.toString()}`, signal),
+          payload: releaseHistoryAgentProjection(
+            yield* connectorGet(site, `site-releases?${parameters.toString()}`, signal),
+          ),
           summary: "Read SiteRelease history",
         };
       }
       case "site":
         return {
-          payload: yield* connectorGet(site, "site", signal),
+          payload: siteAgentProjection(yield* connectorGet(site, "site", signal)),
           summary: "Read site handshake",
         };
-      case "schema":
-        return {
-          payload: yield* connectorGet(site, "schema", signal),
-          summary: "Read ThemeSchema",
-        };
-      case "inventory": {
-        const page = input.page ?? 1;
-        const perPage = input.perPage ?? 50;
-        if (input.inventoryView === "existingPost") {
-          const parameters = new URLSearchParams();
-          if (input.schemaId !== undefined) parameters.set("schemaId", input.schemaId);
-          return {
-            payload: yield* connectorGet(
-              site,
-              `existing-post?postId=${input.objectId ?? 0}&${parameters.toString()}`,
-              signal,
-            ),
-            summary: "Read one unmanaged WordPress post with sourceHash",
-          };
-        }
-        if (input.inventoryView === "adoptionCandidates") {
-          const parameters = new URLSearchParams({ page: String(page), perPage: String(perPage) });
-          if (input.schemaId !== undefined) parameters.set("schemaId", input.schemaId);
-          if (input.postType !== undefined) parameters.set("postType", input.postType);
-          return {
-            payload: yield* connectorGet(
-              site,
-              `adoption-candidates?${parameters.toString()}`,
-              signal,
-            ),
-            summary: "Read unmanaged WordPress adoption candidates",
-          };
-        }
-        return {
-          payload: yield* connectorGet(site, `inventory?page=${page}&perPage=${perPage}`, signal),
-          summary: "Read canonical inventory",
-        };
-      }
-      case "acf":
-        return {
-          payload: yield* connectorGet(site, "acf", signal),
-          summary: "Read shared ACF structure",
-        };
-      case "zcssContract":
-        return {
-          payload: yield* connectorGet(site, "zcss-contract", signal),
-          summary: "Read ZCSS authoring contract",
-        };
       case "proof": {
-        const parameters = new URLSearchParams({
-          view: input.proofView ?? "summary",
-          limit: String(input.proofLimit ?? 20),
-        });
-        if (input.proofCursor !== undefined) parameters.set("cursor", input.proofCursor);
+        const view = input.proofView ?? "summary";
+        const parameters = new URLSearchParams({ view, limit: String(input.limit ?? 20) });
+        if (input.cursor !== undefined) parameters.set("cursor", input.cursor);
         return {
-          payload: yield* connectorGet(
-            site,
-            `site-release-proofs/${input.proofId}?${parameters.toString()}`,
-            signal,
-            active.draftActorId,
+          payload: proofAgentProjection(
+            yield* connectorGet(
+              site,
+              `site-release-proofs/${input.proofId}?${parameters.toString()}`,
+              signal,
+              active.draftActorId,
+            ),
+            view,
           ),
-          summary: "Read CandidateProof diagnostics",
+          summary: `Read CandidateProof ${view}`,
         };
       }
       case "integrity":
         return {
-          payload: yield* connectorGet(site, "integrity", signal),
+          payload: integrityAgentProjection(yield* connectorGet(site, "integrity", signal)),
           summary: "Ran Connector integrity checks",
         };
       case "externalCheck": {
+        if (input.cursor !== undefined && !/^[0-9]+$/u.test(input.cursor)) {
+          return yield* new ZeroYConnectorError({
+            code: "zeroy_external_check_cursor_invalid",
+            status: 400,
+            message: "External-check cursor must be the numeric cursor returned by the prior page.",
+          });
+        }
         const releaseTargetsPayload = yield* connectorGet(
           site,
           "site-release/external-check-targets",
@@ -279,11 +350,21 @@ const inspectResource = (
             message: urls.message,
           });
         }
-        const check = yield* runExternalCheck(releaseTargets, urls, signal);
-        yield* Effect.sync(() => active.externalChecks.set(site.siteId, check));
+        const cached = active.externalChecks.get(site.siteId);
+        const check =
+          cached !== undefined && (input.urls === undefined || input.urls.length === 0)
+            ? cached
+            : yield* runExternalCheck(releaseTargets, urls, signal);
+        if (cached !== check)
+          yield* Effect.sync(() => active.externalChecks.set(site.siteId, check));
         yield* refreshSurface(active);
         return {
-          payload: { releaseTargets: releaseTargetsPayload, externalCheck: check },
+          payload: externalCheckProjection(
+            check,
+            input.externalCheckView ?? "summary",
+            input.limit ?? 10,
+            input.cursor,
+          ),
           summary: `Ran external checks: ${externalCheckSummary(check)}`,
         };
       }

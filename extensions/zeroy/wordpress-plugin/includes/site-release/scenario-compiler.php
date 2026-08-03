@@ -2,12 +2,15 @@
 
 defined('ABSPATH') || exit;
 
-function zeroy_runtime_candidate_scenario_url(string $release_id, array $scenario): string
+function zeroy_runtime_candidate_scenario_url(string $candidate_kind, string $candidate_id, array $scenario): string
 {
-    $token = hash_hmac('sha256', $release_id, zeroy_runtime_connection_key());
+    if (!in_array($candidate_kind, ['build', 'release'], true)) {
+        throw new InvalidArgumentException('Candidate kind must be build or release.');
+    }
+    $token_subject = $candidate_kind . ':' . $candidate_id;
     return add_query_arg([
-        'zeroy_candidate_release' => $release_id,
-        'token' => $token,
+        'zeroy_candidate_' . $candidate_kind => $candidate_id,
+        'token' => hash_hmac('sha256', $token_subject, zeroy_runtime_connection_key()),
         ...($scenario['query'] ?? []),
     ], home_url($scenario['path']));
 }

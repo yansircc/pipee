@@ -10,13 +10,16 @@ function zeroy_runtime_schema_definitions(): array
         'runtime_locks' => "CREATE TABLE " . zeroy_runtime_table('runtime_locks') . " (lock_name VARCHAR(64) NOT NULL, revision BIGINT UNSIGNED NOT NULL, PRIMARY KEY (lock_name)) {$charset};",
         'theme_artifacts' => "CREATE TABLE " . zeroy_runtime_table('theme_artifacts') . " (artifact_id VARCHAR(71) NOT NULL, manifest_json LONGTEXT NOT NULL, schema_json LONGTEXT NOT NULL, schema_hash CHAR(64) NOT NULL, file_count BIGINT UNSIGNED NOT NULL, total_bytes BIGINT UNSIGNED NOT NULL, pinned_at DATETIME NULL, created_at DATETIME NOT NULL, PRIMARY KEY (artifact_id)) {$charset};",
         'site_logic_artifacts' => "CREATE TABLE " . zeroy_runtime_table('site_logic_artifacts') . " (artifact_id VARCHAR(71) NOT NULL, manifest_json LONGTEXT NOT NULL, contract_json LONGTEXT NOT NULL, contract_hash CHAR(64) NOT NULL, storage_epoch BIGINT UNSIGNED NOT NULL, file_count BIGINT UNSIGNED NOT NULL, total_bytes BIGINT UNSIGNED NOT NULL, created_at DATETIME NOT NULL, PRIMARY KEY (artifact_id)) {$charset};",
-        'site_releases' => "CREATE TABLE " . zeroy_runtime_table('site_releases') . " (release_id CHAR(36) NOT NULL, commit_hash VARCHAR(71) NULL, previous_release_id CHAR(36) NULL, theme_artifact_id VARCHAR(71) NOT NULL, site_logic_artifact_id VARCHAR(71) NOT NULL, theme_contract_hash CHAR(64) NOT NULL, site_logic_contract_hash CHAR(64) NOT NULL, storage_epoch BIGINT UNSIGNED NOT NULL, snapshot_hash CHAR(64) NOT NULL, snapshot_json LONGTEXT NOT NULL, expected_active_release_id CHAR(36) NULL, state VARCHAR(16) NOT NULL, proof_id VARCHAR(64) NULL, provenance_json LONGTEXT NOT NULL, diagnostics_json LONGTEXT NOT NULL, created_at DATETIME NOT NULL, activated_at DATETIME NULL, PRIMARY KEY (release_id), KEY zeroy_site_release_state (state), UNIQUE KEY zeroy_site_release_commit (commit_hash), KEY zeroy_site_release_theme (theme_artifact_id), KEY zeroy_site_release_logic (site_logic_artifact_id)) {$charset};",
+        'site_releases' => "CREATE TABLE " . zeroy_runtime_table('site_releases') . " (release_id CHAR(36) NOT NULL, commit_hash VARCHAR(71) NULL, build_id VARCHAR(71) NULL, previous_release_id CHAR(36) NULL, theme_artifact_id VARCHAR(71) NOT NULL, site_logic_artifact_id VARCHAR(71) NOT NULL, theme_contract_hash CHAR(64) NOT NULL, site_logic_contract_hash CHAR(64) NOT NULL, storage_epoch BIGINT UNSIGNED NOT NULL, snapshot_hash CHAR(64) NOT NULL, snapshot_json LONGTEXT NOT NULL, expected_active_release_id CHAR(36) NULL, state VARCHAR(16) NOT NULL, proof_id VARCHAR(64) NULL, provenance_json LONGTEXT NOT NULL, diagnostics_json LONGTEXT NOT NULL, created_at DATETIME NOT NULL, activated_at DATETIME NULL, PRIMARY KEY (release_id), KEY zeroy_site_release_state (state), KEY zeroy_site_release_commit (commit_hash), UNIQUE KEY zeroy_site_release_build_identity (commit_hash, build_id), KEY zeroy_site_release_build (build_id), KEY zeroy_site_release_theme (theme_artifact_id), KEY zeroy_site_release_logic (site_logic_artifact_id)) {$charset};",
         'site_release_state' => "CREATE TABLE " . zeroy_runtime_table('site_release_state') . " (singleton TINYINT UNSIGNED NOT NULL, active_release_id CHAR(36) NOT NULL, revision BIGINT UNSIGNED NOT NULL, activated_at DATETIME NOT NULL, PRIMARY KEY (singleton)) {$charset};",
-        'verification_proofs' => "CREATE TABLE " . zeroy_runtime_table('verification_proofs') . " (proof_id VARCHAR(64) NOT NULL, release_id CHAR(36) NOT NULL, commit_hash VARCHAR(71) NULL, proof_json LONGTEXT NOT NULL, verified_at DATETIME NOT NULL, PRIMARY KEY (proof_id), KEY zeroy_proof_release (release_id), KEY zeroy_proof_commit (commit_hash)) {$charset};",
+        'verification_proofs' => "CREATE TABLE " . zeroy_runtime_table('verification_proofs') . " (proof_id VARCHAR(64) NOT NULL, release_id CHAR(36) NOT NULL, commit_hash VARCHAR(71) NULL, build_id VARCHAR(71) NULL, proof_json LONGTEXT NOT NULL, verified_at DATETIME NOT NULL, PRIMARY KEY (proof_id), KEY zeroy_proof_release (release_id), KEY zeroy_proof_commit (commit_hash), KEY zeroy_proof_build (build_id)) {$charset};",
         'site_objects' => "CREATE TABLE " . zeroy_runtime_table('site_objects') . " (object_hash VARCHAR(71) NOT NULL, object_type VARCHAR(16) NOT NULL, byte_count BIGINT UNSIGNED NOT NULL, object_bytes LONGBLOB NOT NULL, created_at DATETIME NOT NULL, PRIMARY KEY (object_hash), KEY zeroy_site_object_type (object_type)) {$charset};",
         'site_commits' => "CREATE TABLE " . zeroy_runtime_table('site_commits') . " (commit_hash VARCHAR(71) NOT NULL, tree_hash VARCHAR(71) NOT NULL, parent_hash VARCHAR(71) NULL, base_release_id CHAR(36) NULL, author_principal VARCHAR(128) NOT NULL, actor_session_id VARCHAR(128) NOT NULL, message TEXT NOT NULL, commit_json LONGTEXT NOT NULL, created_at DATETIME NOT NULL, PRIMARY KEY (commit_hash), KEY zeroy_site_commit_parent (parent_hash), KEY zeroy_site_commit_tree (tree_hash)) {$charset};",
         'site_refs' => "CREATE TABLE " . zeroy_runtime_table('site_refs') . " (ref_name VARCHAR(191) NOT NULL, commit_hash VARCHAR(71) NOT NULL, revision BIGINT UNSIGNED NOT NULL, updated_at DATETIME NOT NULL, PRIMARY KEY (ref_name), KEY zeroy_site_ref_commit (commit_hash)) {$charset};",
         'push_receipts' => "CREATE TABLE " . zeroy_runtime_table('push_receipts') . " (command_id CHAR(36) NOT NULL, request_hash CHAR(64) NOT NULL, result_json LONGTEXT NOT NULL, created_at DATETIME NOT NULL, PRIMARY KEY (command_id)) {$charset};",
+        'site_builds' => "CREATE TABLE " . zeroy_runtime_table('site_builds') . " (build_id VARCHAR(71) NOT NULL, commit_hash VARCHAR(71) NOT NULL, compiler_set_hash CHAR(64) NOT NULL, external_facts_hash CHAR(64) NOT NULL, state VARCHAR(16) NOT NULL, snapshot_hash CHAR(64) NULL, result_json LONGTEXT NOT NULL, diagnostics_hash CHAR(64) NOT NULL, created_at DATETIME NOT NULL, PRIMARY KEY (build_id), UNIQUE KEY zeroy_build_identity (commit_hash, compiler_set_hash, external_facts_hash), KEY zeroy_build_commit (commit_hash), KEY zeroy_build_diagnostics (diagnostics_hash)) {$charset};",
+        'site_build_diagnostics' => "CREATE TABLE " . zeroy_runtime_table('site_build_diagnostics') . " (diagnostics_hash CHAR(64) NOT NULL, diagnostics_json LONGTEXT NOT NULL, PRIMARY KEY (diagnostics_hash)) {$charset};",
+        'site_build_candidates' => "CREATE TABLE " . zeroy_runtime_table('site_build_candidates') . " (build_id VARCHAR(71) NOT NULL, candidate_json LONGTEXT NOT NULL, created_at DATETIME NOT NULL, PRIMARY KEY (build_id)) {$charset};",
         'site_logic_migration_ledger' => "CREATE TABLE " . zeroy_runtime_table('site_logic_migration_ledger') . " (idempotency_key VARCHAR(96) NOT NULL, from_epoch BIGINT UNSIGNED NOT NULL, to_epoch BIGINT UNSIGNED NOT NULL, applied_at DATETIME NOT NULL, PRIMARY KEY (idempotency_key)) {$charset};",
         'site_config' => "CREATE TABLE " . zeroy_runtime_table('site_config') . " (singleton TINYINT UNSIGNED NOT NULL, config_json LONGTEXT NOT NULL, revision BIGINT UNSIGNED NOT NULL, PRIMARY KEY (singleton)) {$charset};",
         'locale_overlay_versions' => "CREATE TABLE " . zeroy_runtime_table('locale_overlay_versions') . " (version_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, subject_key VARCHAR(191) NOT NULL, locale VARCHAR(32) NOT NULL, policy_hash CHAR(64) NOT NULL, overlay_json LONGTEXT NOT NULL, created_at DATETIME NOT NULL, PRIMARY KEY (version_id), KEY zeroy_overlay_subject_locale (subject_key, locale)) {$charset};",
@@ -57,12 +60,14 @@ function zeroy_runtime_required_schema_columns(): array
             'previous_release_id' => 'CHAR(36) NULL',
             'snapshot_hash' => 'CHAR(64) NULL',
             'snapshot_json' => 'LONGTEXT NULL',
+            'build_id' => 'VARCHAR(71) NULL',
         ],
         'locale_overlay_heads' => [
             'published_at' => 'DATETIME NULL',
         ],
         'verification_proofs' => [
             'commit_hash' => 'VARCHAR(71) NULL',
+            'build_id' => 'VARCHAR(71) NULL',
         ],
     ];
 }
@@ -104,15 +109,20 @@ function zeroy_runtime_ensure_site_release_commit_identity(): true|WP_Error
     global $wpdb;
     $table = zeroy_runtime_table('site_releases');
     $indexes = $wpdb->get_results("SHOW INDEX FROM {$table}", ARRAY_A);
-    $named_index_exists = false;
+    $obsolete_commit_identity_exists = false;
+    $build_identity_exists = false;
     foreach (is_array($indexes) ? $indexes : [] as $index) {
-        if (($index['Key_name'] ?? $index['key_name'] ?? null) !== 'zeroy_site_release_commit') continue;
-        if ((int) ($index['Non_unique'] ?? $index['non_unique'] ?? 1) === 0) return true;
-        $named_index_exists = true;
+        $name = $index['Key_name'] ?? $index['key_name'] ?? null;
+        if ($name === 'zeroy_site_release_build_identity' && (int) ($index['Non_unique'] ?? $index['non_unique'] ?? 1) === 0) $build_identity_exists = true;
+        if ($name === 'zeroy_site_release_commit' && (int) ($index['Non_unique'] ?? $index['non_unique'] ?? 1) === 0) $obsolete_commit_identity_exists = true;
     }
-    if ($named_index_exists) $wpdb->query("ALTER TABLE {$table} DROP INDEX zeroy_site_release_commit");
-    $added = $wpdb->query("ALTER TABLE {$table} ADD UNIQUE KEY zeroy_site_release_commit (commit_hash)");
-    return $added === false ? zeroy_runtime_error('zeroy_site_release_commit_identity_failed', $wpdb->last_error ?: 'Could not enforce one SiteRelease per SiteCommit.', 500) : true;
+    if ($obsolete_commit_identity_exists) {
+        $wpdb->query("ALTER TABLE {$table} DROP INDEX zeroy_site_release_commit");
+        if ($wpdb->query("ALTER TABLE {$table} ADD KEY zeroy_site_release_commit (commit_hash)") === false) return zeroy_runtime_error('zeroy_site_release_commit_identity_failed', $wpdb->last_error ?: 'Could not replace the obsolete SiteCommit uniqueness boundary.', 500);
+    }
+    if ($build_identity_exists) return true;
+    $added = $wpdb->query("ALTER TABLE {$table} ADD UNIQUE KEY zeroy_site_release_build_identity (commit_hash, build_id)");
+    return $added === false ? zeroy_runtime_error('zeroy_site_release_commit_identity_failed', $wpdb->last_error ?: 'Could not enforce one SiteRelease per SiteCommit and BuildResult.', 500) : true;
 }
 
 /**
@@ -194,10 +204,6 @@ function zeroy_runtime_initialize(): true|WP_Error
     zeroy_runtime_site_id();
     zeroy_runtime_connection_key();
     zeroy_runtime_ensure_site_config();
-    $snapshot = zeroy_runtime_migrate_active_site_release_snapshot();
-    if (is_wp_error($snapshot)) return $snapshot;
-    $commit = zeroy_checkout_seed_active_release_commit();
-    if (is_wp_error($commit)) return $commit;
     return true;
 }
 

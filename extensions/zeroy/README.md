@@ -7,14 +7,15 @@ local SiteCheckout
 → Blob / Tree
 → SiteCommit
 → CAS DraftRef
-→ commit-bound VerificationProof
+→ immutable BuildResult
+→ commit/build-bound VerificationProof
 → SiteRelease
 → activeSiteReleaseId
 ```
 
 The extension exposes exactly three zeroY tools:
 
-- `zeroy_inspect` reads bounded canonical projections such as sites, refs, commit history/diff, schema, inventory, ACF, proof diagnostics, integrity, and external checks.
+- `zeroy_inspect` reads bounded operational projections: sites, refs, commit history/diff, release history, proof summaries, integrity, and external checks. Authoring contracts exist only inside the checkout's derived `.zeroy/` projection.
 - `zeroy_checkout` materializes the active release or a DraftRef beneath the Pi working directory and initializes a local Git baseline.
 - `zeroy_push` computes objects, uploads only missing bytes, moves the DraftRef with CAS, and optionally verifies and activates the exact commit.
 
@@ -26,26 +27,26 @@ File bytes never enter a zeroY tool argument or result. The Agent edits the retu
 site.json
 artifacts/theme/
 artifacts/site-logic/
-content/posts/*.json
-content/terms/*.json
+content/posts/<collection-id>/<ref>.json
+content/terms/<taxonomy>/<ref>.json
 content/site-copy.json
-translations/<locale>/posts/*.json
-translations/<locale>/terms/*.json
-translations/<locale>/site-copy.json
+locales/<locale>/posts/<collection-id>/<ref>.json
+locales/<locale>/terms/<taxonomy>/<ref>.json
+locales/<locale>/site-copy.json
 media/
 ```
 
-`site.json` owns site configuration. `content/site-copy.json` is the only canonical SiteCopy owner. Post and term filenames are stable refs; WordPress IDs are materialization details. Deleting a managed content or translation document expresses retirement or unpublish in the next release.
+`site.json` owns the workspace format, locales, and collection mapping. Paths own document kind, collection/taxonomy, ref, and locale. Document bodies contain only natural business content; WordPress IDs, field IDs, source hashes, revisions, and LocaleOverlay envelopes are compiler details. Deleting a managed canonical or locale document expresses retirement or unpublish in the next release.
 
 The descriptor and unresolved push envelope live under `.zeroy/` and are extension-owned. A pending envelope freezes the complete SiteCommit, so retry after a lost response replays the same command and identity.
 
 ## Workflow
 
-1. Inspect `sites`, then the selected site's refs, schema, inventory, ACF, and authoring contracts.
+1. Inspect `sites`, then checkout the active release or a DraftRef.
 2. Checkout `active-release`, or resume a named `refs/drafts/...` ref.
-3. Edit only the returned directory. Use `git status` and `git diff` locally.
-4. Push `checkpoint` at recovery milestones.
-5. Push `release`. If proof blocks, inspect `proof` with `repairGroups` or paginated `failures`, repair the same checkout, and push again.
+3. Start at `.zeroy/README.md`, `.zeroy/status.md`, and `.zeroy/repair-frontier.json`; follow only the exact contracts/templates/diagnostics linked by the selected repair group.
+4. Edit ordinary files and push `checkpoint` at recovery or compilation milestones. Every checkpoint stores an immutable BuildResult and refreshes `.zeroy/` atomically.
+5. Push `release` only when the exact BuildResult is ready. If proof blocks, repair the same checkout and checkpoint again.
 6. Finish with `integrity` and `externalCheck`.
 
 A checkpoint never activates the public site. A release only activates when its Proof binds the same SiteCommit and the active release CAS still matches its base.
@@ -60,11 +61,11 @@ ZCSS and Theme Units are deterministic checkout compilers. The Agent edits sourc
 
 ## Storage and recovery
 
-The Connector stores immutable blobs, trees, commits, proofs, releases, and idempotent push receipts. DraftRefs are recovery pointers, not runtime selection pointers. `activeSiteReleaseId` is the sole owner of the live version.
+The Connector stores immutable blobs, trees, commits, BuildResults, proofs, releases, and idempotent push receipts. DraftRefs are recovery pointers, not runtime selection pointers. `activeSiteReleaseId` is the sole owner of the live version.
 
 All collection inspection is paginated and byte-bounded. Reachability GC treats refs, releases, proofs, recent receipts, and explicit pins as roots and refuses deletion when canonical reachability is corrupt.
 
-The hard cut has no SiteDraft reader, writer, route, tool alias, migration shim, or synchronization path. Upgrade converts the one active artifact-backed release in place to a SiteSnapshot, seeds its first SiteCommit, binds a proof, and deletes unreadable legacy history.
+The hard cut has no SiteDraft reader, writer, route, tool alias, migration shim, legacy SiteTree reader, or synchronization path. Development/demo data is converted out of band; the production runtime accepts only SiteTree v2 and BuildResult-bound releases.
 
 ## Verification
 

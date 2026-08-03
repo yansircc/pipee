@@ -8,7 +8,7 @@ const ZEROY_ZCSS_COMPILER_ID = 'zeroy/zcss-compiler@1';
 const ZEROY_ZCSS_COMPILER_VERSION = '1.0.0';
 // Generated from the closed compiler source set. Tests reject algorithm edits
 // that do not deliberately advance this immutable compiler identity.
-const ZEROY_ZCSS_COMPILER_SOURCE_HASH = '6f17b169b6f92b4fe26600dec9eb3a1882b15899963f553db293905a1c61e5b2';
+const ZEROY_ZCSS_COMPILER_SOURCE_HASH = 'f69791869349d4b9fa6edbd4cb8e9944777b3246e223456794454ae3134512f7';
 const ZEROY_ZCSS_STYLE_SURFACE_CONTRACT = 'zeroy/style-surface@1';
 const ZEROY_ZCSS_GENERATED_CSS_PATH = 'assets/css/zcss.generated.css';
 const ZEROY_ZCSS_COMPILED_MANIFEST_PATH = 'assets/css/zcss.manifest.json';
@@ -31,6 +31,17 @@ function zeroy_zcss_browser_policy(): array
         'contrast' => ['normalText' => 4.5, 'largeText' => 3.0, 'ui' => 3.0],
         'viewports' => ['mobile' => 360, 'tablet' => 768, 'desktop' => 1440],
         'features' => ['containerQueries' => true, 'logicalProperties' => true, 'oklchAuthoring' => false],
+    ];
+}
+
+function zeroy_zcss_contrast_pairs(): array
+{
+    return [
+        ['id' => 'surface', 'foreground' => '--z-color-on-surface', 'background' => '--z-color-surface', 'minimum' => 4.5],
+        ['id' => 'action', 'foreground' => '--z-color-on-action', 'background' => '--z-color-action', 'minimum' => 4.5],
+        ['id' => 'success', 'foreground' => '--z-color-on-status-success', 'background' => '--z-color-status-success', 'minimum' => 4.5],
+        ['id' => 'warning', 'foreground' => '--z-color-on-status-warning', 'background' => '--z-color-status-warning', 'minimum' => 4.5],
+        ['id' => 'danger', 'foreground' => '--z-color-on-status-danger', 'background' => '--z-color-status-danger', 'minimum' => 4.5],
     ];
 }
 

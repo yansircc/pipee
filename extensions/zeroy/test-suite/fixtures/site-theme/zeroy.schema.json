@@ -586,7 +586,9 @@
             "contextWeight": "supporting"
           }
         ],
-        "repeaterItemKeys": {}
+        "repeaterItemKeys": {
+          "/acf/field_machine_specs": "field_spec_name"
+        }
       }
     },
     "service": {
@@ -622,7 +624,11 @@
             "contextWeight": "supporting"
           }
         ],
-        "repeaterItemKeys": {}
+        "repeaterItemKeys": {
+          "/acf/field_service_deliverables": "field_deliverable_name",
+          "/acf/field_service_items": "field_item_title",
+          "/acf/field_service_steps": "field_step_name"
+        }
       }
     },
     "production-line": {
@@ -658,7 +664,10 @@
             "contextWeight": "supporting"
           }
         ],
-        "repeaterItemKeys": {}
+        "repeaterItemKeys": {
+          "/acf/field_process_steps": "field_step_name",
+          "/acf/field_technical_specs": "field_spec_name"
+        }
       }
     }
   }

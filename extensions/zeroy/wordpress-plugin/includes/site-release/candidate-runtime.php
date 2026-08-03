@@ -13,12 +13,12 @@ function zeroy_runtime_candidate_failure(string $code, string $invariant, array 
     ];
 }
 
-function zeroy_runtime_candidate_runtime_checks(string $release_id, array $scenarios): array
+function zeroy_runtime_candidate_runtime_checks(string $candidate_kind, string $candidate_id, array $scenarios): array
 {
     $checks = [];
     $failures = [];
     foreach ($scenarios as $scenario) {
-        $response = wp_remote_get(zeroy_runtime_candidate_scenario_url($release_id, $scenario), ['timeout' => 20, 'redirection' => 0]);
+        $response = wp_remote_get(zeroy_runtime_candidate_scenario_url($candidate_kind, $candidate_id, $scenario), ['timeout' => 20, 'redirection' => 0]);
         if (is_wp_error($response)) {
             $failures[] = zeroy_runtime_candidate_failure('candidate_runtime_unavailable', 'A SiteRelease must render every selected real WordPress scenario before activation.', $scenario, $response->get_error_message(), 'Repair the candidate request failure and prepare a new release.');
             continue;
