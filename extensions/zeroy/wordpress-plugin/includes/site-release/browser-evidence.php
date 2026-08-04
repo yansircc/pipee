@@ -74,6 +74,49 @@ function zeroy_runtime_browser_evidence_exact_keys(array $value, array $keys): b
     return $actual === $keys;
 }
 
+/**
+ * Browser measurements are a finite product, not one opaque blob. Keeping the
+ * invalid field names lets the verifier and the Worker repair their boundary
+ * without exposing response bodies or asking an Agent to guess.
+ */
+function zeroy_runtime_browser_result_invalid_fields(array $result): array
+{
+    $invalid = [];
+    foreach (['scenario', 'viewport', 'stylesheetIdentity'] as $field) {
+        if (!is_string($result[$field] ?? null) || $result[$field] === '') $invalid[] = $field;
+    }
+    if (!is_int($result['status'] ?? null) || $result['status'] < 100 || $result['status'] > 599) $invalid[] = 'status';
+    if (!is_string($result['routeKind'] ?? null) && ($result['routeKind'] ?? null) !== null) $invalid[] = 'routeKind';
+    foreach (['documentClientWidth', 'documentScrollWidth', 'overflowElements', 'mediaOverflowElements', 'visibleTextContrastFailures', 'visibleTextContrastIndeterminate'] as $field) {
+        if (!is_int($result[$field] ?? null) || $result[$field] < (in_array($field, ['documentClientWidth', 'documentScrollWidth'], true) ? 1 : 0)) $invalid[] = $field;
+    }
+    foreach ([
+        'stylesheets' => [false, 0],
+        'overflowSamples' => [true, 5],
+        'mediaOverflowSamples' => [true, 5],
+        'visibleTextContrastSamples' => [true, 5],
+        'visibleTextContrastIndeterminateSamples' => [true, 5],
+        'renderedFields' => [false, 0],
+    ] as $field => [$non_empty, $maximum]) {
+        $value = $result[$field] ?? null;
+        if (!is_array($value) || !array_is_list($value) || ($maximum > 0 && count($value) > $maximum) || array_filter($value, static fn(mixed $item): bool => !is_string($item) || ($non_empty && $item === '')) !== []) $invalid[] = $field;
+    }
+    if (!is_bool($result['focusVisible'] ?? null) && ($result['focusVisible'] ?? null) !== null) $invalid[] = 'focusVisible';
+    if (!is_bool($result['reducedMotion'] ?? null)) $invalid[] = 'reducedMotion';
+    $contrast = $result['contrastRatios'] ?? null;
+    if (!zeroy_runtime_is_keyed_map($contrast) || array_filter($contrast, static fn(mixed $value): bool => (!is_int($value) && !is_float($value)) || !is_finite((float) $value) || $value < 0) !== []) $invalid[] = 'contrastRatios';
+    foreach ([
+        'visibleTextContrastFailures' => 'visibleTextContrastSamples',
+        'visibleTextContrastIndeterminate' => 'visibleTextContrastIndeterminateSamples',
+    ] as $count_field => $sample_field) {
+        $count = $result[$count_field] ?? null;
+        $samples = $result[$sample_field] ?? null;
+        if (is_int($count) && is_array($samples) && (($count === 0 && $samples !== []) || ($count > 0 && ($samples === [] || count($samples) > $count)))) $invalid[] = $sample_field;
+    }
+    if (is_array($result['renderedFields'] ?? null) && array_filter($result['renderedFields'], static fn(mixed $value): bool => !is_string($value) || !str_starts_with($value, '/acf/')) !== []) $invalid[] = 'renderedFields';
+    return array_values(array_unique($invalid));
+}
+
 function zeroy_runtime_decode_browser_evidence(mixed $input): array|WP_Error
 {
     if (!zeroy_runtime_is_keyed_map($input) || !zeroy_runtime_browser_evidence_exact_keys($input, ['contract', 'challengeHash', 'releaseId', 'themeArtifactId', 'scenarioSetHash', 'stylesheetSetHash', 'verifier', 'results'])) {
@@ -101,33 +144,8 @@ function zeroy_runtime_decode_browser_evidence(mixed $input): array|WP_Error
         if (!zeroy_runtime_is_keyed_map($result) || !zeroy_runtime_browser_evidence_exact_keys($result, ['scenario', 'viewport', 'status', 'routeKind', 'stylesheetIdentity', 'stylesheets', 'documentClientWidth', 'documentScrollWidth', 'overflowElements', 'overflowSamples', 'mediaOverflowElements', 'mediaOverflowSamples', 'focusVisible', 'reducedMotion', 'contrastRatios', 'visibleTextContrastFailures', 'visibleTextContrastSamples', 'visibleTextContrastIndeterminate', 'visibleTextContrastIndeterminateSamples', 'renderedFields'])) {
             return zeroy_runtime_error('zeroy_browser_evidence_invalid', 'Every browser result must use the exact result shape.', 400);
         }
-        if (
-            !is_string($result['scenario']) || $result['scenario'] === ''
-            || !is_string($result['viewport']) || $result['viewport'] === ''
-            || !is_int($result['status']) || $result['status'] < 100 || $result['status'] > 599
-            || (!is_string($result['routeKind']) && $result['routeKind'] !== null)
-            || !is_string($result['stylesheetIdentity'])
-            || !is_array($result['stylesheets']) || !array_is_list($result['stylesheets']) || array_filter($result['stylesheets'], static fn(mixed $value): bool => !is_string($value)) !== []
-            || !is_int($result['documentClientWidth']) || $result['documentClientWidth'] < 1
-            || !is_int($result['documentScrollWidth']) || $result['documentScrollWidth'] < 1
-            || !is_int($result['overflowElements']) || $result['overflowElements'] < 0
-            || !is_array($result['overflowSamples']) || !array_is_list($result['overflowSamples']) || count($result['overflowSamples']) > 5 || array_filter($result['overflowSamples'], static fn(mixed $value): bool => !is_string($value) || $value === '') !== []
-            || !is_int($result['mediaOverflowElements']) || $result['mediaOverflowElements'] < 0
-            || !is_array($result['mediaOverflowSamples']) || !array_is_list($result['mediaOverflowSamples']) || count($result['mediaOverflowSamples']) > 5 || array_filter($result['mediaOverflowSamples'], static fn(mixed $value): bool => !is_string($value) || $value === '') !== []
-            || (!is_bool($result['focusVisible']) && $result['focusVisible'] !== null)
-            || !is_bool($result['reducedMotion'])
-            || !zeroy_runtime_is_keyed_map($result['contrastRatios'])
-            || array_filter($result['contrastRatios'], static fn(mixed $value): bool => !is_int($value) && !is_float($value)) !== []
-            || !is_int($result['visibleTextContrastFailures']) || $result['visibleTextContrastFailures'] < 0
-            || !is_array($result['visibleTextContrastSamples']) || !array_is_list($result['visibleTextContrastSamples']) || count($result['visibleTextContrastSamples']) > 5 || array_filter($result['visibleTextContrastSamples'], static fn(mixed $value): bool => !is_string($value) || $value === '') !== []
-            || ($result['visibleTextContrastFailures'] === 0 && $result['visibleTextContrastSamples'] !== [])
-            || ($result['visibleTextContrastFailures'] > 0 && ($result['visibleTextContrastSamples'] === [] || count($result['visibleTextContrastSamples']) > $result['visibleTextContrastFailures']))
-            || !is_int($result['visibleTextContrastIndeterminate']) || $result['visibleTextContrastIndeterminate'] < 0
-            || !is_array($result['visibleTextContrastIndeterminateSamples']) || !array_is_list($result['visibleTextContrastIndeterminateSamples']) || count($result['visibleTextContrastIndeterminateSamples']) > 5 || array_filter($result['visibleTextContrastIndeterminateSamples'], static fn(mixed $value): bool => !is_string($value) || $value === '') !== []
-            || ($result['visibleTextContrastIndeterminate'] === 0 && $result['visibleTextContrastIndeterminateSamples'] !== [])
-            || ($result['visibleTextContrastIndeterminate'] > 0 && ($result['visibleTextContrastIndeterminateSamples'] === [] || count($result['visibleTextContrastIndeterminateSamples']) > $result['visibleTextContrastIndeterminate']))
-            || !is_array($result['renderedFields']) || !array_is_list($result['renderedFields']) || array_filter($result['renderedFields'], static fn(mixed $value): bool => !is_string($value) || !str_starts_with($value, '/acf/')) !== []
-        ) return zeroy_runtime_error('zeroy_browser_evidence_invalid', 'Browser result contains an invalid measurement.', 400, ['scenario' => $result['scenario'] ?? null, 'viewport' => $result['viewport'] ?? null]);
+        $invalid_fields = zeroy_runtime_browser_result_invalid_fields($result);
+        if ($invalid_fields !== []) return zeroy_runtime_error('zeroy_browser_evidence_invalid', 'Browser result contains an invalid measurement.', 400, ['scenario' => $result['scenario'] ?? null, 'viewport' => $result['viewport'] ?? null, 'invalidFields' => $invalid_fields]);
     }
     return $input;
 }

@@ -99,6 +99,7 @@ const fixture = async (
     advanceDraftRef: false,
     authoredSeeds: {} as Record<string, { encoding: "utf8"; content: string }>,
     failPush: false,
+    browserFinalizeFailure: false,
     pushAttempts: 0,
     acceptedCommit: null as ObjectHash | null,
     reviewEndpoints: [] as string[],
@@ -109,6 +110,15 @@ const fixture = async (
     const reply = (status: number, payload: unknown) => {
       response.writeHead(status, { "content-type": "application/json" });
       response.end(JSON.stringify(payload));
+    };
+    const html = () => {
+      response.writeHead(200, {
+        "content-type": "text/html",
+        "x-zeroy-stylesheet-identity": "",
+      });
+      response.end(
+        `<!doctype html><style>:root { --z-color-on-surface: #111111; --z-color-surface: #ffffff; }</style><main>Candidate</main>`,
+      );
     };
     if (request.method === "POST") {
       let encoded = "";
@@ -144,15 +154,64 @@ const fixture = async (
               },
             });
           state.acceptedCommit = body.commitHash as ObjectHash;
-          return reply(200, {
+          const receipt = {
             contract: "zeroy/site-push-receipt@1",
             build: { buildId },
-          });
+          } as Record<string, unknown>;
+          if (state.browserFinalizeFailure) {
+            const origin = `http://${request.headers.host}`;
+            receipt.preview = {
+              releaseId: "preview",
+              browserVerification: {
+                contract: "zeroy/browser-verification-challenge@4",
+                verifier: { id: "zeroy/pi-browser-verifier@4", version: "1" },
+                releaseId: "preview",
+                themeArtifactId: "theme",
+                scenarioSetHash: "1".repeat(64),
+                stylesheetSetHash: "2".repeat(64),
+                stylesheets: [],
+                viewports: [
+                  { id: "mobile", width: 360, height: 800 },
+                  { id: "tablet", width: 768, height: 1024 },
+                  { id: "desktop", width: 1440, height: 900 },
+                ],
+                contrastPairs: [
+                  {
+                    id: "surface",
+                    foreground: "--z-color-on-surface",
+                    background: "--z-color-surface",
+                    minimum: 4.5,
+                  },
+                ],
+                scenarios: [
+                  {
+                    id: "candidate",
+                    kind: "front-page",
+                    locale: "en",
+                    url: `${origin}/candidate`,
+                    expectedStatus: 200,
+                    expectedRouteKind: null,
+                    requiredFields: [],
+                  },
+                ],
+                challengeHash: "3".repeat(64),
+              },
+            };
+          }
+          return reply(200, receipt);
         }
+        if (url.pathname.endsWith("/site-push/finalize"))
+          return reply(400, {
+            error: {
+              code: "zeroy_browser_evidence_invalid",
+              message: "Browser result contains an invalid measurement.",
+            },
+          });
         return reply(404, { error: { code: "missing", message: "missing" } });
       });
       return;
     }
+    if (url.pathname === "/candidate") return html();
     let payload: unknown = null;
     if (url.pathname.endsWith(`/site-builds/${buildId}/workspace`))
       payload = { files: {}, authoredSeeds: state.authoredSeeds };
@@ -521,4 +580,31 @@ describe("zeroY literal Git rebase", () => {
       ),
     ).rejects.toMatchObject({ code: "zeroy_pending_push_conflict" });
   }, 30_000);
+
+  it("does not strand an accepted checkout when browser finalization is deferred", async () => {
+    const setup = await fixture({ title: "base" }, { title: "candidate" }, { title: "base" });
+    git(setup.root, "reset", "--hard", setup.baseGit);
+    writeFileSync(
+      join(setup.root, setup.relative),
+      `${JSON.stringify({ title: "candidate" }, null, 2)}\n`,
+    );
+    setup.state.browserFinalizeFailure = true;
+
+    const pushed = await run(
+      pushTool(
+        setup.active,
+        { siteId: "test", checkoutId: "checkout", message: "candidate" },
+        undefined,
+      ),
+    );
+
+    expect(setup.state.acceptedCommit).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(existsSync(join(setup.root, ".zeroy", "pending-push.json"))).toBe(false);
+    expect(
+      JSON.parse(readFileSync(join(setup.root, ".zeroy", "checkout.json"), "utf8")),
+    ).toMatchObject({ expectedRefCommit: setup.state.acceptedCommit });
+    expect(
+      JSON.parse((pushed.content[0] as { readonly type: "text"; readonly text: string }).text),
+    ).toMatchObject({ browser: { state: "deferred", code: "zeroy_browser_evidence_invalid" } });
+  }, 60_000);
 });

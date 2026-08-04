@@ -1,5 +1,5 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { DateTime, FileSystem, Path } from "effect";
+import { DateTime, FileSystem, Path, Result } from "effect";
 import type { NodeServices } from "@effect/platform-node/NodeServices";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -1653,6 +1653,21 @@ export const pushTool = (
           );
           if (receipt.contract === "zeroy/internal-rebase-retry@1") continue;
           const acceptedReceipt = receipt as JsonRecord;
+          const next: CheckoutDescriptor = {
+            ...descriptor,
+            observedCommit: commitId,
+            expectedRefCommit: commitId,
+            baseReleaseId:
+              asRecord(acceptedReceipt.release) &&
+              typeof asRecord(acceptedReceipt.release)?.releaseId === "string"
+                ? (asRecord(acceptedReceipt.release)?.releaseId as string)
+                : descriptor.baseReleaseId,
+            materializedAt: DateTime.formatIso(yield* DateTime.now),
+          };
+          // site-push already made this immutable Commit the DraftRef. Browser
+          // evidence is a retriable verifier concern, not a reason to strand an
+          // Agent's accepted working tree behind a pending envelope.
+          yield* writeJson(descriptorPath(path, located.root), next);
           const preview = asRecord(acceptedReceipt.preview);
           const browserChallenge = preview === null ? null : asRecord(preview.browserVerification);
           if (
@@ -1660,34 +1675,36 @@ export const pushTool = (
             typeof preview.releaseId === "string" &&
             browserChallenge !== null
           ) {
-            const browserEvidence = yield* verifyBrowserChallenge(
-              browserChallenge as never,
-              signal,
-            );
-            receipt = yield* connectorPost(
-              site,
-              "site-push/finalize",
-              {
-                commandId: pending.commandId,
-                requestHash: pending.requestHash,
-                releaseId: preview.releaseId,
-                browserEvidence,
-              },
-              signal,
-              active.draftActorId,
-            );
+            const finalization = yield* Effect.gen(function* () {
+              const browserEvidence = yield* verifyBrowserChallenge(
+                browserChallenge as never,
+                signal,
+              );
+              return yield* connectorPost(
+                site,
+                "site-push/finalize",
+                {
+                  commandId: pending.commandId,
+                  requestHash: pending.requestHash,
+                  releaseId: preview.releaseId,
+                  browserEvidence,
+                },
+                signal,
+                active.draftActorId,
+              );
+            }).pipe(Effect.result);
+            receipt = Result.isSuccess(finalization)
+              ? finalization.success
+              : {
+                  ...acceptedReceipt,
+                  browser: {
+                    state: "deferred",
+                    releaseId: preview.releaseId,
+                    code: finalization.failure.code,
+                    message: finalization.failure.message,
+                  },
+                };
           }
-          const next: CheckoutDescriptor = {
-            ...descriptor,
-            observedCommit: commitId,
-            expectedRefCommit: commitId,
-            baseReleaseId:
-              asRecord((receipt as JsonRecord).release) &&
-              typeof asRecord((receipt as JsonRecord).release)?.releaseId === "string"
-                ? (asRecord((receipt as JsonRecord).release)?.releaseId as string)
-                : descriptor.baseReleaseId,
-            materializedAt: DateTime.formatIso(yield* DateTime.now),
-          };
           const buildId = workspaceBuildId((receipt as JsonRecord).build);
           if (buildId === null)
             return yield* failure(
@@ -1703,7 +1720,6 @@ export const pushTool = (
             "owned-draft",
             signal,
           );
-          yield* writeJson(descriptorPath(path, located.root), next);
           yield* io(
             "Could not clear pending push envelope",
             fs.remove(pendingPath(path, located.root), { force: true }),
