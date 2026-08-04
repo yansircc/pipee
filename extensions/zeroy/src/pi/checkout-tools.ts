@@ -1381,10 +1381,24 @@ export const pushTool = (
               "zeroy_pending_push_conflict",
             );
           }
+          // An active-release checkout starts from a shared baseline, so its first
+          // ref advance must establish the Agent-owned commit lineage even when
+          // no source bytes have changed. Reusing the bootstrap commit would
+          // leave Review ownership with system:bootstrap and force a fake edit.
+          const baselineFork =
+            existingPending === null &&
+            changedPaths.length === 0 &&
+            descriptor.expectedRefCommit === null &&
+            descriptor.observedCommit !== null;
+          const reuseObservedCommit =
+            existingPending === null &&
+            changedPaths.length === 0 &&
+            descriptor.observedCommit !== null &&
+            !baselineFork;
           const commit: SiteCommit =
             existingPending !== null
               ? existingPending.commit
-              : changedPaths.length === 0 && descriptor.observedCommit !== null
+              : reuseObservedCommit
                 ? yield* connectorGet(
                     site,
                     `site-commits/${descriptor.observedCommit}`,
@@ -1424,13 +1438,15 @@ export const pushTool = (
                   };
           const commitId =
             existingPending?.commitHash ??
-            (changedPaths.length === 0 && descriptor.observedCommit !== null
+            (reuseObservedCommit
               ? descriptor.observedCommit
               : yield* fromSiteObjectResult(commitHash(commit)));
-          if (existingPending === null && changedPaths.length > 0) {
+          if (existingPending === null && (changedPaths.length > 0 || baselineFork)) {
             yield* recordLocalZeroYGitCommit(
               located.root,
-              `zeroY push: ${commitId.slice(0, 19)}`,
+              baselineFork
+                ? `zeroY baseline fork: ${commitId.slice(0, 19)}`
+                : `zeroY push: ${commitId.slice(0, 19)}`,
               commitId,
               scan.rootTree,
               descriptor.baseReleaseId,

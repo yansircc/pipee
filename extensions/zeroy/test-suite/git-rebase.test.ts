@@ -235,7 +235,7 @@ const fixture = async (
     materializedAt: "2026-08-03T00:00:00.000Z",
   };
   writeFileSync(join(root, ".zeroy", "checkout.json"), `${JSON.stringify(descriptor, null, 2)}\n`);
-  return { root, active, descriptor, base, remote, baseGit, relative, state };
+  return { root, active, descriptor, base, remote, baseGit, relative, state, commits };
 };
 
 describe("zeroY literal Git rebase", () => {
@@ -281,6 +281,53 @@ describe("zeroY literal Git rebase", () => {
       "/wp-json/zeroy/v1/site-review/baseline-workspace",
     ]);
   }, 20_000);
+
+  it("forks a shared active-release baseline before the Agent makes its first edit", async () => {
+    const setup = await fixture({ title: "base" }, { title: "ours" }, { title: "base" });
+    const checkedOut = await run(
+      checkoutTool(setup.active, { siteId: "test", source: "active-release" }, undefined),
+    );
+    const checkout = JSON.parse(
+      (checkedOut.content[0] as { readonly type: "text"; readonly text: string }).text,
+    ) as { path: string; checkoutId: string };
+    const before = JSON.parse(
+      readFileSync(join(checkout.path, ".zeroy", "checkout.json"), "utf8"),
+    ) as {
+      observedCommit: ObjectHash;
+      expectedRefCommit: null;
+    };
+
+    await run(
+      pushTool(
+        setup.active,
+        { siteId: "test", checkoutId: checkout.checkoutId, message: "claim baseline" },
+        undefined,
+      ),
+    );
+
+    expect(setup.state.acceptedCommit).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(setup.state.acceptedCommit).not.toBe(before.observedCommit);
+    const fork = setup.state.acceptedCommit;
+    if (fork === null) throw new Error("expected accepted baseline fork");
+    expect(setup.commits.get(fork)).toMatchObject({
+      parents: [before.observedCommit],
+      author: { principal: "site:test", actorSessionId: "rebase-test" },
+      message: "claim baseline",
+    });
+    const after = JSON.parse(
+      readFileSync(join(checkout.path, ".zeroy", "checkout.json"), "utf8"),
+    ) as {
+      observedCommit: ObjectHash;
+      expectedRefCommit: ObjectHash;
+    };
+    expect(after.observedCommit).toBe(setup.state.acceptedCommit);
+    expect(after.expectedRefCommit).toBe(setup.state.acceptedCommit);
+    expect(git(checkout.path, "log", "--format=%s", "-1")).toMatch(/^zeroY baseline fork:/);
+    expect(setup.state.reviewEndpoints).toEqual([
+      "/wp-json/zeroy/v1/site-review/baseline-workspace",
+      "/wp-json/zeroy/v1/site-review/workspace",
+    ]);
+  }, 30_000);
 
   it("rebases a semantic JSON merge onto the materialized remote commit", async () => {
     const setup = await fixture(
