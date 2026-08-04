@@ -145,6 +145,8 @@ function zeroy_runtime_existing_post_field_projection(WP_Post $post, string $sch
     $definition = $definition_override ?? zeroy_runtime_schema_definition($schema_id);
     if (is_wp_error($definition)) return $definition;
     $facts = zeroy_runtime_existing_post_facts($post);
+    $stable_acf = zeroy_localization_acf_stable_top_view(is_array($facts['acf']) ? $facts['acf'] : [], ['post_id' => (int) $post->ID]);
+    if (is_wp_error($stable_acf)) return $stable_acf;
     $localizable = zeroy_localization_post_subject_from_view(
         ['kind' => 'post', 'id' => (int) $post->ID],
         $schema_id,
@@ -156,7 +158,7 @@ function zeroy_runtime_existing_post_field_projection(WP_Post $post, string $sch
                 'content' => $facts['post']['postContent'],
                 'excerpt' => $facts['post']['postExcerpt'],
             ],
-            'acf' => $facts['acf'],
+            'acf' => $stable_acf,
             'templateContent' => [],
         ],
         1,

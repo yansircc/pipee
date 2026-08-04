@@ -124,28 +124,34 @@ function zeroy_runtime_compile_theme_contract_from_directories(string $theme_dir
         $collections[] = ['collectionId' => $collection_id, ...$collection];
     }
     $requirements = array_values($theme_manifest['requiresCapabilities']);
-    $render_context_input = zeroy_runtime_theme_render_context_schema();
     foreach ($content_schemas as $content_schema) {
+        $post_type = (string) ($content_schema['canonicalPostTypes'][0] ?? '');
+        $definition = $schema['schema']['schemas'][$content_schema['schemaId']];
         $templates[] = [
             'templateId' => $content_schema['routeKind'] . ':' . $content_schema['schemaId'],
             'kind' => $content_schema['routeKind'],
-            'inputSchema' => $render_context_input,
+            'inputSchema' => zeroy_runtime_theme_render_context_schema([
+                zeroy_runtime_theme_resolved_content_schema($post_type, $definition),
+            ]),
             'requiredCapabilities' => $requirements,
         ];
     }
     foreach ($collections as $collection) {
+        $definition = $schema['schema']['schemas'][$collection['schemaId']] ?? [];
+        $post_type = (string) (($definition['canonicalPostTypes'] ?? [])[0] ?? '');
         $templates[] = [
             'templateId' => 'collection:' . $collection['collectionId'],
             'kind' => $collection['kind'] === 'taxonomy' ? 'taxonomy' : 'archive',
-            'inputSchema' => $render_context_input,
+            'inputSchema' => zeroy_runtime_theme_render_context_schema($post_type === '' ? [] : [zeroy_runtime_theme_resolved_content_schema($post_type, $definition)]),
             'requiredCapabilities' => $requirements,
         ];
     }
     if (!is_array($schema['schema']['routes'] ?? null)) {
         return zeroy_runtime_error('zeroy_route_spec_missing', 'ThemeSchema must declare RouteSpec before it can become a SiteRelease.', 409, ['field' => 'routes']);
     }
-    $templates[] = ['templateId' => 'search', 'kind' => 'search', 'inputSchema' => $render_context_input, 'requiredCapabilities' => $requirements];
-    $templates[] = ['templateId' => '404', 'kind' => '404', 'inputSchema' => $render_context_input, 'requiredCapabilities' => $requirements];
+    $generic_render_context = zeroy_runtime_theme_render_context_schema();
+    $templates[] = ['templateId' => 'search', 'kind' => 'search', 'inputSchema' => $generic_render_context, 'requiredCapabilities' => $requirements];
+    $templates[] = ['templateId' => '404', 'kind' => '404', 'inputSchema' => $generic_render_context, 'requiredCapabilities' => $requirements];
     $contract = [
         'contract' => ZEROY_THEME_CONTRACT,
         'site' => ['siteId' => zeroy_runtime_site_id(), 'defaultLocale' => $config['defaultLocale'], 'enabledLocales' => array_map(static fn(array $locale): array => ['locale' => $locale['locale'], 'urlPrefix' => $locale['urlPrefix']], $config['enabledLocales'])],

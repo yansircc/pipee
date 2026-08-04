@@ -359,11 +359,16 @@ function zeroy_workspace_contract_projection(array $files, ?array $compiled, arr
     $site_copy_body = is_array($files['content/site-copy.json'] ?? null) ? json_decode((string) ($files['content/site-copy.json']['bytes'] ?? ''), true) : [];
     $site_copy_keys = zeroy_runtime_is_keyed_map($site_copy_body) ? array_keys($site_copy_body) : [];
     sort($site_copy_keys, SORT_STRING);
+    $render_variants = [];
+    if (is_array($compiled['schema']['schemas'] ?? null)) foreach ($site['collections'] as $collection) {
+        $definition = $compiled['schema']['schemas'][$collection['schemaId']] ?? null;
+        if (is_array($definition)) $render_variants[] = zeroy_runtime_theme_resolved_content_schema((string) $collection['postType'], $definition);
+    }
     $contracts = [
         '.zeroy/contracts/site.schema.json' => zeroy_workspace_site_schema(),
         '.zeroy/contracts/theme-schema.schema.json' => zeroy_workspace_theme_schema_contract(),
         '.zeroy/contracts/theme-manifest.schema.json' => zeroy_workspace_theme_manifest_schema(),
-        '.zeroy/contracts/theme-context.schema.json' => zeroy_runtime_theme_render_context_schema(),
+        '.zeroy/contracts/theme-context.schema.json' => zeroy_runtime_theme_render_context_schema($render_variants),
         '.zeroy/contracts/zcss-design.schema.json' => zeroy_zcss_design_json_schema(),
         '.zeroy/contracts/zcss-authoring.json' => zeroy_zcss_authoring_contract(),
         '.zeroy/contracts/site-logic.schema.json' => zeroy_workspace_site_logic_schema(),

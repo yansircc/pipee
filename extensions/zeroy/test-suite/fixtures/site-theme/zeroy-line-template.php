@@ -16,8 +16,8 @@ $zeroy_route = (string) ($zy_context['route'] ?? '');
 $zeroy_content = is_array($zy_context['resolvedContent'] ?? null) ? $zy_context['resolvedContent'] : [];
 $zyu = zeroy_copy_reader($zeroy_locale);
 
-$zy_field = static function (string $name) use ($zeroy_content) {
-    return $zeroy_content['acf'][$name] ?? null;
+$zy_field = static function (string $key) use ($zeroy_content) {
+    return $zeroy_content['acf'][$key] ?? null;
 };
 
 $zy_lines = static function ($value): array {
@@ -27,13 +27,8 @@ $zy_lines = static function ($value): array {
     return array_values(array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', $value))));
 };
 
-$zy_row_text = static function (array $row, string $name): string {
-    foreach (array($name, 'field_' . $name) as $key) {
-        if (isset($row[$key]) && is_string($row[$key])) {
-            return $row[$key];
-        }
-    }
-    return '';
+$zy_row_text = static function (array $row, string $key): string {
+    return isset($row[$key]) && is_string($row[$key]) ? $row[$key] : '';
 };
 
 $zy_machine_id = static function ($machine): int {
@@ -51,20 +46,20 @@ $zy_machine_id = static function ($machine): int {
 $zy_title = (string) ($zeroy_content['post']['title'] ?? '');
 $zy_intro = (string) ($zeroy_content['post']['content'] ?? '');
 
-$zy_products = $zy_lines($zy_field('applicable_products'));
-$zy_materials = $zy_lines($zy_field('applicable_materials'));
-$zy_capacity = $zy_field('applicable_products') ? (string) $zy_field('capacity_description') : '';
-$zy_automation = (string) $zy_field('automation_level');
-$zy_purpose = (array) $zy_field('project_purpose');
-$zy_delivery = (array) $zy_field('delivery_scope');
-$zy_steps = (array) $zy_field('process_steps');
-$zy_specs = (array) $zy_field('technical_specs');
+$zy_products = $zy_lines($zy_field('field_applicable_products'));
+$zy_materials = $zy_lines($zy_field('field_applicable_materials'));
+$zy_capacity = $zy_field('field_applicable_products') ? (string) $zy_field('field_capacity_description') : '';
+$zy_automation = (string) $zy_field('field_automation_level');
+$zy_purpose = (array) $zy_field('field_project_purpose');
+$zy_delivery = (array) $zy_field('field_delivery_scope');
+$zy_steps = (array) $zy_field('field_process_steps');
+$zy_specs = (array) $zy_field('field_technical_specs');
 $zy_machine_ids = array();
 foreach ($zy_steps as $zy_step) {
     if (!is_array($zy_step)) {
         continue;
     }
-    $zy_related = $zy_step['related_machines'] ?? $zy_step['field_related_machines'] ?? array();
+    $zy_related = $zy_step['field_related_machines'] ?? array();
     foreach (is_array($zy_related) ? $zy_related : array() as $zy_machine) {
         $zy_id = $zy_machine_id($zy_machine);
         if ($zy_id > 0) {
@@ -104,7 +99,7 @@ get_header();
         <p class="zy-lead"><?php echo esc_html($zy_intro); ?></p>
       <?php endif; ?>
       <?php if (array() !== $zy_purpose) : ?>
-        <div class="zy-chips">
+        <div class="zy-chips" data-zeroy-field="/acf/field_project_purpose">
           <?php foreach ($zy_purpose as $zy_p) : ?>
             <span class="zy-chip"><?php echo esc_html((string) $zy_p); ?></span>
           <?php endforeach; ?>
@@ -117,7 +112,7 @@ get_header();
     <div class="zy-container">
       <div class="zy-glance">
         <?php if (array() !== $zy_products) : ?>
-          <div class="zy-glance-card">
+          <div class="zy-glance-card" data-zeroy-field="/acf/field_applicable_products">
             <h3><?php echo esc_html($zyu('label_applicable_products', 'Applicable Products')); ?></h3>
             <ul>
               <?php foreach ($zy_products as $zy_item) : ?>
@@ -127,7 +122,7 @@ get_header();
           </div>
         <?php endif; ?>
         <?php if (array() !== $zy_materials) : ?>
-          <div class="zy-glance-card">
+          <div class="zy-glance-card" data-zeroy-field="/acf/field_applicable_materials">
             <h3><?php echo esc_html($zyu('label_applicable_materials', 'Applicable Materials')); ?></h3>
             <ul>
               <?php foreach ($zy_materials as $zy_item) : ?>
@@ -137,20 +132,20 @@ get_header();
           </div>
         <?php endif; ?>
         <?php if ('' !== $zy_capacity) : ?>
-          <div class="zy-glance-card">
+          <div class="zy-glance-card" data-zeroy-field="/acf/field_capacity_description">
             <h3><?php echo esc_html($zyu('label_capacity', 'Capacity')); ?></h3>
             <p><?php echo esc_html($zy_capacity); ?></p>
           </div>
         <?php endif; ?>
         <?php if ('' !== $zy_automation) : ?>
-          <div class="zy-glance-card">
+          <div class="zy-glance-card" data-zeroy-field="/acf/field_automation_level">
             <h3><?php echo esc_html($zyu('label_automation', 'Automation Level')); ?></h3>
             <p><?php echo esc_html($zy_automation); ?></p>
           </div>
         <?php endif; ?>
       </div>
       <?php if (array() !== $zy_delivery) : ?>
-        <div class="zy-delivery">
+        <div class="zy-delivery" data-zeroy-field="/acf/field_delivery_scope">
           <h3><?php echo esc_html($zyu('label_delivery', 'Delivery Scope')); ?></h3>
           <div class="zy-chips zy-chips-light">
             <?php foreach ($zy_delivery as $zy_d) : ?>
@@ -163,7 +158,7 @@ get_header();
   </section>
 
   <?php if (array() !== $zy_steps) : ?>
-    <section class="zy-section zy-section-alt">
+    <section class="zy-section zy-section-alt" data-zeroy-field="/acf/field_process_steps">
       <div class="zy-container">
         <div class="zy-section-head">
           <h2><?php echo esc_html($zyu('label_process', 'Process Steps & Equipment')); ?></h2>
@@ -176,12 +171,12 @@ get_header();
                 continue;
             }
             $zy_n++;
-            $zy_related = $zy_row['related_machines'] ?? $zy_row['field_related_machines'] ?? array();
+            $zy_related = $zy_row['field_related_machines'] ?? array();
             ?>
             <article class="zy-step">
               <span class="zy-num"><?php echo esc_html($zyu('step_prefix', 'Step')); ?> 0<?php echo (int) $zy_n; ?></span>
-              <h3><?php echo esc_html($zy_row_text($zy_row, 'step_name')); ?></h3>
-              <p><?php echo esc_html($zy_row_text($zy_row, 'step_description')); ?></p>
+              <h3><?php echo esc_html($zy_row_text($zy_row, 'field_step_name')); ?></h3>
+              <p><?php echo esc_html($zy_row_text($zy_row, 'field_step_description')); ?></p>
               <?php if (is_array($zy_related) && array() !== $zy_related) : ?>
                 <div class="zy-machine-links">
                   <?php foreach ($zy_related as $zy_machine) : ?>
@@ -200,7 +195,7 @@ get_header();
   <?php endif; ?>
 
   <?php if (array() !== $zy_specs) : ?>
-    <section class="zy-section">
+    <section class="zy-section" data-zeroy-field="/acf/field_technical_specs">
       <div class="zy-container">
         <div class="zy-section-head">
           <h2><?php echo esc_html($zyu('label_specs', 'Technical Specifications')); ?></h2>
@@ -209,8 +204,8 @@ get_header();
           <?php foreach ($zy_specs as $zy_row) : ?>
             <?php if (!is_array($zy_row)) { continue; } ?>
             <div class="zy-spec-row">
-              <dt><?php echo esc_html($zy_row_text($zy_row, 'spec_name')); ?></dt>
-              <dd><?php echo esc_html($zy_row_text($zy_row, 'spec_value')); ?></dd>
+              <dt><?php echo esc_html($zy_row_text($zy_row, 'field_spec_name')); ?></dt>
+              <dd><?php echo esc_html($zy_row_text($zy_row, 'field_spec_value')); ?></dd>
             </div>
           <?php endforeach; ?>
         </dl>

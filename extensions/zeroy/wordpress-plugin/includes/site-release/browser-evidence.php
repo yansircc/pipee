@@ -2,9 +2,9 @@
 
 defined('ABSPATH') || exit;
 
-const ZEROY_BROWSER_VERIFICATION_CHALLENGE_CONTRACT = 'zeroy/browser-verification-challenge@1';
-const ZEROY_BROWSER_EVIDENCE_CONTRACT = 'zeroy/browser-evidence@1';
-const ZEROY_BROWSER_VERIFIER_ID = 'zeroy/pi-browser-verifier@1';
+const ZEROY_BROWSER_VERIFICATION_CHALLENGE_CONTRACT = 'zeroy/browser-verification-challenge@2';
+const ZEROY_BROWSER_EVIDENCE_CONTRACT = 'zeroy/browser-evidence@2';
+const ZEROY_BROWSER_VERIFIER_ID = 'zeroy/pi-browser-verifier@2';
 
 function zeroy_runtime_browser_viewports(): array
 {
@@ -57,6 +57,7 @@ function zeroy_runtime_browser_verification_challenge(array $release, array $sce
                 'url' => zeroy_runtime_candidate_scenario_url('release', (string) $release['release_id'], $scenario),
                 'expectedStatus' => (int) $scenario['expectedStatus'],
                 'expectedRouteKind' => is_string($scenario['expectedRouteKind'] ?? null) ? $scenario['expectedRouteKind'] : null,
+                'requiredFields' => array_values(is_array($scenario['requiredFields'] ?? null) ? $scenario['requiredFields'] : []),
             ],
             $scenarios,
         ),
@@ -97,7 +98,7 @@ function zeroy_runtime_decode_browser_evidence(mixed $input): array|WP_Error
         || !array_is_list($input['results'])
     ) return zeroy_runtime_error('zeroy_browser_evidence_invalid', 'Browser evidence identity or verifier metadata is invalid.', 400);
     foreach ($input['results'] as $result) {
-        if (!zeroy_runtime_is_keyed_map($result) || !zeroy_runtime_browser_evidence_exact_keys($result, ['scenario', 'viewport', 'status', 'routeKind', 'stylesheetIdentity', 'stylesheets', 'documentClientWidth', 'documentScrollWidth', 'overflowElements', 'overflowSamples', 'mediaOverflowElements', 'mediaOverflowSamples', 'focusVisible', 'reducedMotion', 'contrastRatios'])) {
+        if (!zeroy_runtime_is_keyed_map($result) || !zeroy_runtime_browser_evidence_exact_keys($result, ['scenario', 'viewport', 'status', 'routeKind', 'stylesheetIdentity', 'stylesheets', 'documentClientWidth', 'documentScrollWidth', 'overflowElements', 'overflowSamples', 'mediaOverflowElements', 'mediaOverflowSamples', 'focusVisible', 'reducedMotion', 'contrastRatios', 'renderedFields'])) {
             return zeroy_runtime_error('zeroy_browser_evidence_invalid', 'Every browser result must use the exact result shape.', 400);
         }
         if (
@@ -117,6 +118,7 @@ function zeroy_runtime_decode_browser_evidence(mixed $input): array|WP_Error
             || !is_bool($result['reducedMotion'])
             || !zeroy_runtime_is_keyed_map($result['contrastRatios'])
             || array_filter($result['contrastRatios'], static fn(mixed $value): bool => !is_int($value) && !is_float($value)) !== []
+            || !is_array($result['renderedFields']) || !array_is_list($result['renderedFields']) || array_filter($result['renderedFields'], static fn(mixed $value): bool => !is_string($value) || !str_starts_with($value, '/acf/')) !== []
         ) return zeroy_runtime_error('zeroy_browser_evidence_invalid', 'Browser result contains an invalid measurement.', 400, ['scenario' => $result['scenario'] ?? null, 'viewport' => $result['viewport'] ?? null]);
     }
     return $input;
@@ -195,6 +197,10 @@ function zeroy_runtime_verify_browser_evidence(array $challenge, array $evidence
             $result = $results[$key];
             if ($result['status'] !== $scenario['expectedStatus'] || $result['routeKind'] !== $scenario['expectedRouteKind']) {
                 $failures[] = zeroy_runtime_browser_failure('candidate_browser_route_failed', 'Browser navigation must observe the declared HTTP and route identity.', 'Expected HTTP ' . $scenario['expectedStatus'] . ' and route ' . ($scenario['expectedRouteKind'] ?? '<none>') . '; observed HTTP ' . $result['status'] . ' and route ' . ($result['routeKind'] ?? '<none>') . '.', 'Repair the candidate route or template.', $scenario_id, $viewport_id);
+            }
+            $missing_fields = array_values(array_diff($scenario['requiredFields'] ?? [], $result['renderedFields']));
+            if ($missing_fields !== []) {
+                $failures[] = zeroy_runtime_browser_failure('candidate_browser_content_field_missing', 'Every populated ACF field must own one visible semantic render region.', 'Missing data-zeroy-field markers: ' . implode(', ', $missing_fields) . '.', 'Render each populated field inside a visible element whose data-zeroy-field value is the stable field id from ThemeRenderContext.', $scenario_id, $viewport_id);
             }
             if ($result['stylesheetIdentity'] !== $challenge['stylesheetSetHash'] || $result['stylesheets'] !== $expected_stylesheets) {
                 $mismatch_key = zeroy_runtime_hash([$result['stylesheetIdentity'], $result['stylesheets']]);

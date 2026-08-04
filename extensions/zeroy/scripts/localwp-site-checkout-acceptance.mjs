@@ -245,6 +245,18 @@ if ($relatedTermId > 0 && is_int($relatedAttachmentId) && $relatedAttachmentId >
     update_field('field_machine_purpose', 'Existing machine purpose', $relatedPostId);
     update_field('field_machine_capacity', '5 t/h', $relatedPostId);
     update_field('field_machine_gallery', [$relatedAttachmentId], $relatedPostId);
+    update_field('field_machine_specs', [[
+        'field_spec_name' => 'Rotor speed',
+        'field_spec_value' => '2980 rpm',
+    ]], $relatedPostId);
+    $fixtureThemeSchema = json_decode(file_get_contents($root . '/site-theme/zeroy.schema.json'), true);
+    $runtimeSubject = zeroy_localization_post_subject($relatedPostId, $fixtureThemeSchema['schemas']['machine'], 'machine');
+    $runtimeView = is_wp_error($runtimeSubject) ? null : $runtimeSubject['view'];
+    $semanticFields = is_wp_error($runtimeSubject) ? [] : array_keys(zeroy_runtime_snapshot_semantic_acf_fields(
+        ['entities' => ['post:' . $relatedPostId => ['localizable' => $runtimeSubject]]],
+        ['routeId' => 'subject:post:' . $relatedPostId],
+    ));
+    sort($semanticFields, SORT_STRING);
     $relatedFiles = $files;
     foreach (array_keys($relatedFiles) as $path) if (str_starts_with($path, 'locales/')) unset($relatedFiles[$path]);
     $relatedFiles['site.json'] = ['bytes' => zeroy_checkout_json_bytes([
@@ -272,6 +284,12 @@ if ($relatedTermId > 0 && is_int($relatedAttachmentId) && $relatedAttachmentId >
     $relatedSeededBuild = is_wp_error($relatedSeededCommit) ? $relatedSeededCommit : zeroy_build_compile($relatedSeededCommit);
     $relatedOperations = is_array($relatedSeededBuild) ? ($relatedSeededBuild['candidate']['operations'] ?? []) : [];
     $kinds = array_count_values(array_map(static fn(array $operation): string => (string) ($operation['kind'] ?? ''), $relatedOperations));
+    $canonicalWrite = current(array_filter($relatedOperations, static fn(array $operation): bool => ($operation['kind'] ?? null) === 'writeCanonicalContent' && ($operation['payload']['acf']['field_machine_capacity'] ?? null) === '5 t/h'));
+    $candidateMachine = is_array($relatedSeededBuild) ? ($relatedSeededBuild['candidate']['snapshot']['entities']['post:' . $relatedPostId] ?? null) : null;
+    $machineSeed = $relatedSeeds['content/posts/machines/adoption-machine.json'] ?? null;
+    $machineSeedBody = is_array($machineSeed) && ($machineSeed['encoding'] ?? null) === 'utf8' && is_string($machineSeed['content'] ?? null)
+        ? json_decode($machineSeed['content'], true)
+        : null;
     $relatedAdoption = [
         'ok' => is_array($relatedMissingBuild)
             && $relatedMissingBuild['result']['state'] === 'invalid'
@@ -282,10 +300,25 @@ if ($relatedTermId > 0 && is_int($relatedAttachmentId) && $relatedAttachmentId >
             && $relatedSeededBuild['result']['state'] === 'ready'
             && ($kinds['adoptCanonical'] ?? 0) === 1
             && count(array_filter($relatedOperations, static fn(array $operation): bool => ($operation['kind'] ?? null) === 'adoptTerm' && (int) ($operation['payload']['termId'] ?? 0) === $relatedTermId)) === 1
-            && ($kinds['adoptMedia'] ?? 0) === 1,
+            && ($kinds['adoptMedia'] ?? 0) === 1
+            && ($runtimeView['acf']['field_machine_capacity'] ?? null) === '5 t/h'
+            && ($runtimeView['acf']['field_machine_specs']['Rotor speed']['field_spec_value'] ?? null) === '2980 rpm'
+            && ($canonicalWrite['payload']['acf']['field_machine_capacity'] ?? null) === '5 t/h'
+            && !array_key_exists('machine_capacity', $canonicalWrite['payload']['acf'] ?? [])
+            && ($candidateMachine['localizable']['view']['acf']['field_machine_capacity'] ?? null) === '5 t/h'
+            && ($candidateMachine['authoredRef'] ?? null) === 'adoption-machine'
+            && !array_key_exists('machine_capacity', $candidateMachine['localizable']['view']['acf'] ?? [])
+            && in_array('/acf/field_machine_capacity', $semanticFields, true)
+            && in_array('/acf/field_machine_specs', $semanticFields, true)
+            && !in_array('/acf/field_machine_gallery', $semanticFields, true),
         'missingBuild' => is_array($relatedMissingBuild) ? $relatedMissingBuild['result'] : null,
         'seededBuild' => is_array($relatedSeededBuild) ? $relatedSeededBuild['result'] : null,
         'seedPaths' => array_keys($relatedSeeds),
+        'machineSeed' => $machineSeedBody,
+        'runtimeView' => $runtimeView,
+        'canonicalWriteAcf' => is_array($canonicalWrite) ? ($canonicalWrite['payload']['acf'] ?? null) : null,
+        'candidateAcf' => is_array($candidateMachine) ? ($candidateMachine['localizable']['view']['acf'] ?? null) : null,
+        'semanticFields' => $semanticFields,
         'operationKinds' => $kinds,
     ];
 }
@@ -344,6 +377,7 @@ $repairProjection = zeroy_workspace_contract_projection($files, null, [
 echo wp_json_encode([
     'commits' => [$left, $right, $invalid],
     'readyBuild' => $leftBuild['result'],
+    'createdAuthoredRef' => $leftBuild['candidate']['snapshot']['entities']['draft:home']['authoredRef'] ?? null,
     'sameBuild' => $sameBuild['result'],
     'changedFactBuild' => $changedFactBuild['result'],
     'invalidBuild' => $invalidBuild['result'],
@@ -366,6 +400,7 @@ echo wp_json_encode([
 if (fixture.error) fail("Could not prepare SiteTree v2 acceptance fixture.", fixture);
 if (
   fixture.readyBuild?.state !== "ready" ||
+  fixture.createdAuthoredRef !== "home" ||
   fixture.invalidBuild?.state !== "invalid" ||
   fixture.verificationInvalidBuild?.state !== "invalid" ||
   !fixture.verificationFailures?.some(
@@ -379,7 +414,12 @@ if (
   fixture.readyBuild?.buildId !== fixture.sameBuild?.buildId ||
   fixture.readyBuild?.buildId === fixture.changedFactBuild?.buildId ||
   fixture.adoption?.ok !== true ||
-  fixture.relatedAdoption?.ok !== true
+  fixture.relatedAdoption?.ok !== true ||
+  fixture.relatedAdoption?.machineSeed?.acf?.field_machine_capacity !== "5 t/h" ||
+  fixture.relatedAdoption?.machineSeed?.acf?.machine_capacity !== undefined ||
+  fixture.relatedAdoption?.machineSeed?.acf?.field_machine_specs?.["Rotor speed"]
+    ?.field_spec_value !== "2980 rpm" ||
+  Array.isArray(fixture.relatedAdoption?.machineSeed?.acf?.field_machine_specs)
 )
   fail("BuildResult identity or invalid-checkpoint preservation is broken.", fixture);
 const contrastRepairGroup = fixture.proofProjection?.items?.find(
@@ -444,9 +484,14 @@ $failures = [];
 $resolver = static fn(string $kind, mixed $id): array => ['kind' => $kind, 'ref' => $kind . '-' . (string) $id];
 $encoded = zeroy_document_acf_encode_field($field, $runtime, $itemKeys, '/acf/field_root', $resolver, 'codec.json', $failures);
 $decoded = zeroy_document_acf_decode_field($field, $encoded, $itemKeys, '/acf/field_root', 'codec.json', $failures);
-$identityResolver = static fn(string $kind, mixed $value): mixed => is_array($value) && ($value['kind'] ?? null) === $kind ? $value : new WP_Error('reference_not_normalized');
-$reencoded = zeroy_document_acf_encode_field($field, $decoded, $itemKeys, '/acf/field_root', $identityResolver, 'codec.json', $failures);
-echo wp_json_encode(['ok' => $reencoded === $encoded && $failures === [], 'encoded' => $encoded, 'decoded' => $decoded, 'reencoded' => $reencoded, 'failures' => $failures]);`,
+$materialized = zeroy_checkout_materialization_acf_field($field, $decoded, ['post-17' => 17, 'post-18' => 18], [], ['media-21' => 21]);
+echo wp_json_encode([
+    'ok' => zeroy_checkout_canonical_json($decoded) === zeroy_checkout_canonical_json($encoded) && $materialized === $runtime && $failures === [],
+    'encoded' => $encoded,
+    'decoded' => $decoded,
+    'materialized' => $materialized,
+    'failures' => $failures,
+]);`,
   ),
 );
 if (codec.ok !== true)
@@ -656,6 +701,15 @@ const specs = machineContract?.properties?.acf?.properties?.field_machine_specs;
 const processRelationship =
   lineContract?.properties?.acf?.properties?.field_process_steps?.additionalProperties?.properties
     ?.field_related_machines;
+const machineRenderContract = themeContextContract?.properties?.resolvedContent?.anyOf?.find(
+  (variant) => variant?.properties?.acf?.properties?.field_machine_capacity,
+);
+const lineRenderContract = themeContextContract?.properties?.resolvedContent?.anyOf?.find(
+  (variant) => variant?.properties?.acf?.properties?.field_process_steps,
+);
+const runtimeRelationship =
+  lineRenderContract?.properties?.acf?.properties?.field_process_steps?.additionalProperties
+    ?.properties?.field_related_machines;
 const secondaryLocale = site.locales.find((locale) => locale !== site.defaultLocale);
 const localeSiteCopyContract = projectedJson(
   `.zeroy/contracts/locales/${secondaryLocale}/site-copy.schema.json`,
@@ -669,6 +723,12 @@ if (
   specs?.type !== "object" ||
   specs?.additionalProperties?.properties?.field_spec_name?.type !== "string" ||
   processRelationship?.items?.properties?.kind?.const !== "post" ||
+  machineRenderContract?.properties?.acf?.properties?.field_machine_capacity?.type !== "string" ||
+  machineRenderContract?.properties?.acf?.properties?.machine_capacity !== undefined ||
+  machineRenderContract?.properties?.acf?.properties?.field_machine_specs?.type !== "object" ||
+  machineRenderContract?.properties?.acf?.properties?.field_machine_specs?.additionalProperties
+    ?.properties?.field_spec_value?.type !== "string" ||
+  runtimeRelationship?.items?.type !== "integer" ||
   themeContextContract?.properties?.archiveItems?.items?.properties?.url?.type !== "string" ||
   !themeContextContract?.required?.includes("collection") ||
   zcssAuthoringContract?.contract !== "zeroy/zcss-authoring@1" ||
@@ -716,7 +776,7 @@ $challenge = [
         ['url' => 'https://example.test/generated.css'],
         ['url' => 'https://example.test/site.css'],
     ],
-    'scenarios' => [['id' => 'home', 'expectedStatus' => 200, 'expectedRouteKind' => 'singular']],
+    'scenarios' => [['id' => 'home', 'expectedStatus' => 200, 'expectedRouteKind' => 'singular', 'requiredFields' => ['/acf/field_machine_capacity']]],
     'viewports' => [['id' => 'desktop']],
     'contrastPairs' => [],
 ];
@@ -736,6 +796,7 @@ $result = [
     'focusVisible' => true,
     'reducedMotion' => true,
     'contrastRatios' => [],
+    'renderedFields' => ['/acf/field_machine_capacity'],
 ];
 $evidence = [
     'challengeHash' => 'challenge',
@@ -747,7 +808,8 @@ $evidence = [
     'results' => [$result, $result],
 ];
 $evidence['results'][1]['scenario'] = 'home-two';
-$challenge['scenarios'][] = ['id' => 'home-two', 'expectedStatus' => 200, 'expectedRouteKind' => 'singular'];
+$evidence['results'][1]['renderedFields'] = [];
+$challenge['scenarios'][] = ['id' => 'home-two', 'expectedStatus' => 200, 'expectedRouteKind' => 'singular', 'requiredFields' => ['/acf/field_machine_capacity']];
 $verified = zeroy_runtime_verify_browser_evidence($challenge, $evidence);
 echo wp_json_encode($verified);`,
   ),
@@ -758,8 +820,13 @@ const stylesheetFailures = browserStylesheetDiagnostic.failures?.filter(
 const stylesheetEvidence = stylesheetFailures?.[0]?.evidence
   ? JSON.parse(stylesheetFailures[0].evidence)
   : null;
+const contentFailures = browserStylesheetDiagnostic.failures?.filter(
+  (failure) => failure.code === "candidate_browser_content_field_missing",
+);
 if (
   stylesheetFailures?.length !== 1 ||
+  contentFailures?.length !== 1 ||
+  !contentFailures[0]?.evidence?.includes("/acf/field_machine_capacity") ||
   stylesheetEvidence?.expectedIdentity !== "expected-identity" ||
   stylesheetEvidence?.observedIdentity !== "observed-identity" ||
   stylesheetEvidence?.firstDifferenceIndex !== 0 ||

@@ -42,13 +42,25 @@ execFileSync("rsync", ["-a", "--delete", `${root}/wordpress-plugin/`, destinatio
 });
 wp("plugin", "activate", "zeroy-runtime-connector");
 
-const preparedOutput = execFileSync(
-  "locwp",
-  ["wp", port, "--", "eval-file", `${root}/test-suite/bootstrap-site-release-acceptance.php`],
-  {
-    encoding: "utf8",
-    env: { ...process.env, ZEROY_BROWSER_ACCEPTANCE_PREPARE: "1" },
-  },
+execFileSync(process.execPath, [`${root}/scripts/localwp-site-checkout-acceptance.mjs`], {
+  encoding: "utf8",
+  env: { ...process.env, ZEROY_LOCALWP_PORT: port },
+  stdio: "inherit",
+});
+const preparedOutput = wp(
+  "eval",
+  `global $wpdb;
+$releaseId = $wpdb->get_var("SELECT release_id FROM " . zeroy_runtime_table('site_releases') . " WHERE state = 'awaiting-browser' ORDER BY created_at DESC LIMIT 1");
+$prepared = is_string($releaseId) ? zeroy_runtime_site_release_receipt($releaseId) : null;
+$push = null;
+foreach ($wpdb->get_results("SELECT * FROM " . zeroy_runtime_table('push_receipts') . " ORDER BY created_at DESC", ARRAY_A) as $row) {
+    $result = zeroy_runtime_decode_json((string) $row['result_json']);
+    if (is_array($result) && ($result['candidate']['releaseId'] ?? null) === $releaseId) {
+        $push = ['commandId' => $row['command_id'], 'requestHash' => $row['request_hash']];
+        break;
+    }
+}
+echo wp_json_encode(['ok' => is_array($prepared) && is_array($push), 'prepared' => $prepared, 'push' => $push]);`,
 );
 const preparedLine = preparedOutput
   .trim()
@@ -72,43 +84,46 @@ const evidence = await Effect.runPromise(
     .pipe(Effect.provide(nodeServicesLayer)),
 );
 const key = wp("option", "get", "zeroy_runtime_connection_key").trim();
-const response = await fetch(
-  `http://localhost:${port}/wp-json/zeroy/v1/site-releases/${preparation.prepared.releaseId}/browser-evidence`,
-  {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-      "x-zeroy-key": key,
-      "x-zeroy-draft-owner": preparation.ownerId,
-    },
-    body: JSON.stringify({ browserEvidence: evidence }),
+const response = await fetch(`http://localhost:${port}/wp-json/zeroy/v1/site-push/finalize`, {
+  method: "POST",
+  headers: {
+    accept: "application/json",
+    "content-type": "application/json",
+    "x-zeroy-key": key,
   },
-);
+  body: JSON.stringify({
+    commandId: preparation.push.commandId,
+    requestHash: preparation.push.requestHash,
+    releaseId: preparation.prepared.releaseId,
+    browserEvidence: evidence,
+  }),
+});
 const receipt = await response.json();
 assert.equal(response.status, 200, JSON.stringify(receipt));
-assert.equal(receipt.state, "active");
-assert.equal(receipt.browserVerification, null);
+assert.equal(receipt.release?.state, "activated");
+assert.equal(receipt.release?.releaseId, preparation.prepared.releaseId);
 
 const proofResponse = await fetch(
-  `http://localhost:${port}/wp-json/zeroy/v1/site-release-proofs/${receipt.proofId}`,
+  `http://localhost:${port}/wp-json/zeroy/v1/site-release-proofs/${receipt.proof.proofId}`,
   { headers: { "x-zeroy-key": key } },
 );
 const proofEnvelope = await proofResponse.json();
 assert.equal(proofResponse.status, 200, JSON.stringify(proofEnvelope));
-const proof = proofEnvelope.proof;
-assert.equal(proof.themeProof.browserChecks.kind, "browser-executed");
-assert.deepEqual(proof.themeProof.browserChecks.failures, []);
+assert.equal(proofEnvelope.contract, "zeroy/site-release-proof-summary@1");
+assert.equal(proofEnvelope.state, "verified");
+assert.equal(proofEnvelope.failureCount, 0);
 assert.equal(
-  proof.themeProof.browserChecks.executed.length,
+  evidence.results.length,
   preparation.prepared.browserVerification.scenarios.length *
     preparation.prepared.browserVerification.viewports.length,
 );
-assert.deepEqual(proof.blockingFailures, []);
 
 const home = await fetch(`http://localhost:${port}/`);
 assert.equal(home.status, 200);
-assert.equal(home.headers.get("x-zeroy-stylesheet-identity"), receipt.zcss.stylesheetSetHash);
+assert.equal(
+  home.headers.get("x-zeroy-stylesheet-identity"),
+  preparation.prepared.zcss.stylesheetSetHash,
+);
 process.stdout.write(
-  `${JSON.stringify({ ok: true, releaseId: receipt.releaseId, browserResults: proof.themeProof.browserChecks.executed.length })}\n`,
+  `${JSON.stringify({ ok: true, releaseId: receipt.release.releaseId, browserResults: evidence.results.length })}\n`,
 );

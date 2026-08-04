@@ -2,7 +2,7 @@
 
 defined('ABSPATH') || exit;
 
-const ZEROY_SITE_SNAPSHOT_CONTRACT = 'zeroy/site-snapshot@1';
+const ZEROY_SITE_SNAPSHOT_CONTRACT = 'zeroy/site-snapshot@2';
 
 function zeroy_runtime_snapshot_relative_request(array $snapshot, string $request_path): array|WP_Error
 {

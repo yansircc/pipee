@@ -120,9 +120,9 @@ const BrowserContrastPairContract = Type.Object({
   minimum: Type.Number({ minimum: 1 }),
 });
 export const BrowserVerificationChallengeContract = Type.Object({
-  contract: Type.Literal("zeroy/browser-verification-challenge@1"),
+  contract: Type.Literal("zeroy/browser-verification-challenge@2"),
   verifier: Type.Object({
-    id: Type.Literal("zeroy/pi-browser-verifier@1"),
+    id: Type.Literal("zeroy/pi-browser-verifier@2"),
     version: Type.Literal("1"),
   }),
   releaseId: Type.String({ minLength: 1 }),
@@ -147,6 +147,7 @@ export const BrowserVerificationChallengeContract = Type.Object({
       url: Type.String({ minLength: 1 }),
       expectedStatus: Type.Integer({ minimum: 100, maximum: 599 }),
       expectedRouteKind: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+      requiredFields: Type.Array(Type.String({ pattern: "^/acf/" })),
     }),
     { minItems: 1 },
   ),
@@ -170,16 +171,17 @@ const BrowserResultContract = Type.Object({
   focusVisible: Type.Union([Type.Boolean(), Type.Null()]),
   reducedMotion: Type.Boolean(),
   contrastRatios: Type.Record(Type.String({ minLength: 1 }), Type.Number({ minimum: 0 })),
+  renderedFields: Type.Array(Type.String({ pattern: "^/acf/" })),
 });
 export const BrowserEvidenceContract = Type.Object({
-  contract: Type.Literal("zeroy/browser-evidence@1"),
+  contract: Type.Literal("zeroy/browser-evidence@2"),
   challengeHash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
   releaseId: Type.String({ minLength: 1 }),
   themeArtifactId: Type.String({ minLength: 1 }),
   scenarioSetHash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
   stylesheetSetHash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
   verifier: Type.Object({
-    id: Type.Literal("zeroy/pi-browser-verifier@1"),
+    id: Type.Literal("zeroy/pi-browser-verifier@2"),
     version: Type.Literal("1"),
     engine: Type.String({ minLength: 1 }),
     engineVersion: Type.String({ minLength: 1 }),

@@ -14,6 +14,22 @@ function zeroy_localization_acf_child_value(array $field, mixed $row): mixed
         : ($name !== '' && array_key_exists($name, $row) ? $row[$name] : null);
 }
 
+function zeroy_localization_acf_stable_top_view(array $acf, array $acf_context): array|WP_Error
+{
+    if (!function_exists('acf_get_field_groups') || !function_exists('acf_get_fields')) return $acf;
+    $view = [];
+    foreach (acf_get_field_groups($acf_context) as $group) {
+        foreach (is_array(acf_get_fields($group)) ? acf_get_fields($group) : [] as $field) {
+            $key = (string) ($field['key'] ?? '');
+            $name = (string) ($field['name'] ?? '');
+            if ($key === '' || $name === '') return zeroy_runtime_error('zeroy_localization_acf_invalid', 'Applicable ACF fields require stable names and keys.', 409);
+            if (array_key_exists($key, $view)) return zeroy_runtime_error('zeroy_localization_field_collision', "Applicable ACF fields collide at {$key}.", 409);
+            $view[$key] = array_key_exists($key, $acf) ? $acf[$key] : ($acf[$name] ?? null);
+        }
+    }
+    return $view;
+}
+
 function zeroy_localization_acf_scalar(
     array $field,
     mixed $value,
@@ -74,13 +90,13 @@ function zeroy_localization_acf_field(
                 zeroy_localization_acf_child_value($sub_field, $raw),
                 $field_id . '/' . zeroy_localization_pointer_segment($sub_key),
                 $label . ' / ' . (string) ($sub_field['label'] ?? $sub_name),
-                [...$view_path, $sub_name],
+                [...$view_path, $sub_key],
                 $repeater_item_keys
             );
             if (is_wp_error($child)) {
                 return $child;
             }
-            $view[$sub_name] = $child['view'];
+            $view[$sub_key] = $child['view'];
             $fields = [...$fields, ...$child['fields']];
         }
         return ['view' => $view, 'fields' => $fields];
@@ -106,7 +122,9 @@ function zeroy_localization_acf_field(
                 }
             }
         }
-        foreach ($rows as $index => $row) {
+        $ordinal = 0;
+        foreach ($rows as $row) {
+            $ordinal++;
             if (!is_array($row)) {
                 return zeroy_runtime_error('zeroy_localization_collection_invalid', "ACF collection {$field_id} has a non-object row.", 409);
             }
@@ -139,17 +157,17 @@ function zeroy_localization_acf_field(
                     $sub_field,
                     zeroy_localization_acf_child_value($sub_field, $row),
                     $field_id . '/' . zeroy_localization_pointer_segment($item_key) . '/' . zeroy_localization_pointer_segment($sub_key),
-                    $row_label . ' / ' . ($index + 1) . ' / ' . (string) ($sub_field['label'] ?? $sub_name),
-                    [...$view_path, $index, $sub_name],
+                    $row_label . ' / ' . $ordinal . ' / ' . (string) ($sub_field['label'] ?? $sub_name),
+                    [...$view_path, $item_key, $sub_key],
                     $repeater_item_keys
                 );
                 if (is_wp_error($child)) {
                     return $child;
                 }
-                $normalized_row[$sub_name] = $child['view'];
+                $normalized_row[$sub_key] = $child['view'];
                 $fields = [...$fields, ...$child['fields']];
             }
-            $view[] = $normalized_row;
+            $view[$item_key] = $normalized_row;
         }
         return ['view' => $view, 'fields' => $fields];
     }
@@ -205,14 +223,14 @@ function zeroy_localization_post_subject_from_view(
                 $seen_keys[$key] = true;
                 $projection = zeroy_localization_acf_field(
                     $field,
-                    $acf[$name] ?? null,
+                    $acf[$key] ?? null,
                     '/acf/' . zeroy_localization_pointer_segment($key),
                     (string) ($field['label'] ?? $name),
-                    ['acf', $name],
+                    ['acf', $key],
                     $policy['repeaterItemKeys']
                 );
                 if (is_wp_error($projection)) return $projection;
-                $normalized_view['acf'][$name] = $projection['view'];
+                $normalized_view['acf'][$key] = $projection['view'];
                 $fields = [...$fields, ...$projection['fields']];
             }
         }
@@ -263,7 +281,7 @@ function zeroy_localization_post_subject(int $post_id, ?array $definition_overri
             foreach (is_array(acf_get_fields($group)) ? acf_get_fields($group) : [] as $field) {
                 $name = (string) ($field['name'] ?? '');
                 $key = (string) ($field['key'] ?? '');
-                if ($name !== '' && $key !== '') $view['acf'][$name] = get_field($key, $post_id, false);
+                if ($name !== '' && $key !== '') $view['acf'][$key] = get_field($key, $post_id, false);
             }
         }
     }

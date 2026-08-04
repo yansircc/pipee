@@ -16,26 +16,21 @@ $zeroy_route = (string) ($zy_context['route'] ?? '');
 $zeroy_content = is_array($zy_context['resolvedContent'] ?? null) ? $zy_context['resolvedContent'] : [];
 $zyu = zeroy_copy_reader($zeroy_locale);
 
-$zy_field = static function (string $name) use ($zeroy_content) {
-    return $zeroy_content['acf'][$name] ?? null;
+$zy_field = static function (string $key) use ($zeroy_content) {
+    return $zeroy_content['acf'][$key] ?? null;
 };
 
-$zy_row_text = static function (array $row, string $name): string {
-    foreach (array($name, 'field_' . $name) as $key) {
-        if (isset($row[$key]) && is_string($row[$key])) {
-            return $row[$key];
-        }
-    }
-    return '';
+$zy_row_text = static function (array $row, string $key): string {
+    return isset($row[$key]) && is_string($row[$key]) ? $row[$key] : '';
 };
 
 $zy_title = (string) ($zeroy_content['post']['title'] ?? '');
 $zy_intro = (string) ($zeroy_content['post']['content'] ?? '');
 
-$zy_purpose = (string) $zy_field('machine_purpose');
-$zy_capacity = (string) $zy_field('machine_capacity');
-$zy_specs = (array) $zy_field('machine_specs');
-$zy_video = (string) $zy_field('machine_video');
+$zy_purpose = (string) $zy_field('field_machine_purpose');
+$zy_capacity = (string) $zy_field('field_machine_capacity');
+$zy_specs = (array) $zy_field('field_machine_specs');
+$zy_video = (string) $zy_field('field_machine_video');
 
 get_header();
 ?>
@@ -52,7 +47,7 @@ get_header();
       <?php endif; ?>
       <?php if ('' !== $zy_capacity) : ?>
         <div class="zy-chips">
-          <span class="zy-chip"><strong><?php echo esc_html($zyu('label_capacity', 'Capacity')); ?></strong>&nbsp;&middot;&nbsp;<?php echo esc_html($zy_capacity); ?></span>
+          <span class="zy-chip" data-zeroy-field="/acf/field_machine_capacity"><strong><?php echo esc_html($zyu('label_capacity', 'Capacity')); ?></strong>&nbsp;&middot;&nbsp;<?php echo esc_html($zy_capacity); ?></span>
         </div>
       <?php endif; ?>
     </div>
@@ -62,13 +57,13 @@ get_header();
     <div class="zy-container">
       <div class="zy-glance">
         <?php if ('' !== $zy_purpose) : ?>
-          <div class="zy-glance-card">
+          <div class="zy-glance-card" data-zeroy-field="/acf/field_machine_purpose">
             <h3><?php echo esc_html($zyu('label_purpose', 'Purpose')); ?></h3>
             <p><?php echo esc_html($zy_purpose); ?></p>
           </div>
         <?php endif; ?>
         <?php if ('' !== $zy_video) : ?>
-          <div class="zy-glance-card">
+          <div class="zy-glance-card" data-zeroy-field="/acf/field_machine_video">
             <h3><?php echo esc_html($zyu('label_video', 'Video')); ?></h3>
             <p><?php echo esc_html($zyu('label_watch_video', 'Watch the machine in operation.')); ?></p>
             <a class="zy-btn zy-btn-primary zy-btn-sm" href="<?php echo esc_url($zy_video); ?>" target="_blank" rel="noopener"><?php echo esc_html($zyu('label_watch_video', 'Watch Video')); ?> &nearr;</a>
@@ -79,7 +74,7 @@ get_header();
   </section>
 
   <?php if (array() !== $zy_specs) : ?>
-    <section class="zy-section zy-section-alt">
+    <section class="zy-section zy-section-alt" data-zeroy-field="/acf/field_machine_specs">
       <div class="zy-container">
         <div class="zy-section-head">
           <h2><?php echo esc_html($zyu('label_specs', 'Technical Specifications')); ?></h2>
@@ -88,8 +83,8 @@ get_header();
           <?php foreach ($zy_specs as $zy_row) : ?>
             <?php if (!is_array($zy_row)) { continue; } ?>
             <div class="zy-spec-row">
-              <dt><?php echo esc_html($zy_row_text($zy_row, 'spec_name')); ?></dt>
-              <dd><?php echo esc_html($zy_row_text($zy_row, 'spec_value')); ?></dd>
+              <dt><?php echo esc_html($zy_row_text($zy_row, 'field_spec_name')); ?></dt>
+              <dd><?php echo esc_html($zy_row_text($zy_row, 'field_spec_value')); ?></dd>
             </div>
           <?php endforeach; ?>
         </dl>

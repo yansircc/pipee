@@ -439,6 +439,11 @@ const measurementExpression = (challenge: BrowserVerificationChallenge): string 
   const overflowing = elements.filter(element => { const rectangle = element.getBoundingClientRect(); return rectangle.right > viewportWidth + 1 || rectangle.left < -1; });
   const overflowingMedia = [...document.querySelectorAll('img, picture, video, canvas, svg, iframe')].filter(element => { const rectangle = element.getBoundingClientRect(); const parent = element.parentElement && element.parentElement.getBoundingClientRect(); return rectangle.right > viewportWidth + 1 || rectangle.left < -1 || (parent && rectangle.width > parent.width + 1); });
   const motionEscapes = elements.filter(element => { const style = getComputedStyle(element); const animated = style.animationName !== 'none'; const transitioned = durationMs(style.transitionDuration) > 0; return (animated && durationMs(style.animationDuration) > 0.011) || (transitioned && durationMs(style.transitionDuration) > 0.011); });
+  const renderedFields = [...document.querySelectorAll('[data-zeroy-field]')].filter(element => {
+    const style = getComputedStyle(element); const rectangle = element.getBoundingClientRect();
+    if (style.display === 'none' || style.visibility === 'hidden' || rectangle.width < 1 || rectangle.height < 1) return false;
+    return (element.textContent || '').trim() !== '' || element.querySelector('img[src], video[src], iframe[src], a[href], table, dl, ul, ol') !== null;
+  }).map(element => element.getAttribute('data-zeroy-field')).filter(value => typeof value === 'string');
   return {
     stylesheets: [...document.styleSheets].map(stylesheet => stylesheet.href).filter(href => typeof href === 'string'),
     documentClientWidth: viewportWidth,
@@ -448,7 +453,8 @@ const measurementExpression = (challenge: BrowserVerificationChallenge): string 
     mediaOverflowElements: overflowingMedia.length,
     mediaOverflowSamples: overflowingMedia.slice(0, 5).map(describe),
     reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches && motionEscapes.length === 0,
-    contrastRatios: Object.fromEntries(pairs.map(pair => [pair.id, contrast(root.getPropertyValue(pair.foreground), root.getPropertyValue(pair.background))]))
+    contrastRatios: Object.fromEntries(pairs.map(pair => [pair.id, contrast(root.getPropertyValue(pair.foreground), root.getPropertyValue(pair.background))])),
+    renderedFields: [...new Set(renderedFields)].sort()
   };
 })()`;
 
@@ -543,14 +549,14 @@ const executeChallenge = (
     }
     const product = browserVersion.product;
     return {
-      contract: "zeroy/browser-evidence@1",
+      contract: "zeroy/browser-evidence@2",
       challengeHash: challenge.challengeHash,
       releaseId: challenge.releaseId,
       themeArtifactId: challenge.themeArtifactId,
       scenarioSetHash: challenge.scenarioSetHash,
       stylesheetSetHash: challenge.stylesheetSetHash,
       verifier: {
-        id: "zeroy/pi-browser-verifier@1",
+        id: "zeroy/pi-browser-verifier@2",
         version: "1",
         engine: "chromium-cdp",
         engineVersion: typeof product === "string" ? product : "unknown",

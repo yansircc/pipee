@@ -127,10 +127,11 @@ function zeroy_checkout_materialization_acf_field(array $field, mixed $value, ar
 {
     $type = (string) ($field['type'] ?? '');
     if ($type === 'group' && is_array($value)) {
-        $result = $value;
+        $result = [];
         foreach (zeroy_document_acf_children($field, $value) as $child) {
+            $key = (string) ($child['key'] ?? '');
             $name = (string) ($child['name'] ?? '');
-            if ($name !== '' && array_key_exists($name, $result)) $result[$name] = zeroy_checkout_materialization_acf_field($child, $result[$name], $refs, $term_refs, $media_refs);
+            if ($key !== '' && $name !== '' && array_key_exists($key, $value)) $result[$name] = zeroy_checkout_materialization_acf_field($child, $value[$key], $refs, $term_refs, $media_refs);
             if (is_wp_error($result[$name] ?? null)) return $result[$name];
         }
         return $result;
@@ -139,10 +140,12 @@ function zeroy_checkout_materialization_acf_field(array $field, mixed $value, ar
         $rows = [];
         foreach ($value as $row) {
             if (!is_array($row)) return zeroy_runtime_error('zeroy_site_commit_acf_invalid', 'ACF collection row is invalid.', 409);
-            $decoded = $row;
+            $decoded = [];
+            if ($type === 'flexible_content' && is_string($row['acf_fc_layout'] ?? null)) $decoded['acf_fc_layout'] = $row['acf_fc_layout'];
             foreach (zeroy_document_acf_children($field, $row) as $child) {
+                $key = (string) ($child['key'] ?? '');
                 $name = (string) ($child['name'] ?? '');
-                if ($name !== '' && array_key_exists($name, $decoded)) $decoded[$name] = zeroy_checkout_materialization_acf_field($child, $decoded[$name], $refs, $term_refs, $media_refs);
+                if ($key !== '' && $name !== '' && array_key_exists($key, $row)) $decoded[$name] = zeroy_checkout_materialization_acf_field($child, $row[$key], $refs, $term_refs, $media_refs);
                 if (is_wp_error($decoded[$name] ?? null)) return $decoded[$name];
             }
             $rows[] = $decoded;
@@ -171,12 +174,12 @@ function zeroy_checkout_materialization_acf_field(array $field, mixed $value, ar
 function zeroy_checkout_materialization_acf(string $post_type, array $acf, array $refs, array $term_refs, array $media_refs): array|WP_Error
 {
     $fields = zeroy_document_acf_fields($post_type);
-    $by_name = [];
-    foreach ($fields as $field) if (is_string($field['name'] ?? null) && $field['name'] !== '') $by_name[$field['name']] = $field;
-    $result = $acf;
-    foreach ($result as $name => $value) {
-        if (!isset($by_name[$name])) return zeroy_runtime_error('zeroy_site_commit_acf_invalid', 'Materialization cannot resolve an ACF field definition.', 409, ['field' => $name]);
-        $result[$name] = zeroy_checkout_materialization_acf_field($by_name[$name], $value, $refs, $term_refs, $media_refs);
+    $result = [];
+    foreach ($acf as $key => $value) {
+        $field = $fields[$key] ?? null;
+        $name = is_array($field) ? (string) ($field['name'] ?? '') : '';
+        if (!is_array($field) || $name === '') return zeroy_runtime_error('zeroy_site_commit_acf_invalid', 'Materialization cannot resolve an ACF field definition.', 409, ['field' => $key]);
+        $result[$name] = zeroy_checkout_materialization_acf_field($field, $value, $refs, $term_refs, $media_refs);
         if (is_wp_error($result[$name])) return $result[$name];
     }
     return $result;

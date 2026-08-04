@@ -203,8 +203,7 @@ function zeroy_document_acf_decode_field(array $field, mixed $value, array $item
         $result = [];
         foreach (zeroy_document_acf_children($field, $value) as $child) {
             $key = (string) ($child['key'] ?? '');
-            $child_name = (string) ($child['name'] ?? '');
-            if ($key !== '' && array_key_exists($key, $value)) $result[$child_name] = zeroy_document_acf_decode_field($child, $value[$key], $item_keys, $field_id . '/' . zeroy_localization_pointer_segment($key), $path, $failures);
+            if ($key !== '' && array_key_exists($key, $value)) $result[$key] = zeroy_document_acf_decode_field($child, $value[$key], $item_keys, $field_id . '/' . zeroy_localization_pointer_segment($key), $path, $failures);
         }
         foreach (array_keys($value) as $key) if (!in_array($key, array_column(zeroy_document_acf_children($field, $value), 'key'), true)) $failures[] = zeroy_document_failure('acf_field_unknown', $path, "acf.{$key}", 'Unknown ACF child field key.', 'Use only keys in the concrete contract.');
         return $result;
@@ -228,13 +227,12 @@ function zeroy_document_acf_decode_field(array $field, mixed $value, array $item
             }
             foreach ($children as $child) {
                 $key = (string) ($child['key'] ?? '');
-                $child_name = (string) ($child['name'] ?? '');
-                if ($key !== '' && array_key_exists($key, $row)) $decoded[$child_name] = zeroy_document_acf_decode_field($child, $row[$key], $item_keys, $field_id . '/' . zeroy_localization_pointer_segment($item_key) . '/' . zeroy_localization_pointer_segment($key), $path, $failures);
-                if ($key === $item_keys[$field_id] && !array_key_exists($key, $row)) $decoded[$child_name] = $item_key;
+                if ($key !== '' && array_key_exists($key, $row)) $decoded[$key] = zeroy_document_acf_decode_field($child, $row[$key], $item_keys, $field_id . '/' . zeroy_localization_pointer_segment($item_key) . '/' . zeroy_localization_pointer_segment($key), $path, $failures);
+                if ($key === $item_keys[$field_id] && !array_key_exists($key, $row)) $decoded[$key] = $item_key;
             }
             foreach (array_keys($row) as $key) if (!in_array($key, array_column($children, 'key'), true) && $key !== 'acf_fc_layout') $failures[] = zeroy_document_failure('acf_field_unknown', $path, "acf.{$field['key']}.{$item_key}.{$key}", 'Unknown ACF collection child field key.', 'Use only keys in the concrete contract.');
             if ($type === 'flexible_content' && is_string($row['acf_fc_layout'] ?? null)) $decoded['acf_fc_layout'] = $row['acf_fc_layout'];
-            $rows[] = $decoded;
+            $rows[$item_key] = $decoded;
         }
         return $rows;
     }
@@ -354,7 +352,7 @@ function zeroy_document_acf_decode(array $body, string $post_type, array $defini
             $failures[] = zeroy_document_failure('acf_field_unknown', $path, "acf.{$key}", 'The ACF field key is not applicable to this post type.', 'Use a stable field key from the concrete collection contract.');
             continue;
         }
-        $view[(string) $field['name']] = zeroy_document_acf_decode_field($field, $value, $item_keys, '/acf/' . zeroy_localization_pointer_segment((string) $key), $path, $failures);
+        $view[(string) $key] = zeroy_document_acf_decode_field($field, $value, $item_keys, '/acf/' . zeroy_localization_pointer_segment((string) $key), $path, $failures);
     }
     return $view;
 }

@@ -16,26 +16,21 @@ $zeroy_route = (string) ($zy_context['route'] ?? '');
 $zeroy_content = is_array($zy_context['resolvedContent'] ?? null) ? $zy_context['resolvedContent'] : [];
 $zyu = zeroy_copy_reader($zeroy_locale);
 
-$zy_field = static function (string $name) use ($zeroy_content) {
-    return $zeroy_content['acf'][$name] ?? null;
+$zy_field = static function (string $key) use ($zeroy_content) {
+    return $zeroy_content['acf'][$key] ?? null;
 };
 
-$zy_row_text = static function (array $row, string $name): string {
-    foreach (array($name, 'field_' . $name) as $key) {
-        if (isset($row[$key]) && is_string($row[$key])) {
-            return $row[$key];
-        }
-    }
-    return '';
+$zy_row_text = static function (array $row, string $key): string {
+    return isset($row[$key]) && is_string($row[$key]) ? $row[$key] : '';
 };
 
 $zy_title = (string) ($zeroy_content['post']['title'] ?? '');
 $zy_intro = (string) ($zeroy_content['post']['content'] ?? '');
 
-$zy_projects = (array) $zy_field('applicable_projects');
-$zy_items = (array) $zy_field('service_items');
-$zy_deliverables = (array) $zy_field('service_deliverables');
-$zy_steps = (array) $zy_field('service_steps');
+$zy_projects = (array) $zy_field('field_applicable_projects');
+$zy_items = (array) $zy_field('field_service_items');
+$zy_deliverables = (array) $zy_field('field_service_deliverables');
+$zy_steps = (array) $zy_field('field_service_steps');
 
 get_header();
 ?>
@@ -51,7 +46,7 @@ get_header();
         <p class="zy-lead"><?php echo esc_html($zy_intro); ?></p>
       <?php endif; ?>
       <?php if (array() !== $zy_projects) : ?>
-        <div class="zy-chips">
+        <div class="zy-chips" data-zeroy-field="/acf/field_applicable_projects">
           <?php foreach ($zy_projects as $zy_p) : ?>
             <span class="zy-chip"><?php echo esc_html((string) $zy_p); ?></span>
           <?php endforeach; ?>
@@ -61,7 +56,7 @@ get_header();
   </section>
 
   <?php if (array() !== $zy_items) : ?>
-    <section class="zy-section">
+    <section class="zy-section" data-zeroy-field="/acf/field_service_items">
       <div class="zy-container">
         <div class="zy-section-head">
           <h2><?php echo esc_html($zyu('label_items', 'Service Items')); ?></h2>
@@ -78,8 +73,8 @@ get_header();
             <article class="zy-card">
               <div class="zy-card-body">
                 <span class="zy-index">0<?php echo (int) $zy_n; ?></span>
-                <h3><?php echo esc_html($zy_row_text($zy_row, 'item_title')); ?></h3>
-                <p><?php echo esc_html($zy_row_text($zy_row, 'item_description')); ?></p>
+                <h3><?php echo esc_html($zy_row_text($zy_row, 'field_item_title')); ?></h3>
+                <p><?php echo esc_html($zy_row_text($zy_row, 'field_item_description')); ?></p>
               </div>
             </article>
           <?php endforeach; ?>
@@ -89,7 +84,7 @@ get_header();
   <?php endif; ?>
 
   <?php if (array() !== $zy_deliverables) : ?>
-    <section class="zy-section zy-section-alt">
+    <section class="zy-section zy-section-alt" data-zeroy-field="/acf/field_service_deliverables">
       <div class="zy-container">
         <div class="zy-section-head">
           <h2><?php echo esc_html($zyu('label_deliverables', 'Deliverables')); ?></h2>
@@ -98,8 +93,8 @@ get_header();
           <?php foreach ($zy_deliverables as $zy_row) : ?>
             <?php if (!is_array($zy_row)) { continue; } ?>
             <div class="zy-glance-card">
-              <h3><?php echo esc_html($zy_row_text($zy_row, 'deliverable_name')); ?></h3>
-              <p><?php echo esc_html($zy_row_text($zy_row, 'deliverable_description')); ?></p>
+              <h3><?php echo esc_html($zy_row_text($zy_row, 'field_deliverable_name')); ?></h3>
+              <p><?php echo esc_html($zy_row_text($zy_row, 'field_deliverable_description')); ?></p>
             </div>
           <?php endforeach; ?>
         </div>
@@ -108,7 +103,7 @@ get_header();
   <?php endif; ?>
 
   <?php if (array() !== $zy_steps) : ?>
-    <section class="zy-section">
+    <section class="zy-section" data-zeroy-field="/acf/field_service_steps">
       <div class="zy-container">
         <div class="zy-section-head">
           <h2><?php echo esc_html($zyu('label_steps', 'Implementation Steps')); ?></h2>
@@ -124,8 +119,8 @@ get_header();
             ?>
             <article class="zy-step">
               <span class="zy-num"><?php echo esc_html($zyu('step_prefix', 'Step')); ?> 0<?php echo (int) $zy_n; ?></span>
-              <h3><?php echo esc_html($zy_row_text($zy_row, 'step_name')); ?></h3>
-              <p><?php echo esc_html($zy_row_text($zy_row, 'step_description')); ?></p>
+              <h3><?php echo esc_html($zy_row_text($zy_row, 'field_step_name')); ?></h3>
+              <p><?php echo esc_html($zy_row_text($zy_row, 'field_step_description')); ?></p>
             </article>
           <?php endforeach; ?>
         </div>

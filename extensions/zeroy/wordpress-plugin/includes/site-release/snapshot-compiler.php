@@ -97,9 +97,11 @@ function zeroy_runtime_snapshot_post_entity(int $post_id, string $schema_id, arr
         $assigned = wp_get_object_terms($post_id, $taxonomy, ['fields' => 'slugs']);
         if (!is_wp_error($assigned) && is_array($assigned)) $terms[$taxonomy] = array_values(array_map('strval', $assigned));
     }
+    $authored_ref = get_post_meta($post_id, '_zeroy_authored_ref', true);
     return [
         'identity' => 'post:' . $post_id,
         'subject' => ['kind' => 'post', 'id' => $post_id],
+        'authoredRef' => is_string($authored_ref) && $authored_ref !== '' ? $authored_ref : null,
         'objectId' => $post_id,
         'postType' => $canonical['post']->post_type,
         'status' => $canonical['post']->post_status,
@@ -461,7 +463,7 @@ function zeroy_runtime_apply_operations_to_snapshot(array $snapshot, array $oper
             // A newly created canonical has no independent publication step:
             // the SiteRelease commit that materializes this snapshot is that
             // step. Candidate routing must therefore evaluate it as public.
-            $entity = ['identity' => $identity, 'subject' => ['kind' => 'post', 'ref' => $payload['ref']], 'objectId' => null, 'postType' => $payload['postType'], 'status' => 'publish', 'schemaId' => $payload['schemaId'], 'route' => $route, 'revision' => 1, 'localizable' => $localizable, 'locales' => [], 'terms' => []];
+            $entity = ['identity' => $identity, 'subject' => ['kind' => 'post', 'ref' => $payload['ref']], 'authoredRef' => $payload['ref'], 'objectId' => null, 'postType' => $payload['postType'], 'status' => 'publish', 'schemaId' => $payload['schemaId'], 'route' => $route, 'revision' => 1, 'localizable' => $localizable, 'locales' => [], 'terms' => []];
             $entity = zeroy_runtime_snapshot_refresh_entity($entity, $schema, $snapshot['siteConfig']);
             if (is_wp_error($entity)) return $entity;
             $snapshot['entities'][$identity] = $entity;
@@ -476,10 +478,12 @@ function zeroy_runtime_apply_operations_to_snapshot(array $snapshot, array $oper
             if (!is_array($definition)) return zeroy_runtime_error('zeroy_schema_not_found', 'adoptCanonical references an unknown candidate schema.', 409);
             $route = zeroy_runtime_normalize_route((string) $payload['route']);
             if (is_wp_error($route)) return $route;
-            $view = ['post' => ['title' => $existing['post']['postTitle'], 'content' => $existing['post']['postContent'], 'excerpt' => $existing['post']['postExcerpt']], 'acf' => $existing['acf'], 'templateContent' => []];
+            $stable_acf = zeroy_localization_acf_stable_top_view(is_array($existing['acf'] ?? null) ? $existing['acf'] : [], ['post_id' => (int) $payload['postId']]);
+            if (is_wp_error($stable_acf)) return $stable_acf;
+            $view = ['post' => ['title' => $existing['post']['postTitle'], 'content' => $existing['post']['postContent'], 'excerpt' => $existing['post']['postExcerpt']], 'acf' => $stable_acf, 'templateContent' => []];
             $localizable = zeroy_localization_post_subject_from_view(['kind' => 'post', 'id' => (int) $payload['postId']], (string) $payload['schemaId'], $definition, (string) $existing['post']['postType'], $view, 1, ['post_id' => (int) $payload['postId']]);
             if (is_wp_error($localizable)) return $localizable;
-            $entity = ['identity' => $identity, 'subject' => ['kind' => 'post', 'id' => (int) $payload['postId']], 'objectId' => (int) $payload['postId'], 'postType' => $existing['post']['postType'], 'status' => $existing['post']['postStatus'], 'schemaId' => $payload['schemaId'], 'route' => $route, 'revision' => 1, 'localizable' => $localizable, 'locales' => [], 'terms' => []];
+            $entity = ['identity' => $identity, 'subject' => ['kind' => 'post', 'id' => (int) $payload['postId']], 'authoredRef' => $payload['ref'], 'objectId' => (int) $payload['postId'], 'postType' => $existing['post']['postType'], 'status' => $existing['post']['postStatus'], 'schemaId' => $payload['schemaId'], 'route' => $route, 'revision' => 1, 'localizable' => $localizable, 'locales' => [], 'terms' => []];
             $entity = zeroy_runtime_snapshot_refresh_entity($entity, $schema, $snapshot['siteConfig']);
             if (is_wp_error($entity)) return $entity;
             $snapshot['entities'][$identity] = $entity;
@@ -696,12 +700,39 @@ function zeroy_runtime_snapshot_required_content_checks(array $snapshot, array $
     return ['checks' => $checks, 'failures' => $failures];
 }
 
+function zeroy_runtime_snapshot_semantic_acf_fields(array $snapshot, array $descriptor): array
+{
+    $route_id = (string) ($descriptor['routeId'] ?? '');
+    if (!str_starts_with($route_id, 'subject:')) return [];
+    $entity = $snapshot['entities'][substr($route_id, strlen('subject:'))] ?? null;
+    if (!is_array($entity)) return [];
+    $reference_types = ['image', 'file', 'gallery', 'post_object', 'relationship', 'taxonomy'];
+    $fields = [];
+    foreach (is_array($entity['localizable']['fields'] ?? null) ? $entity['localizable']['fields'] : [] as $field) {
+        $kind = (string) ($field['kind'] ?? '');
+        $field_id = (string) ($field['fieldId'] ?? '');
+        if (!str_starts_with($kind, 'acf:') || in_array(substr($kind, strlen('acf:')), $reference_types, true)) continue;
+        $parts = zeroy_localization_pointer_parts($field_id);
+        if (is_wp_error($parts) || count($parts) < 2 || $parts[0] !== 'acf') continue;
+        $fields['/acf/' . zeroy_localization_pointer_segment((string) $parts[1])] = true;
+    }
+    return $fields;
+}
+
 function zeroy_runtime_snapshot_scenarios(array $snapshot): array
 {
     $scenarios = [];
     foreach ($snapshot['routes'] as $locale => $routes) {
         foreach ($routes as $route => $descriptor) {
             $kind = (string) $descriptor['routeKind'];
+            $required_fields = [];
+            $semantic_fields = zeroy_runtime_snapshot_semantic_acf_fields($snapshot, $descriptor);
+            foreach (is_array($descriptor['resolvedContent']['acf'] ?? null) ? $descriptor['resolvedContent']['acf'] : [] as $field_key => $value) {
+                $has_value = is_array($value) ? $value !== [] : !in_array($value, [null, ''], true);
+                $field_id = '/acf/' . zeroy_localization_pointer_segment((string) $field_key);
+                if ($has_value && isset($semantic_fields[$field_id])) $required_fields[] = $field_id;
+            }
+            sort($required_fields, SORT_STRING);
             $scenarios[] = [
                 'id' => $kind . ':' . $locale . ':' . ($route === '' ? 'root' : $route),
                 'kind' => $kind,
@@ -710,11 +741,12 @@ function zeroy_runtime_snapshot_scenarios(array $snapshot): array
                 ...($kind === 'search' ? ['query' => ['s' => 'zeroy-verifier']] : []),
                 'expectedStatus' => 200,
                 'expectedRouteKind' => $kind,
+                'requiredFields' => $required_fields,
             ];
         }
         $prefix = '';
         foreach ($snapshot['site']['enabledLocales'] as $config) if ($config['locale'] === $locale) $prefix = trim((string) $config['urlPrefix'], '/');
-        $scenarios[] = ['id' => 'not-found:' . $locale, 'kind' => 'not-found', 'locale' => $locale, 'path' => '/' . ($prefix === '' ? '' : $prefix . '/') . '__zeroy-verifier-not-found__/', 'expectedStatus' => 404, 'expectedRouteKind' => 'not-found'];
+        $scenarios[] = ['id' => 'not-found:' . $locale, 'kind' => 'not-found', 'locale' => $locale, 'path' => '/' . ($prefix === '' ? '' : $prefix . '/') . '__zeroy-verifier-not-found__/', 'expectedStatus' => 404, 'expectedRouteKind' => 'not-found', 'requiredFields' => []];
     }
     usort($scenarios, static fn(array $left, array $right): int => strcmp($left['id'], $right['id']));
     return $scenarios;
