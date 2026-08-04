@@ -46,6 +46,7 @@
     "release:platform-check": "node ../../tooling/pi-extension/verify-distribution.mjs . platform",
     "acceptance:headless": "pnpm run pi:build && node scripts/headless-acceptance.mjs",
     "acceptance:headless-prepare": "node scripts/prepare-headless-localwp.mjs",
+    "demo:reset-10013": "node scripts/reset-localwp-10013.mjs",
     "acceptance:localwp-checkout": "node scripts/localwp-site-checkout-acceptance.mjs",
     "acceptance:zcss-browser": "pnpm run pi:build && node scripts/zcss-browser-acceptance.mjs",
     "spike:zcss": "php test-suite/zcss-pure-spike.php",

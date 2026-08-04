@@ -101,6 +101,7 @@ const fixture = async (
     failPush: false,
     pushAttempts: 0,
     acceptedCommit: null as ObjectHash | null,
+    reviewEndpoints: [] as string[],
   };
   const buildId = blobHash(Buffer.from("workspace-build"));
   const server = createServer((request, response) => {
@@ -155,18 +156,26 @@ const fixture = async (
     let payload: unknown = null;
     if (url.pathname.endsWith(`/site-builds/${buildId}/workspace`))
       payload = { files: {}, authoredSeeds: state.authoredSeeds };
-    else if (url.pathname.endsWith("/site-review/workspace"))
+    else if (
+      url.pathname.endsWith("/site-review/workspace") ||
+      url.pathname.endsWith("/site-review/baseline-workspace")
+    ) {
+      state.reviewEndpoints.push(url.pathname);
       payload = {
-        contract: "zeroy/site-review-workspace@1",
+        contract: url.pathname.endsWith("/site-review/baseline-workspace")
+          ? "zeroy/site-review-baseline-workspace@1"
+          : "zeroy/site-review-workspace@1",
         commitId: url.searchParams.get("commit"),
         buildId: url.searchParams.get("buildId"),
         files: {
           ".zeroy/brief.json": { contract: "zeroy/site-brief-projection@1", state: "present" },
-          ".zeroy/review.json": { contract: "zeroy/review-result@1", state: "revise", next: [] },
+          ".zeroy/review.json": url.pathname.endsWith("/site-review/baseline-workspace")
+            ? { contract: "zeroy/review-onboarding@1", state: "onboarding", next: [] }
+            : { contract: "zeroy/review-result@1", state: "revise", next: [] },
           ".zeroy/review.md": "# zeroY review\n",
         },
       };
-    else if (url.pathname.endsWith("/site-commit-diff"))
+    } else if (url.pathname.endsWith("/site-commit-diff"))
       payload = {
         contract: "zeroy/site-commit-diff@1",
         items: [{ path: relative }],
@@ -253,6 +262,24 @@ describe("zeroY literal Git rebase", () => {
     expect(git(payload.path, "status", "--short", "--untracked-files=all")).toContain(
       "?? content/posts/pages/adopt-me.json",
     );
+    expect(setup.state.reviewEndpoints).toEqual(["/wp-json/zeroy/v1/site-review/workspace"]);
+  }, 20_000);
+
+  it("uses an onboarding projection only when checkout starts from the shared active release", async () => {
+    const setup = await fixture({ title: "base" }, { title: "ours" }, { title: "base" });
+    const checkedOut = await run(
+      checkoutTool(setup.active, { siteId: "test", source: "active-release" }, undefined),
+    );
+
+    const payload = JSON.parse(
+      (checkedOut.content[0] as { readonly type: "text"; readonly text: string }).text,
+    );
+    expect(readFileSync(join(payload.path, ".zeroy", "review.json"), "utf8")).toContain(
+      "zeroy/review-onboarding@1",
+    );
+    expect(setup.state.reviewEndpoints).toEqual([
+      "/wp-json/zeroy/v1/site-review/baseline-workspace",
+    ]);
   }, 20_000);
 
   it("rebases a semantic JSON merge onto the materialized remote commit", async () => {

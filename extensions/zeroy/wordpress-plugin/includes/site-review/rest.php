@@ -144,11 +144,83 @@ function zeroy_review_workspace_endpoint(WP_REST_Request $request): WP_REST_Resp
     ]);
 }
 
+/**
+ * ActiveRelease and the system bootstrap are shared starting points, not
+ * private Agent drafts. Their checkout needs Brief and instructions, but they
+ * cannot truthfully claim to have an owner-specific ReviewResult yet.
+ */
+function zeroy_review_baseline_commit(): string|WP_Error
+{
+    $active = zeroy_runtime_active_site_release();
+    if ($active !== null) {
+        $commit = (string) ($active['commit_hash'] ?? '');
+        if (preg_match('/\Asha256:[a-f0-9]{64}\z/', $commit) === 1) return $commit;
+        return zeroy_runtime_error('zeroy_active_site_release_invalid', 'Active SiteRelease does not identify an exact SiteCommit.', 500);
+    }
+    return zeroy_checkout_seed_bootstrap_commit();
+}
+
+function zeroy_review_baseline_workspace_projection(string $commit, string $build_id): array
+{
+    $review = [
+        'contract' => 'zeroy/review-onboarding@1',
+        'state' => 'onboarding',
+        'commitId' => $commit,
+        'buildId' => $build_id,
+        'next' => [[
+            'severity' => 'blocking',
+            'summary' => 'Create the first agent-owned site version.',
+            'evidence' => 'This checkout starts from the public or bootstrap baseline, so no private DraftRef or ReviewResult exists yet.',
+            'repair' => 'Read the Brief and WorkspaceContract, make one coherent implementation slice, then push the checkout.',
+        ]],
+    ];
+    return [
+        '.zeroy/brief.json' => zeroy_review_brief_projection(),
+        '.zeroy/review.json' => $review,
+        '.zeroy/review.md' => implode("\n", [
+            '# zeroY onboarding',
+            '',
+            'This is an ActiveRelease/bootstrap baseline, not an Agent-owned draft.',
+            'Read brief.json and the WorkspaceContract. Make one coherent implementation slice and push it.',
+            'After the first push, review.json becomes the exact derived ReviewResult for that owned Commit.',
+            '',
+        ]),
+    ];
+}
+
+function zeroy_review_baseline_workspace_endpoint(WP_REST_Request $request): WP_REST_Response
+{
+    $commit = $request->get_param('commit');
+    $build_id = $request->get_param('buildId');
+    if (!is_string($commit) || preg_match('/\Asha256:[a-f0-9]{64}\z/', $commit) !== 1) {
+        return zeroy_runtime_response_error(zeroy_runtime_error('zeroy_site_review_commit_invalid', 'Baseline workspace requires an exact SiteCommit hash.', 400, ['fieldId' => 'commit']));
+    }
+    if (!is_string($build_id) || preg_match('/\Asha256:[a-f0-9]{64}\z/', $build_id) !== 1) {
+        return zeroy_runtime_response_error(zeroy_runtime_error('zeroy_site_review_build_invalid', 'Baseline workspace requires the exact BuildResult id.', 400, ['fieldId' => 'buildId']));
+    }
+    $baseline = zeroy_review_baseline_commit();
+    if (is_wp_error($baseline)) return zeroy_runtime_response_error($baseline);
+    if (!hash_equals($baseline, $commit)) {
+        return zeroy_runtime_response_error(zeroy_runtime_error('zeroy_site_review_baseline_changed', 'Requested Commit is not the current ActiveRelease/bootstrap baseline.', 409, ['commit' => $commit]));
+    }
+    $build = zeroy_build_row($build_id);
+    if ($build === null || !hash_equals((string) $build['commit_hash'], $commit)) {
+        return zeroy_runtime_response_error(zeroy_runtime_error('zeroy_site_review_build_mismatch', 'BuildResult does not belong to the requested baseline Commit.', 409, ['commit' => $commit, 'buildId' => $build_id]));
+    }
+    return new WP_REST_Response([
+        'contract' => 'zeroy/site-review-baseline-workspace@1',
+        'commitId' => $commit,
+        'buildId' => $build_id,
+        'files' => zeroy_review_baseline_workspace_projection($commit, $build_id),
+    ]);
+}
+
 function zeroy_review_register_routes(): void
 {
     $permission = ['permission_callback' => 'zeroy_runtime_authorized'];
     register_rest_route('zeroy/v1', '/site-review/current', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_review_current_endpoint']);
     register_rest_route('zeroy/v1', '/site-review', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_review_endpoint']);
     register_rest_route('zeroy/v1', '/site-review/workspace', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_review_workspace_endpoint']);
+    register_rest_route('zeroy/v1', '/site-review/baseline-workspace', $permission + ['methods' => WP_REST_Server::READABLE, 'callback' => 'zeroy_review_baseline_workspace_endpoint']);
 }
 add_action('rest_api_init', 'zeroy_review_register_routes');

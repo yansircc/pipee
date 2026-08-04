@@ -693,6 +693,7 @@ const replaceWorkspaceProjection = (
   root: string,
   commit: ObjectHash,
   buildId: string,
+  reviewSource: "baseline" | "owned-draft",
   signal: AbortSignal | undefined,
 ) =>
   Effect.gen(function* () {
@@ -700,9 +701,11 @@ const replaceWorkspaceProjection = (
     const path = yield* Path.Path;
     const site = yield* connection(active, siteId);
     const reviewParameters = new URLSearchParams({ commit, buildId });
+    const reviewEndpoint =
+      reviewSource === "baseline" ? "site-review/baseline-workspace" : "site-review/workspace";
     const [response, reviewResponse] = yield* Effect.all([
       connectorGet(site, `site-builds/${buildId}/workspace`, signal),
-      connectorGet(site, `site-review/workspace?${reviewParameters.toString()}`, signal),
+      connectorGet(site, `${reviewEndpoint}?${reviewParameters.toString()}`, signal),
     ]);
     const files = asRecord(response.files);
     const authoredSeeds = asRecord(response.authoredSeeds);
@@ -872,6 +875,7 @@ export const checkoutTool = (
           root,
           observedCommit,
           buildId,
+          input.source === "active-release" ? "baseline" : "owned-draft",
           signal,
         );
         return result(
@@ -1680,6 +1684,7 @@ export const pushTool = (
             located.root,
             commitId,
             buildId,
+            "owned-draft",
             signal,
           );
           yield* writeJson(descriptorPath(path, located.root), next);
