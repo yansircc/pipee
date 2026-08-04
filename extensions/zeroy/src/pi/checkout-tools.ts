@@ -58,14 +58,13 @@ type StoredObject = {
 };
 
 type PendingPush = {
-  readonly contract: "zeroy/pending-push@2";
+  readonly contract: "zeroy/pending-push@3";
   readonly commandId: string;
   readonly requestHash: string;
   readonly commitHash: ObjectHash;
   readonly commit: SiteCommit;
   readonly expectedCommit: ObjectHash | null;
   readonly rootTree: ObjectHash;
-  readonly mode: "checkpoint" | "release";
   readonly message: string;
   readonly changeSummary: {
     readonly changedPathCount: number;
@@ -111,11 +110,10 @@ export const decodePendingPush = (value: unknown): PendingPush | null => {
       "commit",
       "expectedCommit",
       "rootTree",
-      "mode",
       "message",
       "changeSummary",
     ]) ||
-    pending.contract !== "zeroy/pending-push@2" ||
+    pending.contract !== "zeroy/pending-push@3" ||
     typeof pending.commandId !== "string" ||
     !/^[a-f0-9-]{36}$/.test(pending.commandId) ||
     typeof pending.requestHash !== "string" ||
@@ -127,7 +125,6 @@ export const decodePendingPush = (value: unknown): PendingPush | null => {
         !/^sha256:[a-f0-9]{64}$/.test(pending.expectedCommit))) ||
     typeof pending.rootTree !== "string" ||
     !/^sha256:[a-f0-9]{64}$/.test(pending.rootTree) ||
-    (pending.mode !== "checkpoint" && pending.mode !== "release") ||
     typeof pending.message !== "string"
   ) {
     return null;
@@ -694,6 +691,7 @@ const replaceWorkspaceProjection = (
   active: ActiveSession,
   siteId: string,
   root: string,
+  commit: ObjectHash,
   buildId: string,
   signal: AbortSignal | undefined,
 ) =>
@@ -701,12 +699,17 @@ const replaceWorkspaceProjection = (
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const site = yield* connection(active, siteId);
-    const response = yield* connectorGet(site, `site-builds/${buildId}/workspace`, signal);
+    const reviewParameters = new URLSearchParams({ commit, buildId });
+    const [response, reviewResponse] = yield* Effect.all([
+      connectorGet(site, `site-builds/${buildId}/workspace`, signal),
+      connectorGet(site, `site-review/workspace?${reviewParameters.toString()}`, signal),
+    ]);
     const files = asRecord(response.files);
     const authoredSeeds = asRecord(response.authoredSeeds);
-    if (files === null || authoredSeeds === null)
+    const reviewFiles = asRecord(reviewResponse.files);
+    if (files === null || authoredSeeds === null || reviewFiles === null)
       return yield* failure(
-        "Connector returned an invalid WorkspaceProjection.",
+        "Connector returned an invalid Workspace or Review projection.",
         "zeroy_workspace_projection_invalid",
       );
     const metadata = path.join(root, ".zeroy");
@@ -716,7 +719,7 @@ const replaceWorkspaceProjection = (
       "Could not create WorkspaceProjection staging directory",
       fs.makeDirectory(next, { recursive: true }),
     );
-    for (const [projectedPath, value] of Object.entries(files)) {
+    for (const [projectedPath, value] of Object.entries({ ...files, ...reviewFiles })) {
       if (!projectedPath.startsWith(".zeroy/") || !checkoutPathIsSafe(projectedPath))
         return yield* failure(
           `WorkspaceProjection contains an invalid path: ${projectedPath}.`,
@@ -858,7 +861,19 @@ export const checkoutTool = (
             descriptor.baseReleaseId,
             descriptor.remoteRef,
           );
-        yield* replaceWorkspaceProjection(active, input.siteId, root, buildId, signal);
+        if (observedCommit === null)
+          return yield* failure(
+            "Connector checkout source did not identify its exact SiteCommit.",
+            "zeroy_site_commit_missing",
+          );
+        yield* replaceWorkspaceProjection(
+          active,
+          input.siteId,
+          root,
+          observedCommit,
+          buildId,
+          signal,
+        );
         return result(
           text({
             checkoutId,
@@ -867,7 +882,7 @@ export const checkoutTool = (
             fileCount: files.length,
           }),
           "zeroY checkout ready",
-          "Edit this local checkout, then push a checkpoint or release.",
+          "Edit this local checkout, then push each coherent repair slice for administrator preview and review.",
           [
             ["Site", input.siteId],
             ["Checkout", checkoutId],
@@ -1014,7 +1029,7 @@ const readPending = (root: string) =>
     const pending = decodePendingPush(parsed);
     return pending === null
       ? yield* failure(
-          "Pending push envelope violates zeroy/pending-push@2.",
+          "Pending push envelope violates zeroy/pending-push@3.",
           "zeroy_pending_push_invalid",
         )
       : pending;
@@ -1301,11 +1316,8 @@ export const pushTool = (
     withLivePresentation(
       active,
       "zeroY push",
-      "Publishing a content-addressed SiteCommit outside the model context",
-      [
-        ["Site", input.siteId],
-        ["Mode", input.mode],
-      ],
+      "Publishing one content-addressed SiteCommit outside the model context",
+      [["Site", input.siteId]],
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
@@ -1358,7 +1370,6 @@ export const pushTool = (
           if (
             existingPending !== null &&
             (existingPending.rootTree !== scan.rootTree ||
-              existingPending.mode !== input.mode ||
               existingPending.message !== (input.message ?? ""))
           ) {
             return yield* failure(
@@ -1415,7 +1426,7 @@ export const pushTool = (
           if (existingPending === null && changedPaths.length > 0) {
             yield* recordLocalZeroYGitCommit(
               located.root,
-              `zeroY ${input.mode}: ${commitId.slice(0, 19)}`,
+              `zeroY push: ${commitId.slice(0, 19)}`,
               commitId,
               scan.rootTree,
               descriptor.baseReleaseId,
@@ -1460,21 +1471,19 @@ export const pushTool = (
             refName: descriptor.remoteRef,
             expectedCommit: descriptor.expectedRefCommit,
             commitHash: commitId,
-            mode: input.mode,
             message: input.message ?? "",
             changeSummary,
           };
           const requestHash =
             existingPending?.requestHash ?? (yield* fromSiteObjectResult(pushRequestHash(request)));
           const pending: PendingPush = existingPending ?? {
-            contract: "zeroy/pending-push@2",
+            contract: "zeroy/pending-push@3",
             commandId: randomUUID(),
             requestHash,
             commitHash: commitId,
             commit,
             expectedCommit: descriptor.expectedRefCommit,
             rootTree: scan.rootTree,
-            mode: input.mode,
             message: input.message ?? "",
             changeSummary,
           };
@@ -1624,13 +1633,11 @@ export const pushTool = (
           );
           if (receipt.contract === "zeroy/internal-rebase-retry@1") continue;
           const acceptedReceipt = receipt as JsonRecord;
-          const candidate = asRecord(acceptedReceipt.candidate);
-          const browserChallenge =
-            candidate === null ? null : asRecord(candidate.browserVerification);
+          const preview = asRecord(acceptedReceipt.preview);
+          const browserChallenge = preview === null ? null : asRecord(preview.browserVerification);
           if (
-            input.mode === "release" &&
-            candidate !== null &&
-            typeof candidate.releaseId === "string" &&
+            preview !== null &&
+            typeof preview.releaseId === "string" &&
             browserChallenge !== null
           ) {
             const browserEvidence = yield* verifyBrowserChallenge(
@@ -1643,7 +1650,7 @@ export const pushTool = (
               {
                 commandId: pending.commandId,
                 requestHash: pending.requestHash,
-                releaseId: candidate.releaseId,
+                releaseId: preview.releaseId,
                 browserEvidence,
               },
               signal,
@@ -1667,7 +1674,14 @@ export const pushTool = (
               "Push receipt did not identify its exact BuildResult.",
               "zeroy_build_result_missing",
             );
-          yield* replaceWorkspaceProjection(active, input.siteId, located.root, buildId, signal);
+          yield* replaceWorkspaceProjection(
+            active,
+            input.siteId,
+            located.root,
+            commitId,
+            buildId,
+            signal,
+          );
           yield* writeJson(descriptorPath(path, located.root), next);
           yield* io(
             "Could not clear pending push envelope",
@@ -1680,10 +1694,8 @@ export const pushTool = (
           yield* mapZeroYGitRefs(located.root, commitId, next.remoteRef, acceptedGitCommit);
           return result(
             text(receipt),
-            input.mode === "release" ? "zeroY release pushed" : "zeroY checkpoint pushed",
-            input.mode === "release"
-              ? "The exact commit is proof-bound; activation occurs only after verification passes."
-              : "The DraftRef now owns this remote recovery point.",
+            "zeroY repair slice pushed",
+            "The exact Commit is saved. A renderable Commit has an administrator-only PreviewRelease and its Proof/Review now determine the next repair slice; only an administrator can publish a proof-ready version.",
             [
               ["Site", input.siteId],
               ["Checkout", input.checkoutId],

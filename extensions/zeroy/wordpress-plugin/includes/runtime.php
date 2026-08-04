@@ -7,6 +7,25 @@
 
 defined("ABSPATH") || exit;
 
+/**
+ * Release artifacts are executable delivery inputs, not public static files.
+ *
+ * WordPress serves everything below WP_CONTENT_DIR directly on most hosts.
+ * Keeping immutable artifacts there makes a private Preview readable merely by
+ * guessing its content hash. The storage owner is therefore one directory
+ * above ABSPATH; the request runtime is the only byte-serving boundary.
+ */
+function zeroy_runtime_private_storage_root(): string
+{
+    return rtrim(wp_normalize_path(dirname(rtrim(ABSPATH, '/'))), '/') . '/zeroy-runtime';
+}
+
+/** The old public root exists only so the one-time hard-cut migration can remove it. */
+function zeroy_runtime_legacy_public_storage_root(): string
+{
+    return rtrim(wp_normalize_path(WP_CONTENT_DIR), '/') . '/zeroy-runtime';
+}
+
 require_once __DIR__ . '/foundation.php';
 require_once __DIR__ . '/concurrency.php';
 require_once __DIR__ . '/localization/translation-profile.php';

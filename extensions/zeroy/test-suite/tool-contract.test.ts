@@ -24,6 +24,9 @@ describe("zeroY SiteCheckout tool contracts", () => {
       { siteId, resource: "commit", commit: `sha256:${"a".repeat(64)}` },
       { siteId, resource: "releaseHistory" },
       { siteId, resource: "site" },
+      { siteId, resource: "current" },
+      { siteId, resource: "review" },
+      { siteId, resource: "review", reviewView: "actions", limit: 20, cursor: "next" },
       { siteId, resource: "proof", proofId: "proof-1" },
       {
         siteId,
@@ -75,7 +78,7 @@ describe("zeroY SiteCheckout tool contracts", () => {
       source: "draft-ref",
       draftRef: "refs/drafts/example",
     } as const;
-    const push = { siteId, checkoutId: "checkout-1", mode: "release", message: "ship" } as const;
+    const push = { siteId, checkoutId: "checkout-1", message: "ship" } as const;
     expect(Value.Check(CheckoutInputContract, checkout)).toBe(true);
     expect(Value.Check(PushInputContract, push)).toBe(true);
     expect(decodeCheckoutInput(checkout)).toEqual({ _tag: "Success", value: checkout });
@@ -94,6 +97,7 @@ describe("zeroY SiteCheckout tool contracts", () => {
       "headHash",
       "expectedRevision",
       "expectedBaseReleaseId",
+      "mode",
     ]) {
       expect(decodePushInput({ ...push, [forbidden]: "forbidden" })._tag).toBe("Failure");
     }
@@ -126,6 +130,8 @@ describe("zeroY SiteCheckout tool contracts", () => {
         "commit",
         "releaseHistory",
         "site",
+        "current",
+        "review",
         "proof",
         "integrity",
         "externalCheck",
@@ -148,6 +154,7 @@ describe("zeroY SiteCheckout tool contracts", () => {
       storageEpoch: 0,
       snapshotHash: "f".repeat(64),
       expectedActiveReleaseId: null,
+      reviewBriefHash: null,
       state: "active",
       proofId: "proof-1",
       activeReleaseId: "release-1",

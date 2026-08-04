@@ -28,7 +28,6 @@
     "refName": "refs/drafts/connector/fixture",
     "expectedCommit": null,
     "commitHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "mode": "checkpoint",
     "message": "fixture",
     "changeSummary": {
       "changedPathCount": 1,
@@ -37,5 +36,5 @@
       "uploadedBytes": 42
     }
   },
-  "pushRequestHash": "fa5831f92aedafbb2c46a9975aa73797cac81e1c4c939b54091ce708464f3ec1"
+  "pushRequestHash": "13217ed3fcb4efa7ecd072c907767f5057f0f0e1951270c729399300f895a36e"
 }

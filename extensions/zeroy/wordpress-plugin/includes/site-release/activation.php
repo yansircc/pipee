@@ -23,12 +23,13 @@ function zeroy_runtime_site_release_logic_contract(array $release): array|WP_Err
 function zeroy_runtime_site_release_activation_preflight(string $release_id): array|WP_Error
 {
     $release = zeroy_runtime_site_release_row($release_id);
-    if ($release === null || $release['state'] !== 'prepared' || $release['proof_id'] === null) return zeroy_runtime_error('zeroy_site_release_not_prepared', 'SiteRelease must be prepared with a matching VerificationProof.', 409);
+    if ($release === null || $release['state'] !== 'proof-ready' || $release['proof_id'] === null) return zeroy_runtime_error('zeroy_site_release_not_proof_ready', 'SiteRelease must be proof-ready with a matching VerificationProof.', 409);
     $active = zeroy_runtime_active_site_release();
     if (($active['active_release_id'] ?? null) !== ($release['expected_active_release_id'] ?: null)) return zeroy_runtime_error('zeroy_active_site_release_changed', 'The active SiteRelease changed after verification.', 409, ['activeReleaseId' => $active['active_release_id'] ?? null]);
     $proof_row = zeroy_runtime_site_release_proof_row((string) $release['proof_id']);
     $proof = $proof_row === null ? null : zeroy_runtime_decode_json((string) $proof_row['proof_json']);
     if (!is_array($proof) || !zeroy_runtime_site_release_proof_valid($release, $proof)) return zeroy_runtime_error('zeroy_site_release_proof_stale', 'VerificationProof does not exactly bind this SiteRelease candidate.', 409);
+    if (!zeroy_review_proof_ready_for_release($release)) return zeroy_runtime_error('zeroy_site_review_stale', 'Site Brief or Review is not proof-ready for this exact SiteRelease.', 409);
     $commit = zeroy_checkout_commit_row((string) ($release['commit_hash'] ?? ''));
     if ($commit === null || ($proof['commit'] ?? null) !== ($release['commit_hash'] ?? null) || ($commit['base_release_id'] ?: null) !== ($release['expected_active_release_id'] ?: null)) return zeroy_runtime_error('zeroy_site_release_commit_stale', 'SiteRelease, proof, commit, and active base do not identify one snapshot.', 409);
     $build_row = zeroy_build_row((string) ($release['build_id'] ?? ''));
@@ -93,7 +94,7 @@ function zeroy_runtime_activate_site_release_locked(string $release_id): array|W
         if (is_wp_error($fault)) return $fault;
         $now = current_time('mysql', true);
         if ($active !== null && $wpdb->update(zeroy_runtime_table('site_releases'), ['state' => 'superseded'], ['release_id' => $active['active_release_id'], 'state' => 'active']) === false) return zeroy_runtime_error('zeroy_site_release_activate_failed', $wpdb->last_error ?: 'Could not supersede active SiteRelease.', 500);
-        if ($wpdb->update(zeroy_runtime_table('site_releases'), ['state' => 'active', 'activated_at' => $now], ['release_id' => $release_id, 'state' => 'prepared']) !== 1) return zeroy_runtime_error('zeroy_site_release_activate_failed', 'Could not activate prepared SiteRelease.', 409);
+        if ($wpdb->update(zeroy_runtime_table('site_releases'), ['state' => 'active', 'activated_at' => $now], ['release_id' => $release_id, 'state' => 'proof-ready']) !== 1) return zeroy_runtime_error('zeroy_site_release_activate_failed', 'Could not activate proof-ready SiteRelease.', 409);
         if ($active === null) {
             $state = $wpdb->insert(zeroy_runtime_table('site_release_state'), ['singleton' => 1, 'active_release_id' => $release_id, 'revision' => 1, 'activated_at' => $now]);
         } else {

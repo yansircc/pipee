@@ -4,17 +4,17 @@ defined('ABSPATH') || exit;
 
 function zeroy_runtime_artifact_root(): string
 {
-    return WP_CONTENT_DIR . '/zeroy-runtime/artifacts';
+    return zeroy_runtime_private_storage_root() . '/artifacts';
 }
 
 function zeroy_runtime_staging_root(): string
 {
-    return WP_CONTENT_DIR . '/zeroy-runtime/staging';
+    return zeroy_runtime_private_storage_root() . '/staging';
 }
 
 function zeroy_runtime_archive_root(): string
 {
-    return WP_CONTENT_DIR . '/zeroy-runtime/archives';
+    return zeroy_runtime_private_storage_root() . '/archives';
 }
 
 function zeroy_runtime_artifact_archive_path(string $artifact_id): string
@@ -42,11 +42,6 @@ function zeroy_runtime_persist_artifact_archive(string $artifact_id, string $sou
 function zeroy_runtime_artifact_directory(string $artifact_id): string
 {
     return zeroy_runtime_artifact_root() . '/' . str_replace(':', '-', $artifact_id);
-}
-
-function zeroy_runtime_artifact_uri(string $artifact_id): string
-{
-    return content_url('zeroy-runtime/artifacts/' . rawurlencode(str_replace(':', '-', $artifact_id)));
 }
 
 function zeroy_runtime_ensure_artifact_directories(): true|WP_Error

@@ -2,8 +2,6 @@
 
 defined('ABSPATH') || exit;
 
-const ZEROY_WORKSPACE_FRONTIER_ROOT_MAX_BYTES = 16 * 1024;
-const ZEROY_WORKSPACE_FRONTIER_INDEX_MAX_BYTES = 64 * 1024;
 const ZEROY_WORKSPACE_DIAGNOSTICS_MAX_BYTES = 64 * 1024;
 
 function zeroy_workspace_chunks_by_bytes(array $items, int $max_bytes): array
@@ -420,59 +418,10 @@ function zeroy_workspace_contract_projection(array $files, ?array $compiled, arr
         $contracts[".zeroy/contracts/locales/{$locale}/site-copy.schema.json"] = zeroy_workspace_site_copy_schema($site_copy_keys, true);
         $templates[".zeroy/templates/locales/{$locale}/site-copy.json"] = new stdClass();
     }
-    $groups = [];
-    foreach ($failures as $failure) {
-        $phase = is_string($failure['phase'] ?? null) ? $failure['phase'] : (str_starts_with((string) ($failure['documentPath'] ?? ''), 'locales/') ? 'locale-content' : 'workspace-content');
-        $code = (string) ($failure['code'] ?? 'unknown');
-        $repair = (string) ($failure['repair'] ?? 'Repair invalid authored content.');
-        $key = zeroy_checkout_canonical_json(['code' => $code, 'repair' => $repair]);
-        if (!isset($groups[$key])) $groups[$key] = ['id' => substr(hash('sha256', $key), 0, 16), 'code' => $code, 'summary' => $repair, 'phases' => [], 'blockedBy' => [], 'files' => []];
-        $groups[$key]['phases'][$phase] = true;
-        foreach (is_array($failure['blockedBy'] ?? null) ? $failure['blockedBy'] : [] as $dependency) {
-            if (is_string($dependency)) $groups[$key]['blockedBy'][$dependency] = true;
-        }
-        $path = (string) ($failure['documentPath'] ?? 'site.json');
-        $file = ['path' => $path, 'contract' => zeroy_workspace_contract_for_document($path, $site), 'template' => zeroy_workspace_template_for_document($path, $site), 'diagnostics' => '.zeroy/diagnostics/' . substr(hash('sha256', $path), 0, 16) . '.json'];
-        $encoded_file = zeroy_checkout_canonical_json($file);
-        $existing_files = array_map('zeroy_checkout_canonical_json', $groups[$key]['files']);
-        if (!in_array($encoded_file, $existing_files, true)) $groups[$key]['files'][] = $file;
-    }
-    ksort($groups, SORT_STRING);
-    $phase_groups = [];
-    foreach ($groups as $group) {
-        $phases = array_keys($group['phases']);
-        sort($phases, SORT_STRING);
-        $blocked_by = array_keys($group['blockedBy']);
-        sort($blocked_by, SORT_STRING);
-        usort($group['files'], static fn(array $left, array $right): int => strcmp((string) ($left['path'] ?? ''), (string) ($right['path'] ?? '')));
-        unset($group['phases']);
-        $group['affectedPhases'] = $phases;
-        $group['blockedBy'] = $blocked_by;
-        $phase_groups[$phases[0] ?? 'workspace-content'][] = $group;
-    }
-    $frontier = ['buildId' => $build_id, 'state' => $state, 'repairGroupCount' => count($groups), 'phases' => []];
     $projection = [];
-    foreach ($phase_groups as $phase => $items) {
-        $index = ".zeroy/repair-frontier/{$phase}.json";
-        $blocked_by = [];
-        foreach ($items as $item) foreach ($item['blockedBy'] as $dependency) $blocked_by[$dependency] = true;
-        $frontier['phases'][] = ['id' => $phase, 'repairGroupCount' => count($items), 'blockedBy' => array_keys($blocked_by), 'index' => $index];
-        $chunks = zeroy_workspace_chunks_by_bytes(array_values($items), ZEROY_WORKSPACE_FRONTIER_INDEX_MAX_BYTES - 2048);
-        if (count($chunks) === 1) $projection[$index] = ['phase' => $phase, 'repairGroupCount' => count($items), 'groups' => $chunks[0]];
-        else {
-            $shards = [];
-            foreach ($chunks as $position => $chunk) {
-                $shard = ".zeroy/repair-frontier/{$phase}-" . ($position + 1) . '.json';
-                $projection[$shard] = ['phase' => $phase, 'shard' => $position + 1, 'groups' => $chunk];
-                $shards[] = $shard;
-            }
-            $projection[$index] = ['phase' => $phase, 'repairGroupCount' => count($items), 'shards' => $shards];
-        }
-    }
-    $projection['.zeroy/README.md'] = "# zeroY workspace\n\nRead status.md, then repair-frontier.json. Edit only the authored roots site.json, artifacts/, content/, locales/, and media/. locales/ is a top-level sibling of content/; content/locales/ is invalid. A file under .zeroy/templates/<path> is copied to the authored <path> by removing only the .zeroy/templates/ prefix. Theme PHP reads only zeroy_theme_context(); its exact input shape is .zeroy/contracts/theme-context.schema.json. Theme CSS uses only the tokens and primitives in .zeroy/contracts/zcss-authoring.json. Push checkpoint to rebuild; push release only when ready.\n";
+    $projection['.zeroy/README.md'] = "# zeroY workspace\n\nRead brief.json and review.json before editing. Edit only authored roots site.json, artifacts/, content/, locales/, and media/. locales/ is a top-level sibling of content/; content/locales/ is invalid. A file under .zeroy/templates/<path> is copied to the authored <path> by removing only the .zeroy/templates/ prefix. Theme PHP reads only zeroy_theme_context(); its exact input shape is .zeroy/contracts/theme-context.schema.json. Theme CSS may use custom selectors, Grid, Flex, gradients, pseudo-elements, animations, and media/container queries. The compiler owns only the reserved .z-* and --z-* namespaces. Push after one coherent repair slice; publication belongs to an administrator.\n";
     $projection['.zeroy/status.json'] = ['buildId' => $build_id, 'state' => $state];
     $projection['.zeroy/status.md'] = "# Build status\n\nBuild: {$build_id}\nState: {$state}\nFailures: " . count($failures) . "\n";
-    $projection['.zeroy/repair-frontier.json'] = $frontier;
     $projection['.zeroy/diagnostics/summary.md'] = "# Diagnostics\n\n" . count($failures) . " blocking failure(s).\n";
     $diagnostics_by_path = [];
     foreach ($failures as $failure) {
@@ -501,11 +450,9 @@ function zeroy_workspace_projection_budget_failures(array $projection): array
 {
     $failures = [];
     foreach ($projection as $path => $value) {
-        $limit = $path === '.zeroy/repair-frontier.json'
-            ? ZEROY_WORKSPACE_FRONTIER_ROOT_MAX_BYTES
-            : (str_starts_with($path, '.zeroy/repair-frontier/')
-                ? ZEROY_WORKSPACE_FRONTIER_INDEX_MAX_BYTES
-                : (str_starts_with($path, '.zeroy/diagnostics/') && str_ends_with($path, '.json') ? ZEROY_WORKSPACE_DIAGNOSTICS_MAX_BYTES : null));
+        $limit = str_starts_with($path, '.zeroy/diagnostics/') && str_ends_with($path, '.json')
+            ? ZEROY_WORKSPACE_DIAGNOSTICS_MAX_BYTES
+            : null;
         if ($limit === null) continue;
         $bytes = strlen(is_string($value) ? $value : zeroy_checkout_canonical_json($value));
         if ($bytes <= $limit) continue;

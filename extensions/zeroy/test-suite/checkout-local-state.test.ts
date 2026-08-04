@@ -9,22 +9,21 @@ const commit: SiteCommit = {
   parents: [],
   baseReleaseId: null,
   author: { principal: "site:test", actorSessionId: "session-test" },
-  message: "checkpoint",
+  message: "repair slice",
   createdAt: "2026-08-03T00:00:00.000Z",
 };
 const identity = commitHash(commit);
 if (identity._tag === "Failure") throw new Error(identity.error.message);
 
 const pending = {
-  contract: "zeroy/pending-push@2",
+  contract: "zeroy/pending-push@3",
   commandId: "12345678-1234-1234-1234-123456789abc",
   requestHash: "2".repeat(64),
   commitHash: identity.value,
   commit,
   expectedCommit: null,
   rootTree: tree,
-  mode: "checkpoint",
-  message: "checkpoint",
+  message: "repair slice",
   changeSummary: {
     changedPathCount: 1,
     changedSubjectCount: 0,

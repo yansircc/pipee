@@ -158,7 +158,7 @@ function zeroy_checkout_update_ref_locked(string $ref_name, ?string $expected_co
     if (zeroy_checkout_commit_row($next_commit) === null) return zeroy_runtime_error('zeroy_site_commit_missing', 'DraftRef target commit does not exist.', 409, ['commit' => $next_commit]);
     global $wpdb;
     $query = 'SELECT * FROM ' . zeroy_runtime_table('site_refs') . ' WHERE ref_name = %s';
-    if (get_class($wpdb) !== 'WP_SQLite_DB') $query .= ' FOR UPDATE';
+    if (!zeroy_runtime_uses_sqlite()) $query .= ' FOR UPDATE';
     $current = $wpdb->get_row($wpdb->prepare($query, $ref_name), ARRAY_A);
     $actual = is_array($current) ? (string) $current['commit_hash'] : null;
     if ($actual !== $expected_commit) {

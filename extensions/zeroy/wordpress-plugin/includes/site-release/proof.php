@@ -214,7 +214,7 @@ function zeroy_runtime_verify_candidate_site_release(
     $foundation = zeroy_runtime_verify_site_release_foundation($release, $compiled);
     $runtime = ['checks' => [], 'failures' => []];
     $html = ['kind' => 'not-run', 'scenarios' => [], 'failures' => [], 'warnings' => []];
-    $browser = ['kind' => 'awaiting-browser-witness', 'declared' => ['scenarios' => array_column($foundation['declaredScenarios'], 'id'), 'viewports' => array_column(zeroy_runtime_browser_viewports(), 'id')], 'executed' => [], 'failures' => [], 'warnings' => []];
+    $browser = ['kind' => 'preview-awaiting-browser-witness', 'declared' => ['scenarios' => array_column($foundation['declaredScenarios'], 'id'), 'viewports' => array_column(zeroy_runtime_browser_viewports(), 'id')], 'executed' => [], 'failures' => [], 'warnings' => []];
     if ($foundation['static']['failures'] === [] && !is_wp_error($foundation['snapshot'])) {
         $runtime = zeroy_runtime_candidate_runtime_checks($candidate_kind, $candidate_id, $foundation['declaredScenarios']);
         $html = zeroy_runtime_candidate_browser_smoke($runtime['checks'], $candidate_kind, $candidate_id);
@@ -224,7 +224,6 @@ function zeroy_runtime_verify_candidate_site_release(
 
 function zeroy_runtime_attach_browser_evidence(array $release, array $proof, array $evidence): array|WP_Error
 {
-    if (($proof['blockingFailures'] ?? []) !== []) return $proof;
     $scenarios = $proof['integrationScenarios']['declared'] ?? [];
     $challenge = zeroy_runtime_browser_verification_challenge($release, is_array($scenarios) ? $scenarios : []);
     if (is_wp_error($challenge)) return $challenge;

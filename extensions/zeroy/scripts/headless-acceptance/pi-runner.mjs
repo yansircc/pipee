@@ -27,7 +27,7 @@ export const safeToolLedgerSummary = (entries) =>
       typeof input.resource === "string"
         ? `resource:${input.resource}`
         : typeof input.checkoutId === "string"
-          ? `checkout:${input.mode ?? "materialize"}`
+          ? "checkout"
           : "local";
     const connectorError = entry.result?.payload?.error;
     const result =

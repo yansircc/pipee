@@ -8,8 +8,8 @@ const ZEROY_ZCSS_COMPILER_ID = 'zeroy/zcss-compiler@1';
 const ZEROY_ZCSS_COMPILER_VERSION = '1.0.0';
 // Generated from the closed compiler source set. Tests reject algorithm edits
 // that do not deliberately advance this immutable compiler identity.
-const ZEROY_ZCSS_COMPILER_SOURCE_HASH = 'f69791869349d4b9fa6edbd4cb8e9944777b3246e223456794454ae3134512f7';
-const ZEROY_ZCSS_STYLE_SURFACE_CONTRACT = 'zeroy/style-surface@1';
+const ZEROY_ZCSS_COMPILER_SOURCE_HASH = '3d0af86be12d87d7a6c7b6be4bae724341fa6e16b627277996364a22a785a7c7';
+const ZEROY_ZCSS_STYLE_SURFACE_CONTRACT = 'zeroy/style-surface@2';
 const ZEROY_ZCSS_GENERATED_CSS_PATH = 'assets/css/zcss.generated.css';
 const ZEROY_ZCSS_COMPILED_MANIFEST_PATH = 'assets/css/zcss.manifest.json';
 const ZEROY_ZCSS_STYLE_SURFACE_MAX_STYLESHEETS = 32;

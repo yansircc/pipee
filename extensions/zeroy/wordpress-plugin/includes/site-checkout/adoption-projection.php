@@ -217,7 +217,7 @@ function zeroy_adoption_projection(array $files, ?array $compiled): array
                 $path,
                 '',
                 'An existing WordPress post mapped by site.json is not yet owned by a canonical document.',
-                'The Connector staged the canonical document from current WordPress and ACF facts. Review it and push another checkpoint.',
+                'The Connector staged the canonical document from current WordPress and ACF facts. Review it and push another coherent repair slice.',
             );
         }
     }
@@ -225,7 +225,7 @@ function zeroy_adoption_projection(array $files, ?array $compiled): array
         $path = "content/terms/{$term->taxonomy}/{$term->slug}.json";
         if (isset($files[$path])) continue;
         $seeds[$path] = zeroy_adoption_text_seed(zeroy_checkout_json_bytes(['slug' => $term->slug, 'name' => $term->name, 'description' => $term->description]));
-        $failures[] = zeroy_document_failure('adoption_term_unprojected', $path, '', 'An existing WordPress term referenced by adopted content is not yet owned by a canonical document.', 'Review the staged term document and push another checkpoint.');
+        $failures[] = zeroy_document_failure('adoption_term_unprojected', $path, '', 'An existing WordPress term referenced by adopted content is not yet owned by a canonical document.', 'Review the staged term document and push another coherent repair slice.');
     }
     foreach (zeroy_adoption_unmanaged_media(array_keys($referenced_media)) as $ref => $attachment) {
         $path = 'media/' . $ref;
@@ -236,7 +236,7 @@ function zeroy_adoption_projection(array $files, ?array $compiled): array
             continue;
         }
         $seeds[$path] = zeroy_adoption_binary_seed($bytes);
-        $failures[] = zeroy_document_failure('adoption_media_unprojected', $path, '', 'An existing WordPress attachment referenced by adopted content is not yet owned by an authored media file.', 'Review the staged media file and push another checkpoint.');
+        $failures[] = zeroy_document_failure('adoption_media_unprojected', $path, '', 'An existing WordPress attachment referenced by adopted content is not yet owned by an authored media file.', 'Review the staged media file and push another coherent repair slice.');
     }
     ksort($seeds, SORT_STRING);
     return ['files' => $seeds, 'failures' => $failures];

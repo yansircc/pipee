@@ -155,6 +155,17 @@ const fixture = async (
     let payload: unknown = null;
     if (url.pathname.endsWith(`/site-builds/${buildId}/workspace`))
       payload = { files: {}, authoredSeeds: state.authoredSeeds };
+    else if (url.pathname.endsWith("/site-review/workspace"))
+      payload = {
+        contract: "zeroy/site-review-workspace@1",
+        commitId: url.searchParams.get("commit"),
+        buildId: url.searchParams.get("buildId"),
+        files: {
+          ".zeroy/brief.json": { contract: "zeroy/site-brief-projection@1", state: "present" },
+          ".zeroy/review.json": { contract: "zeroy/review-result@1", state: "revise", next: [] },
+          ".zeroy/review.md": "# zeroY review\n",
+        },
+      };
     else if (url.pathname.endsWith("/site-commit-diff"))
       payload = {
         contract: "zeroy/site-commit-diff@1",
@@ -353,7 +364,7 @@ describe("zeroY literal Git rebase", () => {
     const pushed = await run(
       pushTool(
         setup.active,
-        { siteId: "test", checkoutId: "checkout", mode: "checkpoint", message: "merge" },
+        { siteId: "test", checkoutId: "checkout", message: "merge" },
         undefined,
       ),
     );
@@ -386,7 +397,7 @@ describe("zeroY literal Git rebase", () => {
       run(
         pushTool(
           setup.active,
-          { siteId: "test", checkoutId: "checkout", mode: "checkpoint", message: "conflict" },
+          { siteId: "test", checkoutId: "checkout", message: "conflict" },
           undefined,
         ),
       ),
@@ -414,7 +425,7 @@ describe("zeroY literal Git rebase", () => {
       run(
         pushTool(
           setup.active,
-          { siteId: "test", checkoutId: "checkout", mode: "checkpoint", message: "first" },
+          { siteId: "test", checkoutId: "checkout", message: "first" },
           undefined,
         ),
       ),
@@ -430,7 +441,7 @@ describe("zeroY literal Git rebase", () => {
       run(
         pushTool(
           setup.active,
-          { siteId: "test", checkoutId: "checkout", mode: "checkpoint", message: "second" },
+          { siteId: "test", checkoutId: "checkout", message: "second" },
           undefined,
         ),
       ),

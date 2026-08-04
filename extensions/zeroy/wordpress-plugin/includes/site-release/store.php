@@ -104,7 +104,7 @@ function zeroy_runtime_site_release_receipt(string $release_id): array|WP_Error
         ];
     $migration = is_array($diagnostics) && is_array($diagnostics['migration'] ?? null) ? $diagnostics['migration'] : null;
     $browser_verification = null;
-    if ($release['state'] === 'awaiting-browser') {
+    if ($release['state'] === 'preview-awaiting-browser') {
         $snapshot = zeroy_runtime_site_release_snapshot($release);
         if (is_wp_error($snapshot)) return $snapshot;
         $browser_verification = zeroy_runtime_browser_verification_challenge($release, zeroy_runtime_snapshot_scenarios($snapshot));
@@ -124,6 +124,7 @@ function zeroy_runtime_site_release_receipt(string $release_id): array|WP_Error
         'storageEpoch' => (int) $release['storage_epoch'],
         'snapshotHash' => (string) $release['snapshot_hash'],
         'expectedActiveReleaseId' => $release['expected_active_release_id'] ?: null,
+        'reviewBriefHash' => $release['review_brief_hash'] ?: null,
         'state' => $release['state'],
         'proofId' => $release['proof_id'] ?: null,
         'activeReleaseId' => $active['active_release_id'] ?? null,
@@ -142,8 +143,8 @@ function zeroy_runtime_site_release_receipt(string $release_id): array|WP_Error
         'browserVerification' => $browser_verification,
         'createdAt' => $release['created_at'],
         'activatedAt' => $release['activated_at'],
-        'previewUrl' => in_array($release['state'], ['preparing', 'awaiting-browser', 'prepared'], true)
-            ? zeroy_runtime_candidate_scenario_url('release', (string) $release['release_id'], ['path' => '/', 'query' => []])
+        'previewUrl' => in_array($release['state'], ['preview-awaiting-browser', 'preview', 'proof-ready'], true)
+            ? zeroy_runtime_admin_preview_url((string) $release['release_id'])
             : null,
     ];
 }

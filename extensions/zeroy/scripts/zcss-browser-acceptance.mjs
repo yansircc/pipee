@@ -47,15 +47,20 @@ execFileSync(process.execPath, [`${root}/scripts/localwp-site-checkout-acceptanc
   env: { ...process.env, ZEROY_LOCALWP_PORT: port },
   stdio: "inherit",
 });
+const initialBrief = "Verify an exact private PreviewRelease before an administrator publishes it.";
+const briefResult = JSON.parse(
+  wp("eval", `echo wp_json_encode(zeroy_review_set_brief('${initialBrief}'));`),
+);
+assert.equal(briefResult.state, "present");
 const preparedOutput = wp(
   "eval",
   `global $wpdb;
-$releaseId = $wpdb->get_var("SELECT release_id FROM " . zeroy_runtime_table('site_releases') . " WHERE state = 'awaiting-browser' ORDER BY created_at DESC LIMIT 1");
+$releaseId = get_option('zeroy_zcss_browser_acceptance_preview_release', '');
 $prepared = is_string($releaseId) ? zeroy_runtime_site_release_receipt($releaseId) : null;
 $push = null;
 foreach ($wpdb->get_results("SELECT * FROM " . zeroy_runtime_table('push_receipts') . " ORDER BY created_at DESC", ARRAY_A) as $row) {
     $result = zeroy_runtime_decode_json((string) $row['result_json']);
-    if (is_array($result) && ($result['candidate']['releaseId'] ?? null) === $releaseId) {
+    if (is_array($result) && ($result['preview']['releaseId'] ?? null) === $releaseId) {
         $push = ['commandId' => $row['command_id'], 'requestHash' => $row['request_hash']];
         break;
     }
@@ -67,10 +72,13 @@ const preparedLine = preparedOutput
   .split("\n")
   .reverse()
   .find((line) => line.trim().startsWith("{"));
-assert(preparedLine, `Browser acceptance did not return a prepared candidate: ${preparedOutput}`);
+assert(
+  preparedLine,
+  `Browser acceptance did not return an awaiting PreviewRelease: ${preparedOutput}`,
+);
 const preparation = JSON.parse(preparedLine);
 assert.equal(preparation.ok, true);
-assert.equal(preparation.prepared.state, "awaiting-browser");
+assert.equal(preparation.prepared.state, "preview-awaiting-browser");
 
 const built = await import(pathToFileURL(resolve(root, "dist/pi/extension.js")).href);
 assert.equal(
@@ -100,8 +108,78 @@ const response = await fetch(`http://localhost:${port}/wp-json/zeroy/v1/site-pus
 });
 const receipt = await response.json();
 assert.equal(response.status, 200, JSON.stringify(receipt));
-assert.equal(receipt.release?.state, "activated");
-assert.equal(receipt.release?.releaseId, preparation.prepared.releaseId);
+assert.equal(receipt.preview?.state, "proof-ready");
+assert.equal(receipt.preview?.releaseId, preparation.prepared.releaseId);
+const previewUrl = receipt.preview?.url;
+assert.equal(typeof previewUrl, "string", "Proof-ready PreviewRelease has no private URL.");
+const anonymousPreview = await fetch(previewUrl, { redirect: "manual" });
+assert.equal(anonymousPreview.status, 404, "Anonymous traffic read a private PreviewRelease.");
+const previewUser = `zeroy-preview-${Date.now().toString(36)}`;
+const previewPassword = "zeroY-preview-test-2026";
+wp(
+  "eval",
+  `if (!username_exists('${previewUser}')) wp_create_user('${previewUser}', '${previewPassword}', '${previewUser}@example.test'); $user=get_user_by('login','${previewUser}'); $user->set_role('administrator');`,
+);
+const login = await fetch(`http://localhost:${port}/wp-login.php`, {
+  method: "POST",
+  redirect: "manual",
+  headers: {
+    "content-type": "application/x-www-form-urlencoded",
+    cookie: "wordpress_test_cookie=WP%20Cookie%20check",
+  },
+  body: new URLSearchParams({
+    log: previewUser,
+    pwd: previewPassword,
+    "wp-submit": "Log In",
+    redirect_to: previewUrl,
+    testcookie: "1",
+  }),
+});
+assert.equal(login.status, 302, "Could not create an administrator preview session.");
+const adminCookies = login.headers
+  .getSetCookie()
+  .map((cookie) => cookie.split(";", 1)[0])
+  .join("; ");
+assert.notEqual(adminCookies, "", "Administrator login did not issue a session cookie.");
+const administratorPreview = await fetch(previewUrl, {
+  headers: { cookie: `wordpress_test_cookie=WP%20Cookie%20check; ${adminCookies}` },
+});
+assert.equal(
+  administratorPreview.status,
+  200,
+  "Administrator could not read private PreviewRelease.",
+);
+assert.match(administratorPreview.headers.get("cache-control") ?? "", /no-store/i);
+assert.match(administratorPreview.headers.get("x-robots-tag") ?? "", /noindex/i);
+const previewHtml = await administratorPreview.text();
+const previewAsset = previewHtml.match(
+  /https?:[^"']+\/__zeroy-preview\/[^/]+\/__assets\/[^"']+/,
+)?.[0];
+assert(
+  previewAsset,
+  "Administrator PreviewRelease did not resolve styles through its private asset boundary.",
+);
+const anonymousAsset = await fetch(previewAsset, { redirect: "manual" });
+assert.equal(anonymousAsset.status, 404, "Anonymous traffic read a private PreviewRelease asset.");
+const administratorAsset = await fetch(previewAsset, {
+  headers: { cookie: `wordpress_test_cookie=WP%20Cookie%20check; ${adminCookies}` },
+});
+assert.equal(
+  administratorAsset.status,
+  200,
+  "Administrator could not read a private PreviewRelease asset.",
+);
+assert.match(administratorAsset.headers.get("cache-control") ?? "", /no-store/i);
+const legacyArtifactUrl = previewAsset.replace(
+  /\/__zeroy-preview\/[^/]+\/__assets\//,
+  `/wp-content/zeroy-runtime/artifacts/${preparation.prepared.themeArtifactId.replace(":", "-")}/`,
+);
+const legacyArtifact = await fetch(legacyArtifactUrl, { redirect: "manual" });
+assert.notEqual(
+  legacyArtifact.status,
+  200,
+  "ThemeArtifact bytes remain directly readable below wp-content.",
+);
 
 const proofResponse = await fetch(
   `http://localhost:${port}/wp-json/zeroy/v1/site-release-proofs/${receipt.proof.proofId}`,
@@ -118,6 +196,27 @@ assert.equal(
     preparation.prepared.browserVerification.viewports.length,
 );
 
+const active = wp("eval", "echo wp_json_encode(zeroy_runtime_active_site_release());").trim();
+assert.equal(
+  JSON.parse(active)?.active_release_id ?? null,
+  null,
+  "Browser verification must not publish PreviewRelease.",
+);
+const staleBrief = JSON.parse(
+  wp(
+    "eval",
+    `zeroy_review_set_brief('A changed Brief must invalidate this exact proof.'); $activation=zeroy_runtime_activate_site_release('${preparation.prepared.releaseId}'); echo wp_json_encode(is_wp_error($activation) ? ['error'=>$activation->get_error_code()] : ['release'=>$activation]);`,
+  ),
+);
+assert.equal(staleBrief.error, "zeroy_site_review_stale");
+const published = JSON.parse(
+  wp(
+    "eval",
+    `zeroy_review_set_brief('${initialBrief}'); $activation=zeroy_runtime_activate_site_release('${preparation.prepared.releaseId}'); echo wp_json_encode(is_wp_error($activation) ? ['error'=>$activation->get_error_code(), 'message'=>$activation->get_error_message()] : $activation);`,
+  ),
+);
+assert.equal(published.state, "active", JSON.stringify(published));
+assert.equal(published.releaseId, preparation.prepared.releaseId);
 const home = await fetch(`http://localhost:${port}/`);
 assert.equal(home.status, 200);
 assert.equal(
@@ -125,5 +224,5 @@ assert.equal(
   preparation.prepared.zcss.stylesheetSetHash,
 );
 process.stdout.write(
-  `${JSON.stringify({ ok: true, releaseId: receipt.release.releaseId, browserResults: evidence.results.length })}\n`,
+  `${JSON.stringify({ ok: true, releaseId: receipt.preview.releaseId, browserResults: evidence.results.length })}\n`,
 );

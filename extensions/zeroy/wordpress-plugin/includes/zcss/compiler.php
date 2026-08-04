@@ -71,9 +71,14 @@ function zeroy_zcss_authoring_contract(): array
         'primitives' => zeroy_zcss_public_primitives(),
         'browserPolicy' => zeroy_zcss_browser_policy(),
         'contrastPairs' => zeroy_zcss_contrast_pairs(),
-        'namespaces' => ['compilerClasses' => '.z-*', 'compilerProperties' => '--z-*', 'siteProperties' => '--site-*', 'stateClasses' => '.is-*'],
+        'namespaces' => [
+            'compilerClasses' => '.z-*',
+            'compilerProperties' => '--z-*',
+            'authorClasses' => 'Any class except the reserved .z-* namespace.',
+            'authorProperties' => 'Any custom property except the reserved --z-* namespace.',
+        ],
         'generatedPaths' => zeroy_runtime_theme_generated_paths(),
-        'guidance' => 'Edit zcss.design.json for generated tokens and manifest-declared custom CSS for site rules. Use only tokens and primitives declared here. Generated paths remain compiler-owned.',
+        'guidance' => 'Use manifest-declared custom CSS freely for the visual implementation: custom selectors, properties, Grid, Flex, gradients, pseudo-elements, animation and responsive queries are valid. zcss.design.json supplies compiler-generated defaults; public primitives and --z-* tokens are optional reusable building blocks, not an authoring limit. Generated paths and the reserved .z-* / --z-* namespaces remain compiler-owned.',
     ];
 }
 

@@ -285,9 +285,13 @@ body {
 .zy-lead {
   max-width: 640px;
   margin: 0 0 34px;
-  color: #b3c2cf;
+  color: #536158;
   font-size: 18px;
   line-height: 1.7;
+}
+
+.zy-hero .zy-lead {
+  color: #b3c2cf;
 }
 
 .zy-hero-actions {
@@ -400,7 +404,7 @@ body {
 }
 
 .zy-index {
-  color: #f5a30b;
+  color: #8a5700;
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.16em;
@@ -440,7 +444,7 @@ body {
 }
 
 .zy-num {
-  color: #f5a30b;
+  color: #8a5700;
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.14em;

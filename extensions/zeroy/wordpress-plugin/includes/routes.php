@@ -4,6 +4,8 @@ defined('ABSPATH') || exit;
 
 function zeroy_runtime_request_path(): string
 {
+    $preview_path = $GLOBALS['zeroy_runtime_preview_route_path'] ?? null;
+    if (is_string($preview_path)) return strtolower(trim(rawurldecode($preview_path), '/'));
     $path = wp_parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH);
     return is_string($path) ? strtolower(trim(rawurldecode($path), '/')) : '';
 }
@@ -14,6 +16,10 @@ function zeroy_runtime_route_url(string $locale, string $route): string
     $locale_config = zeroy_runtime_locale_config($locale);
     if ($locale_config === null) return home_url('/');
     $path = trim(($locale_config['urlPrefix'] === '' ? '' : $locale_config['urlPrefix'] . '/') . trim($route, '/'), '/');
+    $preview = zeroy_runtime_preview_release_context();
+    if (is_array($preview) && ($preview['kind'] ?? null) === 'administrator-preview' && is_array($preview['release'] ?? null)) {
+        return zeroy_runtime_admin_preview_url((string) $preview['release']['release_id'], $path);
+    }
     return home_url('/' . $path . '/');
 }
 

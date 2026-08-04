@@ -302,6 +302,35 @@ const inspectResource = (
           payload: siteAgentProjection(yield* connectorGet(site, "site", signal)),
           summary: "Read site handshake",
         };
+      case "current": {
+        const parameters = new URLSearchParams();
+        if (input.draftRef !== undefined) parameters.set("draftRef", input.draftRef);
+        if (input.buildId !== undefined) parameters.set("buildId", input.buildId);
+        return {
+          payload: yield* connectorGet(
+            site,
+            `site-review/current?${parameters.toString()}`,
+            signal,
+          ),
+          summary:
+            "Read administrator Brief, latest Commit, Preview, ActiveRelease, and bounded Review",
+        };
+      }
+      case "review": {
+        const view = input.reviewView ?? "summary";
+        const parameters = new URLSearchParams({ view, limit: String(input.limit ?? 20) });
+        if (input.commit !== undefined) parameters.set("commit", input.commit);
+        if (input.draftRef !== undefined) parameters.set("draftRef", input.draftRef);
+        if (input.buildId !== undefined) parameters.set("buildId", input.buildId);
+        if (input.cursor !== undefined) parameters.set("cursor", input.cursor);
+        return {
+          payload: yield* connectorGet(site, `site-review?${parameters.toString()}`, signal),
+          summary:
+            view === "actions"
+              ? "Read bounded derived Review actions"
+              : "Read current bounded Review summary",
+        };
+      }
       case "proof": {
         const view = input.proofView ?? "summary";
         const parameters = new URLSearchParams({ view, limit: String(input.limit ?? 20) });

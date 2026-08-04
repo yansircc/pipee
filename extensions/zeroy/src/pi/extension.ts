@@ -91,7 +91,7 @@ export default function piZeroY(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "zeroy_push",
     label: "Push zeroY checkout",
-    description: `Push one local checkout as a checkpoint or verified release. ${CHECKOUT_PROMPT_GUIDELINES}`,
+    description: `Push one coherent local repair slice. ${CHECKOUT_PROMPT_GUIDELINES}`,
     parameters: pushParameters,
     execute: (_id, input, signal) =>
       runTool(

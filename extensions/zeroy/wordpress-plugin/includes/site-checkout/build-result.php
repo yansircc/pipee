@@ -172,9 +172,14 @@ function zeroy_build_candidate_release_projection(string $build_id, array $candi
     ];
 }
 
-function zeroy_build_front_page_document_path(array $site, array $candidate): string
+/**
+ * Failure rendering must remain available even when compilation did not
+ * produce a Candidate. Candidate facts make the location more precise; they
+ * are not a precondition for returning a bounded, actionable BuildResult.
+ */
+function zeroy_build_front_page_document_path(array $site, ?array $candidate): string
 {
-    $schema = $candidate['compiled']['schema']['schemas'] ?? null;
+    $schema = is_array($candidate) ? ($candidate['compiled']['schema']['schemas'] ?? null) : null;
     if (!is_array($schema)) return 'artifacts/theme/zeroy.schema.json';
     $front_page_schemas = [];
     foreach ($schema as $schema_id => $definition) {
@@ -190,7 +195,7 @@ function zeroy_build_front_page_document_path(array $site, array $candidate): st
         : 'site.json';
 }
 
-function zeroy_build_verification_failure(array $failure, array $site, array $candidate): array
+function zeroy_build_verification_failure(array $failure, array $site, ?array $candidate): array
 {
     $file = is_string($failure['file'] ?? null) ? $failure['file'] : null;
     $site_logic = str_starts_with((string) ($failure['code'] ?? ''), 'site_logic_');
@@ -255,9 +260,9 @@ function zeroy_build_failures_from_error(WP_Error $error): array
         is_string($violation['path'] ?? null) ? $violation['path'] : 'artifacts/theme/zeroy.schema.json',
         is_string($violation['field'] ?? null) ? $violation['field'] : '',
         is_string($violation['message'] ?? null) ? $violation['message'] : $error->get_error_message(),
-        is_string($violation['repair'] ?? null) ? $violation['repair'] : 'Repair the linked artifact or document and push another checkpoint.',
+        is_string($violation['repair'] ?? null) ? $violation['repair'] : 'Repair the linked artifact or document and push another coherent repair slice.',
     ), $violations);
-    return [zeroy_document_failure($error->get_error_code(), is_array($data) && is_string($data['path'] ?? null) ? $data['path'] : 'site.json', is_array($data) && is_string($data['fieldId'] ?? null) ? $data['fieldId'] : '', $error->get_error_message(), is_array($data) && is_string($data['repair'] ?? null) ? $data['repair'] : 'Repair the linked file and push another checkpoint.')];
+    return [zeroy_document_failure($error->get_error_code(), is_array($data) && is_string($data['path'] ?? null) ? $data['path'] : 'site.json', is_array($data) && is_string($data['fieldId'] ?? null) ? $data['fieldId'] : '', $error->get_error_message(), is_array($data) && is_string($data['repair'] ?? null) ? $data['repair'] : 'Repair the linked file and push another coherent repair slice.')];
 }
 
 function zeroy_build_public_failure(array $failure): array
@@ -276,7 +281,7 @@ function zeroy_build_public_failure(array $failure): array
         'subjectRef' => is_string($failure['subjectRef'] ?? null) ? $failure['subjectRef'] : null,
         'locale' => is_string($failure['locale'] ?? null) ? $failure['locale'] : null,
         'evidence' => is_string($failure['evidence'] ?? null) ? $failure['evidence'] : (is_string($failure['message'] ?? null) ? $failure['message'] : 'Build phase failed.'),
-        'repair' => is_string($failure['repair'] ?? null) ? $failure['repair'] : 'Repair the linked authored file and push another checkpoint.',
+        'repair' => is_string($failure['repair'] ?? null) ? $failure['repair'] : 'Repair the linked authored file and push another coherent repair slice.',
     ], static fn(mixed $value): bool => $value !== null);
 }
 
@@ -295,7 +300,7 @@ function zeroy_build_blocked_failure(string $phase, array $blocked_by): array
             'site.json',
             '',
             "Build phase {$phase} could not run because an upstream phase failed.",
-            'Repair the linked upstream phase; the Connector will run this phase on the next checkpoint.',
+            'Repair the linked upstream phase; the Connector will run this phase on the next coherent repair slice.',
         ),
     ];
 }
@@ -320,6 +325,20 @@ function zeroy_build_phase_projection(array $failures): array
     unset($phase);
     ksort($phases, SORT_STRING);
     return array_values($phases);
+}
+
+/**
+ * A renderable build may still be incomplete: content, locale, accessibility,
+ * and browser findings belong to Review, not to the Preview availability gate.
+ * Only failures that prove the request cannot safely render suppress Preview.
+ */
+function zeroy_build_candidate_is_renderable(?array $candidate, ?array $verification): bool
+{
+    if (!is_array($candidate) || !is_array($verification)) return false;
+    foreach (zeroy_runtime_site_release_proof_failures($verification) as $failure) {
+        if (in_array($failure['code'] ?? null, ['candidate_runtime_unavailable', 'candidate_runtime_failed', 'candidate_php_error_output', 'candidate_cache_boundary_missing'], true)) return false;
+    }
+    return true;
 }
 
 function zeroy_build_compile(string $commit_hash): array|WP_Error
@@ -375,7 +394,9 @@ function zeroy_build_compile(string $commit_hash): array|WP_Error
         $failures[] = zeroy_build_blocked_failure('candidate-verification', ['workspace-contracts', 'theme-files', 'theme-contract', 'site-snapshot']);
     }
     $failures = zeroy_build_unique_failures($failures);
-    $state = $failures === [] ? 'ready' : 'invalid';
+    $state = $failures === []
+        ? 'ready'
+        : (zeroy_build_candidate_is_renderable($candidate, $verification) ? 'renderable' : 'invalid');
     if (is_array($candidate) && is_array($candidate['compiled'] ?? null)) $compiled = $candidate['compiled'];
     $snapshot_hash = is_array($candidate) && is_string($candidate['snapshot']['snapshotHash'] ?? null) ? $candidate['snapshot']['snapshotHash'] : null;
     $projection = zeroy_workspace_contract_projection($files, $compiled, $failures, $build_id, $state);
@@ -404,7 +425,7 @@ function zeroy_build_compile(string $commit_hash): array|WP_Error
         'externalFactsHash' => $external_facts_hash,
         'state' => $state,
         'failureCount' => count($failures),
-        'repairGroupCount' => (int) ($projection['.zeroy/repair-frontier.json']['repairGroupCount'] ?? 0),
+        'diagnosticCount' => count($failures),
         'snapshotHash' => $snapshot_hash,
         'derivedArtifactSetHash' => is_array($candidate) ? zeroy_runtime_hash($candidate['artifacts']) : null,
         'createdAt' => current_time('mysql', true),

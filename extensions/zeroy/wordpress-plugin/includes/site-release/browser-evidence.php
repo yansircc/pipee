@@ -2,9 +2,9 @@
 
 defined('ABSPATH') || exit;
 
-const ZEROY_BROWSER_VERIFICATION_CHALLENGE_CONTRACT = 'zeroy/browser-verification-challenge@2';
-const ZEROY_BROWSER_EVIDENCE_CONTRACT = 'zeroy/browser-evidence@2';
-const ZEROY_BROWSER_VERIFIER_ID = 'zeroy/pi-browser-verifier@2';
+const ZEROY_BROWSER_VERIFICATION_CHALLENGE_CONTRACT = 'zeroy/browser-verification-challenge@4';
+const ZEROY_BROWSER_EVIDENCE_CONTRACT = 'zeroy/browser-evidence@4';
+const ZEROY_BROWSER_VERIFIER_ID = 'zeroy/pi-browser-verifier@4';
 
 function zeroy_runtime_browser_viewports(): array
 {
@@ -30,7 +30,7 @@ function zeroy_runtime_browser_verification_challenge(array $release, array $sce
 {
     $surface = zeroy_zcss_style_surface_from_directory(zeroy_runtime_artifact_directory((string) $release['theme_artifact_id']));
     if (is_wp_error($surface)) return $surface;
-    $base = content_url('zeroy-runtime/artifacts/' . rawurlencode(str_replace(':', '-', (string) $release['theme_artifact_id'])));
+    $base = zeroy_runtime_evidence_asset_base_url((string) $release['release_id']);
     $stylesheets = [];
     foreach ($surface['stylesheetHashes'] as $path => $hash) {
         $stylesheets[] = [
@@ -98,7 +98,7 @@ function zeroy_runtime_decode_browser_evidence(mixed $input): array|WP_Error
         || !array_is_list($input['results'])
     ) return zeroy_runtime_error('zeroy_browser_evidence_invalid', 'Browser evidence identity or verifier metadata is invalid.', 400);
     foreach ($input['results'] as $result) {
-        if (!zeroy_runtime_is_keyed_map($result) || !zeroy_runtime_browser_evidence_exact_keys($result, ['scenario', 'viewport', 'status', 'routeKind', 'stylesheetIdentity', 'stylesheets', 'documentClientWidth', 'documentScrollWidth', 'overflowElements', 'overflowSamples', 'mediaOverflowElements', 'mediaOverflowSamples', 'focusVisible', 'reducedMotion', 'contrastRatios', 'renderedFields'])) {
+        if (!zeroy_runtime_is_keyed_map($result) || !zeroy_runtime_browser_evidence_exact_keys($result, ['scenario', 'viewport', 'status', 'routeKind', 'stylesheetIdentity', 'stylesheets', 'documentClientWidth', 'documentScrollWidth', 'overflowElements', 'overflowSamples', 'mediaOverflowElements', 'mediaOverflowSamples', 'focusVisible', 'reducedMotion', 'contrastRatios', 'visibleTextContrastFailures', 'visibleTextContrastSamples', 'visibleTextContrastIndeterminate', 'visibleTextContrastIndeterminateSamples', 'renderedFields'])) {
             return zeroy_runtime_error('zeroy_browser_evidence_invalid', 'Every browser result must use the exact result shape.', 400);
         }
         if (
@@ -118,6 +118,14 @@ function zeroy_runtime_decode_browser_evidence(mixed $input): array|WP_Error
             || !is_bool($result['reducedMotion'])
             || !zeroy_runtime_is_keyed_map($result['contrastRatios'])
             || array_filter($result['contrastRatios'], static fn(mixed $value): bool => !is_int($value) && !is_float($value)) !== []
+            || !is_int($result['visibleTextContrastFailures']) || $result['visibleTextContrastFailures'] < 0
+            || !is_array($result['visibleTextContrastSamples']) || !array_is_list($result['visibleTextContrastSamples']) || count($result['visibleTextContrastSamples']) > 5 || array_filter($result['visibleTextContrastSamples'], static fn(mixed $value): bool => !is_string($value) || $value === '') !== []
+            || ($result['visibleTextContrastFailures'] === 0 && $result['visibleTextContrastSamples'] !== [])
+            || ($result['visibleTextContrastFailures'] > 0 && ($result['visibleTextContrastSamples'] === [] || count($result['visibleTextContrastSamples']) > $result['visibleTextContrastFailures']))
+            || !is_int($result['visibleTextContrastIndeterminate']) || $result['visibleTextContrastIndeterminate'] < 0
+            || !is_array($result['visibleTextContrastIndeterminateSamples']) || !array_is_list($result['visibleTextContrastIndeterminateSamples']) || count($result['visibleTextContrastIndeterminateSamples']) > 5 || array_filter($result['visibleTextContrastIndeterminateSamples'], static fn(mixed $value): bool => !is_string($value) || $value === '') !== []
+            || ($result['visibleTextContrastIndeterminate'] === 0 && $result['visibleTextContrastIndeterminateSamples'] !== [])
+            || ($result['visibleTextContrastIndeterminate'] > 0 && ($result['visibleTextContrastIndeterminateSamples'] === [] || count($result['visibleTextContrastIndeterminateSamples']) > $result['visibleTextContrastIndeterminate']))
             || !is_array($result['renderedFields']) || !array_is_list($result['renderedFields']) || array_filter($result['renderedFields'], static fn(mixed $value): bool => !is_string($value) || !str_starts_with($value, '/acf/')) !== []
         ) return zeroy_runtime_error('zeroy_browser_evidence_invalid', 'Browser result contains an invalid measurement.', 400, ['scenario' => $result['scenario'] ?? null, 'viewport' => $result['viewport'] ?? null]);
     }
@@ -185,6 +193,7 @@ function zeroy_runtime_verify_browser_evidence(array $challenge, array $evidence
         $results[$key] = $result;
     }
     $failures = [];
+    $warnings = [];
     $stylesheet_mismatches = [];
     $focus_observed = false;
     foreach ($expected_scenarios as $scenario_id => $scenario) {
@@ -234,6 +243,12 @@ function zeroy_runtime_verify_browser_evidence(array $challenge, array $evidence
                     $failures[] = zeroy_runtime_browser_failure('candidate_browser_contrast_failed', 'Declared ZCSS semantic foreground and background pairs must meet their contrast threshold in the executed browser.', $pair_id . ' contrast=' . $ratio . ', minimum=' . $pair['minimum'] . '.', 'Repair the site CSS override using the exact semantic token pair in .zeroy/contracts/zcss-authoring.json.', $scenario_id, $viewport_id, 'artifacts/theme/assets/css/site.css');
                 }
             }
+            if ($result['visibleTextContrastFailures'] > 0) {
+                $failures[] = zeroy_runtime_browser_failure('candidate_browser_visible_text_contrast_failed', 'Every visible text region must meet its WCAG contrast threshold against the executed painted background.', 'Failing visible text regions=' . $result['visibleTextContrastFailures'] . ', samples=' . implode('; ', $result['visibleTextContrastSamples']) . '.', 'Repair the reported component so one visual color vocabulary owns both its foreground and painted background. Text over background images requires an opaque contrast-preserving surface.', $scenario_id, $viewport_id, 'artifacts/theme/assets/css/site.css');
+            }
+            if ($result['visibleTextContrastIndeterminate'] > 0) {
+                $warnings[] = zeroy_runtime_browser_failure('candidate_browser_visible_text_contrast_indeterminate', 'Visible text over a non-solid painted background could not be deterministically measured from the CSS cascade.', 'Indeterminate visible text regions=' . $result['visibleTextContrastIndeterminate'] . ', samples=' . implode('; ', $result['visibleTextContrastIndeterminateSamples']) . '.', 'Use an opaque text surface or review this route with screenshot-based visual evidence before publication.', $scenario_id, $viewport_id, 'artifacts/theme/assets/css/site.css');
+            }
         }
     }
     if (!$focus_observed) {
@@ -246,6 +261,6 @@ function zeroy_runtime_verify_browser_evidence(array $challenge, array $evidence
         'declared' => ['scenarios' => array_keys($expected_scenarios), 'viewports' => array_keys($expected_viewports)],
         'executed' => array_values($results),
         'failures' => $failures,
-        'warnings' => [],
+        'warnings' => $warnings,
     ];
 }

@@ -81,8 +81,7 @@ function zeroy_zcss_style_surface_from_directory(string $directory): array|WP_Er
         $sources[] = $source;
         $stylesheet_hashes[$path] = hash('sha256', $source['css']);
     }
-    $site_tokens = [];
-    $private_properties = [];
+    $custom_properties = [];
     $custom_selectors = [];
     $source_mapping = [];
     $references = [];
@@ -90,7 +89,7 @@ function zeroy_zcss_style_surface_from_directory(string $directory): array|WP_Er
     $violations = [];
     foreach ($sources as $source_index => $source) {
         $generated = $source_index === 0;
-        zeroy_zcss_walk_css_nodes($source['nodes'], static function (array $node) use (&$site_tokens, &$private_properties, &$custom_selectors, &$source_mapping, &$references, &$declared, &$violations, $source, $generated, $known_primitives, $configurable): void {
+        zeroy_zcss_walk_css_nodes($source['nodes'], static function (array $node) use (&$custom_properties, &$custom_selectors, &$source_mapping, &$references, &$declared, &$violations, $source, $generated, $known_primitives, $configurable): void {
             if (($node['type'] ?? null) === 'rule') {
                 $selector = (string) ($node['prelude'] ?? '');
                 if (!$generated) {
@@ -106,9 +105,8 @@ function zeroy_zcss_style_surface_from_directory(string $directory): array|WP_Er
                 $property = $declaration['property'];
                 if (str_starts_with($property, '--')) {
                     $declared[$property] = true;
-                    if (!$generated && str_starts_with($property, '--site-')) $site_tokens[$property] = $declaration['value'];
-                    elseif (!$generated && str_starts_with($property, '--z-') && !isset($configurable[$property])) $violations[] = ['code' => 'zcss_reserved_property_redefined', 'name' => $property, 'source' => $source['path'], 'line' => $declaration['line']];
-                    elseif (!$generated && !str_starts_with($property, '--z-')) $private_properties[$property] = true;
+                    if (!$generated && str_starts_with($property, '--z-') && !isset($configurable[$property])) $violations[] = ['code' => 'zcss_reserved_property_redefined', 'name' => $property, 'source' => $source['path'], 'line' => $declaration['line']];
+                    elseif (!$generated && !str_starts_with($property, '--z-')) $custom_properties[$property] = $declaration['value'];
                     if (!$generated) $source_mapping[] = ['kind' => 'property', 'name' => $property, 'source' => $source['path'], 'line' => $declaration['line']];
                 }
                 foreach (zeroy_zcss_css_identifiers($declaration['value'], '--') as $reference) $references[$reference] = true;
@@ -117,10 +115,8 @@ function zeroy_zcss_style_surface_from_directory(string $directory): array|WP_Er
     }
     $undefined = array_values(array_diff(array_keys($references), array_keys($declared)));
     sort($undefined, SORT_STRING);
-    ksort($site_tokens, SORT_STRING);
-    $private = array_keys($private_properties);
+    ksort($custom_properties, SORT_STRING);
     $selectors = array_keys($custom_selectors);
-    sort($private, SORT_STRING);
     sort($selectors, SORT_STRING);
     return [
         'contract' => ZEROY_ZCSS_STYLE_SURFACE_CONTRACT,
@@ -131,12 +127,11 @@ function zeroy_zcss_style_surface_from_directory(string $directory): array|WP_Er
         'stylesheetSetHash' => zeroy_zcss_hash($stylesheet_hashes),
         'tokens' => $compiled['tokens'],
         'primitives' => $compiled['primitives'],
-        'siteTokens' => $site_tokens,
+        'customProperties' => $custom_properties,
         'customSelectors' => $selectors,
-        'componentPrivateProperties' => $private,
         'sourceMapping' => $source_mapping,
         'undefinedReferences' => $undefined,
         'reservedNamespaceViolations' => $violations,
-        'summary' => ['stylesheets' => count($sources), 'nodes' => $node_count, 'declarations' => $declaration_count, 'customSelectors' => count($selectors), 'siteTokens' => count($site_tokens), 'privateProperties' => count($private)],
+        'summary' => ['stylesheets' => count($sources), 'nodes' => $node_count, 'declarations' => $declaration_count, 'customSelectors' => count($selectors), 'customProperties' => count($custom_properties)],
     ];
 }

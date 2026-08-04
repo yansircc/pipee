@@ -45,13 +45,12 @@ const get = async (path) => {
   const response = await fetch(`${endpoint}/${path}`, { headers: { "x-zeroy-key": key } });
   return { status: response.status, body: await response.json() };
 };
-const makeRequest = (refName, commitHash, mode, label) => {
+const makeRequest = (refName, commitHash, label) => {
   const request = {
     checkoutId: label,
     refName,
     expectedCommit: null,
     commitHash,
-    mode,
     message: label,
     changeSummary: {
       changedPathCount: 0,
@@ -162,7 +161,7 @@ $makeCommit = static function (string $treeHash, string $label, int $offset) use
 };
 $left = $makeCommit($tree, 'ready-left', 0);
 $right = $makeCommit($tree, 'ready-right', 1);
-$invalid = $makeCommit($emptyTree, 'invalid-checkpoint', 2);
+$invalid = $makeCommit($emptyTree, 'invalid-push', 2);
 $verificationInvalid = $makeCommit($verificationTree, 'verification-invalid', 3);
 if (is_wp_error($left) || is_wp_error($right) || is_wp_error($invalid) || is_wp_error($verificationInvalid)) {
     echo wp_json_encode(['error' => 'commit_setup_failed']);
@@ -358,24 +357,9 @@ $proofProjection = zeroy_runtime_site_release_proof_projection(
     20,
     null,
 );
-$repairProjection = zeroy_workspace_contract_projection($files, null, [
-    [
-        'phase' => 'candidate-verification',
-        'code' => 'zcss_template_primitive_unknown',
-        'documentPath' => 'artifacts/theme/front-page.php',
-        'evidence' => 'z-main',
-        'repair' => 'Use a published primitive or a non-reserved semantic class.',
-    ],
-    [
-        'phase' => 'theme-files',
-        'code' => 'zcss_template_primitive_unknown',
-        'documentPath' => 'artifacts/theme/search.php',
-        'evidence' => 'z-search',
-        'repair' => 'Use a published primitive or a non-reserved semantic class.',
-    ],
-], 'sha256:' . str_repeat('a', 64), 'invalid');
 echo wp_json_encode([
     'commits' => [$left, $right, $invalid],
+    'verificationInvalidCommit' => $verificationInvalid,
     'readyBuild' => $leftBuild['result'],
     'createdAuthoredRef' => $leftBuild['candidate']['snapshot']['entities']['draft:home']['authoredRef'] ?? null,
     'sameBuild' => $sameBuild['result'],
@@ -385,10 +369,6 @@ echo wp_json_encode([
     'verificationFailures' => $verificationInvalidBuild['diagnostics']['failures'],
     'frontPageFailure' => $frontPageFailure,
     'proofProjection' => is_wp_error($proofProjection) ? null : $proofProjection,
-    'repairProjection' => [
-        'root' => $repairProjection['.zeroy/repair-frontier.json'] ?? null,
-        'phase' => $repairProjection['.zeroy/repair-frontier/candidate-verification.json'] ?? null,
-    ],
     'adoption' => $adoption,
     'relatedAdoption' => $relatedAdoption,
     'casRef' => 'refs/drafts/acceptance/' . wp_generate_uuid4(),
@@ -402,7 +382,7 @@ if (
   fixture.readyBuild?.state !== "ready" ||
   fixture.createdAuthoredRef !== "home" ||
   fixture.invalidBuild?.state !== "invalid" ||
-  fixture.verificationInvalidBuild?.state !== "invalid" ||
+  fixture.verificationInvalidBuild?.state !== "renderable" ||
   !fixture.verificationFailures?.some(
     (failure) =>
       failure.phase === "candidate-verification" && failure.code === "theme_persistence_forbidden",
@@ -421,7 +401,7 @@ if (
     ?.field_spec_value !== "2980 rpm" ||
   Array.isArray(fixture.relatedAdoption?.machineSeed?.acf?.field_machine_specs)
 )
-  fail("BuildResult identity or invalid-checkpoint preservation is broken.", fixture);
+  fail("BuildResult identity or invalid Push preservation is broken.", fixture);
 const contrastRepairGroup = fixture.proofProjection?.items?.find(
   (item) => item.code === "candidate_browser_contrast_failed",
 );
@@ -438,20 +418,6 @@ if (
     "Proof repair projection did not aggregate repeated verifier instances.",
     fixture.proofProjection,
   );
-const zcssRepairGroup = fixture.repairProjection?.phase?.groups?.[0];
-if (
-  fixture.repairProjection?.root?.repairGroupCount !== 1 ||
-  fixture.repairProjection?.phase?.repairGroupCount !== 1 ||
-  fixture.repairProjection?.phase?.groups?.length !== 1 ||
-  zcssRepairGroup?.code !== "zcss_template_primitive_unknown" ||
-  zcssRepairGroup?.files?.length !== 2 ||
-  !isDeepStrictEqual(zcssRepairGroup?.affectedPhases, ["candidate-verification", "theme-files"])
-)
-  fail(
-    "Build repair frontier did not group one repair across affected files.",
-    fixture.repairProjection,
-  );
-
 const codec = JSON.parse(
   wp(
     "eval",
@@ -640,15 +606,15 @@ if (adoptionOrdering.ok !== true)
     adoptionOrdering,
   );
 
-const left = makeRequest(fixture.casRef, fixture.commits[0], "checkpoint", "cas-left");
-const right = makeRequest(fixture.casRef, fixture.commits[1], "checkpoint", "cas-right");
+const left = makeRequest(fixture.casRef, fixture.commits[0], "cas-left");
+const right = makeRequest(fixture.casRef, fixture.commits[1], "cas-right");
 const cas = await Promise.all([post("site-push", left), post("site-push", right)]);
 const success = cas.find((entry) => entry.status === 201);
 const conflict = cas.find((entry) => entry.status === 409);
 if (!success || conflict?.body?.error?.code !== "zeroy_remote_ref_changed")
   fail("Concurrent pushes did not produce exactly one CAS winner.", cas);
 if (success.body?.build?.state !== "ready" || !success.body?.build?.buildId)
-  fail("Checkpoint receipt did not bind its compact ready BuildResult.", success);
+  fail("Push receipt did not bind its compact ready BuildResult.", success);
 
 const winner = success.body.commit === left.commitHash ? left : right;
 const replay = await post("site-push", winner);
@@ -682,11 +648,10 @@ const workspace = await get(`site-builds/${fixture.readyBuild.buildId}/workspace
 const projected = workspace.body?.files;
 const projectedJson = (path) =>
   typeof projected?.[path] === "string" ? JSON.parse(projected[path]) : null;
-const frontier = projectedJson(".zeroy/repair-frontier.json");
 if (
   workspace.status !== 200 ||
   Array.isArray(workspace.body?.authoredSeeds) ||
-  frontier?.state !== "ready" ||
+  projected?.[".zeroy/repair-frontier.json"] !== undefined ||
   !projected?.[".zeroy/contracts/content/posts/machines.schema.json"] ||
   !projected?.[".zeroy/templates/content/posts/machines/new.json"]
 )
@@ -796,6 +761,10 @@ $result = [
     'focusVisible' => true,
     'reducedMotion' => true,
     'contrastRatios' => [],
+    'visibleTextContrastFailures' => 2,
+    'visibleTextContrastSamples' => ['h1.hero-title contrast=1.12, minimum=3.0'],
+    'visibleTextContrastIndeterminate' => 1,
+    'visibleTextContrastIndeterminateSamples' => ['p.hero-copy unresolved=background-image'],
     'renderedFields' => ['/acf/field_machine_capacity'],
 ];
 $evidence = [
@@ -823,9 +792,19 @@ const stylesheetEvidence = stylesheetFailures?.[0]?.evidence
 const contentFailures = browserStylesheetDiagnostic.failures?.filter(
   (failure) => failure.code === "candidate_browser_content_field_missing",
 );
+const visibleTextContrastFailures = browserStylesheetDiagnostic.failures?.filter(
+  (failure) => failure.code === "candidate_browser_visible_text_contrast_failed",
+);
+const visibleTextContrastWarnings = browserStylesheetDiagnostic.warnings?.filter(
+  (warning) => warning.code === "candidate_browser_visible_text_contrast_indeterminate",
+);
 if (
   stylesheetFailures?.length !== 1 ||
   contentFailures?.length !== 1 ||
+  visibleTextContrastFailures?.length !== 2 ||
+  visibleTextContrastWarnings?.length !== 2 ||
+  !visibleTextContrastFailures[0]?.evidence?.includes("h1.hero-title") ||
+  !visibleTextContrastWarnings[0]?.evidence?.includes("p.hero-copy") ||
   !contentFailures[0]?.evidence?.includes("/acf/field_machine_capacity") ||
   stylesheetEvidence?.expectedIdentity !== "expected-identity" ||
   stylesheetEvidence?.observedIdentity !== "observed-identity" ||
@@ -839,23 +818,27 @@ if (
   });
 for (const [path, value] of Object.entries(projected ?? {})) {
   const bytes = Buffer.byteLength(value);
-  if (path === ".zeroy/repair-frontier.json" && bytes > 16 * 1024)
-    fail("Root repair frontier exceeds its byte budget.", { path, bytes });
-  if (path.startsWith(".zeroy/repair-frontier/") && bytes > 64 * 1024)
-    fail("Repair frontier shard exceeds its byte budget.", { path, bytes });
   if (path.startsWith(".zeroy/diagnostics/") && path.endsWith(".json") && bytes > 64 * 1024)
     fail("Diagnostic shard exceeds its byte budget.", { path, bytes });
 }
 
-const invalid = makeRequest(
-  fixture.invalidRef,
-  fixture.commits[2],
-  "checkpoint",
-  "invalid-checkpoint",
+const brief = JSON.parse(
+  wp(
+    "eval",
+    "echo wp_json_encode(zeroy_review_set_brief('Build a multilingual industrial website with all declared collection routes, localized content, working search, 404, and contact flow.'));",
+  ),
 );
+if (brief?.state !== "present" || typeof brief?.briefHash !== "string")
+  fail("Acceptance site has no administrator-owned Brief.", brief);
+
+const invalid = makeRequest(fixture.invalidRef, fixture.commits[2], "invalid-push");
 const invalidResult = await post("site-push", invalid);
-if (invalidResult.status !== 201 || invalidResult.body?.build?.state !== "invalid")
-  fail("Invalid checkpoint was not preserved with an immutable BuildResult.", invalidResult);
+if (
+  invalidResult.status !== 201 ||
+  invalidResult.body?.build?.state !== "invalid" ||
+  invalidResult.body?.review?.state !== "build-failed"
+)
+  fail("Invalid Push was not preserved with an immutable BuildResult.", invalidResult);
 const invalidState = JSON.parse(
   wp(
     "eval",
@@ -863,24 +846,67 @@ const invalidState = JSON.parse(
   ),
 );
 if (invalidState.commit !== fixture.commits[2])
-  fail("Invalid checkpoint did not advance its DraftRef.", invalidState);
+  fail("Invalid Push did not advance its DraftRef.", invalidState);
 
-const release = makeRequest(
-  fixture.releaseRef,
-  fixture.commits[0],
-  "release",
-  "exact-build-release",
+const renderable = makeRequest(
+  `${fixture.releaseRef}-renderable`,
+  fixture.verificationInvalidCommit,
+  "renderable-incomplete-preview",
 );
-const releaseResult = await post("site-push", release);
+const renderableResult = await post("site-push", renderable);
 if (
-  releaseResult.status !== 201 ||
-  releaseResult.body?.build?.buildId !== fixture.readyBuild.buildId ||
-  releaseResult.body?.candidate?.state !== "awaiting-browser" ||
-  !releaseResult.body?.candidate?.browserVerification
+  renderableResult.status !== 201 ||
+  renderableResult.body?.build?.state !== "renderable" ||
+  typeof renderableResult.body?.preview?.releaseId !== "string" ||
+  renderableResult.body?.preview?.state !== "preview-awaiting-browser" ||
+  renderableResult.body?.review?.state !== "revise"
+)
+  fail("Renderable but incomplete Push did not create a private PreviewRelease.", renderableResult);
+
+const preview = makeRequest(fixture.releaseRef, fixture.commits[0], "exact-build-preview");
+const previewResult = await post("site-push", preview);
+if (
+  previewResult.status !== 201 ||
+  previewResult.body?.build?.buildId !== fixture.readyBuild.buildId ||
+  typeof previewResult.body?.preview?.releaseId !== "string" ||
+  !previewResult.body?.preview?.browserVerification ||
+  previewResult.body?.preview?.state !== "preview-awaiting-browser" ||
+  previewResult.body?.review?.state !== "revise"
 )
   fail(
-    "Release did not consume the exact ready BuildResult into a browser-verifiable candidate.",
-    releaseResult,
+    "Renderable Push did not create an administrator PreviewRelease awaiting browser evidence.",
+    previewResult,
+  );
+wp(
+  "eval",
+  `update_option('zeroy_zcss_browser_acceptance_preview_release', '${previewResult.body.preview.releaseId}', false);`,
+);
+const releasesBeforeInvalidAfterPreview = Number(
+  wp(
+    "eval",
+    "echo (int) $GLOBALS['wpdb']->get_var('SELECT COUNT(*) FROM ' . zeroy_runtime_table('site_releases'));",
+  ),
+);
+const invalidAfterPreview = makeRequest(
+  `${fixture.invalidRef}-after-preview`,
+  fixture.commits[2],
+  "invalid-after-preview",
+);
+const invalidAfterPreviewResult = await post("site-push", invalidAfterPreview);
+const releasesAfterInvalidAfterPreview = Number(
+  wp(
+    "eval",
+    "echo (int) $GLOBALS['wpdb']->get_var('SELECT COUNT(*) FROM ' . zeroy_runtime_table('site_releases'));",
+  ),
+);
+if (
+  invalidAfterPreviewResult.status !== 201 ||
+  invalidAfterPreviewResult.body?.preview !== undefined ||
+  releasesAfterInvalidAfterPreview !== releasesBeforeInvalidAfterPreview
+)
+  fail(
+    "Invalid Push replaced or created an administrator PreviewRelease.",
+    invalidAfterPreviewResult,
   );
 
 const garbageBytes = `unreachable-${randomUUID()}`;
@@ -898,5 +924,5 @@ if (!Array.isArray(reachability.issues) || reachability.issues.length !== 0)
   fail("Reachability integrity is not green after checkout acceptance.", reachability);
 
 console.log(
-  "zeroY SiteTree v2, immutable BuildResult, checkpoint, CAS, projection-budget, and exact-release acceptance passed.",
+  "zeroY SiteTree v2, immutable BuildResult, progressive Push, CAS, projection-budget, and private Preview acceptance passed.",
 );

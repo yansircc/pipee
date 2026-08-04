@@ -24,7 +24,7 @@ const calls = readToolLedger([
           type: "toolCall",
           id: "call-3",
           name: "zeroy_push",
-          arguments: { siteId: "site-1", checkoutId: "checkout-1", mode: "checkpoint" },
+          arguments: { siteId: "site-1", checkoutId: "checkout-1" },
         },
       ],
     },
@@ -64,7 +64,7 @@ assert.deepEqual(calls, [
     index: 0,
     id: "call-3",
     name: "zeroy_push",
-    input: { siteId: "site-1", checkoutId: "checkout-1", mode: "checkpoint" },
+    input: { siteId: "site-1", checkoutId: "checkout-1" },
     result: null,
   },
 ]);

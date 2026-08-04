@@ -25,6 +25,8 @@ describe("zeroY SiteCheckout hard cut", () => {
     const checkoutStore = readFixture("../wordpress-plugin/includes/site-checkout/store.php");
     const checkoutRest = readFixture("../wordpress-plugin/includes/site-checkout/rest.php");
     const checkoutRelease = readFixture("../wordpress-plugin/includes/site-checkout/release.php");
+    const assets = readFixture("../wordpress-plugin/includes/site-release/assets.php");
+    const artifactStore = readFixture("../wordpress-plugin/includes/theme/artifact-store.php");
     const read = readFixture("../wordpress-plugin/includes/rest/read.php");
     const themeAuthoring = readFixture("../wordpress-plugin/includes/theme/authoring-contract.php");
     const releaseRest = readFixture("../wordpress-plugin/includes/site-checkout/read-rest.php");
@@ -50,7 +52,17 @@ describe("zeroY SiteCheckout hard cut", () => {
     expect(checkoutStore).toContain("zeroy_checkout_update_ref_locked");
     expect(checkoutRest).toContain("/site-checkout");
     expect(checkoutRest).toContain("/site-push");
-    expect(checkoutRelease).toContain("zeroy_checkout_prepare_release");
+    expect(checkoutRelease).toContain("zeroy_checkout_prepare_preview");
+    expect(checkoutRelease).not.toContain("zeroy_checkout_prepare_release");
+    expect(artifactStore).toContain("zeroy_runtime_private_storage_root");
+    expect(artifactStore).not.toContain("WP_CONTENT_DIR . '/zeroy-runtime/artifacts'");
+    expect(assets).toContain("zeroy_runtime_preview_asset_base_url");
+    expect(assets).toContain("zeroy_runtime_evidence_asset_base_url");
+    expect(assets).toContain("zeroy_runtime_public_asset_base_url");
+    expect(assets).toContain("zeroy_runtime_serve_theme_asset_request");
+    expect(request).toContain("zeroy_runtime_serve_theme_asset_request");
+    expect(request).toContain("assetBaseUrl");
+    expect(request).not.toContain("content_url('zeroy-runtime/artifacts/");
     expect(releaseRest).not.toContain("register_rest_route('zeroy/v1', '/site-drafts");
     expect(releaseRest).not.toContain("register_rest_route('zeroy/v1', '/site-draft-stages");
     expect(releaseRest).toContain("zeroy_runtime_site_release_owned_candidate");

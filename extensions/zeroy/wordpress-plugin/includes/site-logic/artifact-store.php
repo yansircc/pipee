@@ -17,17 +17,17 @@ function zeroy_runtime_site_logic_policy(): array
 
 function zeroy_runtime_site_logic_root(): string
 {
-    return WP_CONTENT_DIR . '/zeroy-runtime/site-logic-artifacts';
+    return zeroy_runtime_private_storage_root() . '/site-logic-artifacts';
 }
 
 function zeroy_runtime_site_logic_staging_root(): string
 {
-    return WP_CONTENT_DIR . '/zeroy-runtime/site-logic-staging';
+    return zeroy_runtime_private_storage_root() . '/site-logic-staging';
 }
 
 function zeroy_runtime_site_logic_archive_root(): string
 {
-    return WP_CONTENT_DIR . '/zeroy-runtime/site-logic-archives';
+    return zeroy_runtime_private_storage_root() . '/site-logic-archives';
 }
 
 function zeroy_runtime_site_logic_directory(string $artifact_id): string

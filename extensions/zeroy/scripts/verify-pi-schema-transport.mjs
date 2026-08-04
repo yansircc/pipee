@@ -140,6 +140,8 @@ try {
     "commit",
     "releaseHistory",
     "site",
+    "current",
+    "review",
     "proof",
     "integrity",
     "externalCheck",
@@ -154,7 +156,7 @@ try {
   assert.match(checkout?.properties?.draftRef?.description ?? "", /source = draft-ref/u);
   const push = tools.get("zeroy_push")?.input_schema;
   assert.equal(push?.type, "object");
-  assert.deepEqual(push?.required, ["siteId", "checkoutId", "mode"]);
+  assert.deepEqual(push?.required, ["siteId", "checkoutId"]);
   for (const schema of [checkout, push]) {
     const encoded = JSON.stringify(schema);
     assert.doesNotMatch(

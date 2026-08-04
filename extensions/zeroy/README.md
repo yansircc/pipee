@@ -9,7 +9,8 @@ local SiteCheckout
 → CAS DraftRef
 → immutable BuildResult
 → commit/build-bound VerificationProof
-→ SiteRelease
+→ private PreviewRelease
+→ administrator Publish
 → activeSiteReleaseId
 ```
 
@@ -17,9 +18,9 @@ The extension exposes exactly three zeroY tools:
 
 - `zeroy_inspect` reads bounded operational projections: sites, refs, commit history/diff, release history, proof summaries, integrity, and external checks. Authoring contracts exist only inside the checkout's derived `.zeroy/` projection.
 - `zeroy_checkout` materializes the active release or a DraftRef beneath the Pi working directory and initializes a local Git baseline.
-- `zeroy_push` computes objects, uploads only missing bytes, moves the DraftRef with CAS, and optionally verifies and activates the exact commit.
+- `zeroy_push` computes objects, uploads only missing bytes, moves the DraftRef with CAS, and creates a private PreviewRelease for every renderable commit. It never activates the public site.
 
-File bytes never enter a zeroY tool argument or result. The Agent edits the returned local checkout with ordinary local file tools. Transport IDs, object hashes, revision chains, retries, browser evidence, and activation remain extension-owned.
+File bytes never enter a zeroY tool argument or result. The Agent edits the returned local checkout with ordinary local file tools. Transport IDs, object hashes, revision chains, retries, browser evidence, and public activation remain extension-owned. Only an administrator may publish a proof-ready PreviewRelease.
 
 ## Checkout layout
 
@@ -44,12 +45,12 @@ The descriptor and unresolved push envelope live under `.zeroy/` and are extensi
 
 1. Inspect `sites`, then checkout the active release or a DraftRef.
 2. Checkout `active-release`, or resume a named `refs/drafts/...` ref.
-3. Start at `.zeroy/README.md`, `.zeroy/status.md`, and `.zeroy/repair-frontier.json`; follow only the exact contracts/templates/diagnostics linked by the selected repair group.
-4. Edit ordinary files and push `checkpoint` at recovery or compilation milestones. Every checkpoint stores an immutable BuildResult and refreshes `.zeroy/` atomically.
-5. Push `release` only when the exact BuildResult is ready. If proof blocks, repair the same checkout and checkpoint again.
-6. Finish with `integrity` and `externalCheck`.
+3. Start at `.zeroy/README.md`, `.zeroy/brief.json`, and `.zeroy/review.json`; Brief is administrator-owned intent and Review is the current evidence-backed repair projection.
+4. Edit ordinary files and Push every coherent repair slice. Each Push stores an immutable Commit, refreshes `.zeroy/` atomically, and creates an administrator-only PreviewRelease when the Commit is renderable.
+5. After each Push inspect `review`. Repair the current bounded gaps until the exact private PreviewRelease is proof-ready.
+6. Finish with `current`, `review`, `integrity`, and `proof`. Do not attempt public publication.
 
-A checkpoint never activates the public site. A release only activates when its Proof binds the same SiteCommit and the active release CAS still matches its base.
+Push never activates the public site. An administrator publishes only when Brief, Commit, PreviewRelease, Proof, and the active release CAS bind the same exact version.
 
 ## Theme, SiteLogic, and localization
 
@@ -77,4 +78,4 @@ pnpm verify
 git diff --check
 ```
 
-`acceptance:headless` requires `ZEROY_SITES`, `ZEROY_ACCEPTANCE_SITE_ID`, and `ZEROY_ACCEPTANCE_MODEL`. It gives Pi the three zeroY tools plus ordinary local file tools, then verifies checkout, local editing, release push, integrity, and external page evidence from the persisted Pi session ledger.
+`acceptance:headless` requires `ZEROY_SITES`, `ZEROY_ACCEPTANCE_SITE_ID`, and `ZEROY_ACCEPTANCE_MODEL`. It gives Pi the three zeroY tools plus ordinary local file tools, then verifies checkout recovery, local editing, repeated private Pushes, Review convergence, proof readiness, and that Agent work did not publish the public site.

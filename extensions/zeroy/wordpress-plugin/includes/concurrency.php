@@ -4,6 +4,18 @@
 
 defined('ABSPATH') || exit;
 
+/**
+ * SQLite is a storage capability boundary, not a SiteRelease policy.  The
+ * adapter accepts VARCHAR(n) syntax but does not enforce its length and lacks
+ * several MySQL DDL/locking operations, so every dialect-specific mechanism
+ * must derive from this one fact.
+ */
+function zeroy_runtime_uses_sqlite(): bool
+{
+    global $wpdb;
+    return is_object($wpdb) && is_a($wpdb, 'WP_SQLite_DB');
+}
+
 function zeroy_runtime_transaction(callable $operation): mixed
 {
     global $wpdb;
@@ -54,7 +66,7 @@ function zeroy_runtime_acquire_content_lease(): true|WP_Error
 function zeroy_runtime_with_process_file_lock(string $name, string $error_code, string $description, callable $operation): mixed
 {
     if (preg_match('/\A[a-z0-9-]+\z/', $name) !== 1) return zeroy_runtime_error($error_code, "Invalid {$description} lock identity.", 500);
-    $directory = WP_CONTENT_DIR . '/zeroy-runtime/locks';
+    $directory = zeroy_runtime_private_storage_root() . '/locks';
     if (!wp_mkdir_p($directory)) return zeroy_runtime_error($error_code, "Could not create the {$description} lock directory.", 500);
     $handle = fopen($directory . '/' . $name . '.lock', 'c');
     if (!is_resource($handle) || !flock($handle, LOCK_EX)) {
@@ -82,7 +94,7 @@ function zeroy_runtime_with_site_release_lock(callable $operation): mixed
     // transaction would hide the candidate row from that verifier, so SQLite
     // uses one process-safe file lease for the whole corridor. The actual
     // content/pointer mutation still opens its own SQL transaction.
-    if (get_class($wpdb) === 'WP_SQLite_DB') {
+    if (zeroy_runtime_uses_sqlite()) {
         return zeroy_runtime_with_process_file_lock('site-release', 'zeroy_site_release_lock_unavailable', 'SiteRelease', $operation);
     }
     // MySQL needs GET_LOCK because its DDL commits an SQL transaction

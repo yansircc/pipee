@@ -23,6 +23,8 @@ $config['enabledLocales'] = [
 $config['siteCopy'] = ['site_name' => 'ZeroY Industrial Systems'];
 $written = zeroy_runtime_write_site_config_locked($config, 1);
 if (is_wp_error($written)) { echo wp_json_encode(['error' => $written->get_error_code(), 'message' => $written->get_error_message(), 'data' => $written->get_error_data()]); return; }
+$brief = zeroy_review_set_brief('Build a complete industrial manufacturer website for international buyers. English is default; Japanese and Italian must be equivalent. Deliver a distinctive, responsive homepage, every declared CPT archive, taxonomy and singular, contact flow, search, 404, accessible navigation, real ACF data rendering, and accurate multilingual SEO. Keep working through Review until the private PreviewRelease is proof-ready.');
+if (is_wp_error($brief)) { echo wp_json_encode(['error' => $brief->get_error_code(), 'message' => $brief->get_error_message(), 'data' => $brief->get_error_data()]); return; }
 
 $preserved = ['acf-post-type', 'acf-taxonomy', 'acf-field-group', 'acf-field', 'acf-ui-options-page'];
 $ids = $wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type NOT IN ('" . implode("','", $preserved) . "')");

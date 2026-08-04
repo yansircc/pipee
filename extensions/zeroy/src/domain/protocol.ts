@@ -46,6 +46,27 @@ export const InspectInputContract = Type.Union([
   Type.Object({ siteId: SiteId, resource: Type.Literal("site") }),
   Type.Object({
     siteId: SiteId,
+    resource: Type.Literal("current"),
+    draftRef: Type.Optional(Type.String({ pattern: "^refs/drafts/" })),
+    buildId: Type.Optional(ObjectHash),
+  }),
+  Type.Object({
+    siteId: SiteId,
+    resource: Type.Literal("review"),
+    reviewView: Type.Optional(
+      Type.Union([Type.Literal("summary"), Type.Literal("actions")], {
+        description:
+          "Optional when resource = review; defaults to summary. actions returns complete derived gaps in bounded pages; Agent never closes them manually.",
+      }),
+    ),
+    commit: Type.Optional(ObjectHash),
+    draftRef: Type.Optional(Type.String({ pattern: "^refs/drafts/" })),
+    buildId: Type.Optional(ObjectHash),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+    cursor: Type.Optional(Type.String({ minLength: 1 })),
+  }),
+  Type.Object({
+    siteId: SiteId,
     resource: Type.Literal("proof"),
     proofId: Type.String({ minLength: 1 }),
     proofView: Type.Optional(
@@ -101,7 +122,6 @@ export const PushInputContract = Type.Object(
   {
     siteId: SiteId,
     checkoutId: Type.String({ minLength: 1 }),
-    mode: Type.Union([Type.Literal("checkpoint"), Type.Literal("release")]),
     message: Type.Optional(Type.String({ maxLength: 500 })),
   },
   { additionalProperties: false },
@@ -120,9 +140,9 @@ const BrowserContrastPairContract = Type.Object({
   minimum: Type.Number({ minimum: 1 }),
 });
 export const BrowserVerificationChallengeContract = Type.Object({
-  contract: Type.Literal("zeroy/browser-verification-challenge@2"),
+  contract: Type.Literal("zeroy/browser-verification-challenge@4"),
   verifier: Type.Object({
-    id: Type.Literal("zeroy/pi-browser-verifier@2"),
+    id: Type.Literal("zeroy/pi-browser-verifier@4"),
     version: Type.Literal("1"),
   }),
   releaseId: Type.String({ minLength: 1 }),
@@ -155,33 +175,42 @@ export const BrowserVerificationChallengeContract = Type.Object({
 });
 export type BrowserVerificationChallenge = Static<typeof BrowserVerificationChallengeContract>;
 
-const BrowserResultContract = Type.Object({
-  scenario: Type.String({ minLength: 1 }),
-  viewport: Type.String({ minLength: 1 }),
-  status: Type.Integer({ minimum: 100, maximum: 599 }),
-  routeKind: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
-  stylesheetIdentity: Type.String(),
-  stylesheets: Type.Array(Type.String()),
-  documentClientWidth: Type.Integer({ minimum: 1 }),
-  documentScrollWidth: Type.Integer({ minimum: 1 }),
-  overflowElements: Type.Integer({ minimum: 0 }),
-  overflowSamples: Type.Array(Type.String({ minLength: 1 }), { maxItems: 5 }),
-  mediaOverflowElements: Type.Integer({ minimum: 0 }),
-  mediaOverflowSamples: Type.Array(Type.String({ minLength: 1 }), { maxItems: 5 }),
-  focusVisible: Type.Union([Type.Boolean(), Type.Null()]),
-  reducedMotion: Type.Boolean(),
-  contrastRatios: Type.Record(Type.String({ minLength: 1 }), Type.Number({ minimum: 0 })),
-  renderedFields: Type.Array(Type.String({ pattern: "^/acf/" })),
-});
+const BrowserResultContract = Type.Object(
+  {
+    scenario: Type.String({ minLength: 1 }),
+    viewport: Type.String({ minLength: 1 }),
+    status: Type.Integer({ minimum: 100, maximum: 599 }),
+    routeKind: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+    stylesheetIdentity: Type.String(),
+    stylesheets: Type.Array(Type.String()),
+    documentClientWidth: Type.Integer({ minimum: 1 }),
+    documentScrollWidth: Type.Integer({ minimum: 1 }),
+    overflowElements: Type.Integer({ minimum: 0 }),
+    overflowSamples: Type.Array(Type.String({ minLength: 1 }), { maxItems: 5 }),
+    mediaOverflowElements: Type.Integer({ minimum: 0 }),
+    mediaOverflowSamples: Type.Array(Type.String({ minLength: 1 }), { maxItems: 5 }),
+    focusVisible: Type.Union([Type.Boolean(), Type.Null()]),
+    reducedMotion: Type.Boolean(),
+    contrastRatios: Type.Record(Type.String({ minLength: 1 }), Type.Number({ minimum: 0 })),
+    visibleTextContrastFailures: Type.Integer({ minimum: 0 }),
+    visibleTextContrastSamples: Type.Array(Type.String({ minLength: 1 }), { maxItems: 5 }),
+    visibleTextContrastIndeterminate: Type.Integer({ minimum: 0 }),
+    visibleTextContrastIndeterminateSamples: Type.Array(Type.String({ minLength: 1 }), {
+      maxItems: 5,
+    }),
+    renderedFields: Type.Array(Type.String({ pattern: "^/acf/" })),
+  },
+  { additionalProperties: false },
+);
 export const BrowserEvidenceContract = Type.Object({
-  contract: Type.Literal("zeroy/browser-evidence@2"),
+  contract: Type.Literal("zeroy/browser-evidence@4"),
   challengeHash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
   releaseId: Type.String({ minLength: 1 }),
   themeArtifactId: Type.String({ minLength: 1 }),
   scenarioSetHash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
   stylesheetSetHash: Type.String({ pattern: "^[a-f0-9]{64}$" }),
   verifier: Type.Object({
-    id: Type.Literal("zeroy/pi-browser-verifier@2"),
+    id: Type.Literal("zeroy/pi-browser-verifier@4"),
     version: Type.Literal("1"),
     engine: Type.String({ minLength: 1 }),
     engineVersion: Type.String({ minLength: 1 }),
@@ -204,13 +233,14 @@ export const SiteReleaseReceiptContract = Type.Object({
   storageEpoch: Type.Integer({ minimum: 0 }),
   snapshotHash: Type.String({ minLength: 64, maxLength: 64 }),
   expectedActiveReleaseId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
+  reviewBriefHash: Type.Union([Type.String({ minLength: 64, maxLength: 64 }), Type.Null()]),
   state: Type.Union([
-    Type.Literal("preparing"),
-    Type.Literal("awaiting-browser"),
-    Type.Literal("prepared"),
-    Type.Literal("failed"),
+    Type.Literal("preview-awaiting-browser"),
+    Type.Literal("preview"),
+    Type.Literal("proof-ready"),
     Type.Literal("active"),
     Type.Literal("superseded"),
+    Type.Literal("discarded"),
   ]),
   proofId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
   activeReleaseId: Type.Union([Type.String({ minLength: 1 }), Type.Null()]),
@@ -472,6 +502,17 @@ export const decodeInspectInput = (
 ): ProtocolResult<InspectInput, ToolInputValidationError | ProviderSchemaProjectionError> => {
   const decoded = decodeDiscriminated<InspectInput>(InspectInputContract, "resource", input);
   if (decoded._tag === "Failure") return decoded;
+  if (
+    decoded.value.resource === "review" &&
+    decoded.value.commit !== undefined &&
+    decoded.value.draftRef !== undefined
+  ) {
+    return failure(
+      new ToolInputValidationError({
+        message: "review accepts either commit or draftRef, not both.",
+      }),
+    );
+  }
   if (decoded.value.resource !== "commit") return decoded;
   const view = decoded.value.commitView ?? "summary";
   if (view === "summary" && decoded.value.commit === undefined) {
@@ -491,6 +532,6 @@ export const decodePushInput = (input: unknown) =>
   decodeExact<PushInput>(PushInputContract, "push", input);
 
 export const CHECKOUT_PROMPT_GUIDELINES =
-  "Inspect sites and refs, checkout one active release or DraftRef, then begin at .zeroy/README.md. Edit only normal authored files in that checkout; .zeroy is a derived, read-only contract and diagnostic projection. Push checkpoints at milestones and release only when .zeroy/status.md reports ready. The extension owns object hashes, CAS, rebase, retries, BuildResult, proof, and activation.";
+  "Inspect current state and refs, checkout one active release or DraftRef, then begin at .zeroy/README.md. Edit only normal authored files in that checkout; .zeroy is a derived, read-only Brief and Review projection. Push each coherent repair slice. Every renderable push becomes an administrator-only PreviewRelease; the extension owns object hashes, CAS, rebase, retries, BuildResult, browser evidence, and Proof. Only an administrator may publish a proof-ready PreviewRelease to the public site.";
 
 export type JsonRecord = Readonly<Record<string, unknown>>;

@@ -25,10 +25,10 @@ try {
     model: process.env.ZEROY_ACCEPTANCE_MODEL,
     cwd: temporary,
     sessions: resolve(temporary, "bootstrap-sessions"),
-    name: "zeroY SiteCheckout recovery checkpoint",
+    name: "zeroY SiteCheckout recovery slice",
     env: withLoopbackNoProxy({ ...process.env, ZEROY_SITES: process.env.ZEROY_SITES }, sites),
     timeoutMs: 600_000,
-    prompt: `Create the remote recovery point for zeroY site ${siteId}. Use only the three zeroY tools and ordinary local file tools inside the path returned by zeroy_checkout. Do not call read, write, edit, or bash before zeroy_checkout returns a path. After checkout, every read/write/edit path must be inside that checkout and every bash command, including pwd or status checks, must literally contain and cd to the absolute checkout path returned by zeroy_checkout. Inspect sites, checkout the bootstrap active release, read .zeroy/README.md, preserve every Connector-staged English WordPress/ACF seed, ensure site.json uses English as default plus Japanese and Italian, and push one checkpoint even if the BuildResult is invalid. Do not inspect this repository, LocalWP, processes, environment variables, localhost REST, or any checkout sibling. Do not build the theme or release yet. Report the DraftRef and stop.`,
+    prompt: `Create one remote recovery slice for zeroY site ${siteId}. Use only the three zeroY tools and ordinary local file tools inside the path returned by zeroy_checkout. Do not call read, write, edit, or bash before zeroy_checkout returns a path. After checkout, every read/write/edit path must be inside that checkout and every bash command, including pwd or status checks, must literally contain and cd to the absolute checkout path returned by zeroy_checkout. Inspect sites, checkout the bootstrap active release, read .zeroy/README.md, brief.json and review.json, preserve every Connector-staged English WordPress/ACF seed, ensure site.json uses English as default plus Japanese and Italian, and push one coherent slice even if its BuildResult is invalid. Do not inspect this repository, LocalWP, processes, environment variables, localhost REST, or any checkout sibling. Do not build the theme or request public publication yet. Report the DraftRef and stop.`,
   });
   const execution = await runHeadlessPi({
     pi: resolve(root, "node_modules/.bin/pi"),
@@ -36,10 +36,10 @@ try {
     model: process.env.ZEROY_ACCEPTANCE_MODEL,
     cwd: temporary,
     sessions: resolve(temporary, "delivery-sessions"),
-    name: "zeroY SiteCheckout recovered delivery",
+    name: "zeroY SiteCheckout recovered private delivery",
     env: withLoopbackNoProxy({ ...process.env, ZEROY_SITES: process.env.ZEROY_SITES }, sites),
     timeoutMs: 3_600_000,
-    prompt: `This is a completely new session. Recover zeroY site ${siteId} only from the Connector DraftRef and its checkout projection: inspect refs, checkout the sole latest draft, then start from .zeroy/README.md and repair-frontier.json. Do not call read, write, edit, or bash before zeroy_checkout returns a path. After checkout, every read/write/edit path must be inside that checkout and every bash command, including pwd or status checks, must literally contain and cd to the absolute checkout path returned by zeroy_checkout. Do not inspect this repository, extension source, LocalWP, processes, environment variables, localhost REST, or any checkout sibling. Preserve the staged English WordPress and ACF business facts. Deliver a complete industrial website with English as default plus Japanese and Italian: header, footer, homepage, every mapped CPT singular and archive, every applicable taxonomy collection, contact page, search, and 404. Exercise the staged ACF repeater, relationship, taxonomy, and media data. Use checkpoints as needed, read exact linked contracts/templates/diagnostics, and do not guess field ids, revisions, hashes, transport ids, or WordPress ids. The final theme must include harmless marker ${run}. Push this same recovered checkout as a release; when proof is blocked, inspect proof repairGroups and repair only authored checkout files. Use failureInstances only when one repair group's bounded examples are insufficient to diagnose verifier execution. Finish by running integrity and externalCheck and report only after all scenarios pass.`,
+    prompt: `This is a completely new session. Recover zeroY site ${siteId} only from Connector facts: inspect current and refs, checkout the sole latest draft, then start from .zeroy/README.md, brief.json and review.json. Do not call read, write, edit, or bash before zeroy_checkout returns a path. After checkout, every read/write/edit path must be inside that checkout and every bash command, including pwd or status checks, must literally contain and cd to the absolute checkout path returned by zeroy_checkout. Do not inspect this repository, extension source, LocalWP, processes, environment variables, localhost REST, or any checkout sibling. Preserve the staged English WordPress and ACF business facts. Deliver a complete industrial website with English as default plus Japanese and Italian: header, footer, homepage, every mapped CPT singular and archive, every applicable taxonomy collection, contact page, search, and 404. Exercise the staged ACF repeater, relationship, taxonomy, and media data. Push each coherent repair slice. After every Push inspect review; repair only authored checkout files using its exact evidence and linked contracts/templates. Do not guess field ids, revisions, hashes, transport ids, or WordPress ids. The final theme must include harmless marker ${run}. Stop only when the exact private PreviewRelease is proof-ready. You must not attempt to publish the public site; public publication belongs to an administrator. Finish by inspecting current, review, proof and integrity, then report.`,
   });
   for (const runResult of [bootstrap, execution]) {
     const checkoutPaths = runResult.entries
@@ -89,40 +89,47 @@ try {
     pushes.every((entry) => checkoutIds.has(entry.input.checkoutId)),
     "Push escaped all materialized checkouts.",
   );
-  const release = pushes.find((entry) => entry.input.mode === "release");
-  assert(release, "No release push was exercised.");
-  assert.equal(release.result?.payload?.proof?.state, "verified", "Release proof is not verified.");
+  assert(
+    pushes.every((entry) => entry.input.mode === undefined),
+    "Legacy Push mode survived.",
+  );
+  const proofReady = [...pushes]
+    .reverse()
+    .find(
+      (entry) =>
+        entry.result?.payload?.proof?.state === "verified" &&
+        entry.result?.payload?.preview?.state === "proof-ready",
+    );
+  assert(proofReady, "No private proof-ready PreviewRelease was produced.");
   const changedPushes = pushes.filter((entry) => typeof entry.result?.payload?.commit === "string");
   assert(changedPushes.length > 0, "No push produced a new SiteCommit for the local change.");
   assert.equal(
-    release.result?.payload?.commit,
+    proofReady.result?.payload?.commit,
     changedPushes.at(-1)?.result?.payload?.commit,
-    "Release did not identify the changed checkpoint commit.",
+    "Proof-ready PreviewRelease did not identify the changed Commit.",
   );
   const resources = new Set(
     zeroY.filter((entry) => entry.name === "zeroy_inspect").map((entry) => entry.input.resource),
   );
-  for (const resource of ["sites", "refs", "integrity", "externalCheck"])
+  for (const resource of ["sites", "refs", "current", "review", "integrity"])
     assert(resources.has(resource), `Inspect ${resource} was not exercised.`);
   const integrity = [...zeroY]
     .reverse()
     .find((entry) => entry.name === "zeroy_inspect" && entry.input.resource === "integrity")
     ?.result?.payload;
   assert.equal(integrity?.ok, true, "Final Connector integrity is not green.");
-  const external = [...zeroY]
+  const finalCurrent = [...zeroY]
     .reverse()
-    .find(
-      (entry) =>
-        entry.name === "zeroy_inspect" &&
-        entry.input.resource === "externalCheck" &&
-        entry.result?.payload?.contract === "zeroy/external-check-summary@1",
-    )?.result?.payload;
-  assert.equal(external?.contract, "zeroy/external-check-summary@1");
-  assert.equal(external?.failureCount, 0, "External check reported failed pages.");
-  assert.equal(external?.brokenLinkCount, 0, "External check reported broken links.");
-  assert(typeof external?.pageCount === "number" && external.pageCount > 0);
+    .find((entry) => entry.name === "zeroy_inspect" && entry.input.resource === "current")
+    ?.result?.payload;
+  assert.equal(finalCurrent?.review?.state, "proof-ready", "Current Review is not proof-ready.");
+  assert.equal(
+    finalCurrent?.active?.releaseId === proofReady.result?.payload?.preview?.releaseId,
+    false,
+    "Agent Push leaked its PreviewRelease into the public ActiveRelease.",
+  );
   const releaseCheckout = checkouts.find(
-    (entry) => entry.result?.payload?.checkoutId === release.input.checkoutId,
+    (entry) => entry.result?.payload?.checkoutId === proofReady.input.checkoutId,
   );
   assert(releaseCheckout, "Release checkout path is not recoverable from the tool ledger.");
   const site = JSON.parse(
@@ -130,10 +137,16 @@ try {
   );
   assert.equal(site.defaultLocale, "en");
   assert.deepEqual(new Set(site.locales), new Set(["en", "ja", "it"]));
-  const routeKinds = new Set(Array.isArray(external.routeKinds) ? external.routeKinds : []);
-  for (const kind of ["front-page", "singular", "archive", "taxonomy", "search", "not-found"])
-    assert(routeKinds.has(kind), `External check did not cover ${kind}.`);
-  process.stdout.write("zeroY SiteCheckout headless acceptance passed.\n");
+  assert(
+    zeroY.some(
+      (entry) =>
+        entry.name === "zeroy_inspect" &&
+        entry.input.resource === "review" &&
+        entry.result?.payload?.review?.state === "proof-ready",
+    ),
+    "No proof-ready Review was observed after private delivery.",
+  );
+  process.stdout.write("zeroY SiteCheckout private preview headless acceptance passed.\n");
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }

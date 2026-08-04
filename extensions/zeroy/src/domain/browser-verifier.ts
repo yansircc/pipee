@@ -413,7 +413,9 @@ const evaluate = <Value>(page: CdpSession, expression: string) =>
     }),
   );
 
-const measurementExpression = (challenge: BrowserVerificationChallenge): string => `(() => {
+export const browserMeasurementExpression = (
+  challenge: BrowserVerificationChallenge,
+): string => `(() => {
   const pairs = ${JSON.stringify(challenge.contrastPairs)};
   const root = getComputedStyle(document.documentElement);
   const durationMs = value => Math.max(0, ...value.split(',').map(part => {
@@ -421,21 +423,79 @@ const measurementExpression = (challenge: BrowserVerificationChallenge): string 
     if (!Number.isFinite(number)) return 0;
     return item.endsWith('ms') ? number : number * 1000;
   }));
-  const rgb = value => {
-    const probe = document.createElement('span'); probe.style.color = value; probe.hidden = true;
-    document.body.append(probe); const normalized = getComputedStyle(probe).color; probe.remove();
-    const channels = (normalized.match(/[\\d.]+/g) || []).slice(0, 3).map(Number);
-    if (channels.length !== 3 || channels.some(channel => !Number.isFinite(channel))) throw new Error('Could not resolve browser color ' + value);
-    return channels;
+  const colorCanvas = document.createElement('canvas'); colorCanvas.width = 1; colorCanvas.height = 1;
+  const colorContext = colorCanvas.getContext('2d', { willReadFrequently: true });
+  const rgba = value => {
+    if (!colorContext || typeof value !== 'string' || value.trim() === '' || !CSS.supports('color', value)) throw new Error('Could not resolve browser color ' + value);
+    colorContext.clearRect(0, 0, 1, 1); colorContext.fillStyle = value; colorContext.fillRect(0, 0, 1, 1);
+    const channels = colorContext.getImageData(0, 0, 1, 1).data;
+    return [channels[0], channels[1], channels[2], channels[3] / 255];
+  };
+  const over = (foreground, background) => {
+    const alpha = foreground[3] + background[3] * (1 - foreground[3]);
+    if (alpha <= 0) return [0, 0, 0, 0];
+    return [0, 1, 2].map(index => (foreground[index] * foreground[3] + background[index] * background[3] * (1 - foreground[3])) / alpha).concat(alpha);
   };
   const luminance = color => {
     const channels = color.map(channel => { const normalized = channel / 255; return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4; });
     return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
   };
-  const contrast = (foreground, background) => { const left = luminance(rgb(foreground)); const right = luminance(rgb(background)); return (Math.max(left, right) + 0.05) / (Math.min(left, right) + 0.05); };
+  const contrastColors = (foreground, background) => { const left = luminance(foreground); const right = luminance(background); return (Math.max(left, right) + 0.05) / (Math.min(left, right) + 0.05); };
+  const contrast = (foreground, background) => contrastColors(rgba(foreground), rgba(background));
   const viewportWidth = document.documentElement.clientWidth;
   const elements = [...document.querySelectorAll('body *')].filter(element => { const style = getComputedStyle(element); return style.display !== 'none' && style.visibility !== 'hidden'; });
   const describe = element => element.tagName.toLowerCase() + (element.id ? '#' + element.id : '') + [...element.classList].slice(0, 3).map(name => '.' + name).join('');
+  const directText = element => [...element.childNodes].some(node => node.nodeType === Node.TEXT_NODE && (node.textContent || '').trim() !== '');
+  const visibleTextElements = elements.filter(element => {
+    if (!directText(element)) return false;
+    const rectangle = element.getBoundingClientRect();
+    if (rectangle.width < 1 || rectangle.height < 1) return false;
+    let current = element;
+    while (current) {
+      const style = getComputedStyle(current);
+      if (style.display === 'none' || style.visibility === 'hidden' || Number.parseFloat(style.opacity) <= 0.01) return false;
+      current = current.parentElement;
+    }
+    return true;
+  });
+  const backgroundFor = element => {
+    let background = [0, 0, 0, 0];
+    let current = element;
+    while (current) {
+      const style = getComputedStyle(current);
+      background = over(background, rgba(style.backgroundColor));
+      if (background[3] >= 0.999) return { color: background, unresolved: null };
+      if (style.backgroundImage !== 'none') return { color: background, unresolved: 'background-image' };
+      current = current.parentElement;
+    }
+    background = over(background, rgba(getComputedStyle(document.documentElement).backgroundColor));
+    return background[3] >= 0.999
+      ? { color: background, unresolved: null }
+      : { color: over(background, [255, 255, 255, 1]), unresolved: null };
+  };
+  const visibleTextContrast = visibleTextElements.map(element => {
+    const style = getComputedStyle(element);
+    const background = backgroundFor(element);
+    const fontSize = Number.parseFloat(style.fontSize);
+    const fontWeight = Number.parseInt(style.fontWeight, 10) || (style.fontWeight === 'bold' ? 700 : 400);
+    const required = fontSize >= 24 || (fontSize >= 18.66 && fontWeight >= 700) ? 3 : 4.5;
+    let opacity = 1;
+    let current = element;
+    while (current) {
+      opacity *= Number.parseFloat(getComputedStyle(current).opacity) || 0;
+      current = current.parentElement;
+    }
+    const foreground = rgba(style.color);
+    foreground[3] *= opacity;
+    const ratio = background.unresolved ? 0 : contrastColors(over(foreground, background.color), background.color);
+    return { element, ratio, required, unresolved: background.unresolved };
+  });
+  // A CSS cascade does not reveal the pixels under a gradient, image, video,
+  // or canvas. Never manufacture a ratio of zero for such a region: that
+  // would make every legitimate hero image a false blocking failure. Keep the
+  // observation for Review, while only a measured color pair can fail Proof.
+  const visibleTextContrastFailures = visibleTextContrast.filter(item => !item.unresolved && item.ratio + 0.0001 < item.required);
+  const visibleTextContrastIndeterminate = visibleTextContrast.filter(item => item.unresolved);
   const overflowing = elements.filter(element => { const rectangle = element.getBoundingClientRect(); return rectangle.right > viewportWidth + 1 || rectangle.left < -1; });
   const overflowingMedia = [...document.querySelectorAll('img, picture, video, canvas, svg, iframe')].filter(element => { const rectangle = element.getBoundingClientRect(); const parent = element.parentElement && element.parentElement.getBoundingClientRect(); return rectangle.right > viewportWidth + 1 || rectangle.left < -1 || (parent && rectangle.width > parent.width + 1); });
   const motionEscapes = elements.filter(element => { const style = getComputedStyle(element); const animated = style.animationName !== 'none'; const transitioned = durationMs(style.transitionDuration) > 0; return (animated && durationMs(style.animationDuration) > 0.011) || (transitioned && durationMs(style.transitionDuration) > 0.011); });
@@ -454,6 +514,10 @@ const measurementExpression = (challenge: BrowserVerificationChallenge): string 
     mediaOverflowSamples: overflowingMedia.slice(0, 5).map(describe),
     reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches && motionEscapes.length === 0,
     contrastRatios: Object.fromEntries(pairs.map(pair => [pair.id, contrast(root.getPropertyValue(pair.foreground), root.getPropertyValue(pair.background))])),
+    visibleTextContrastFailures: visibleTextContrastFailures.length,
+    visibleTextContrastSamples: visibleTextContrastFailures.slice(0, 5).map(item => describe(item.element) + ' contrast=' + item.ratio.toFixed(2) + ', minimum=' + item.required.toFixed(1) + (item.unresolved ? ', unresolved=' + item.unresolved : '')),
+    visibleTextContrastIndeterminate: visibleTextContrastIndeterminate.length,
+    visibleTextContrastIndeterminateSamples: visibleTextContrastIndeterminate.slice(0, 5).map(item => describe(item.element) + ' unresolved=' + item.unresolved),
     renderedFields: [...new Set(renderedFields)].sort()
   };
 })()`;
@@ -507,7 +571,10 @@ const executeChallenge = (
         if (!documentResponse) {
           return yield* failure(`Browser emitted no document response for ${scenario.id}.`);
         }
-        const measurements = yield* evaluate<Measurements>(page, measurementExpression(challenge));
+        const measurements = yield* evaluate<Measurements>(
+          page,
+          browserMeasurementExpression(challenge),
+        );
         yield* page.send("Input.dispatchKeyEvent", {
           type: "keyDown",
           key: "Tab",
@@ -549,14 +616,14 @@ const executeChallenge = (
     }
     const product = browserVersion.product;
     return {
-      contract: "zeroy/browser-evidence@2",
+      contract: "zeroy/browser-evidence@4",
       challengeHash: challenge.challengeHash,
       releaseId: challenge.releaseId,
       themeArtifactId: challenge.themeArtifactId,
       scenarioSetHash: challenge.scenarioSetHash,
       stylesheetSetHash: challenge.stylesheetSetHash,
       verifier: {
-        id: "zeroy/pi-browser-verifier@2",
+        id: "zeroy/pi-browser-verifier@4",
         version: "1",
         engine: "chromium-cdp",
         engineVersion: typeof product === "string" ? product : "unknown",
