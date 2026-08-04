@@ -112,6 +112,18 @@ describe("zeroY executed visible text contrast", () => {
           expect(result?.visibleTextContrastIndeterminateSamples.join("\n")).toContain(
             "p.gradient",
           );
+          const missingTokenEvidence = yield* verifyBrowserChallengeWithLocalBrowser({
+            ...challenge(`http://127.0.0.1:${address.port}`),
+            contrastPairs: [
+              {
+                id: "unloaded",
+                foreground: "--z-not-loaded-foreground",
+                background: "--z-not-loaded-background",
+                minimum: 4.5,
+              },
+            ],
+          });
+          expect(missingTokenEvidence.results[0]?.contrastRatios.unloaded).toBe(0);
           expect(Value.Check(BrowserEvidenceContract, evidence)).toBe(true);
           expect(
             Value.Check(BrowserEvidenceContract, {

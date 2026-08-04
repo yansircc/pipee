@@ -426,7 +426,7 @@ export const browserMeasurementExpression = (
   const colorCanvas = document.createElement('canvas'); colorCanvas.width = 1; colorCanvas.height = 1;
   const colorContext = colorCanvas.getContext('2d', { willReadFrequently: true });
   const rgba = value => {
-    if (!colorContext || typeof value !== 'string' || value.trim() === '' || !CSS.supports('color', value)) throw new Error('Could not resolve browser color ' + value);
+    if (!colorContext || typeof value !== 'string' || value.trim() === '' || !CSS.supports('color', value)) return null;
     colorContext.clearRect(0, 0, 1, 1); colorContext.fillStyle = value; colorContext.fillRect(0, 0, 1, 1);
     const channels = colorContext.getImageData(0, 0, 1, 1).data;
     return [channels[0], channels[1], channels[2], channels[3] / 255];
@@ -441,7 +441,14 @@ export const browserMeasurementExpression = (
     return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
   };
   const contrastColors = (foreground, background) => { const left = luminance(foreground); const right = luminance(background); return (Math.max(left, right) + 0.05) / (Math.min(left, right) + 0.05); };
-  const contrast = (foreground, background) => contrastColors(rgba(foreground), rgba(background));
+  // The verifier must report a missing or unloaded stylesheet as evidence, not
+  // abort the complete Push corridor. A zero pair is rejected by the exact
+  // server-side challenge contract and the stylesheet identity check explains
+  // the root cause in Review.
+  const contrast = (foreground, background) => {
+    const left = rgba(foreground); const right = rgba(background);
+    return left === null || right === null ? 0 : contrastColors(left, right);
+  };
   const viewportWidth = document.documentElement.clientWidth;
   const elements = [...document.querySelectorAll('body *')].filter(element => { const style = getComputedStyle(element); return style.display !== 'none' && style.visibility !== 'hidden'; });
   const describe = element => element.tagName.toLowerCase() + (element.id ? '#' + element.id : '') + [...element.classList].slice(0, 3).map(name => '.' + name).join('');
@@ -463,12 +470,16 @@ export const browserMeasurementExpression = (
     let current = element;
     while (current) {
       const style = getComputedStyle(current);
-      background = over(background, rgba(style.backgroundColor));
+      const color = rgba(style.backgroundColor);
+      if (color === null) return { color: background, unresolved: 'background-color' };
+      background = over(background, color);
       if (background[3] >= 0.999) return { color: background, unresolved: null };
       if (style.backgroundImage !== 'none') return { color: background, unresolved: 'background-image' };
       current = current.parentElement;
     }
-    background = over(background, rgba(getComputedStyle(document.documentElement).backgroundColor));
+    const rootBackground = rgba(getComputedStyle(document.documentElement).backgroundColor);
+    if (rootBackground === null) return { color: background, unresolved: 'root-background-color' };
+    background = over(background, rootBackground);
     return background[3] >= 0.999
       ? { color: background, unresolved: null }
       : { color: over(background, [255, 255, 255, 1]), unresolved: null };
@@ -486,6 +497,7 @@ export const browserMeasurementExpression = (
       current = current.parentElement;
     }
     const foreground = rgba(style.color);
+    if (foreground === null) return { element, ratio: 0, required, unresolved: 'foreground-color' };
     foreground[3] *= opacity;
     const ratio = background.unresolved ? 0 : contrastColors(over(foreground, background.color), background.color);
     return { element, ratio, required, unresolved: background.unresolved };
