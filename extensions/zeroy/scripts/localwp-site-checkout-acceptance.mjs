@@ -836,9 +836,13 @@ const invalidResult = await post("site-push", invalid);
 if (
   invalidResult.status !== 201 ||
   invalidResult.body?.build?.state !== "invalid" ||
-  invalidResult.body?.review?.state !== "build-failed"
+  invalidResult.body?.review?.state !== "build-failed" ||
+  invalidResult.body?.review?.remainingCount < 1 ||
+  !Array.isArray(invalidResult.body?.review?.next) ||
+  invalidResult.body.review.next.length === 0 ||
+  typeof invalidResult.body.review.next[0]?.repair !== "string"
 )
-  fail("Invalid Push was not preserved with an immutable BuildResult.", invalidResult);
+  fail("Invalid Push did not return an actionable bounded build-failure Review.", invalidResult);
 const invalidState = JSON.parse(
   wp(
     "eval",

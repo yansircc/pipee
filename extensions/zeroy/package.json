@@ -31,7 +31,7 @@
   },
   "scripts": {
     "verify": "pnpm run repo:verify && pnpm run pi:verify",
-    "repo:verify": "vp run quality && pnpm run site-objects:verify && pnpm run localized-document:verify",
+    "repo:verify": "vp run quality && pnpm run site-objects:verify && pnpm run localized-document:verify && pnpm run candidate-runtime:verify",
     "archive:verify": "node scripts/verify-site-release-boundaries.mjs",
     "test": "vp test",
     "pi:web-build": "node ../../tooling/pi-extension/build-web.mjs .",
@@ -53,6 +53,7 @@
     "zcss:verify": "php test-suite/zcss-pure-spike.php",
     "theme-units:verify": "php test-suite/theme-units-pure-spike.php",
     "site-objects:verify": "php test-suite/site-objects-cross-language.php",
+    "candidate-runtime:verify": "php test-suite/candidate-runtime-pure-spike.php",
     "localized-document:verify": "node scripts/verify-localized-document-hard-cut.mjs"
   },
   "devDependencies": {

@@ -114,18 +114,17 @@ function zeroy_review_sort_actions(array $actions): array
 function zeroy_review_evaluate(
     string $commit_hash,
     array $build,
+    array $diagnostics,
     ?array $release = null,
 ): array {
     $brief_projection = zeroy_review_brief_projection();
     $brief_hash = $brief_projection['briefHash'];
-    $diagnostics = zeroy_build_diagnostics((string) ($build['diagnosticsHash'] ?? ''));
-    $diagnostics = is_array($diagnostics) ? $diagnostics : [];
     $build_failures = array_values(array_filter($diagnostics['failures'] ?? [], 'is_array'));
     $routes = is_array($release) ? zeroy_review_route_lookup($release) : [];
     $actions = [];
     $state = 'revise';
 
-    if (($build['state'] ?? null) === 'invalid' && !is_array($diagnostics['candidate'] ?? null)) {
+    if (($build['state'] ?? null) === 'invalid') {
         foreach ($build_failures as $failure) $actions[] = zeroy_review_action($failure, $routes);
         $state = 'build-failed';
     } elseif ($release === null) {
@@ -187,9 +186,10 @@ function zeroy_review_evaluate(
 function zeroy_review_result(
     string $commit_hash,
     array $build,
+    array $diagnostics,
     ?array $release = null,
 ): array {
-    return zeroy_review_evaluate($commit_hash, $build, $release)['result'];
+    return zeroy_review_evaluate($commit_hash, $build, $diagnostics, $release)['result'];
 }
 
 function zeroy_review_record(array $review): array|WP_Error
@@ -263,16 +263,16 @@ function zeroy_review_load_build(string $commit_hash, ?string $build_id = null):
         return zeroy_runtime_error('zeroy_build_commit_mismatch', 'BuildResult does not belong to the requested SiteCommit.', 409, ['commit' => $commit_hash, 'buildId' => $build_id]);
     }
     $diagnostics = is_array($build['diagnostics'] ?? null) ? $build['diagnostics'] : [];
-    $result['diagnosticsHash'] = zeroy_runtime_hash($diagnostics);
-    return $result;
+    return ['build' => $result, 'diagnostics' => $diagnostics];
 }
 
 function zeroy_review_for_commit(string $commit_hash, ?string $build_id = null): array|WP_Error
 {
-    $result = zeroy_review_load_build($commit_hash, $build_id);
-    if (is_wp_error($result)) return $result;
-    $release = zeroy_review_release_for_build($commit_hash, (string) $result['buildId']);
-    $review = zeroy_review_result($commit_hash, $result, $release);
+    $loaded = zeroy_review_load_build($commit_hash, $build_id);
+    if (is_wp_error($loaded)) return $loaded;
+    $build = $loaded['build'];
+    $release = zeroy_review_release_for_build($commit_hash, (string) $build['buildId']);
+    $review = zeroy_review_result($commit_hash, $build, $loaded['diagnostics'], $release);
     return zeroy_review_record($review);
 }
 
@@ -283,10 +283,11 @@ function zeroy_review_for_commit(string $commit_hash, ?string $build_id = null):
  */
 function zeroy_review_actions_for_commit(string $commit_hash, ?string $build_id = null): array|WP_Error
 {
-    $result = zeroy_review_load_build($commit_hash, $build_id);
-    if (is_wp_error($result)) return $result;
-    $release = zeroy_review_release_for_build($commit_hash, (string) $result['buildId']);
-    return zeroy_review_evaluate($commit_hash, $result, $release)['actions'];
+    $loaded = zeroy_review_load_build($commit_hash, $build_id);
+    if (is_wp_error($loaded)) return $loaded;
+    $build = $loaded['build'];
+    $release = zeroy_review_release_for_build($commit_hash, (string) $build['buildId']);
+    return zeroy_review_evaluate($commit_hash, $build, $loaded['diagnostics'], $release)['actions'];
 }
 
 function zeroy_review_proof_ready_for_release(array $release): bool

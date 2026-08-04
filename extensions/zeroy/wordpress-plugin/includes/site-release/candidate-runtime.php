@@ -13,6 +13,47 @@ function zeroy_runtime_candidate_failure(string $code, string $invariant, array 
     ];
 }
 
+/**
+ * PHP may render an error before WordPress can turn it into structured data.
+ * The candidate response is untrusted diagnostic transport, not an API: retain
+ * only the error kind, message, basename, and line so no host path or page body
+ * crosses the Agent boundary.
+ */
+function zeroy_runtime_candidate_php_error(string $body): ?array
+{
+    if ($body === '') return null;
+    $text = html_entity_decode($body, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $text = preg_replace('/<br\\s*\\/?\s*>/i', "\n", $text) ?? $text;
+    $text = wp_strip_all_tags($text, false);
+    $lines = preg_split('/\\R/u', $text) ?: [];
+    foreach ($lines as $line) {
+        $line = trim((string) preg_replace('/[\\t ]+/', ' ', $line));
+        if ($line === '') continue;
+        $match = [];
+        if (preg_match('/\\b(?<kind>fatal error|parse error|warning|deprecated)\\b\\s*:\\s*(?<message>.+?)\\s+in\\s+(?<file>.+?)\\s+on\\s+line\\s+(?<line>\\d+)\\.?$/i', $line, $match) !== 1) {
+            if (preg_match('/\\b(?<kind>fatal error|parse error|warning|deprecated)\\b\\s*:\\s*(?<message>.+)$/i', $line, $match) !== 1) continue;
+        }
+        $kind = strtolower((string) $match['kind']);
+        $message = trim((string) preg_replace('/\\s+/', ' ', (string) $match['message']));
+        // Error messages can themselves contain an absolute path; redact it
+        // before projecting evidence beyond the WordPress host.
+        $message = (string) preg_replace('#(?<![A-Za-z0-9_.-])(?:[A-Za-z]:)?(?:/[^\\s<>()]+)+#', '<path>', $message);
+        $message = substr($message, 0, 400);
+        $file = isset($match['file']) ? basename(str_replace('\\\\', '/', trim((string) $match['file']))) : null;
+        $line_number = isset($match['line']) ? (int) $match['line'] : null;
+        $location = $file !== null && $file !== '' && $line_number !== null && $line_number > 0
+            ? ' at ' . $file . ':' . $line_number
+            : '';
+        return array_filter([
+            'kind' => $kind,
+            'file' => $file,
+            'line' => $line_number,
+            'evidence' => 'PHP ' . $kind . ': ' . $message . $location . '.',
+        ], static fn(mixed $value): bool => $value !== null && $value !== '');
+    }
+    return null;
+}
+
 function zeroy_runtime_candidate_runtime_checks(string $candidate_kind, string $candidate_id, array $scenarios): array
 {
     $checks = [];
@@ -38,8 +79,12 @@ function zeroy_runtime_candidate_runtime_checks(string $candidate_kind, string $
         if (!is_string($robots) || !str_contains(strtolower($robots), 'noindex')) {
             $failures[] = zeroy_runtime_candidate_failure('candidate_cache_boundary_missing', 'Candidate requests must never be indexable or publicly cacheable.', $scenario, 'X-Robots-Tag did not contain noindex.', 'Restore the Connector candidate request boundary.');
         }
-        if (preg_match('/(?:fatal error|parse error|\bwarning\b|\bdeprecated\b)/i', $body) === 1) {
-            $failures[] = zeroy_runtime_candidate_failure('candidate_php_error_output', 'Candidate runtime must not emit PHP errors into a public response.', $scenario, 'Candidate HTML contained a PHP error marker.', 'Repair the reported PHP runtime error and prepare a new release.');
+        $php_error = zeroy_runtime_candidate_php_error($body);
+        if ($php_error !== null) {
+            $failure = zeroy_runtime_candidate_failure('candidate_php_error_output', 'Candidate runtime must not emit PHP errors into a public response.', $scenario, (string) $php_error['evidence'], 'Repair the reported PHP runtime error and prepare a new release.');
+            if (is_string($php_error['file'] ?? null)) $failure['file'] = $php_error['file'];
+            if (is_int($php_error['line'] ?? null)) $failure['line'] = $php_error['line'];
+            $failures[] = $failure;
         }
     }
     return ['checks' => $checks, 'failures' => $failures];
