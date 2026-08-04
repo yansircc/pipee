@@ -399,14 +399,14 @@ function zeroy_build_compile(string $commit_hash): array|WP_Error
         : (zeroy_build_candidate_is_renderable($candidate, $verification) ? 'renderable' : 'invalid');
     if (is_array($candidate) && is_array($candidate['compiled'] ?? null)) $compiled = $candidate['compiled'];
     $snapshot_hash = is_array($candidate) && is_string($candidate['snapshot']['snapshotHash'] ?? null) ? $candidate['snapshot']['snapshotHash'] : null;
-    $projection = zeroy_workspace_contract_projection($files, $compiled, $failures, $build_id, $state);
+    $projection = zeroy_workspace_contract_projection($files, $compiled, $failures, $build_id, $state, $adoption['files']);
     $budget_failures = zeroy_workspace_projection_budget_failures($projection);
     if ($budget_failures !== []) {
         $failures = [...$failures, ...zeroy_build_tag_failures($budget_failures, 'workspace-projection')];
         $state = 'invalid';
         $candidate = null;
         $snapshot_hash = null;
-        $projection = zeroy_workspace_contract_projection($files, $compiled, $failures, $build_id, $state);
+        $projection = zeroy_workspace_contract_projection($files, $compiled, $failures, $build_id, $state, $adoption['files']);
     }
     $projection['.zeroy/status.json'] = [
         'analyzedCommit' => $commit_hash,

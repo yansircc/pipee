@@ -349,7 +349,7 @@ function zeroy_workspace_json_schema_wire(mixed $schema): mixed
     return $result === [] ? new stdClass() : $result;
 }
 
-function zeroy_workspace_contract_projection(array $files, ?array $compiled, array $failures, string $build_id, string $state): array
+function zeroy_workspace_contract_projection(array $files, ?array $compiled, array $failures, string $build_id, string $state, array $authored_seeds = []): array
 {
     $decode_failures = [];
     $site = zeroy_document_decode_site($files, $decode_failures);
@@ -418,8 +418,16 @@ function zeroy_workspace_contract_projection(array $files, ?array $compiled, arr
         $contracts[".zeroy/contracts/locales/{$locale}/site-copy.schema.json"] = zeroy_workspace_site_copy_schema($site_copy_keys, true);
         $templates[".zeroy/templates/locales/{$locale}/site-copy.json"] = new stdClass();
     }
+    $map_files = $files;
+    foreach ($authored_seeds as $path => $seed) {
+        if (!is_string($path) || !zeroy_checkout_path_is_safe($path) || !is_array($seed)) continue;
+        $map_files[$path] = ['bytes' => (string) ($seed['content'] ?? '')];
+    }
     $projection = [];
-    $projection['.zeroy/README.md'] = "# zeroY workspace\n\nRead brief.json and review.json before editing. Edit only authored roots site.json, artifacts/, content/, locales/, and media/. locales/ is a top-level sibling of content/; content/locales/ is invalid. A file under .zeroy/templates/<path> is copied to the authored <path> by removing only the .zeroy/templates/ prefix. Theme PHP reads only zeroy_theme_context(); its exact input shape is .zeroy/contracts/theme-context.schema.json. Theme CSS may use custom selectors, Grid, Flex, gradients, pseudo-elements, animations, and media/container queries. The compiler owns only the reserved .z-* and --z-* namespaces. Push after one coherent repair slice; publication belongs to an administrator.\n";
+    $map = zeroy_workspace_construction_map($map_files, $site, $compiled, $failures, $build_id, $state);
+    $projection['.zeroy/README.md'] = "# zeroY workspace\n\nRead brief.json, construction-map.json, and review.json before editing. construction-map.json is the bounded generated index of routes, ACF fields, mock data, artifact paths, and current diagnostics for this exact checkout. Edit only authored roots site.json, artifacts/, content/, locales/, and media/. locales/ is a top-level sibling of content/; content/locales/ is invalid. A file under .zeroy/templates/<path> is copied to the authored <path> by removing only the .zeroy/templates/ prefix. Theme PHP reads only zeroy_theme_context(); its exact input shape is .zeroy/contracts/theme-context.schema.json. Theme CSS may use custom selectors, Grid, Flex, gradients, pseudo-elements, animations, and media/container queries. The compiler owns only the reserved .z-* and --z-* namespaces. Push after one coherent repair slice; publication belongs to an administrator.\n";
+    $projection['.zeroy/construction-map.json'] = $map;
+    $projection['.zeroy/construction-map.md'] = zeroy_workspace_construction_map_markdown($map);
     $projection['.zeroy/status.json'] = ['buildId' => $build_id, 'state' => $state];
     $projection['.zeroy/status.md'] = "# Build status\n\nBuild: {$build_id}\nState: {$state}\nFailures: " . count($failures) . "\n";
     $projection['.zeroy/diagnostics/summary.md'] = "# Diagnostics\n\n" . count($failures) . " blocking failure(s).\n";

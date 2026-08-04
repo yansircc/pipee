@@ -71,6 +71,7 @@ require_once __DIR__ . '/includes/site-release/preview.php';
 require_once __DIR__ . '/includes/site-checkout/projection.php';
 require_once __DIR__ . '/includes/site-checkout/document-algebra.php';
 require_once __DIR__ . '/includes/site-checkout/adoption-projection.php';
+require_once __DIR__ . '/includes/site-checkout/workspace-onboarding.php';
 require_once __DIR__ . '/includes/site-checkout/workspace-contract.php';
 require_once __DIR__ . '/includes/site-checkout/compiler.php';
 require_once __DIR__ . '/includes/site-checkout/build-result.php';

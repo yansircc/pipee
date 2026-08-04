@@ -194,6 +194,8 @@ if (is_wp_error($build)) {
 $commit = zeroy_checkout_commit_row($commitHash);
 $files = zeroy_checkout_read_tree_files((string) $commit['tree_hash']);
 $site = json_decode((string) $files['site.json']['bytes'], true);
+$mapBytes = $build['diagnostics']['workspaceProjection']['.zeroy/construction-map.json'] ?? null;
+$constructionMap = is_string($mapBytes) ? json_decode($mapBytes, true) : null;
 $invalidSeedRoutes = [];
 $seedContracts = [];
 foreach ($build['diagnostics']['authoredSeeds'] ?? [] as $path => $seed) {
@@ -212,6 +214,7 @@ echo wp_json_encode([
     'termContracts' => array_values(array_filter(array_keys($build['diagnostics']['workspaceProjection'] ?? []), static fn(string $path): bool => str_starts_with($path, '.zeroy/contracts/content/terms/'))),
     'seedContracts' => $seedContracts,
     'invalidSeedRoutes' => $invalidSeedRoutes,
+    'constructionMap' => $constructionMap,
 ]);`,
     ],
     { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
@@ -244,6 +247,23 @@ echo wp_json_encode([
     "production-line",
     "service",
   ]);
+  assert.equal(
+    bootstrap.constructionMap?.contract,
+    "zeroy/workspace-construction-map@1",
+    `Bootstrap did not project a bounded construction map: ${JSON.stringify(bootstrap)}`,
+  );
+  assert.deepEqual(bootstrap.constructionMap?.site?.locales, ["en", "ja", "it"]);
+  assert.equal(bootstrap.constructionMap?.site?.collections?.length, 5);
+  assert(
+    bootstrap.constructionMap?.site?.collections?.some(
+      (collection) =>
+        collection.collectionId === "machine" &&
+        collection.canonical.count === 3 &&
+        collection.acfFields.some((field) => field.fieldKey === "field_machine_specs"),
+    ),
+    `Construction map did not expose the machine ACF surface: ${JSON.stringify(bootstrap.constructionMap)}`,
+  );
+  assert.equal(bootstrap.constructionMap?.diagnostics?.failureCount, 17);
   for (const expected of [
     "content/posts/machine/ring-die-pellet-mill.json",
     "content/posts/production-line/animal-feed-pellet-line.json",
