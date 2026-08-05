@@ -19,17 +19,23 @@ export type ZeroYToolFailure =
   | ProviderSchemaProjectionError
   | ToolInputValidationError;
 
-const forbiddenAgentResultKeys = new Set([
-  "fieldId",
-  "sourceHash",
-  "revision",
-  "currentRevision",
-  "expectedRevision",
-  "overlay",
-  "operationSummaries",
-  "bytesBase64",
-  "fileContent",
-]);
+const isJsonValue = (value: unknown, ancestors = new WeakSet<object>()): boolean => {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) {
+    if (ancestors.has(value)) return false;
+    ancestors.add(value);
+    const valid = value.every((entry) => isJsonValue(entry, ancestors));
+    ancestors.delete(value);
+    return valid;
+  }
+  if (typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) return false;
+  if (ancestors.has(value)) return false;
+  ancestors.add(value);
+  const valid = Object.values(value).every((entry) => isJsonValue(entry, ancestors));
+  ancestors.delete(value);
+  return valid;
+};
 
 export const agentResultBoundary = (
   value: unknown,
@@ -37,25 +43,9 @@ export const agentResultBoundary = (
 ):
   | { readonly ok: true; readonly encoded: string }
   | { readonly ok: false; readonly reason: string } => {
-  const visit = (entry: unknown, path: string): string | null => {
-    if (Array.isArray(entry)) {
-      for (let index = 0; index < entry.length; index++) {
-        const violation = visit(entry[index], `${path}[${index}]`);
-        if (violation !== null) return violation;
-      }
-      return null;
-    }
-    if (typeof entry !== "object" || entry === null) return null;
-    for (const [key, child] of Object.entries(entry)) {
-      if (forbiddenAgentResultKeys.has(key)) return `${path}.${key}`;
-      const violation = visit(child, `${path}.${key}`);
-      if (violation !== null) return violation;
-    }
-    return null;
-  };
-  const violation = visit(value, "$");
-  if (violation !== null) return { ok: false, reason: `forbidden internal field at ${violation}` };
+  if (!isJsonValue(value)) return { ok: false, reason: "result is not a finite JSON value" };
   const encoded = JSON.stringify(value, null, 2);
+  if (encoded === undefined) return { ok: false, reason: "result is not JSON serializable" };
   const bytes = Buffer.byteLength(encoded, "utf8");
   return bytes <= maxBytes
     ? { ok: true, encoded }

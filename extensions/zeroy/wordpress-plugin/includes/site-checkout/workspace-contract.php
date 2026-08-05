@@ -203,7 +203,9 @@ function zeroy_workspace_review_schema(array $writable): array
         if (is_array($schema['additionalProperties'] ?? null)) $result['additionalProperties'] = $project($schema['additionalProperties']);
         return $result;
     };
-    return $project(['type' => 'object', 'properties' => $writable]);
+    $schema = $project(['type' => 'object', 'properties' => $writable]);
+    $schema['description'] = 'Optional stale-source acknowledgement only. Omit review for a new locale document or any leaf that is not listed stale in the current repair frontier; use it only to confirm a changed stale leaf.';
+    return $schema;
 }
 
 function zeroy_workspace_site_schema(): array

@@ -38,6 +38,7 @@ import {
   withLivePresentation,
   withSiteMutationGate,
 } from "./session.js";
+import { pushAgentProjection } from "./push-result.js";
 import { result, text, type ZeroYToolFailure } from "./tool-result.js";
 
 type CheckoutDescriptor = {
@@ -1730,7 +1731,7 @@ export const pushTool = (
           ])).trim();
           yield* mapZeroYGitRefs(located.root, commitId, next.remoteRef, acceptedGitCommit);
           return result(
-            text(receipt),
+            text(pushAgentProjection(receipt)),
             "zeroY repair slice pushed",
             "The exact Commit is saved. A renderable Commit has an administrator-only PreviewRelease and its Proof/Review now determine the next repair slice; only an administrator can publish a proof-ready version.",
             [

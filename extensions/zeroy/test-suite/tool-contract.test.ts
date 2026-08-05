@@ -103,11 +103,9 @@ describe("zeroY SiteCheckout tool contracts", () => {
     }
   });
 
-  it("fails closed before internal compiler state or unbounded receipts enter context", () => {
+  it("accepts bounded exact outcomes without confusing actionable facts for raw receipts", () => {
     expect(agentResultBoundary({ build: { buildId: `sha256:${"a".repeat(64)}` } }).ok).toBe(true);
-    for (const key of ["fieldId", "sourceHash", "revision", "overlay", "bytesBase64"]) {
-      expect(agentResultBoundary({ nested: { [key]: "private" } }).ok).toBe(false);
-    }
+    expect(agentResultBoundary({ outcome: { fieldId: "/post/title", revision: 1 } }).ok).toBe(true);
     expect(agentResultBoundary({ payload: "x".repeat(17 * 1024) }).ok).toBe(false);
   });
 
