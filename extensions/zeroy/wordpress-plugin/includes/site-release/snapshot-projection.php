@@ -33,9 +33,48 @@ function zeroy_runtime_snapshot_route_url(array $snapshot, string $locale, strin
         if (!is_array($locale_config) || ($locale_config['locale'] ?? null) !== $locale) continue;
         $prefix = is_string($locale_config['urlPrefix'] ?? null) ? trim($locale_config['urlPrefix'], '/') : '';
         $path = trim(($prefix === '' ? '' : $prefix . '/') . trim($route, '/'), '/');
+        $preview = zeroy_runtime_preview_release_context();
+        if (is_array($preview) && ($preview['kind'] ?? null) === 'administrator-preview' && is_array($preview['release'] ?? null) && is_string($preview['release']['release_id'] ?? null)) {
+            return zeroy_runtime_admin_preview_url((string) $preview['release']['release_id'], $path);
+        }
         return rtrim($site['baseUrl'], '/') . '/' . ($path === '' ? '' : $path . '/');
     }
     return zeroy_runtime_error('zeroy_site_snapshot_locale_missing', 'SiteSnapshot does not contain the requested locale.', 404, ['locale' => $locale]);
+}
+
+/**
+ * SiteSnapshot persists route identities, while URL authority belongs to the
+ * request Release. Re-project item URLs at read time so an administrator
+ * Preview never leaks navigation into the public ActiveRelease namespace.
+ */
+function zeroy_runtime_snapshot_context_item(array $snapshot, array $item): array
+{
+    $locale = $item['locale'] ?? null;
+    $route = $item['route'] ?? null;
+    if (!is_string($locale) || !is_string($route)) return $item;
+    $url = zeroy_runtime_snapshot_route_url($snapshot, $locale, $route);
+    if (!is_wp_error($url)) $item['url'] = $url;
+    return $item;
+}
+
+/** Theme artifacts receive the complete contextual route projection, never a route builder. */
+function zeroy_runtime_snapshot_context_route_urls(array $snapshot): array
+{
+    $route_urls = $snapshot['routeUrls'] ?? null;
+    $locales = $snapshot['site']['enabledLocales'] ?? null;
+    if (!is_array($route_urls) || !is_array($locales)) return [];
+    $result = [];
+    foreach ($route_urls as $route_id => $routes) {
+        if (!is_string($route_id) || !is_array($routes)) continue;
+        foreach ($locales as $locale_config) {
+            $locale = is_array($locale_config) ? ($locale_config['locale'] ?? null) : null;
+            $route = is_string($locale) ? ($routes[$locale] ?? null) : null;
+            if (!is_string($locale) || !is_string($route)) continue;
+            $url = zeroy_runtime_snapshot_route_url($snapshot, $locale, $route);
+            if (!is_wp_error($url)) $result[$route_id][$locale] = $url;
+        }
+    }
+    return $result;
 }
 
 function zeroy_runtime_snapshot_route_links(array $snapshot, string $route_id): array|WP_Error
@@ -107,10 +146,11 @@ function zeroy_runtime_snapshot_context(array $snapshot, string $request_path, a
         $catalog = $snapshot['searchItems'][$request['locale']] ?? [];
         $archive = zeroy_runtime_snapshot_search(is_array($catalog) ? $catalog : [], $search_query, (int) ($query['page'] ?? 1), (int) ($query['perPage'] ?? 12));
     }
-    $global_content = ['siteCopy' => $snapshot['siteCopy']['locales'][$request['locale']]['view']['siteCopy'] ?? [], '_entities' => [], '_site' => ['homeUrls' => []]];
+    $archive['items'] = array_map(static fn(array $item): array => zeroy_runtime_snapshot_context_item($snapshot, $item), $archive['items']);
+    $global_content = ['siteCopy' => $snapshot['siteCopy']['locales'][$request['locale']]['view']['siteCopy'] ?? [], '_entities' => [], '_site' => ['homeUrls' => [], 'routeUrls' => zeroy_runtime_snapshot_context_route_urls($snapshot)]];
     foreach (($snapshot['searchItems'][$request['locale']] ?? []) as $item) {
         $key = is_int($item['objectId'] ?? null) ? (string) $item['objectId'] : zeroy_runtime_hash($item['subject'] ?? []);
-        $global_content['_entities'][$key] = $item;
+        $global_content['_entities'][$key] = zeroy_runtime_snapshot_context_item($snapshot, $item);
     }
     foreach ($snapshot['site']['enabledLocales'] as $locale_config) {
         $home = zeroy_runtime_snapshot_route_url($snapshot, (string) $locale_config['locale'], '');

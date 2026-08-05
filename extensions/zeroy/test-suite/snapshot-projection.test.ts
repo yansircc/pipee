@@ -29,6 +29,8 @@ describe("SiteSnapshot request projection spike", () => {
       function is_wp_error(mixed $value): bool { return $value instanceof WP_Error; }
       function zeroy_runtime_error(string $code, string $message, int $status, array $details = []): WP_Error { throw new RuntimeException($code . ':' . $message); }
       function zeroy_runtime_hash(mixed $value): string { return hash('sha256', json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)); }
+      function zeroy_runtime_preview_release_context(): ?array { return $GLOBALS['zeroy_test_preview'] ?? null; }
+      function zeroy_runtime_admin_preview_url(string $release_id, string $route = ''): string { $suffix = trim($route, '/'); return 'https://example.test/__zeroy-preview/' . $release_id . ($suffix === '' ? '/' : '/' . $suffix . '/'); }
       require ${phpString(projectionPath)};
       $enItem = ['objectId' => 'draft:machine-1', 'locale' => 'en', 'schemaId' => 'machine', 'url' => 'https://example.test/machines/press/', 'fields' => ['post' => ['title' => 'Press', 'excerpt' => 'Industrial press'], 'acf' => ['capacity' => '20 t/h']]];
       $zhItem = ['objectId' => 'draft:machine-1', 'locale' => 'zh', 'schemaId' => 'machine', 'url' => 'https://example.test/zh/machines/press/', 'fields' => ['post' => ['title' => '压机', 'excerpt' => '工业压机'], 'acf' => ['capacity' => '20 吨/时']]];
@@ -69,6 +71,11 @@ describe("SiteSnapshot request projection spike", () => {
       if (count($search['context']['archiveItems']) !== 1 || $search['context']['searchQuery'] !== '压机') throw new RuntimeException('search projection failed');
       if ($nativePermalink['context']['routeKind'] !== 'not-found' || $nativePermalink['context']['seo']['canonical'] !== null) throw new RuntimeException('undeclared native permalink became a second public URL');
       if ($singular['projectionHash'] === $search['projectionHash']) throw new RuntimeException('projection identity failed');
+      $GLOBALS['zeroy_test_preview'] = ['kind' => 'administrator-preview', 'release' => ['release_id' => '11111111-1111-4111-8111-111111111111']];
+      $preview = zeroy_runtime_snapshot_context($snapshot, '/zh/machines/press/');
+      if ($preview['context']['seo']['alternates'][0]['url'] !== 'https://example.test/__zeroy-preview/11111111-1111-4111-8111-111111111111/machines/press/') throw new RuntimeException('preview alternates escaped candidate release');
+      if ($preview['context']['resolvedContent']['_site']['homeUrls']['zh'] !== 'https://example.test/__zeroy-preview/11111111-1111-4111-8111-111111111111/zh/') throw new RuntimeException('preview home URL escaped candidate release');
+      if ($preview['context']['resolvedContent']['_site']['routeUrls']['collection:machines']['zh'] !== 'https://example.test/__zeroy-preview/11111111-1111-4111-8111-111111111111/zh/machines/') throw new RuntimeException('preview route URL escaped candidate release');
       echo 'ok';
     `;
     expect(execFileSync("php", ["-r", program], { encoding: "utf8" })).toBe("ok");

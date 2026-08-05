@@ -33,6 +33,8 @@ const document = `<!doctype html>
   <p class="gradient">Indeterminate gradient background</p>
   <p class="hidden-failure">Hidden failure</p>
   <p class="zero-sized-failure">Zero-sized failure</p>
+  <p data-zeroy-field="/post/title">Post markers are not ACF evidence</p>
+  <p data-zeroy-field="/acf/field_machine_capacity">ACF proof marker</p>
 </body></html>`;
 
 const challenge = (origin: string): BrowserVerificationChallenge => ({
@@ -112,6 +114,7 @@ describe("zeroY executed visible text contrast", () => {
           expect(result?.visibleTextContrastIndeterminateSamples.join("\n")).toContain(
             "p.gradient",
           );
+          expect(result?.renderedFields).toEqual(["/acf/field_machine_capacity"]);
           const missingTokenEvidence = yield* verifyBrowserChallengeWithLocalBrowser({
             ...challenge(`http://127.0.0.1:${address.port}`),
             contrastPairs: [

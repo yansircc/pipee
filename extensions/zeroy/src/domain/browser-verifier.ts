@@ -511,7 +511,10 @@ export const browserMeasurementExpression = (
   const overflowing = elements.filter(element => { const rectangle = element.getBoundingClientRect(); return rectangle.right > viewportWidth + 1 || rectangle.left < -1; });
   const overflowingMedia = [...document.querySelectorAll('img, picture, video, canvas, svg, iframe')].filter(element => { const rectangle = element.getBoundingClientRect(); const parent = element.parentElement && element.parentElement.getBoundingClientRect(); return rectangle.right > viewportWidth + 1 || rectangle.left < -1 || (parent && rectangle.width > parent.width + 1); });
   const motionEscapes = elements.filter(element => { const style = getComputedStyle(element); const animated = style.animationName !== 'none'; const transitioned = durationMs(style.transitionDuration) > 0; return (animated && durationMs(style.animationDuration) > 0.011) || (transitioned && durationMs(style.transitionDuration) > 0.011); });
-  const renderedFields = [...document.querySelectorAll('[data-zeroy-field]')].filter(element => {
+  // renderedFields is the ACF proof projection, not a generic list of every
+  // semantic marker a ThemeArtifact may emit for post/template content. The
+  // server BrowserEvidence contract deliberately owns only /acf/* here.
+  const renderedFields = [...document.querySelectorAll('[data-zeroy-field^="/acf/"]')].filter(element => {
     const style = getComputedStyle(element); const rectangle = element.getBoundingClientRect();
     if (style.display === 'none' || style.visibility === 'hidden' || rectangle.width < 1 || rectangle.height < 1) return false;
     return (element.textContent || '').trim() !== '' || element.querySelector('img[src], video[src], iframe[src], a[href], table, dl, ul, ol') !== null;
