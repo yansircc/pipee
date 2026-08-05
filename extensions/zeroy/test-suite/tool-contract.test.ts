@@ -111,7 +111,7 @@ describe("zeroY SiteCheckout tool contracts", () => {
     expect(agentResultBoundary({ payload: "x".repeat(17 * 1024) }).ok).toBe(false);
   });
 
-  it("projects all three provider documents as closed top-level objects", () => {
+  it("projects all three provider documents as provider-safe open objects while decoders stay exact", () => {
     for (const projection of [
       InspectProviderProjection,
       CheckoutProviderProjection,
@@ -122,6 +122,7 @@ describe("zeroY SiteCheckout tool contracts", () => {
       expect(validateProviderSchemaDocument(projection.value)._tag).toBe("Success");
       expect(projection.value.type).toBe("object");
       expect(JSON.stringify(projection.value)).not.toMatch(/"\$ref"/);
+      expect(JSON.stringify(projection.value)).not.toMatch(/"additionalProperties"/);
     }
     if (InspectProviderProjection._tag === "Success") {
       expect(InspectProviderProjection.value.properties.resource.enum).toEqual([

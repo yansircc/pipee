@@ -324,6 +324,12 @@ export const validateProviderSchemaDocument = (
     }
     if (typeof value !== "object" || value === null) return undefined;
     const node = value as JsonSchema;
+    if ("additionalProperties" in node) {
+      return new ProviderSchemaProjectionError({
+        message:
+          "Provider schema must not contain additionalProperties; exact field closure belongs to the domain decoder.",
+      });
+    }
     if (node.$ref !== undefined) {
       if (
         !node.$ref.startsWith("#/$defs/") ||
@@ -380,6 +386,25 @@ const plainSchema = (value: unknown): unknown => {
   );
 };
 
+/**
+ * Tool parameters are a model hint, never the command authority. Some OpenAI-compatible
+ * providers reject `additionalProperties` outright, while the domain contracts need it
+ * to reject unknown command fields. Project the broadest interoperable schema here and
+ * keep exactness exclusively in decodeDiscriminated/decodeExact.
+ */
+const providerDialectSchema = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(providerDialectSchema);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== "additionalProperties")
+      .map(([key, nested]) => [key, providerDialectSchema(nested)]),
+  );
+};
+
+const providerSchemaDocument = (schema: TSchema): TSchema =>
+  providerDialectSchema(schema) as TSchema;
+
 const providerSafeParameters = (
   contract: TSchema,
   discriminator: string,
@@ -422,14 +447,16 @@ const providerSafeParameters = (
     [...fields.keys()].filter((field) => variants.every((variant) => variant.required.has(field))),
   );
   return validateProviderSchemaDocument(
-    Type.Object(
-      Object.fromEntries(
-        Object.entries(properties).map(([field, schema]) => [
-          field,
-          universal.has(field) ? schema : Type.Optional(schema),
-        ]),
+    providerSchemaDocument(
+      Type.Object(
+        Object.fromEntries(
+          Object.entries(properties).map(([field, schema]) => [
+            field,
+            universal.has(field) ? schema : Type.Optional(schema),
+          ]),
+        ),
+        { additionalProperties: false },
       ),
-      { additionalProperties: false },
     ),
   );
 };
@@ -445,7 +472,7 @@ const providerSafeObject = (
       }),
     );
   }
-  return validateProviderSchemaDocument(contract);
+  return validateProviderSchemaDocument(providerSchemaDocument(contract));
 };
 
 const decodeDiscriminated = <Output>(

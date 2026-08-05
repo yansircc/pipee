@@ -131,6 +131,11 @@ try {
     );
     const encoded = JSON.stringify(tool.parameters);
     assert.doesNotMatch(encoded, /"\$ref":"(?!#\/)/u, `${name}: non-local ref leaked`);
+    assert.doesNotMatch(
+      encoded,
+      /"additionalProperties"/u,
+      `${name}: provider parameters leaked additionalProperties`,
+    );
   }
   process.stdout.write("Pi OpenAI-compatible and Moonshot-safe schema transport gate passed.\n");
 } finally {

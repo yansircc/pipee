@@ -129,6 +129,11 @@ try {
       "Success",
       `${name}: ${validation._tag === "Failure" ? validation.error.message : "unknown error"}`,
     );
+    assert.doesNotMatch(
+      JSON.stringify(tool.input_schema),
+      /"additionalProperties"/u,
+      `${name}: provider parameters leaked additionalProperties`,
+    );
   }
 
   const inspect = tools.get("zeroy_inspect")?.input_schema;
