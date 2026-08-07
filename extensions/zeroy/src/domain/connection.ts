@@ -1,10 +1,29 @@
 import { Config, Data, Effect, Redacted } from "effect";
+import type { ZeroYSiteConnectionProjection } from "@pipee/companion-contracts/zeroy-connection-registry";
 
+/**
+ * SiteConnection is the zeroY extension's read-only projection of one Pipee
+ * connection. Facts live in the Pipee connection registry; this type never
+ * carries grant plaintext.
+ *
+ * Two sources produce the projection:
+ * - PersistentRegistry (production): the Pipee connection directory.
+ * - EnvironmentInjected (headless/CI only): ZEROY_SITES. The legacy field
+ *   connectionKey is the injected global key; production must not use it.
+ */
 export type SiteConnection = {
   readonly siteId: string;
   readonly label: string;
   readonly endpoint: string;
-  readonly connectionKey: string;
+  /** Read-only projection of the grant for Connector requests (production). */
+  readonly grant: {
+    readonly id: string;
+    readonly credentialRef: string;
+  } | null;
+  /** Legacy headless/CI injected global key. Never used in production. */
+  readonly connectionKey: string | null;
+  /** Injected by the session; resolves the grant secret from protected storage. */
+  readonly readGrantSecret?: () => string;
 };
 
 export class ZeroYConnectionConfigError extends Data.TaggedError("ZeroYConnectionConfigError")<{
@@ -39,10 +58,11 @@ const decodeConnection = (value: unknown): SiteConnection | ZeroYConnectionConfi
     siteId: candidate.siteId.trim(),
     label: candidate.label.trim(),
     endpoint,
+    grant: null,
     connectionKey: candidate.connectionKey.trim(),
   };
 };
-
+/** Load headless/CI connections from ZEROY_SITES. Empty result = no sites. */
 export const loadSiteConnections = (): Effect.Effect<
   ReadonlyArray<SiteConnection>,
   ZeroYConnectionConfigError
@@ -56,11 +76,12 @@ export const loadSiteConnections = (): Effect.Effect<
       }),
     ),
     Effect.flatMap((parsed) => {
-      if (!Array.isArray(parsed) || parsed.length === 0) {
+      if (!Array.isArray(parsed)) {
         return Effect.fail(
-          new ZeroYConnectionConfigError({ message: "ZEROY_SITES must be a non-empty array." }),
+          new ZeroYConnectionConfigError({ message: "ZEROY_SITES must be an array." }),
         );
       }
+      if (parsed.length === 0) return Effect.succeed([] as ReadonlyArray<SiteConnection>);
       const connections: SiteConnection[] = [];
       const ids = new Set<string>();
       for (const value of parsed) {
@@ -87,6 +108,28 @@ export const loadSiteConnections = (): Effect.Effect<
     ),
     Effect.withSpan("zeroy.connections.load"),
   );
+
+/** Project a registry connection into the extension's read-only SiteConnection. */
+export const projectRegistryConnection = (
+  projection: ZeroYSiteConnectionProjection,
+  readSecret?: () => string,
+): SiteConnection =>
+  readSecret === undefined
+    ? {
+        siteId: projection.siteId,
+        label: projection.label,
+        endpoint: projection.endpoint,
+        grant: { id: projection.grantId, credentialRef: projection.siteId },
+        connectionKey: null,
+      }
+    : {
+        siteId: projection.siteId,
+        label: projection.label,
+        endpoint: projection.endpoint,
+        grant: { id: projection.grantId, credentialRef: projection.siteId },
+        connectionKey: null,
+        readGrantSecret: readSecret,
+      };
 
 export const connectionFor = (
   connections: ReadonlyArray<SiteConnection>,

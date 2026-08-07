@@ -1,5 +1,5 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { Clock, Effect } from "effect";
+import { Clock, Effect, SynchronizedRef } from "effect";
 import type { NodeServices } from "@effect/platform-node/NodeServices";
 import {
   externalCheckProjection,
@@ -220,8 +220,9 @@ export const refreshSurface = (active: ActiveSession): Effect.Effect<void, never
     : Effect.gen(function* () {
         const surface = active.surface;
         if (surface === undefined) return;
+        const connections = yield* SynchronizedRef.get(active.connections);
         const sites = yield* Effect.forEach(
-          active.connections,
+          connections,
           (site) => inspectConnection(active, site),
           {
             concurrency: 4,
@@ -242,10 +243,11 @@ const inspectResource = (
 > =>
   Effect.gen(function* () {
     if (input.resource === "sites") {
+      const connections = yield* SynchronizedRef.get(active.connections);
       return {
         payload: {
           contract: "zeroy/configured-sites@1",
-          sites: active.connections.map(({ siteId, label, endpoint }) => ({
+          sites: connections.map(({ siteId, label, endpoint }) => ({
             siteId,
             label,
             endpoint,

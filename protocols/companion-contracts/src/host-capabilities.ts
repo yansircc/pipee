@@ -5,6 +5,7 @@ export const LIVE_PRESENTATION_CAPABILITY = "pipee/live-presentation@1" as const
 export const MEDIA_VIEW_CAPABILITY = "pipee/media-view@2" as const;
 export const RUNTIME_RETENTION_CAPABILITY = "pipee/runtime-retention@2" as const;
 export const WEB_SURFACE_RUNTIME_CAPABILITY = "pipee/web-surface-runtime@2" as const;
+export { ZEROY_CONNECTION_REGISTRY_CAPABILITY } from "./zeroy-connection-registry.js";
 
 export const MediaView = Schema.Struct({
   dataUrl: Schema.String,

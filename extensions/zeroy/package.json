@@ -31,7 +31,7 @@
   },
   "scripts": {
     "verify": "pnpm run repo:verify && pnpm run pi:verify",
-    "repo:verify": "vp run quality && pnpm run site-objects:verify && pnpm run localized-document:verify && pnpm run candidate-runtime:verify && pnpm run browser-evidence:verify",
+    "repo:verify": "vp run quality && pnpm run connection-auth:verify && pnpm run site-objects:verify && pnpm run localized-document:verify && pnpm run candidate-runtime:verify && pnpm run browser-evidence:verify",
     "archive:verify": "node scripts/verify-site-release-boundaries.mjs",
     "test": "vp test",
     "pi:web-build": "node ../../tooling/pi-extension/build-web.mjs .",
@@ -59,7 +59,8 @@
     "site-objects:verify": "php test-suite/site-objects-cross-language.php",
     "candidate-runtime:verify": "php test-suite/candidate-runtime-pure-spike.php",
     "browser-evidence:verify": "php test-suite/browser-evidence-pure-spike.php",
-    "localized-document:verify": "node scripts/verify-localized-document-hard-cut.mjs"
+    "localized-document:verify": "node scripts/verify-localized-document-hard-cut.mjs",
+    "connection-auth:verify": "php test-suite/connection-auth-pure-spike.php"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "catalog:",

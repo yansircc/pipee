@@ -39,7 +39,24 @@ export const connectorCall = (
   Effect.gen(function* () {
     const headers = new Headers(init.headers);
     headers.set("accept", "application/json");
-    headers.set("x-zeroy-key", connection.connectionKey);
+    // Production connections authenticate with the Pipee client grant. The
+    // legacy x-zeroy-key header is reserved for headless/CI injected sites.
+    if (connection.grant !== null && connection.readGrantSecret !== undefined) {
+      const secret = yield* Effect.try({
+        try: () => connection.readGrantSecret!(),
+        catch: (cause) =>
+          new ZeroYConnectorError({
+            message: `Could not read grant secret for ${connection.label}: ${String(cause)}`,
+          }),
+      });
+      headers.set("authorization", `Bearer ${secret}`);
+    } else if (connection.connectionKey !== null) {
+      headers.set("x-zeroy-key", connection.connectionKey);
+    } else {
+      return yield* new ZeroYConnectorError({
+        message: `Connection ${connection.label} has no grant secret. Re-authorize the site.`,
+      });
+    }
     if (draftActorId !== undefined) headers.set("x-zeroy-draft-actor", draftActorId);
     if (init.body !== undefined) headers.set("content-type", "application/json");
     const response = yield* Effect.tryPromise({

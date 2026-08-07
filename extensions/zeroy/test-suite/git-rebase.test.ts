@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "@effect/vitest";
-import { Semaphore } from "effect";
+import { Semaphore, SynchronizedRef } from "effect";
 import {
   blobHash,
   commitHash,
@@ -273,15 +273,17 @@ const fixture = async (
   const active = {
     context: { cwd: baseDirectory },
     draftActorId: "rebase-test",
-    connections: [
+    connections: SynchronizedRef.makeUnsafe([
       {
         siteId: "test",
         label: "test",
         endpoint: `http://127.0.0.1:${address.port}`,
+        grant: null,
         connectionKey: "test",
       },
-    ],
-    mutationGates: new Map([["test", mutationGate]]),
+    ]),
+    registry: undefined,
+    mutationGates: SynchronizedRef.makeUnsafe(new Map([["test", mutationGate]])),
   } as unknown as ActiveSession;
   const descriptor = {
     contract: "zeroy/checkout@1" as const,

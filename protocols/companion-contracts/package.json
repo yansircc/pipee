@@ -8,7 +8,8 @@
     "./host-capabilities": "./src/host-capabilities.ts",
     "./presentation": "./src/presentation.ts",
     "./web-surface-browser": "./src/web-surface-browser.ts",
-    "./web-surface": "./src/web-surface.ts"
+    "./web-surface": "./src/web-surface.ts",
+    "./zeroy-connection-registry": "./src/zeroy-connection-registry.ts"
   },
   "dependencies": {
     "effect": "catalog:"

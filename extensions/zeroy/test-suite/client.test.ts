@@ -26,6 +26,7 @@ describe("zeroY Connector errors", () => {
             siteId: "site",
             label: "Test site",
             endpoint: "https://example.test",
+            grant: null,
             connectionKey: "key",
           },
           "schema",

@@ -11,6 +11,10 @@ import {
   type LivePresentationPort,
 } from "@pipee/companion-contracts/host-capabilities";
 import {
+  ZEROY_CONNECTION_REGISTRY_CAPABILITY,
+  type ZeroYConnectionRegistryPort,
+} from "@pipee/companion-contracts/zeroy-connection-registry";
+import {
   PresentationDocument,
   type PresentationDocument as PresentationDocumentValue,
 } from "@pipee/companion-contracts/presentation";
@@ -51,6 +55,9 @@ export interface ExtensionCapabilityCallbacks {
     ownerId: string,
     projection: WebSurfaceProjection | undefined,
   ) => void;
+  readonly zeroyConnectionRegistry?: {
+    readonly forExtension: (ownerId: string) => ZeroYConnectionRegistryPort;
+  };
 }
 
 const decodePresentationDocument = Schema.decodeUnknownSync(PresentationDocument);
@@ -184,12 +191,23 @@ export const makeExtensionHostCapabilities = (callbacks: ExtensionCapabilityCall
     },
   };
 
+  const zeroyConnectionRegistryProvider: HostCapabilityProvider = {
+    forExtension(ownerId) {
+      const owner = assertName(ownerId);
+      const registry = callbacks.zeroyConnectionRegistry?.forExtension(owner);
+      if (registry === undefined)
+        return failRegistration(`zeroY connection registry is not admitted: ${owner}`);
+      return registry satisfies ZeroYConnectionRegistryPort;
+    },
+  };
+
   return {
     providers: new Map<string, HostCapabilityProvider>([
       [LIVE_PRESENTATION_CAPABILITY, presentationProvider],
       [MEDIA_VIEW_CAPABILITY, mediaProvider],
       [RUNTIME_RETENTION_CAPABILITY, retentionProvider],
       [WEB_SURFACE_RUNTIME_CAPABILITY, webSurfaceProvider],
+      [ZEROY_CONNECTION_REGISTRY_CAPABILITY, zeroyConnectionRegistryProvider],
     ]),
     hasRetention: () => retention.size > 0,
     dispatchWebSurface: (

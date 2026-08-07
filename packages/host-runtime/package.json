@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     "./cross-process-lease": "./src/cross-process-lease.ts",
-    "./extension-capabilities": "./src/extension-capabilities.ts"
+    "./extension-capabilities": "./src/extension-capabilities.ts",
+    "./zeroy-connection-registry": "./src/zeroy-connection-registry.ts"
   },
   "scripts": {
     "check": "vp check",

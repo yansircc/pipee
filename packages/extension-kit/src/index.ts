@@ -4,11 +4,13 @@ import {
   RUNTIME_RETENTION_CAPABILITY,
   LIVE_PRESENTATION_CAPABILITY,
   WEB_SURFACE_RUNTIME_CAPABILITY,
+  ZEROY_CONNECTION_REGISTRY_CAPABILITY,
   type MediaViewPort,
   type RuntimeRetentionClaim,
   type RuntimeRetentionPort,
   type LivePresentationPort,
 } from "@pipee/companion-contracts/host-capabilities";
+import { type ZeroYConnectionRegistryPort } from "@pipee/companion-contracts/zeroy-connection-registry";
 import {
   type JsonValue,
   type WebSurfaceDispatch,
@@ -51,6 +53,12 @@ export const mediaView = (
   host: HostCapabilityCarrier,
   ownerId: string,
 ): MediaViewPort | undefined => capability<MediaViewPort>(host, ownerId, MEDIA_VIEW_CAPABILITY);
+
+export const zeroyConnectionRegistry = (
+  host: HostCapabilityCarrier,
+  ownerId: string,
+): ZeroYConnectionRegistryPort | undefined =>
+  capability<ZeroYConnectionRegistryPort>(host, ownerId, ZEROY_CONNECTION_REGISTRY_CAPABILITY);
 
 export class WebSurfaceCapabilityUnavailable extends Data.TaggedError(
   "WebSurfaceCapabilityUnavailable",
