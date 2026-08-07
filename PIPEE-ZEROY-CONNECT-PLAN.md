@@ -12,10 +12,10 @@
 - [x] P0.5 wordpress-plugin: 授权 intent/grant 表 + 独立 client grant 认证
 
 ### P1：主流程
-- [ ] P1.1 Pipee zeroY 连接管理页面（站点列表 + 添加）
-- [ ] P1.2 浏览器授权流程：URL -> WordPress 授权页 -> callback -> exchange
-- [ ] P1.3 连接后刷新所有已运行 session
-- [ ] P1.4 zeroY 工具全部改读 registry projection
+- [x] P1.1 Pipee zeroY 连接管理页面（站点列表 + 添加）
+- [x] P1.2 浏览器授权流程：URL -> WordPress 授权页 -> callback -> exchange
+- [x] P1.3 连接后刷新所有已运行 session（共享 registry 单例 + capability 订阅）
+- [x] P1.4 zeroY 工具全部改读 registry projection
 
 ### P2：管理与备用
 - [ ] P2.1 WordPress 连接管理页（客户端列表、撤销）

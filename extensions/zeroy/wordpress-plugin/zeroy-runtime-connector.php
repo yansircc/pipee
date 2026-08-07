@@ -87,6 +87,7 @@ require_once __DIR__ . '/includes/site-checkout/read-rest.php';
 require_once __DIR__ . '/includes/routes.php';
 require_once __DIR__ . '/includes/site-connection/auth-store.php';
 require_once __DIR__ . '/includes/site-connection/rest.php';
+require_once __DIR__ . '/includes/site-connection/admin.php';
 require_once __DIR__ . '/includes/rest.php';
 
 register_activation_hook(__FILE__, 'zeroy_runtime_activate');

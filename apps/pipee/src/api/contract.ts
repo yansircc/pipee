@@ -1422,6 +1422,18 @@ const ZeroYConnectionsApi = HttpApiGroup.make("zeroYConnections").add(
     success: ZeroYConnectionList,
     error: CommonErrors,
   }),
+  HttpApiEndpoint.post("pairWithCode", "/api/zeroy/connections/pair-with-code", {
+    payload: Schema.Struct({
+      endpoint: Schema.String,
+      intentId: Schema.String,
+      code: Schema.String,
+      state: Schema.String,
+      redirectUri: Schema.String,
+      label: Schema.String,
+    }),
+    success: ZeroYConnectionList,
+    error: CommonErrors,
+  }),
   HttpApiEndpoint.delete("revoke", "/api/zeroy/connections/:siteId", {
     params: Schema.Struct({ siteId: Schema.String }),
     success: Ok,

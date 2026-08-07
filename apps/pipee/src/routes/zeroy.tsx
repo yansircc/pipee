@@ -25,6 +25,14 @@ function ZeroYConnections() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [pairing, setPairing] = useState(false)
+  const [codePairing, setCodePairing] = useState(false)
+  const [codeEndpoint, setCodeEndpoint] = useState("")
+  const [pairingCode, setPairingCode] = useState("")
+  const [codeIntentId, setCodeIntentId] = useState("")
+  const [codeState, setCodeState] = useState("")
+  const [codeRedirect, setCodeRedirect] = useState(
+    "http://127.0.0.1:30141/zeroy/connect/callback",
+  )
 
   const refresh = useCallback(() => {
     setError(null)
@@ -80,6 +88,43 @@ function ZeroYConnections() {
     [refresh],
   )
 
+  const pairWithCode = useCallback(
+    () => {
+      if (codeEndpoint.trim() === "" || pairingCode.trim() === "") return
+      setCodePairing(true)
+      setError(null)
+      setNotice(null)
+      void runApi(
+        withApi((api) =>
+          api.zeroYConnections.pairWithCode({
+            payload: {
+              endpoint: codeEndpoint.trim(),
+              intentId: codeIntentId.trim(),
+              code: pairingCode.trim(),
+              state: codeState.trim(),
+              redirectUri:
+                codeRedirect.trim() || "http://127.0.0.1:30141/zeroy/connect/callback",
+              label: label.trim() || "Pipee",
+            },
+          }),
+        ),
+        {
+          onSuccess: () => {
+            setCodePairing(false)
+            setPairingCode("")
+            setNotice("Site connected with the pairing code.")
+            void refresh()
+          },
+          onFailure: (failure) => {
+            setCodePairing(false)
+            setError(String(failure))
+          },
+        },
+      )
+    },
+    [codeEndpoint, pairingCode, codeIntentId, codeState, codeRedirect, label, refresh],
+  )
+
   return (
     <div {...stylex.props(styles.page)}>
       <h1 {...stylex.props(styles.title)}>zeroY connections</h1>
@@ -118,6 +163,54 @@ function ZeroYConnections() {
           You will be taken to the WordPress authorization page. After approving, the callback returns to Pipee and the
           site appears here.
         </p>
+      </section>
+
+      <section {...stylex.props(styles.section)}>
+        <h2 {...stylex.props(styles.sectionTitle)}>Pair with a code</h2>
+        <p {...stylex.props(styles.hint)}>
+          If the browser cannot return to Pipee (or Pipee is not on its default port), create a pairing code in
+          WordPress (zeroY → Connections → Create pairing code) and enter it here. The code is single-use and expires
+          in 10 minutes.
+        </p>
+        <div {...stylex.props(styles.form)}>
+          <input
+            {...stylex.props(styles.input)}
+            placeholder="Site URL, e.g. https://example.com"
+            value={codeEndpoint}
+            onChange={(event) => setCodeEndpoint(event.target.value)}
+          />
+          <input
+            {...stylex.props(styles.input)}
+            placeholder="Pairing code"
+            value={pairingCode}
+            onChange={(event) => setPairingCode(event.target.value)}
+          />
+          <input
+            {...stylex.props(styles.input)}
+            placeholder="Intent id (optional)"
+            value={codeIntentId}
+            onChange={(event) => setCodeIntentId(event.target.value)}
+          />
+          <input
+            {...stylex.props(styles.input)}
+            placeholder="State (optional)"
+            value={codeState}
+            onChange={(event) => setCodeState(event.target.value)}
+          />
+          <input
+            {...stylex.props(styles.input)}
+            placeholder="Pipee callback URL"
+            value={codeRedirect}
+            onChange={(event) => setCodeRedirect(event.target.value)}
+          />
+          <button
+            {...stylex.props(styles.primaryButton)}
+            disabled={codeEndpoint.trim() === "" || pairingCode.trim() === "" || codePairing}
+            onClick={pairWithCode}
+          >
+            {codePairing ? "Pairing…" : "Pair with code"}
+          </button>
+        </div>
       </section>
 
       <section {...stylex.props(styles.section)}>

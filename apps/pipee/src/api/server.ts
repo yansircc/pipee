@@ -957,6 +957,9 @@ const ZeroYConnectionsHandlerLive = HttpApiBuilder.group(PipeeApi, "zeroYConnect
       .handle("exchangeCode", ({ payload }) =>
         expose(connections.exchangeCode(payload.intentId, payload.code, payload.state)),
       )
+      .handle("pairWithCode", ({ payload }) =>
+        expose(connections.pairWithCode(payload)),
+      )
       .handle("revoke", ({ params }) => expose(connections.revoke(params.siteId)).pipe(Effect.as(ok)))
   }),
 )

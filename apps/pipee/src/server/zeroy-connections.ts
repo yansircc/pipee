@@ -58,6 +58,14 @@ export class ZeroYConnections extends Context.Service<
       code: string,
       state: string,
     ) => Effect.Effect<ZeroYConnectionList, ZeroYConnectionsError>
+    readonly pairWithCode: (input: {
+      readonly endpoint: string
+      readonly intentId: string
+      readonly code: string
+      readonly state: string
+      readonly redirectUri: string
+      readonly label: string
+    }) => Effect.Effect<ZeroYConnectionList, ZeroYConnectionsError>
     readonly revoke: (siteId: string) => Effect.Effect<void, ZeroYConnectionsError>
   }
 >()("pipee/server/ZeroYConnections") {}
@@ -203,7 +211,9 @@ export const ZeroYConnectionsLive: Layer.Layer<
               message: "Pairing state does not match.",
             })
           }
-          const exchangeUrl = new URL(`${pairing.endpoint}/wp-json/zeroy/v1/connection/exchange`)
+          const exchangeUrl = new URL(
+            `${pairing.endpoint}/wp-json/zeroy/v1/connection/exchange`,
+          )
           const response = yield* Effect.tryPromise({
             try: () =>
               fetch(exchangeUrl, {
@@ -232,7 +242,10 @@ export const ZeroYConnectionsLive: Layer.Layer<
           const grant = yield* Effect.tryPromise({
             try: () => response.json() as Promise<Record<string, unknown>>,
             catch: () =>
-              new ZeroYConnectionsError({ operation: "exchange-code", message: "Invalid exchange response" }),
+              new ZeroYConnectionsError({
+                operation: "exchange-code",
+                message: "Invalid exchange response",
+              }),
           })
           if (
             typeof grant.grantId !== "string" ||
@@ -261,6 +274,72 @@ export const ZeroYConnectionsLive: Layer.Layer<
           yield* persistEffect
           return project()
         }).pipe(Effect.mapError(mapError("exchange-code"))),
+      pairWithCode: (input) =>
+        Effect.gen(function* () {
+          const target = input.endpoint.trim().replace(/\/+$/, "")
+          if (!URL.canParse(target) || !/^https?:\/\//.test(target)) {
+            return yield* new ZeroYConnectionsError({
+              operation: "pair-with-code",
+              message: `Invalid zeroY endpoint: ${input.endpoint}`,
+            })
+          }
+          const exchangeUrl = new URL(
+            `${target}/wp-json/zeroy/v1/connection/exchange`,
+          )
+          const response = yield* Effect.tryPromise({
+            try: () =>
+              fetch(exchangeUrl, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  intent_id: input.intentId,
+                  code: input.code,
+                  code_verifier: input.code,
+                  state: input.state,
+                  redirect_uri: input.redirectUri,
+                }),
+              }),
+            catch: (cause) =>
+              new ZeroYConnectionsError({
+                operation: "pair-with-code",
+                message: `Exchange request failed: ${String(cause)}`,
+              }),
+          })
+          if (!response.ok) {
+            return yield* new ZeroYConnectionsError({
+              operation: "pair-with-code",
+              message: `WordPress rejected the pairing code (${response.status}).`,
+            })
+          }
+          const grant = yield* Effect.tryPromise({
+            try: () => response.json() as Promise<Record<string, unknown>>,
+            catch: () =>
+              new ZeroYConnectionsError({
+                operation: "pair-with-code",
+                message: "Invalid exchange response",
+              }),
+          })
+          if (
+            typeof grant.grantId !== "string" ||
+            typeof grant.siteId !== "string"
+          ) {
+            return yield* new ZeroYConnectionsError({
+              operation: "pair-with-code",
+              message: "WordPress returned an invalid grant.",
+            })
+          }
+          registry.upsert(
+            {
+              siteId: grant.siteId,
+              label: input.label || input.endpoint,
+              endpoint: target,
+              grantId: grant.grantId,
+            },
+            input.code,
+          )
+          yield* persistEffect
+          return project()
+        }).pipe(Effect.mapError(mapError("pair-with-code"))),
       revoke: (siteId) =>
         Effect.gen(function* () {
           registry.provider.forExtension("zeroy").revoke(siteId)
