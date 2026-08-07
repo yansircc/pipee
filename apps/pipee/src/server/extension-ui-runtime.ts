@@ -11,6 +11,7 @@ import {
 import { decodeExtensionImageWidget } from "@/lib/extension-widget"
 import { capabilitySlotKey, makeExtensionHostCapabilities } from "@pipee/host-runtime/extension-capabilities"
 import { PIPEE_CAPABILITY_METHOD } from "@pipee/companion-contracts/host-capabilities"
+import type { ZeroYConnectionRegistryPort } from "@pipee/companion-contracts/zeroy-connection-registry"
 import type { CandidateHash, WebSurfaceActionRequest } from "@pipee/companion-contracts/web-surface"
 import { Cause, Context, Crypto, Data, Deferred, Effect, Exit, FiberSet, Option, Semaphore } from "effect"
 
@@ -76,6 +77,9 @@ export const makeExtensionUiRuntime = (
   theme: unknown,
   customUnavailable: () => unknown,
   webSurfaceCandidates: ReadonlyMap<string, CandidateHash>,
+  zeroyConnectionRegistry?: {
+    readonly forExtension: (ownerId: string) => ZeroYConnectionRegistryPort
+  },
 ) =>
   Effect.gen(function* () {
     let projection = ExtensionUiProjection.make({
@@ -129,6 +133,7 @@ export const makeExtensionUiRuntime = (
 
     const extensionCapabilities = makeExtensionHostCapabilities({
       webSurfaceCandidates,
+      zeroyConnectionRegistry,
       replaceWebSurface: (packageName, surface) => {
         commit((current) => ({
           ...current,

@@ -38,6 +38,7 @@ import { WebSurfaceCatalog, WebSurfaceCatalogLive } from "@/server/web-surface-c
 import { webSurfaceAssetHandler } from "@/server/web-surface-assets"
 import { PipeeUpdateChecker, PipeeUpdateCheckerLive } from "@/server/pipee-update-checker"
 import { ZeroYConnections, ZeroYConnectionsError, ZeroYConnectionsLive } from "@/server/zeroy-connections"
+import { ZeroYConnectionRegistryProviderLive } from "@/server/zeroy-connection-registry-provider"
 
 const ok = { ok: true as const }
 
@@ -968,6 +969,7 @@ const FoundationLive = Layer.mergeAll(
 )
 
 const AdapterAndWorkspaceLive = Layer.merge(PiAgentAdapterLive, WorkspaceServiceLive).pipe(
+  Layer.provide(ZeroYConnectionRegistryProviderLive),
   Layer.provideMerge(FoundationLive),
 )
 
@@ -981,6 +983,7 @@ const ServicesLive = Layer.mergeAll(WorkspaceIoLive, PackageIoLive, WebSurfaceCa
 
 const ZeroYConnectionsProvided = ZeroYConnectionsHandlerLive.pipe(
   Layer.provide(ZeroYConnectionsLive),
+  Layer.provide(ZeroYConnectionRegistryProviderLive),
   Layer.provide(FoundationLive),
 )
 
@@ -1033,7 +1036,11 @@ const ZeroYConnectCallbackLive = registerHttpRoutes((router) =>
       }),
     )
   }),
-).pipe(Layer.provide(ZeroYConnectionsLive), Layer.provide(FoundationLive))
+).pipe(
+  Layer.provide(ZeroYConnectionsLive),
+  Layer.provide(ZeroYConnectionRegistryProviderLive),
+  Layer.provide(FoundationLive),
+)
 
 const WebAppLive = Layer.merge(ApiLive, WebSurfaceAssetRoutesLive).pipe(Layer.merge(ZeroYConnectCallbackLive))
 

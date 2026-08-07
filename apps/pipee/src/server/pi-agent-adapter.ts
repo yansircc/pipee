@@ -108,6 +108,8 @@ import {
 } from "@/lib/plugin-package-settings"
 import { makeSessionOperationSlot, PiOperationBusyError, type OperationKind } from "./session-operation-slot"
 import { makeExtensionUiRuntime, PiInteractionConflictError, PiInteractionResponseError } from "./extension-ui-runtime"
+import { ZeroYConnectionRegistryProvider } from "./zeroy-connection-registry-provider"
+import type { ZeroYConnectionRegistryHandle } from "@pipee/host-runtime/zeroy-connection-registry"
 import { makeCompanionController } from "./companion-controller"
 import { adapterError, decode, decodeOnExecution, PiAdapterError, PiPromptIdempotencyError } from "./pi-adapter-errors"
 import {
@@ -818,6 +820,7 @@ const makeRuntime = (
   crypto: Crypto.Crypto,
   fileSystem: Context.Service.Shape<typeof FileSystem.FileSystem>,
   pathService: Context.Service.Shape<typeof Path.Path>,
+  zeroyRegistryProvider: ZeroYConnectionRegistryHandle,
   created: string,
   identity: typeof RuntimeIdentity.Type,
   toolNames?: ReadonlyArray<string>,
@@ -888,6 +891,7 @@ const makeRuntime = (
           message: "Custom terminal UI is unavailable in pipee",
         }),
       webSurfaceCandidates,
+      zeroyRegistryProvider.provider,
     )
     const uiContext = extensionUi.uiContext
 
@@ -1483,6 +1487,7 @@ const adapterLive = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
+  const zeroyRegistryProvider = yield* ZeroYConnectionRegistryProvider
   const sdkExtensionCache = yield* SdkExtensionCacheOwner.make
   const adapterFibers = yield* FiberSet.make()
   const runAdapterFork = yield* FiberSet.runtime(adapterFibers)()
@@ -2374,6 +2379,7 @@ const adapterLive = Effect.gen(function* () {
           crypto,
           fs,
           path,
+          zeroyRegistryProvider,
           created,
           identity,
           options.toolNames,
@@ -2443,5 +2449,8 @@ const adapterLive = Effect.gen(function* () {
   })
 })
 
-export const PiAgentAdapterLive: Layer.Layer<PiAgentAdapter, never, Crypto.Crypto | FileSystem.FileSystem | Path.Path> =
-  Layer.effect(PiAgentAdapter, adapterLive)
+export const PiAgentAdapterLive: Layer.Layer<
+  PiAgentAdapter,
+  never,
+  Crypto.Crypto | FileSystem.FileSystem | Path.Path | ZeroYConnectionRegistryProvider
+> = Layer.effect(PiAgentAdapter, adapterLive)

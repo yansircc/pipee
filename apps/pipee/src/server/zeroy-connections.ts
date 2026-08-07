@@ -1,9 +1,6 @@
 import { Context, Data, Effect, FileSystem, Layer, Path, SynchronizedRef } from "effect"
 import type { NodeServices } from "@effect/platform-node/NodeServices"
-import {
-  makeZeroYConnectionRegistry,
-  type ZeroYConnectionRegistryHandle,
-} from "@pipee/host-runtime/zeroy-connection-registry"
+import { ZeroYConnectionRegistryProvider } from "./zeroy-connection-registry-provider"
 
 /**
  * Pipee-side zeroY connection directory service.
@@ -74,19 +71,21 @@ const mapError = (operation: string) => (cause: unknown) =>
 /** Protected zeroY connection directory under the user home. */
 const connectionDirectory = (home: string): string => `${home}/.pipee/zeroy`
 
-export const ZeroYConnectionsLive: Layer.Layer<ZeroYConnections, never, NodeServices> = Layer.effect(
+export const ZeroYConnectionsLive: Layer.Layer<
+  ZeroYConnections,
+  never,
+  NodeServices | ZeroYConnectionRegistryProvider
+> = Layer.effect(
   ZeroYConnections,
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const home = process.env.HOME ?? process.env.USERPROFILE ?? "."
     const directory = connectionDirectory(home)
-    const registry: ZeroYConnectionRegistryHandle = makeZeroYConnectionRegistry()
+    const registry = yield* ZeroYConnectionRegistryProvider
     const pending = yield* SynchronizedRef.make(new Map<string, PendingPairing>())
 
-    const load = registry.load(directory)
     const persist = registry.persist(directory)
-    yield* load.pipe(Effect.ignore)
 
     const project = (): ZeroYConnectionList => ({
       sites: registry.rows().map((site) => ({
