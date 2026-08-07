@@ -56,6 +56,7 @@ export const ZeroYSiteConnectionProjection = Schema.Struct({
   label: Schema.NonEmptyString,
   endpoint: Schema.String,
   grantId: Schema.NonEmptyString,
+  credentialRef: Schema.NonEmptyString,
   createdAt: Schema.String,
   lastUsedAt: Schema.NullOr(Schema.String),
   revoked: Schema.Boolean,

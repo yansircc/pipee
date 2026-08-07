@@ -1381,7 +1381,65 @@ const WebSurfacesApi = HttpApiGroup.make("webSurfaces")
     ),
   )
 
+export const ZeroYConnectionList = Schema.Struct({
+  sites: Schema.Array(
+    Schema.Struct({
+      siteId: Schema.String,
+      label: Schema.String,
+      endpoint: Schema.String,
+      grantId: Schema.String,
+      createdAt: Schema.String,
+      lastUsedAt: Schema.NullOr(Schema.String),
+      revoked: Schema.Boolean,
+    }),
+  ),
+})
+
+export const ZeroYPairingIntent = Schema.Struct({
+  authorizationUrl: Schema.String,
+  intentId: Schema.String,
+})
+
+const ZeroYConnectionsApi = HttpApiGroup.make("zeroYConnections").add(
+  HttpApiEndpoint.get("list", "/api/zeroy/connections", {
+    success: ZeroYConnectionList,
+    error: CommonErrors,
+  }),
+  HttpApiEndpoint.post("beginPairing", "/api/zeroy/connections/pair", {
+    payload: Schema.Struct({
+      endpoint: Schema.String,
+      label: Schema.String,
+    }),
+    success: ZeroYPairingIntent,
+    error: CommonErrors,
+  }),
+  HttpApiEndpoint.post("exchangeCode", "/api/zeroy/connections/exchange", {
+    payload: Schema.Struct({
+      intentId: Schema.String,
+      code: Schema.String,
+      state: Schema.String,
+    }),
+    success: ZeroYConnectionList,
+    error: CommonErrors,
+  }),
+  HttpApiEndpoint.delete("revoke", "/api/zeroy/connections/:siteId", {
+    params: Schema.Struct({ siteId: Schema.String }),
+    success: Ok,
+    error: CommonErrors,
+  }),
+)
+
 export const PipeeApi = HttpApi.make("PipeeApi")
-  .add(MetaApi, SessionsApi, SessionActionsApi, WorkspaceApi, ModelsApi, AuthApi, PackagesApi, WebSurfacesApi)
+  .add(
+    MetaApi,
+    SessionsApi,
+    SessionActionsApi,
+    WorkspaceApi,
+    ModelsApi,
+    AuthApi,
+    PackagesApi,
+    WebSurfacesApi,
+    ZeroYConnectionsApi,
+  )
   .middleware(SameOrigin)
   .middleware(RequestSchemaErrors)

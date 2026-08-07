@@ -1,6 +1,6 @@
 import { NodeHttpClient, NodeHttpServer, NodeServices } from "@effect/platform-node"
 import { Effect, FileSystem, Layer, Path, Result, Semaphore, Stream } from "effect"
-import { HttpRouter, HttpServerRequest } from "effect/unstable/http"
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder, HttpApiMiddleware } from "effect/unstable/httpapi"
 import {
   Conflict,
@@ -37,6 +37,7 @@ import { isLocalPackageSource } from "@/lib/plugin-package-settings"
 import { WebSurfaceCatalog, WebSurfaceCatalogLive } from "@/server/web-surface-catalog"
 import { webSurfaceAssetHandler } from "@/server/web-surface-assets"
 import { PipeeUpdateChecker, PipeeUpdateCheckerLive } from "@/server/pipee-update-checker"
+import { ZeroYConnections, ZeroYConnectionsError, ZeroYConnectionsLive } from "@/server/zeroy-connections"
 
 const ok = { ok: true as const }
 
@@ -133,6 +134,9 @@ export const toPublicError = (error: unknown): PublicError => {
   }
   if (error instanceof PackageIoError) {
     return new OperationFailed({ operation: error.operation, message: "Package operation failed" })
+  }
+  if (error instanceof ZeroYConnectionsError) {
+    return new OperationFailed({ operation: error.operation, message: error.message })
   }
   return new OperationFailed({ operation: "unknown", message: "Operation failed" })
 }
@@ -943,6 +947,19 @@ const WebSurfacesLive = HttpApiBuilder.group(PipeeApi, "webSurfaces", (handlers)
   }),
 )
 
+const ZeroYConnectionsHandlerLive = HttpApiBuilder.group(PipeeApi, "zeroYConnections", (handlers) =>
+  Effect.gen(function* () {
+    const connections = yield* ZeroYConnections
+    return handlers
+      .handle("list", () => expose(connections.list))
+      .handle("beginPairing", ({ payload }) => expose(connections.beginPairing(payload.endpoint, payload.label)))
+      .handle("exchangeCode", ({ payload }) =>
+        expose(connections.exchangeCode(payload.intentId, payload.code, payload.state)),
+      )
+      .handle("revoke", ({ params }) => expose(connections.revoke(params.siteId)).pipe(Effect.as(ok)))
+  }),
+)
+
 const FoundationLive = Layer.mergeAll(
   NodeServices.layer,
   NodeHttpServer.layerHttpServices,
@@ -962,6 +979,11 @@ const ServicesLive = Layer.mergeAll(WorkspaceIoLive, PackageIoLive, WebSurfaceCa
   Layer.provideMerge(DomainLive),
 )
 
+const ZeroYConnectionsProvided = ZeroYConnectionsHandlerLive.pipe(
+  Layer.provide(ZeroYConnectionsLive),
+  Layer.provide(FoundationLive),
+)
+
 const MetaProvided = MetaLive.pipe(Layer.provide(PipeeUpdateCheckerLive), Layer.provide(FoundationLive))
 
 const HandlersLive = Layer.mergeAll(
@@ -973,6 +995,7 @@ const HandlersLive = Layer.mergeAll(
   AuthLive,
   PackagesLive,
   WebSurfacesLive,
+  ZeroYConnectionsProvided,
 ).pipe(Layer.provide(Layer.mergeAll(ServicesLive, SameOriginLive, RequestSchemaErrorsLive)))
 
 const ApiLive = HttpApiBuilder.layer(PipeeApi).pipe(Layer.provide(HandlersLive), Layer.provide(FoundationLive))
@@ -987,7 +1010,32 @@ const WebSurfaceAssetRoutesLive = registerHttpRoutes((router) =>
   }),
 ).pipe(Layer.provide(ServicesLive))
 
-const WebAppLive = Layer.merge(ApiLive, WebSurfaceAssetRoutesLive)
+const ZeroYConnectCallbackLive = registerHttpRoutes((router) =>
+  Effect.gen(function* () {
+    const connections = yield* ZeroYConnections
+    yield* router.add("GET", "/zeroy/connect/callback", (request) =>
+      Effect.gen(function* () {
+        const url = new URL(request.url, "http://pipee.local")
+        const intentId = url.searchParams.get("intent_id") ?? ""
+        const code = url.searchParams.get("code") ?? ""
+        const state = url.searchParams.get("state") ?? ""
+        if (intentId === "" || code === "" || state === "") {
+          return HttpServerResponse.html("<h1>Invalid zeroY callback</h1><p>Missing intent_id, code, or state.</p>")
+        }
+        const failure = yield* connections.exchangeCode(intentId, code, state).pipe(Effect.flip, Effect.option)
+        if (failure._tag === "Some") {
+          const message = failure.value instanceof Error ? failure.value.message : String(failure.value)
+          return HttpServerResponse.html("<h1>Connection failed</h1><p>" + message + "</p>")
+        }
+        return HttpServerResponse.html(
+          "<h1>Connected</h1><p>The WordPress site is now connected to Pipee. You can close this tab.</p>",
+        )
+      }),
+    )
+  }),
+).pipe(Layer.provide(ZeroYConnectionsLive), Layer.provide(FoundationLive))
+
+const WebAppLive = Layer.merge(ApiLive, WebSurfaceAssetRoutesLive).pipe(Layer.merge(ZeroYConnectCallbackLive))
 
 const webHandler = HttpRouter.toWebHandler(WebAppLive, { disableLogger: true })
 

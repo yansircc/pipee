@@ -119,14 +119,14 @@ export const projectRegistryConnection = (
         siteId: projection.siteId,
         label: projection.label,
         endpoint: projection.endpoint,
-        grant: { id: projection.grantId, credentialRef: projection.siteId },
+        grant: { id: projection.grantId, credentialRef: projection.credentialRef },
         connectionKey: null,
       }
     : {
         siteId: projection.siteId,
         label: projection.label,
         endpoint: projection.endpoint,
-        grant: { id: projection.grantId, credentialRef: projection.siteId },
+        grant: { id: projection.grantId, credentialRef: projection.credentialRef },
         connectionKey: null,
         readGrantSecret: readSecret,
       };

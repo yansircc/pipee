@@ -1,6 +1,7 @@
 import {
   ZEROY_CONNECTION_REGISTRY_CAPABILITY,
   type ZeroYConnectionRegistryPort,
+  type ZeroYSiteConnectionProjectionList,
 } from "@pipee/companion-contracts/zeroy-connection-registry";
 import { Data, Effect, FileSystem, Path, Schema } from "effect";
 
@@ -17,6 +18,9 @@ import { Data, Effect, FileSystem, Path, Schema } from "effect";
  * Pairing orchestration (authorization URL, callback exchange) is driven by
  * the Pipee HTTP service through the injected callbacks; this module only
  * persists and projects the resulting connection facts.
+ *
+ * load/persist take an explicit directory so the host decides where the
+ * protected directory lives (defaults to ~/.pipee/zeroy when omitted).
  */
 
 export class ZeroYConnectionRegistryError extends Data.TaggedError("ZeroYConnectionRegistryError")<{
@@ -45,7 +49,7 @@ export type StoredZeroYSiteRow = {
   readonly revokedAt: string | null;
 };
 
-const RegistryStateSchema: Schema.Schema<ReadonlyArray<StoredZeroYSiteRow>> = Schema.Array(
+const RegistryStateSchema = Schema.Array(
   Schema.Struct({
     siteId: Schema.String,
     label: Schema.String,
@@ -84,10 +88,14 @@ const normalizeEndpoint = (endpoint: string): string => {
 
 export type ZeroYConnectionRegistryHandle = {
   readonly provider: { readonly forExtension: (ownerId: string) => ZeroYConnectionRegistryPort };
-  readonly load: Effect.Effect<void, never, FileSystem.FileSystem | Path.Path>;
-  readonly persist: Effect.Effect<void, never, FileSystem.FileSystem | Path.Path>;
+  readonly load: (
+    directory: string,
+  ) => Effect.Effect<void, never, FileSystem.FileSystem | Path.Path>;
+  readonly persist: (
+    directory: string,
+  ) => Effect.Effect<void, never, FileSystem.FileSystem | Path.Path>;
   readonly upsert: (
-    row: Omit<StoredZeroYSiteRow, "createdAt" | "lastUsedAt" | "revokedAt">,
+    row: Omit<StoredZeroYSiteRow, "createdAt" | "lastUsedAt" | "revokedAt" | "credentialRef">,
     grantSecret: string,
   ) => void;
   readonly markUsed: (siteId: string) => void;
@@ -95,6 +103,17 @@ export type ZeroYConnectionRegistryHandle = {
   readonly rows: () => ReadonlyArray<StoredZeroYSiteRow>;
   readonly dispose: () => void;
 };
+
+const toProjectionSite = (site: StoredZeroYSiteRow) => ({
+  siteId: site.siteId,
+  label: site.label,
+  endpoint: site.endpoint,
+  grantId: site.grantId,
+  credentialRef: site.credentialRef,
+  createdAt: site.createdAt,
+  lastUsedAt: site.lastUsedAt,
+  revoked: site.revokedAt !== null,
+});
 
 export const makeZeroYConnectionRegistry = (
   callbacks: ZeroYConnectionRegistryCallbacks = {},
@@ -109,22 +128,13 @@ export const makeZeroYConnectionRegistry = (
     for (const listener of listeners) listener();
   };
 
-  const projection = (): ZeroYConnectionRegistryPort["list"] extends () => infer R ? R : never => ({
-    contract: "pipee/zeroy-connection-directory@1",
-    observedAt: new Date().toISOString(),
-    sites: rows.map((site) => ({
-      siteId: site.siteId,
-      label: site.label,
-      endpoint: site.endpoint,
-      grantId: site.grantId,
-      createdAt: site.createdAt,
-      lastUsedAt: site.lastUsedAt,
-      revoked: site.revokedAt !== null,
-    })),
-  });
-
   const provider: ZeroYConnectionRegistryPort = {
-    list: () => projection(),
+    list: () =>
+      ({
+        contract: "pipee/zeroy-connection-directory@1",
+        observedAt: new Date().toISOString(),
+        sites: rows.map(toProjectionSite),
+      }) as unknown as ZeroYSiteConnectionProjectionList,
     beginPairing: () => {
       throw new ZeroYConnectionRegistryError({
         operation: "begin-pairing",
@@ -163,16 +173,25 @@ export const makeZeroYConnectionRegistry = (
     },
   };
 
-  return {
-    provider: { forExtension: () => provider },
-    load: Effect.gen(function* () {
+  const load = (directory: string): Effect.Effect<void, never, FileSystem.FileSystem | Path.Path> =>
+    Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const dir = path.join(yield* ConfigHome(), "zeroy");
-      const file = path.join(dir, "connections.json");
+      const file = path.join(directory, "connections.json");
       const raw = yield* fs.readFileString(file).pipe(Effect.orElseSucceed(() => "[]"));
+      const parsed = yield* Effect.try({
+        try: () => JSON.parse(raw) as unknown,
+        catch: () =>
+          new ZeroYConnectionRegistryError({
+            operation: "load",
+            message: "Connection directory is not valid JSON; starting empty.",
+          }),
+      }).pipe(Effect.orElseSucceed(() => [] as unknown));
       const decoded = yield* Effect.try({
-        try: () => Schema.decodeUnknownSync(RegistryStateSchema)(JSON.parse(raw) as unknown),
+        try: () =>
+          Schema.decodeUnknownSync(RegistryStateSchema)(
+            parsed,
+          ) as ReadonlyArray<StoredZeroYSiteRow>,
         catch: () =>
           new ZeroYConnectionRegistryError({
             operation: "load",
@@ -180,24 +199,31 @@ export const makeZeroYConnectionRegistry = (
           }),
       }).pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<StoredZeroYSiteRow>));
       rows = decoded;
-    }),
-    persist: Effect.gen(function* () {
+    });
+
+  const persist = (
+    directory: string,
+  ): Effect.Effect<void, never, FileSystem.FileSystem | Path.Path> =>
+    Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const dir = path.join(yield* ConfigHome(), "zeroy");
-      yield* fs.makeDirectory(dir, { recursive: true });
-      const file = path.join(dir, "connections.json");
+      yield* fs.makeDirectory(directory, { recursive: true });
+      const file = path.join(directory, "connections.json");
       yield* fs.writeFileString(file, JSON.stringify(rows, null, 2));
       yield* fs.chmod(file, 0o600);
-      // Secrets live in the same protected directory with the same mode.
-      const secretsFile = path.join(dir, "secrets.json");
+      const secretsFile = path.join(directory, "secrets.json");
       const secrets =
         secretStorage instanceof InMemorySecretStorage
           ? Object.fromEntries(secretStorage["secrets"])
           : {};
       yield* fs.writeFileString(secretsFile, JSON.stringify(secrets, null, 2));
       yield* fs.chmod(secretsFile, 0o600);
-    }),
+    }).pipe(Effect.catch(() => Effect.void));
+
+  return {
+    provider: { forExtension: () => provider },
+    load,
+    persist,
     upsert: (input, grantSecret) => {
       const now = new Date().toISOString();
       const credentialRef = `zeroy-grant-${input.siteId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -241,8 +267,5 @@ export const makeZeroYConnectionRegistry = (
     },
   };
 };
-
-const ConfigHome = (): Effect.Effect<string, never, never> =>
-  Effect.sync(() => process.env.HOME ?? process.env.USERPROFILE ?? ".");
 
 export { ZEROY_CONNECTION_REGISTRY_CAPABILITY };

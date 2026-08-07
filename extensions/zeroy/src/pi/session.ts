@@ -118,7 +118,9 @@ const loadProjection = (
           registry
             .list()
             .sites.map((projection) =>
-              projectRegistryConnection(projection, () => registry.readSecret(projection.siteId)),
+              projectRegistryConnection(projection, () =>
+                registry.readSecret(projection.credentialRef),
+              ),
             ),
         catch: (cause) =>
           new ZeroYConnectionConfigError({

@@ -9,12 +9,18 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ZeroyRouteImport } from './routes/zeroy'
 import { Route as ExtensionsRouteImport } from './routes/extensions'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ExtensionsSurfaceIdRouteImport } from './routes/extensions_.$surfaceId'
 import { Route as ExtensionAssetsSplatRouteImport } from './routes/extension-assets.$'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
 
+const ZeroyRoute = ZeroyRouteImport.update({
+  id: '/zeroy',
+  path: '/zeroy',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ExtensionsRoute = ExtensionsRouteImport.update({
   id: '/extensions',
   path: '/extensions',
@@ -44,6 +50,7 @@ const ApiSplatRoute = ApiSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/extensions': typeof ExtensionsRoute
+  '/zeroy': typeof ZeroyRoute
   '/api/$': typeof ApiSplatRoute
   '/extension-assets/$': typeof ExtensionAssetsSplatRoute
   '/extensions/$surfaceId': typeof ExtensionsSurfaceIdRoute
@@ -51,6 +58,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/extensions': typeof ExtensionsRoute
+  '/zeroy': typeof ZeroyRoute
   '/api/$': typeof ApiSplatRoute
   '/extension-assets/$': typeof ExtensionAssetsSplatRoute
   '/extensions/$surfaceId': typeof ExtensionsSurfaceIdRoute
@@ -59,6 +67,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/extensions': typeof ExtensionsRoute
+  '/zeroy': typeof ZeroyRoute
   '/api/$': typeof ApiSplatRoute
   '/extension-assets/$': typeof ExtensionAssetsSplatRoute
   '/extensions_/$surfaceId': typeof ExtensionsSurfaceIdRoute
@@ -68,6 +77,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/extensions'
+    | '/zeroy'
     | '/api/$'
     | '/extension-assets/$'
     | '/extensions/$surfaceId'
@@ -75,6 +85,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/extensions'
+    | '/zeroy'
     | '/api/$'
     | '/extension-assets/$'
     | '/extensions/$surfaceId'
@@ -82,6 +93,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/extensions'
+    | '/zeroy'
     | '/api/$'
     | '/extension-assets/$'
     | '/extensions_/$surfaceId'
@@ -90,6 +102,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ExtensionsRoute: typeof ExtensionsRoute
+  ZeroyRoute: typeof ZeroyRoute
   ApiSplatRoute: typeof ApiSplatRoute
   ExtensionAssetsSplatRoute: typeof ExtensionAssetsSplatRoute
   ExtensionsSurfaceIdRoute: typeof ExtensionsSurfaceIdRoute
@@ -97,6 +110,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/zeroy': {
+      id: '/zeroy'
+      path: '/zeroy'
+      fullPath: '/zeroy'
+      preLoaderRoute: typeof ZeroyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/extensions': {
       id: '/extensions'
       path: '/extensions'
@@ -138,6 +158,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ExtensionsRoute: ExtensionsRoute,
+  ZeroyRoute: ZeroyRoute,
   ApiSplatRoute: ApiSplatRoute,
   ExtensionAssetsSplatRoute: ExtensionAssetsSplatRoute,
   ExtensionsSurfaceIdRoute: ExtensionsSurfaceIdRoute,
