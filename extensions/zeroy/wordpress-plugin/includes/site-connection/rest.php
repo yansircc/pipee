@@ -30,8 +30,12 @@ function zeroy_connection_authorize_endpoint(WP_REST_Request $request): WP_REST_
     if (strlen($state) > 128 || strlen($client_id) > 96 || strlen($redirect_uri) > 512) {
         return zeroy_runtime_response_error(zeroy_runtime_error('zeroy_authorization_invalid', 'Authorization intent fields exceed bounds.', 400));
     }
+    $intent_id = is_string($request->get_param('intent_id')) ? sanitize_text_field(wp_unslash($request->get_param('intent_id'))) : '';
+    if ($intent_id !== '' && preg_match('/\A[a-f0-9-]{36}\z/', $intent_id) !== 1) {
+        return zeroy_runtime_response_error(zeroy_runtime_error('zeroy_authorization_invalid', 'intent_id must be a UUID.', 400));
+    }
     $intent = [
-        'intentId' => wp_generate_uuid4(),
+        'intentId' => $intent_id !== '' ? $intent_id : wp_generate_uuid4(),
         'siteId' => zeroy_runtime_site_id(),
         'clientId' => $client_id,
         'redirectUri' => $redirect_uri,

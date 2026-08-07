@@ -113,7 +113,7 @@ export const ZeroYConnectionsLive: Layer.Layer<
     )
 
     return ZeroYConnections.of({
-      list: persistEffect.pipe(Effect.as(project())).pipe(Effect.mapError(mapError("list"))),
+      list: persistEffect.pipe(Effect.map(() => project())).pipe(Effect.mapError(mapError("list"))),
       beginPairing: (endpoint, label) =>
         Effect.gen(function* () {
           const target = endpoint.trim().replace(/\/+$/, "")
@@ -180,6 +180,15 @@ export const ZeroYConnectionsLive: Layer.Layer<
               message: "WordPress did not return an authorization intent.",
             })
           }
+          // WordPress owns the intent identity. Re-key the local pending
+          // pairing under the WordPress intent id so the callback can look
+          // it up by the exact value the browser URL carries.
+          yield* SynchronizedRef.update(pending, (map) => {
+            const next = new Map(map)
+            next.delete(intentId)
+            next.set(created.intentId, { ...pendingPairing, intentId: created.intentId })
+            return next
+          })
           const authorizationUrl =
             `${target}/wp-admin/admin.php?page=zeroy-connect` +
             `&intent_id=${encodeURIComponent(created.intentId)}` +
