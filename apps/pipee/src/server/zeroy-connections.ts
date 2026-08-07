@@ -211,9 +211,7 @@ export const ZeroYConnectionsLive: Layer.Layer<
               message: "Pairing state does not match.",
             })
           }
-          const exchangeUrl = new URL(
-            `${pairing.endpoint}/wp-json/zeroy/v1/connection/exchange`,
-          )
+          const exchangeUrl = new URL(`${pairing.endpoint}/wp-json/zeroy/v1/connection/exchange`)
           const response = yield* Effect.tryPromise({
             try: () =>
               fetch(exchangeUrl, {
@@ -283,9 +281,7 @@ export const ZeroYConnectionsLive: Layer.Layer<
               message: `Invalid zeroY endpoint: ${input.endpoint}`,
             })
           }
-          const exchangeUrl = new URL(
-            `${target}/wp-json/zeroy/v1/connection/exchange`,
-          )
+          const exchangeUrl = new URL(`${target}/wp-json/zeroy/v1/connection/exchange`)
           const response = yield* Effect.tryPromise({
             try: () =>
               fetch(exchangeUrl, {
@@ -319,10 +315,7 @@ export const ZeroYConnectionsLive: Layer.Layer<
                 message: "Invalid exchange response",
               }),
           })
-          if (
-            typeof grant.grantId !== "string" ||
-            typeof grant.siteId !== "string"
-          ) {
+          if (typeof grant.grantId !== "string" || typeof grant.siteId !== "string") {
             return yield* new ZeroYConnectionsError({
               operation: "pair-with-code",
               message: "WordPress returned an invalid grant.",

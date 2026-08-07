@@ -18,16 +18,16 @@
 - [x] P1.4 zeroY 工具全部改读 registry projection
 
 ### P2：管理与备用
-- [ ] P2.1 WordPress 连接管理页（客户端列表、撤销）
-- [ ] P2.2 Pipee 撤销、重新授权、错误恢复
-- [ ] P2.3 WordPress 发起入口（"连接到 Pipee"按钮）
-- [ ] P2.4 短期配对码备用流程
+- [x] P2.1 WordPress 连接管理页（客户端列表、撤销）
+- [x] P2.2 Pipee 撤销、重新授权、错误恢复
+- [x] P2.3 WordPress 发起入口（"连接到 Pipee"按钮）
+- [x] P2.4 短期配对码备用流程
 
 ### P3：发布体验
-- [ ] P3.1 zeroY extension 构建产物纳入 Pipee 安装包
-- [ ] P3.2 pipee 启动不要求任何 zeroY 环境变量
-- [ ] P3.3 安装包验收不执行仓库 build 命令
-- [ ] P3.4 headless/CI 文档单独说明 ZEROY_SITES
+- [x] P3.1 zeroY extension 构建产物纳入 Pipee 安装包（release/pipee.config.json 已含 zeroy，prepareScript pi:build，bundle 只外部化 Node builtins）
+- [x] P3.2 pipee 启动不要求任何 zeroY 环境变量（零连接启动 + 空投影）
+- [x] P3.3 安装包验收不执行仓库 build 命令（发布管道使用已构建产物）
+- [x] P3.4 headless/CI 文档单独说明 ZEROY_SITES
 
 ## 核心不变量
 - 一次授权建立一个可撤销的 Pipee 连接；连接属于 Pipee 实例
