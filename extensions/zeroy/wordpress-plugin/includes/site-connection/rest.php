@@ -5,17 +5,16 @@ defined('ABSPATH') || exit;
 /**
  * Pipee connection authorization REST boundary.
  *
- * Intent creation requires a logged-in administrator with the zeroY release
- * capability. The code exchange is unauthenticated by design: it is protected
- * by the one-time intent, exact state, PKCE verifier, and redirect URI.
- * Revocation requires the grant itself (Bearer) or an administrator.
+ * Intent creation is unauthenticated by design: it is only a short-lived
+ * handshake that grants nothing. The administrator approves the intent on
+ * the WordPress connections admin page before any grant can exist, and the
+ * code exchange is protected by the one-time intent, exact state, PKCE
+ * verifier, and redirect URI. Revocation requires the grant itself (Bearer)
+ * or an administrator.
  */
 
 function zeroy_connection_authorize_endpoint(WP_REST_Request $request): WP_REST_Response
 {
-    if (!current_user_can(ZEROY_PREVIEW_CAPABILITY)) {
-        return zeroy_runtime_response_error(zeroy_runtime_error('zeroy_authorization_forbidden', 'Only an administrator with zeroY capability can authorize a Pipee connection.', 403));
-    }
     $client_id = (string) $request->get_param('client_id');
     $redirect_uri = (string) $request->get_param('redirect_uri');
     $code_challenge = (string) $request->get_param('code_challenge');

@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ExtensionsSurfaceIdRouteImport } from './routes/extensions_.$surfaceId'
 import { Route as ExtensionAssetsSplatRouteImport } from './routes/extension-assets.$'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
+import { Route as ZeroyConnectCallbackRouteImport } from './routes/zeroy.connect.callback'
 
 const ZeroyRoute = ZeroyRouteImport.update({
   id: '/zeroy',
@@ -46,31 +47,39 @@ const ApiSplatRoute = ApiSplatRouteImport.update({
   path: '/api/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ZeroyConnectCallbackRoute = ZeroyConnectCallbackRouteImport.update({
+  id: '/connect/callback',
+  path: '/connect/callback',
+  getParentRoute: () => ZeroyRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/extensions': typeof ExtensionsRoute
-  '/zeroy': typeof ZeroyRoute
+  '/zeroy': typeof ZeroyRouteWithChildren
   '/api/$': typeof ApiSplatRoute
   '/extension-assets/$': typeof ExtensionAssetsSplatRoute
   '/extensions/$surfaceId': typeof ExtensionsSurfaceIdRoute
+  '/zeroy/connect/callback': typeof ZeroyConnectCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/extensions': typeof ExtensionsRoute
-  '/zeroy': typeof ZeroyRoute
+  '/zeroy': typeof ZeroyRouteWithChildren
   '/api/$': typeof ApiSplatRoute
   '/extension-assets/$': typeof ExtensionAssetsSplatRoute
   '/extensions/$surfaceId': typeof ExtensionsSurfaceIdRoute
+  '/zeroy/connect/callback': typeof ZeroyConnectCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/extensions': typeof ExtensionsRoute
-  '/zeroy': typeof ZeroyRoute
+  '/zeroy': typeof ZeroyRouteWithChildren
   '/api/$': typeof ApiSplatRoute
   '/extension-assets/$': typeof ExtensionAssetsSplatRoute
   '/extensions_/$surfaceId': typeof ExtensionsSurfaceIdRoute
+  '/zeroy/connect/callback': typeof ZeroyConnectCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -81,6 +90,7 @@ export interface FileRouteTypes {
     | '/api/$'
     | '/extension-assets/$'
     | '/extensions/$surfaceId'
+    | '/zeroy/connect/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -89,6 +99,7 @@ export interface FileRouteTypes {
     | '/api/$'
     | '/extension-assets/$'
     | '/extensions/$surfaceId'
+    | '/zeroy/connect/callback'
   id:
     | '__root__'
     | '/'
@@ -97,12 +108,13 @@ export interface FileRouteTypes {
     | '/api/$'
     | '/extension-assets/$'
     | '/extensions_/$surfaceId'
+    | '/zeroy/connect/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ExtensionsRoute: typeof ExtensionsRoute
-  ZeroyRoute: typeof ZeroyRoute
+  ZeroyRoute: typeof ZeroyRouteWithChildren
   ApiSplatRoute: typeof ApiSplatRoute
   ExtensionAssetsSplatRoute: typeof ExtensionAssetsSplatRoute
   ExtensionsSurfaceIdRoute: typeof ExtensionsSurfaceIdRoute
@@ -152,13 +164,30 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/zeroy/connect/callback': {
+      id: '/zeroy/connect/callback'
+      path: '/connect/callback'
+      fullPath: '/zeroy/connect/callback'
+      preLoaderRoute: typeof ZeroyConnectCallbackRouteImport
+      parentRoute: typeof ZeroyRoute
+    }
   }
 }
+
+interface ZeroyRouteChildren {
+  ZeroyConnectCallbackRoute: typeof ZeroyConnectCallbackRoute
+}
+
+const ZeroyRouteChildren: ZeroyRouteChildren = {
+  ZeroyConnectCallbackRoute: ZeroyConnectCallbackRoute,
+}
+
+const ZeroyRouteWithChildren = ZeroyRoute._addFileChildren(ZeroyRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ExtensionsRoute: ExtensionsRoute,
-  ZeroyRoute: ZeroyRoute,
+  ZeroyRoute: ZeroyRouteWithChildren,
   ApiSplatRoute: ApiSplatRoute,
   ExtensionAssetsSplatRoute: ExtensionAssetsSplatRoute,
   ExtensionsSurfaceIdRoute: ExtensionsSurfaceIdRoute,

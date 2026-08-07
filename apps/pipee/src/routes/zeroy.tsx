@@ -60,7 +60,7 @@ function ZeroYConnections() {
         onSuccess: (intent) => {
           setPairing(false)
           setNotice(
-            'Authorization URL opened. Complete the flow in WordPress, then click "Finish pairing" after the callback returns.',
+            'Authorization URL opened in a new tab. Approve it in WordPress, then refresh this page to see the connected site.',
           )
           window.open(intent.authorizationUrl, "_blank", "noopener,noreferrer")
         },

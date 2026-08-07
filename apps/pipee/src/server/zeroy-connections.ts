@@ -1,5 +1,6 @@
 import { Context, Data, Effect, FileSystem, Layer, Path, SynchronizedRef } from "effect"
 import type { NodeServices } from "@effect/platform-node/NodeServices"
+import { createHash, randomUUID } from "node:crypto"
 import { ZeroYConnectionRegistryProvider } from "./zeroy-connection-registry-provider"
 
 /**
@@ -123,11 +124,14 @@ export const ZeroYConnectionsLive: Layer.Layer<
               message: `Invalid zeroY endpoint: ${endpoint}`,
             })
           }
-          const state = crypto.randomUUID()
-          const codeVerifier = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "")
-          const codeChallenge = codeVerifier
+          const state = randomUUID()
+          const codeVerifier = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "")
+          // PKCE S256: the challenge is the hex digest of the verifier. The
+          // WordPress plugin stores the challenge and compares it against
+          // hash(sha256, verifier) at exchange time.
+          const codeChallenge = createHash("sha256").update(codeVerifier).digest("hex")
           const redirectUri = "http://127.0.0.1:30141/zeroy/connect/callback"
-          const intentId = crypto.randomUUID()
+          const intentId = randomUUID()
           const pendingPairing: PendingPairing = {
             intentId,
             endpoint: target,
@@ -190,7 +194,7 @@ export const ZeroYConnectionsLive: Layer.Layer<
             return next
           })
           const authorizationUrl =
-            `${target}/wp-admin/admin.php?page=zeroy-connect` +
+            `${target}/wp-admin/admin.php?page=zeroy-connections` +
             `&intent_id=${encodeURIComponent(created.intentId)}` +
             `&client_id=${encodeURIComponent("pipee-local")}` +
             `&redirect_uri=${encodeURIComponent(redirectUri)}` +

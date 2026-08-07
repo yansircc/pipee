@@ -51,7 +51,9 @@ function zeroy_connection_admin_begin_pairing(): void
     check_admin_referer('zeroy_connection_pair');
     $client_id = isset($_POST['clientId']) ? sanitize_text_field(wp_unslash($_POST['clientId'])) : 'pipee-local';
     $redirect_uri = isset($_POST['redirectUri']) ? esc_url_raw(wp_unslash($_POST['redirectUri'])) : '';
-    $code_verifier = wp_generate_password(48, true, true);
+    // The pairing code is the code_verifier: typable (alphanumeric),
+    // short-lived, single-use, and never a persistent credential.
+    $code_verifier = wp_generate_password(32, false, false);
     $code_challenge = hash('sha256', $code_verifier);
     $state = wp_generate_uuid4();
     $intent = [
@@ -68,15 +70,74 @@ function zeroy_connection_admin_begin_pairing(): void
         wp_safe_redirect(zeroy_connection_admin_url(['zeroy_notice' => 'pair-error', 'message' => $stored->get_error_message()]));
         exit;
     }
-    // The pairing code is the code_verifier: it is short-lived, single-use,
-    // and never a persistent credential. The admin copies it into Pipee.
-    wp_safe_redirect(zeroy_connection_admin_url([
+    // add_query_arg() does not URL-encode new values in WordPress 7.x, so
+    // pairing codes and other special-character values are built with
+    // http_build_query() instead of being corrupted in the query string.
+    wp_safe_redirect(admin_url('admin.php') . '?' . http_build_query([
+        'page' => ZEROY_CONNECTION_ADMIN_SLUG,
         'zeroy_notice' => 'pairing-created',
         'pairingCode' => $code_verifier,
         'intentId' => $intent['intentId'],
         'redirectUri' => $intent['redirectUri'],
         'state' => $state,
     ]));
+    exit;
+}
+
+/**
+ * Administrator approval for a Pipee-initiated intent.
+ *
+ * Produces a single-use authorization code and returns it to the intent's
+ * Pipee callback URL exactly once. The grant itself is only created by the
+ * code exchange (which consumes the intent), so this handler never persists
+ * a grant directly. The code becomes the Pipee grant secret; only its
+ * irreversible hash is stored by this plugin.
+ */
+function zeroy_connection_admin_approve(): void
+{
+    zeroy_connection_admin_require_capability();
+    check_admin_referer('zeroy_connection_approve');
+    $intent_id = isset($_POST['intentId']) ? sanitize_text_field(wp_unslash($_POST['intentId'])) : '';
+    $state = isset($_POST['state']) ? sanitize_text_field(wp_unslash($_POST['state'])) : '';
+    if (preg_match('/\A[a-f0-9-]{36}\z/', $intent_id) !== 1 || $state === '') {
+        wp_safe_redirect(zeroy_connection_admin_url(['zeroy_notice' => 'approve-error', 'message' => 'Invalid authorization intent.']));
+        exit;
+    }
+    $intent = zeroy_connection_find_intent($intent_id);
+    if (!zeroy_connection_intent_is_valid($intent) || !hash_equals((string) $intent['state'], $state)) {
+        wp_safe_redirect(zeroy_connection_admin_url(['zeroy_notice' => 'approve-error', 'message' => 'Authorization intent is missing, expired, or already used.']));
+        exit;
+    }
+    $redirect_uri = (string) $intent['redirect_uri'];
+    $parsed_redirect = wp_parse_url($redirect_uri);
+    $scheme = isset($parsed_redirect['scheme']) ? strtolower((string) $parsed_redirect['scheme']) : '';
+    $redirect_host = isset($parsed_redirect['host']) ? (string) $parsed_redirect['host'] : '';
+    // The callback host may be localhost (the local Pipee callback), so the
+    // strict SSRF-oriented wp_http_validate_url() is not used. Structural
+    // validation keeps the redirect an absolute http(s) URL with a host.
+    if (!in_array($scheme, ['http', 'https'], true) || $redirect_host === '' || strpbrk($redirect_host, ':#?[]') !== false) {
+        wp_safe_redirect(zeroy_connection_admin_url(['zeroy_notice' => 'approve-error', 'message' => 'The intent redirect URI is not a valid URL.']));
+        exit;
+    }
+    // The authorization code is the grant secret: high entropy, single-use,
+    // and only its hash is ever stored by this plugin.
+    $code = wp_generate_password(48, false, false);
+    $separator = str_contains($redirect_uri, '?') ? '&' : '?';
+    $callback = $redirect_uri . $separator . http_build_query([
+        'intent_id' => $intent_id,
+        'code' => $code,
+        'state' => $state,
+    ]);
+    // wp_safe_redirect() only allows the site host by default; the Pipee
+    // callback host is permitted because the intent itself pins it.
+    $callback_host = wp_parse_url($redirect_uri, PHP_URL_HOST);
+    add_filter('allowed_redirect_hosts', function (array $hosts) use ($callback_host): array {
+        if ($callback_host !== null && $callback_host !== '') {
+            $hosts[] = $callback_host;
+        }
+        return $hosts;
+    });
+    wp_safe_redirect($callback);
     exit;
 }
 
@@ -88,6 +149,7 @@ function zeroy_connection_admin_page(): void
     if ($notice === 'revoked') zeroy_connection_admin_notice('success', 'The Pipee connection was revoked. Pipee requests from that client are now rejected.');
     if ($notice === 'revoke-error') zeroy_connection_admin_notice('error', $message !== '' ? $message : 'Could not revoke the connection.');
     if ($notice === 'pair-error') zeroy_connection_admin_notice('error', $message !== '' ? $message : 'Could not create the pairing intent.');
+    if ($notice === 'approve-error') zeroy_connection_admin_notice('error', $message !== '' ? $message : 'Could not approve the connection request.');
     if ($notice === 'pairing-created') {
         $pairing_code = isset($_GET['pairingCode']) ? sanitize_text_field(wp_unslash($_GET['pairingCode'])) : '';
         $intent_id = isset($_GET['intentId']) ? sanitize_text_field(wp_unslash($_GET['intentId'])) : '';
@@ -103,11 +165,45 @@ function zeroy_connection_admin_page(): void
         echo '<input type="hidden" id="zeroy-intent-state" value="' . esc_attr($state) . '" />';
         echo '<input type="hidden" id="zeroy-intent-redirect" value="' . esc_attr($redirect_uri) . '" />';
     }
+    // A Pipee-initiated intent presented on this page is shown as an approval
+    // request. The state must match the intent exactly so the URL cannot be
+    // replayed or swapped for another pairing.
+    $pending_intent = null;
+    $pending_intent_id = isset($_GET['intent_id']) ? sanitize_text_field(wp_unslash($_GET['intent_id'])) : '';
+    if ($pending_intent_id !== '' && preg_match('/\A[a-f0-9-]{36}\z/', $pending_intent_id) === 1) {
+        $candidate = zeroy_connection_find_intent($pending_intent_id);
+        if (zeroy_connection_intent_is_valid($candidate)) {
+            $url_state = isset($_GET['state']) ? sanitize_text_field(wp_unslash($_GET['state'])) : '';
+            if (hash_equals((string) $candidate['state'], $url_state)) {
+                $pending_intent = $candidate;
+            }
+        }
+    }
     $grants = zeroy_connection_list_grants();
     ?>
     <div class="wrap">
         <h1>zeroY connections</h1>
         <p>Pipee instances connect to this site with a revocable client grant. Only the irreversible grant hash is stored here; grant secrets live in the Pipee protected secret storage.</p>
+
+        <?php if ($pending_intent !== null): ?>
+            <div class="card" style="border-color:#1f5eff">
+                <h2>Authorize Pipee connection</h2>
+                <p>A Pipee instance is requesting to connect to this site.</p>
+                <p>
+                    Client: <strong><?php echo esc_html((string) $pending_intent['client_id']); ?></strong><br />
+                    Site: <code><?php echo esc_html((string) $pending_intent['site_id']); ?></code><br />
+                    Callback: <code><?php echo esc_html((string) $pending_intent['redirect_uri']); ?></code>
+                </p>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <?php wp_nonce_field('zeroy_connection_approve'); ?>
+                    <input type="hidden" name="action" value="zeroy_connection_approve" />
+                    <input type="hidden" name="intentId" value="<?php echo esc_attr((string) $pending_intent['intent_id']); ?>" />
+                    <input type="hidden" name="state" value="<?php echo esc_attr((string) $pending_intent['state']); ?>" />
+                    <button type="submit" class="button button-primary">Authorize connection</button>
+                    <a class="button" href="<?php echo esc_url(zeroy_connection_admin_url()); ?>">Deny</a>
+                </form>
+            </div>
+        <?php endif; ?>
 
         <h2>Connected Pipee clients</h2>
         <?php if ($grants === []): ?>
@@ -178,3 +274,4 @@ function zeroy_connection_admin_menu(): void
 add_action('admin_menu', 'zeroy_connection_admin_menu');
 add_action('admin_post_zeroy_connection_revoke', 'zeroy_connection_admin_revoke');
 add_action('admin_post_zeroy_connection_pair', 'zeroy_connection_admin_begin_pairing');
+add_action('admin_post_zeroy_connection_approve', 'zeroy_connection_admin_approve');

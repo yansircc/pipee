@@ -66,7 +66,7 @@ it("beginPairing creates a WordPress intent and returns a browser URL", async ()
     const intent = await runtime.runPromise(connections.beginPairing("https://example.test", "Staging"))
     pairedIntentId = intent.intentId
     pairedState = new URL(intent.authorizationUrl).searchParams.get("state")
-    expect(intent.authorizationUrl).toContain("https://example.test/wp-admin/admin.php?page=zeroy-connect")
+    expect(intent.authorizationUrl).toContain("https://example.test/wp-admin/admin.php?page=zeroy-connections")
     expect(intent.authorizationUrl).toContain(`intent_id=${pairedIntentId}`)
     expect(calls).toHaveLength(1)
   } finally {
