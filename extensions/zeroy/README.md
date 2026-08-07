@@ -79,3 +79,9 @@ git diff --check
 ```
 
 `acceptance:headless` requires `ZEROY_SITES`, `ZEROY_ACCEPTANCE_SITE_ID`, and `ZEROY_ACCEPTANCE_MODEL`. It gives Pi the three zeroY tools plus ordinary local file tools, then verifies checkout recovery, local editing, repeated private Pushes, Review convergence, proof readiness, and that Agent work did not publish the public site.
+
+## Connections
+
+Production Pipee connects to a WordPress site through a browser pairing flow: enter the site URL in the zeroY connections page, approve in WordPress, and Pipee stores the connection in its protected connection directory (`~/.pipee/zeroy`). The WordPress plugin stores only the irreversible grant hash; the grant secret lives in Pipee protected secret storage and is never exposed to the UI, logs, or the Agent. Revoking a connection from either side rejects all subsequent Connector requests.
+
+`ZEROY_SITES` is the headless/CI connection source only. It is not a production path and is never merged with the persistent connection directory. Headless acceptance scripts set it explicitly to simulate an already-paired site.

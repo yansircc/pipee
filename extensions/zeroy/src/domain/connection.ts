@@ -63,17 +63,23 @@ const decodeConnection = (value: unknown): SiteConnection | ZeroYConnectionConfi
   };
 };
 /** Load headless/CI connections from ZEROY_SITES. Empty result = no sites. */
-export const loadSiteConnections = (): Effect.Effect<
-  ReadonlyArray<SiteConnection>,
-  ZeroYConnectionConfigError
-> =>
-  Config.redacted("ZEROY_SITES").pipe(
-    Effect.map((raw) => Redacted.value(raw)),
+export const loadSiteConnections = (
+  name: string = "ZEROY_SITES",
+): Effect.Effect<ReadonlyArray<SiteConnection>, ZeroYConnectionConfigError> =>
+  Config.option(Config.redacted(name)).pipe(
+    Effect.flatMap((rawOption) =>
+      rawOption._tag === "None"
+        ? Effect.succeed(null)
+        : Effect.succeed(Redacted.value(rawOption.value)),
+    ),
     Effect.flatMap((raw) =>
-      Effect.try({
-        try: () => JSON.parse(raw) as unknown,
-        catch: () => new ZeroYConnectionConfigError({ message: "ZEROY_SITES must be valid JSON." }),
-      }),
+      raw === null || raw.trim() === ""
+        ? Effect.succeed([] as ReadonlyArray<SiteConnection>)
+        : Effect.try({
+            try: () => JSON.parse(raw) as unknown,
+            catch: () =>
+              new ZeroYConnectionConfigError({ message: "ZEROY_SITES must be valid JSON." }),
+          }),
     ),
     Effect.flatMap((parsed) => {
       if (!Array.isArray(parsed)) {

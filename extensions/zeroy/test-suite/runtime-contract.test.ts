@@ -5,6 +5,7 @@ import { Effect } from "effect";
 import { describe, expect, it } from "@effect/vitest";
 import piZeroY from "../src/pi/extension.js";
 import { activeSession, run, startSession, stopSession } from "../src/pi/session.js";
+import { loadSiteConnections } from "../src/domain/connection.js";
 
 const readFixture = (relative: string): string =>
   readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8");
@@ -178,4 +179,14 @@ describe("zeroY SiteCheckout hard cut", () => {
       ),
     );
   });
+
+  it.effect("loads zero connections when the environment source is absent", () =>
+    loadSiteConnections("ZEROY_SITES_TEST_ABSENT_UNIQUE").pipe(
+      Effect.tap((connections) =>
+        Effect.sync(() => {
+          expect(connections).toEqual([]);
+        }),
+      ),
+    ),
+  );
 });
