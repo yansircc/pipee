@@ -113,6 +113,39 @@ export const ZeroYConnectionsLive: Layer.Layer<
       Effect.provideService(Path.Path, path),
     )
 
+    /**
+     * Best-effort revocation of a grant on WordPress using its own secret.
+     * The WordPress plugin stores only the irreversible grant hash, so the
+     * Bearer secret is the only way a grant holder can revoke itself.
+     */
+    const revokeWordPressGrant = (endpoint: string, grantId: string, secret: string): Effect.Effect<void, never> =>
+      Effect.tryPromise({
+        try: () =>
+          fetch(`${endpoint.replace(/\/+$/, "")}/wp-json/zeroy/v1/connection/grants/${grantId}`, {
+            method: "DELETE",
+            headers: { authorization: `Bearer ${secret}` },
+          }).then(() => undefined),
+        catch: () => undefined,
+      })
+
+    /**
+     * Revoke the previous active grant for the same site before a new grant
+     * supersedes it, so WordPress does not accumulate orphan grants. The new
+     * pairing always succeeds; a failed revocation only leaves the old grant
+     * unusable (its secret is deleted locally) and revocable from the admin.
+     */
+    const revokeSupersededGrant = (endpoint: string, siteId: string, keepGrantId: string): Effect.Effect<void, never> => {
+      const existing = registry
+        .rows()
+        .find((site) => site.siteId === siteId && site.revokedAt === null && site.grantId !== keepGrantId)
+      if (existing === undefined) return Effect.void
+      return Effect.try(() => registry.provider.forExtension("zeroy").readSecret(existing.credentialRef))
+        .pipe(
+          Effect.flatMap((secret) => revokeWordPressGrant(endpoint, existing.grantId, secret)),
+          Effect.catch(() => Effect.void),
+        )
+    }
+
     return ZeroYConnections.of({
       list: persistEffect.pipe(Effect.map(() => project())).pipe(Effect.mapError(mapError("list"))),
       beginPairing: (endpoint, label) =>
@@ -268,6 +301,9 @@ export const ZeroYConnectionsLive: Layer.Layer<
               message: "WordPress returned an invalid grant.",
             })
           }
+          // Supersede any previous active grant for this site on WordPress
+          // before the registry row is replaced, so no orphan grant remains.
+          yield* revokeSupersededGrant(pairing.endpoint, grant.siteId, grant.grantId)
           registry.upsert(
             {
               siteId: grant.siteId,
@@ -334,6 +370,9 @@ export const ZeroYConnectionsLive: Layer.Layer<
               message: "WordPress returned an invalid grant.",
             })
           }
+          // Supersede any previous active grant for this site on WordPress
+          // before the registry row is replaced, so no orphan grant remains.
+          yield* revokeSupersededGrant(target, grant.siteId, grant.grantId)
           registry.upsert(
             {
               siteId: grant.siteId,
@@ -348,6 +387,17 @@ export const ZeroYConnectionsLive: Layer.Layer<
         }).pipe(Effect.mapError(mapError("pair-with-code"))),
       revoke: (siteId) =>
         Effect.gen(function* () {
+          // Ask WordPress to revoke the grant with its own secret (best
+          // effort) before the local secret is deleted, then always complete
+          // the local revocation so Pipee can no longer authenticate.
+          const row = registry.rows().find((site) => site.siteId === siteId && site.revokedAt === null)
+          if (row !== undefined) {
+            yield* Effect.try(() => registry.provider.forExtension("zeroy").readSecret(row.credentialRef))
+              .pipe(
+                Effect.flatMap((secret) => revokeWordPressGrant(row.endpoint, row.grantId, secret)),
+                Effect.catch(() => Effect.void),
+              )
+          }
           registry.provider.forExtension("zeroy").revoke(siteId)
           yield* persistEffect
         }).pipe(Effect.mapError(mapError("revoke"))),

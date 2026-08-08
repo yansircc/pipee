@@ -1,4 +1,10 @@
 import { describe, expect, it } from "@effect/vitest";
+import { layer as nodeServices } from "@effect/platform-node/NodeServices"
+import { Effect } from "effect"
+import { randomUUID } from "node:crypto"
+import { rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import {
   InMemorySecretStorage,
   makeZeroYConnectionRegistry,
@@ -78,5 +84,28 @@ describe("zeroY connection registry", () => {
     expect(registry.rows()).toHaveLength(1);
     expect(storage.read(firstRef)).toBeUndefined();
     expect(storage.read(registry.rows()[0]!.credentialRef)).toBe("second-secret");
+  });
+
+  it("restores persisted grant secrets after a restart", async () => {
+    const directory = join(tmpdir(), `zeroy-registry-secrets-${randomUUID()}`);
+    try {
+      const first = makeZeroYConnectionRegistry();
+      first.upsert(
+        { siteId, label: "Staging", endpoint: "http://example.test", grantId: "g1" },
+        "persisted-secret",
+      );
+      await Effect.runPromise(first.persist(directory).pipe(Effect.provide(nodeServices)));
+      first.dispose();
+
+      const second = makeZeroYConnectionRegistry();
+      await Effect.runPromise(second.load(directory).pipe(Effect.provide(nodeServices)));
+      expect(second.rows()).toHaveLength(1);
+      expect(
+        second.provider.forExtension("alpha").readSecret(second.rows()[0]!.credentialRef),
+      ).toBe("persisted-secret");
+      second.dispose();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

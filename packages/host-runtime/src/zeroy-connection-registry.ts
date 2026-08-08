@@ -199,6 +199,25 @@ export const makeZeroYConnectionRegistry = (
           }),
       }).pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<StoredZeroYSiteRow>));
       rows = decoded;
+      // Grant secrets survive restarts: persist() writes secrets.json, so
+      // load() must restore it into the in-memory storage. Custom
+      // SecretStorage implementations own their own persistence and are
+      // never touched here.
+      if (secretStorage instanceof InMemorySecretStorage) {
+        const secretsFile = path.join(directory, "secrets.json");
+        const rawSecrets = yield* fs
+          .readFileString(secretsFile)
+          .pipe(Effect.orElseSucceed(() => "{}"));
+        const parsedSecrets = yield* Effect.try({
+          try: () => JSON.parse(rawSecrets) as unknown,
+          catch: () => ({}),
+        }).pipe(Effect.orElseSucceed(() => ({})));
+        if (typeof parsedSecrets === "object" && parsedSecrets !== null) {
+          for (const [ref, secret] of Object.entries(parsedSecrets as Record<string, unknown>)) {
+            if (typeof secret === "string") secretStorage.write(ref, secret);
+          }
+        }
+      }
     });
 
   const persist = (
