@@ -121,26 +121,40 @@ export type PendingPairingIntent = typeof PendingPairingIntent.Type;
  * Host capability port surface. The extension receives a read-only projection
  * of connections and performs pairing actions; the host owns persistence and
  * secret storage. Implemented by the Pipee host; consumed via extension-kit.
+ * Pairing actions are asynchronous because the host performs WordPress REST
+ * calls (intent creation, code exchange, grant revocation) before returning.
  */
 export interface ZeroYConnectionRegistryPort {
   /** Read the current read-only projection for this extension. */
   readonly list: () => ZeroYSiteConnectionProjectionList;
-  /** Create a pending pairing intent and return the WordPress authorization URL. */
+  /**
+   * Create a WordPress authorization intent and return the browser URL the
+   * administrator opens to approve the Pipee connection.
+   */
   readonly beginPairing: (input: {
     readonly endpoint: string;
     readonly label: string;
-  }) => {
-    readonly authorizationUrl: string;
+  }) => Promise<{ readonly authorizationUrl: string; readonly intentId: string }>;
+  /**
+   * Exchange a short-lived pairing code (code_verifier) created in WordPress
+   * for a client grant, without a Pipee-held pending intent.
+   */
+  readonly pairWithCode: (input: {
+    readonly endpoint: string;
     readonly intentId: string;
-  };
+    readonly code: string;
+    readonly state: string;
+    readonly redirectUri: string;
+    readonly label: string;
+  }) => Promise<{ readonly siteId: string; readonly grantId: string }>;
   /** Exchange an authorization code from the WordPress callback. */
   readonly exchangeCode: (input: {
     readonly intentId: string;
     readonly code: string;
     readonly state: string;
-  }) => ZeroYSiteConnectionProjection;
+  }) => Promise<{ readonly siteId: string; readonly grantId: string }>;
   /** Revoke a connection: delete local secret and request WordPress revocation. */
-  readonly revoke: (siteId: string) => void;
+  readonly revoke: (siteId: string) => Promise<void>;
   /** Read a grant secret for an outbound Connector request. Never logged. */
   readonly readSecret: (credentialRef: string) => string;
   /** Subscribe to connection directory changes (fires on any mutation). */

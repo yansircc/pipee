@@ -1,7 +1,23 @@
 import type { JsonValue } from "@pipee/companion-contracts/web-surface";
+import { Schema } from "effect";
 import type { ExternalCheck } from "../domain/checker.js";
 import type { SiteConnection } from "../domain/connection.js";
 import type { JsonRecord } from "../domain/protocol.js";
+
+/** Actions the zeroY web surface can dispatch to the host. */
+export const ZeroYConnectionAction = Schema.Union([
+  Schema.TaggedStruct("BeginPairing", { endpoint: Schema.String, label: Schema.String }),
+  Schema.TaggedStruct("PairWithCode", {
+    endpoint: Schema.String,
+    intentId: Schema.String,
+    code: Schema.String,
+    state: Schema.String,
+    redirectUri: Schema.String,
+    label: Schema.String,
+  }),
+  Schema.TaggedStruct("Revoke", { siteId: Schema.String }),
+]);
+export type ZeroYConnectionAction = typeof ZeroYConnectionAction.Type;
 
 export type ZeroYSiteView = {
   readonly siteId: string;
@@ -9,6 +25,7 @@ export type ZeroYSiteView = {
   readonly endpoint: string;
   readonly state: "ready" | "failed";
   readonly error: string | null;
+  readonly revoked: boolean;
   readonly site: JsonRecord | null;
   readonly schema: JsonRecord | null;
   readonly inventory: JsonRecord | null;
@@ -40,6 +57,7 @@ export const failedSiteView = (connection: SiteConnection, error: string): ZeroY
   endpoint: connection.endpoint,
   state: "failed",
   error,
+  revoked: connection.revoked,
   site: null,
   schema: null,
   inventory: null,

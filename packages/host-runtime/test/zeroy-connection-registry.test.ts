@@ -15,7 +15,7 @@ const siteId = "0ba8bf56-1e2c-4e83-b629-0f9abd21cbac";
 const otherSiteId = "11111111-2222-3333-4444-555555555555";
 
 describe("zeroY connection registry", () => {
-  it("upserts a connection, projects read-only rows, and revokes without exposing secrets", () => {
+  it("upserts a connection, projects read-only rows, and revokes without exposing secrets", async () => {
     const storage = new InMemorySecretStorage();
     const registry = makeZeroYConnectionRegistry({ secretStorage: storage });
     registry.upsert(
@@ -39,7 +39,7 @@ describe("zeroY connection registry", () => {
       .readSecret(registry.rows()[0]!.credentialRef);
     expect(secret).toBe("secret-plaintext");
 
-    registry.provider.forExtension("alpha").revoke(siteId);
+    await registry.provider.forExtension("alpha").revoke(siteId);
     expect(registry.rows()[0]!.revokedAt).not.toBeNull();
     expect(registry.provider.forExtension("alpha").list().sites[0]!.revoked).toBe(true);
     expect(() =>

@@ -1,15 +1,16 @@
-import { Context, Data, Effect, FileSystem, Layer, Path, SynchronizedRef } from "effect"
-import type { NodeServices } from "@effect/platform-node/NodeServices"
-import { createHash, randomUUID } from "node:crypto"
+import { Context, Data, Effect, Layer } from "effect"
 import { ZeroYConnectionRegistryProvider } from "./zeroy-connection-registry-provider"
 
 /**
- * Pipee-side zeroY connection directory service.
+ * Pipee zeroY connection directory HTTP service.
  *
- * Owns the persistent connection library and drives browser pairing. The
- * WordPress plugin owns site identity and grant hashes; Pipee stores the
- * grant secret in protected secret storage (credentialRef) and non-sensitive
- * metadata in the connection directory.
+ * A thin adapter over the shared zeroY connection registry: all pairing
+ * orchestration (WordPress intent creation, code exchange, pairing-code
+ * pairing, grant revocation) and persistence live in the registry handle so
+ * the same state machine backs both this HTTP surface and the extension
+ * capability port. WordPress owns site identity and grant hashes; Pipee
+ * stores the grant secret in protected secret storage (credentialRef) and
+ * non-sensitive metadata in the connection directory.
  *
  * Pairing flow (Pipee-initiated):
  *   beginPairing -> create intent on WordPress -> open browser URL
@@ -36,17 +37,6 @@ export type ZeroYConnectionList = {
 export type ZeroYPairingIntent = {
   readonly authorizationUrl: string
   readonly intentId: string
-}
-
-/** Pending pairing state held by Pipee until the callback returns. */
-export type PendingPairing = {
-  readonly intentId: string
-  readonly endpoint: string
-  readonly label: string
-  readonly state: string
-  readonly codeVerifier: string
-  readonly redirectUri: string
-  readonly expiresAt: number
 }
 
 export class ZeroYConnections extends Context.Service<
@@ -77,24 +67,14 @@ const mapError = (operation: string) => (cause: unknown) =>
     message: cause instanceof Error ? cause.message : String(cause),
   })
 
-/** Protected zeroY connection directory under the user home. */
-const connectionDirectory = (home: string): string => `${home}/.pipee/zeroy`
-
 export const ZeroYConnectionsLive: Layer.Layer<
   ZeroYConnections,
   never,
-  NodeServices | ZeroYConnectionRegistryProvider
+  ZeroYConnectionRegistryProvider
 > = Layer.effect(
   ZeroYConnections,
   Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
-    const home = process.env.HOME ?? process.env.USERPROFILE ?? "."
-    const directory = connectionDirectory(home)
     const registry = yield* ZeroYConnectionRegistryProvider
-    const pending = yield* SynchronizedRef.make(new Map<string, PendingPairing>())
-
-    const persist = registry.persist(directory)
 
     const project = (): ZeroYConnectionList => ({
       sites: registry.rows().map((site) => ({
@@ -108,299 +88,26 @@ export const ZeroYConnectionsLive: Layer.Layer<
       })),
     })
 
-    const persistEffect = persist.pipe(
-      Effect.provideService(FileSystem.FileSystem, fs),
-      Effect.provideService(Path.Path, path),
-    )
-
-    /**
-     * Best-effort revocation of a grant on WordPress using its own secret.
-     * The WordPress plugin stores only the irreversible grant hash, so the
-     * Bearer secret is the only way a grant holder can revoke itself.
-     */
-    const revokeWordPressGrant = (endpoint: string, grantId: string, secret: string): Effect.Effect<void, never> =>
-      Effect.tryPromise({
-        try: () =>
-          fetch(`${endpoint.replace(/\/+$/, "")}/wp-json/zeroy/v1/connection/grants/${grantId}`, {
-            method: "DELETE",
-            headers: { authorization: `Bearer ${secret}` },
-          }).then(() => undefined),
-        catch: () => undefined,
-      })
-
-    /**
-     * Revoke the previous active grant for the same site before a new grant
-     * supersedes it, so WordPress does not accumulate orphan grants. The new
-     * pairing always succeeds; a failed revocation only leaves the old grant
-     * unusable (its secret is deleted locally) and revocable from the admin.
-     */
-    const revokeSupersededGrant = (endpoint: string, siteId: string, keepGrantId: string): Effect.Effect<void, never> => {
-      const existing = registry
-        .rows()
-        .find((site) => site.siteId === siteId && site.revokedAt === null && site.grantId !== keepGrantId)
-      if (existing === undefined) return Effect.void
-      return Effect.try(() => registry.provider.forExtension("zeroy").readSecret(existing.credentialRef))
-        .pipe(
-          Effect.flatMap((secret) => revokeWordPressGrant(endpoint, existing.grantId, secret)),
-          Effect.catch(() => Effect.void),
-        )
-    }
-
     return ZeroYConnections.of({
-      list: persistEffect.pipe(Effect.map(() => project())).pipe(Effect.mapError(mapError("list"))),
+      list: Effect.sync(() => project()).pipe(Effect.mapError(mapError("list"))),
       beginPairing: (endpoint, label) =>
-        Effect.gen(function* () {
-          const target = endpoint.trim().replace(/\/+$/, "")
-          if (!URL.canParse(target) || !/^https?:\/\//.test(target)) {
-            return yield* new ZeroYConnectionsError({
-              operation: "begin-pairing",
-              message: `Invalid zeroY endpoint: ${endpoint}`,
-            })
-          }
-          const state = randomUUID()
-          const codeVerifier = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "")
-          // PKCE S256: the challenge is the hex digest of the verifier. The
-          // WordPress plugin stores the challenge and compares it against
-          // hash(sha256, verifier) at exchange time.
-          const codeChallenge = createHash("sha256").update(codeVerifier).digest("hex")
-          const redirectUri = "http://127.0.0.1:30141/zeroy/connect/callback"
-          const intentId = randomUUID()
-          const pendingPairing: PendingPairing = {
-            intentId,
-            endpoint: target,
-            label,
-            state,
-            codeVerifier,
-            redirectUri,
-            expiresAt: Date.now() + 10 * 60 * 1000,
-          }
-          yield* SynchronizedRef.update(pending, (map) => new Map(map).set(intentId, pendingPairing))
-
-          const authorizeUrl = new URL(`${target}/wp-json/zeroy/v1/connection/authorize`)
-          const response = yield* Effect.tryPromise({
-            try: () =>
-              fetch(authorizeUrl, {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({
-                  intent_id: intentId,
-                  client_id: "pipee-local",
-                  redirect_uri: redirectUri,
-                  code_challenge: codeChallenge,
-                  state,
-                  label,
-                }),
-              }),
-            catch: (cause) =>
-              new ZeroYConnectionsError({
-                operation: "begin-pairing",
-                message: `Could not reach ${target}: ${String(cause)}`,
-              }),
-          })
-          if (!response.ok) {
-            return yield* new ZeroYConnectionsError({
-              operation: "begin-pairing",
-              message: `WordPress rejected the authorization intent (${response.status}).`,
-            })
-          }
-          const created = yield* Effect.tryPromise({
-            try: () => response.json() as Promise<Record<string, unknown>>,
-            catch: () =>
-              new ZeroYConnectionsError({
-                operation: "begin-pairing",
-                message: "Invalid authorize response",
-              }),
-          })
-          if (typeof created.intentId !== "string" || created.intentId === "") {
-            return yield* new ZeroYConnectionsError({
-              operation: "begin-pairing",
-              message: "WordPress did not return an authorization intent.",
-            })
-          }
-          // WordPress owns the intent identity. Re-key the local pending
-          // pairing under the WordPress intent id so the callback can look
-          // it up by the exact value the browser URL carries.
-          yield* SynchronizedRef.update(pending, (map) => {
-            const next = new Map(map)
-            next.delete(intentId)
-            next.set(created.intentId, { ...pendingPairing, intentId: created.intentId })
-            return next
-          })
-          const authorizationUrl =
-            `${target}/wp-admin/admin.php?page=zeroy-connections` +
-            `&intent_id=${encodeURIComponent(created.intentId)}` +
-            `&client_id=${encodeURIComponent("pipee-local")}` +
-            `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-            `&code_challenge=${encodeURIComponent(codeChallenge)}` +
-            `&state=${encodeURIComponent(state)}`
-          return { authorizationUrl, intentId: created.intentId }
-        }).pipe(Effect.mapError(mapError("begin-pairing"))),
+        registry.beginPairing(endpoint, label).pipe(Effect.mapError(mapError("begin-pairing"))),
       exchangeCode: (intentId, code, state) =>
-        Effect.gen(function* () {
-          const current = yield* SynchronizedRef.get(pending)
-          const pairing = current.get(intentId)
-          if (pairing === undefined) {
-            return yield* new ZeroYConnectionsError({
-              operation: "exchange-code",
-              message: "Pairing intent is missing or already consumed.",
-            })
-          }
-          if (pairing.expiresAt < Date.now()) {
-            return yield* new ZeroYConnectionsError({
-              operation: "exchange-code",
-              message: "Pairing intent has expired.",
-            })
-          }
-          if (pairing.state !== state) {
-            return yield* new ZeroYConnectionsError({
-              operation: "exchange-code",
-              message: "Pairing state does not match.",
-            })
-          }
-          const exchangeUrl = new URL(`${pairing.endpoint}/wp-json/zeroy/v1/connection/exchange`)
-          const response = yield* Effect.tryPromise({
-            try: () =>
-              fetch(exchangeUrl, {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({
-                  intent_id: intentId,
-                  code,
-                  code_verifier: pairing.codeVerifier,
-                  state,
-                  redirect_uri: pairing.redirectUri,
-                }),
-              }),
-            catch: (cause) =>
-              new ZeroYConnectionsError({
-                operation: "exchange-code",
-                message: `Exchange request failed: ${String(cause)}`,
-              }),
-          })
-          if (!response.ok) {
-            return yield* new ZeroYConnectionsError({
-              operation: "exchange-code",
-              message: `WordPress rejected the code exchange (${response.status}).`,
-            })
-          }
-          const grant = yield* Effect.tryPromise({
-            try: () => response.json() as Promise<Record<string, unknown>>,
-            catch: () =>
-              new ZeroYConnectionsError({
-                operation: "exchange-code",
-                message: "Invalid exchange response",
-              }),
-          })
-          if (
-            typeof grant.grantId !== "string" ||
-            typeof grant.siteId !== "string" ||
-            typeof grant.label !== "string"
-          ) {
-            return yield* new ZeroYConnectionsError({
-              operation: "exchange-code",
-              message: "WordPress returned an invalid grant.",
-            })
-          }
-          // Supersede any previous active grant for this site on WordPress
-          // before the registry row is replaced, so no orphan grant remains.
-          yield* revokeSupersededGrant(pairing.endpoint, grant.siteId, grant.grantId)
-          registry.upsert(
-            {
-              siteId: grant.siteId,
-              label: pairing.label,
-              endpoint: pairing.endpoint,
-              grantId: grant.grantId,
-            },
-            code,
-          )
-          yield* SynchronizedRef.update(pending, (map) => {
-            const next = new Map(map)
-            next.delete(intentId)
-            return next
-          })
-          yield* persistEffect
-          return project()
-        }).pipe(Effect.mapError(mapError("exchange-code"))),
+        registry
+          .exchangeCode(intentId, code, state)
+          .pipe(
+            Effect.map(() => project()),
+            Effect.mapError(mapError("exchange-code")),
+          ),
       pairWithCode: (input) =>
-        Effect.gen(function* () {
-          const target = input.endpoint.trim().replace(/\/+$/, "")
-          if (!URL.canParse(target) || !/^https?:\/\//.test(target)) {
-            return yield* new ZeroYConnectionsError({
-              operation: "pair-with-code",
-              message: `Invalid zeroY endpoint: ${input.endpoint}`,
-            })
-          }
-          const exchangeUrl = new URL(`${target}/wp-json/zeroy/v1/connection/exchange`)
-          const response = yield* Effect.tryPromise({
-            try: () =>
-              fetch(exchangeUrl, {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({
-                  intent_id: input.intentId,
-                  code: input.code,
-                  code_verifier: input.code,
-                  state: input.state,
-                  redirect_uri: input.redirectUri,
-                }),
-              }),
-            catch: (cause) =>
-              new ZeroYConnectionsError({
-                operation: "pair-with-code",
-                message: `Exchange request failed: ${String(cause)}`,
-              }),
-          })
-          if (!response.ok) {
-            return yield* new ZeroYConnectionsError({
-              operation: "pair-with-code",
-              message: `WordPress rejected the pairing code (${response.status}).`,
-            })
-          }
-          const grant = yield* Effect.tryPromise({
-            try: () => response.json() as Promise<Record<string, unknown>>,
-            catch: () =>
-              new ZeroYConnectionsError({
-                operation: "pair-with-code",
-                message: "Invalid exchange response",
-              }),
-          })
-          if (typeof grant.grantId !== "string" || typeof grant.siteId !== "string") {
-            return yield* new ZeroYConnectionsError({
-              operation: "pair-with-code",
-              message: "WordPress returned an invalid grant.",
-            })
-          }
-          // Supersede any previous active grant for this site on WordPress
-          // before the registry row is replaced, so no orphan grant remains.
-          yield* revokeSupersededGrant(target, grant.siteId, grant.grantId)
-          registry.upsert(
-            {
-              siteId: grant.siteId,
-              label: input.label || input.endpoint,
-              endpoint: target,
-              grantId: grant.grantId,
-            },
-            input.code,
-          )
-          yield* persistEffect
-          return project()
-        }).pipe(Effect.mapError(mapError("pair-with-code"))),
+        registry
+          .pairWithCode(input)
+          .pipe(
+            Effect.map(() => project()),
+            Effect.mapError(mapError("pair-with-code")),
+          ),
       revoke: (siteId) =>
-        Effect.gen(function* () {
-          // Ask WordPress to revoke the grant with its own secret (best
-          // effort) before the local secret is deleted, then always complete
-          // the local revocation so Pipee can no longer authenticate.
-          const row = registry.rows().find((site) => site.siteId === siteId && site.revokedAt === null)
-          if (row !== undefined) {
-            yield* Effect.try(() => registry.provider.forExtension("zeroy").readSecret(row.credentialRef))
-              .pipe(
-                Effect.flatMap((secret) => revokeWordPressGrant(row.endpoint, row.grantId, secret)),
-                Effect.catch(() => Effect.void),
-              )
-          }
-          registry.provider.forExtension("zeroy").revoke(siteId)
-          yield* persistEffect
-        }).pipe(Effect.mapError(mapError("revoke"))),
+        registry.revokeOnWordPress(siteId).pipe(Effect.mapError(mapError("revoke"))),
     })
   }),
 )

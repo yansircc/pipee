@@ -1,4 +1,7 @@
-import { connectWebSurfaceBrowser } from "@pipee/companion-contracts/web-surface-browser";
+import {
+  connectWebSurfaceBrowser,
+  type WebSurfaceBrowserClient,
+} from "@pipee/companion-contracts/web-surface-browser";
 import type { JsonValue, WebSurfaceSessionContext } from "@pipee/companion-contracts/web-surface";
 
 type RecordValue = Readonly<Record<string, JsonValue>>;
@@ -13,6 +16,7 @@ type Site = {
   readonly endpoint: string;
   readonly state: "ready" | "failed";
   readonly error: string | null;
+  readonly revoked: boolean;
   readonly site: RecordValue | null;
   readonly schema: RecordValue | null;
   readonly inventory: RecordValue | null;
@@ -32,6 +36,7 @@ const views = new Map<
   string,
   { readonly session: WebSurfaceSessionContext; readonly view: View }
 >();
+let client: WebSurfaceBrowserClient | null = null;
 
 const display = (value: unknown): string =>
   typeof value === "string" || typeof value === "number" || typeof value === "boolean"
@@ -291,6 +296,109 @@ const siteCard = (site: Site): string => {
   return `<section class="site-card"><header><div><div class="eyebrow">${esc(site.siteId)}</div><h2>${esc(site.label)}</h2><p>${esc(site.endpoint)}</p></div><span class="status ready">已连接</span></header><div class="facts"><div><span>Runtime</span><b>${esc(string(site.site?.runtimeVersion))}</b></div><div><span>Shell</span><b>${esc(string(theme?.name))}</b></div><div><span>Contract hash</span><code>${esc(string(schema?.contractHash).slice(0, 12))}</code></div><div><span>Schema</span><b>${esc(string(schema?.deploymentState, schema?.valid === true ? "active" : "invalid"))}</b></div></div><section class="block"><div class="block-head"><h3>Site release</h3><span>Theme × SiteLogic · read-only</span></div>${siteReleaseRows(site)}</section><section class="block"><div class="block-head"><h3>语言</h3><span>WordPress SiteConfig</span></div><div class="chips">${localeChips(site)}</div></section><section class="block"><div class="block-head"><h3>语言覆盖</h3><span>missing · stale · review · recent publish</span></div>${translationCoverageRows(site)}</section><section class="block"><div class="block-head"><h3>ThemeSchema</h3><span>documents · collections · active Artifact</span></div>${schemaRows(site)}</section><section class="block"><div class="block-head"><h3>Canonical pages</h3><span>LocaleHead 状态与 route</span></div><div class="inventory">${inventoryRows(site)}</div></section><section class="block two-column"><div><div class="block-head"><h3>Shared ACF</h3><span>read-only</span></div>${acfRows(site)}</div><div><div class="block-head"><h3>Connector integrity</h3><span>read-only</span></div>${integrityRows(site)}</div></section><section class="block"><div class="block-head"><h3>前台检查</h3><span>HTTP · HTML · canonical · hreflang · links · PageSpeed</span></div>${externalRows(site)}</section></section>`;
 };
 
+/** The session whose view is currently shown; drives dispatch targeting. */
+const activeView = (): {
+  readonly session: WebSurfaceSessionContext;
+  readonly view: View;
+} | null => {
+  const active = [...views.values()].sort((left, right) =>
+    right.session.modified.localeCompare(left.session.modified),
+  )[0];
+  return active ?? null;
+};
+
+const connectionRows = (sites: ReadonlyArray<Site>): string => {
+  if (sites.length === 0)
+    return '<div class="empty">还没有连接的站点。在下方“添加站点”或“配对码”连接。</div>';
+  return sites
+    .map((site) => {
+      const status = site.revoked
+        ? '<span class="conn-state revoked">已撤销</span>'
+        : site.state === "failed"
+          ? '<span class="conn-state failed">连接失败</span>'
+          : '<span class="conn-state ready">已连接</span>';
+      const revoke = site.revoked
+        ? ""
+        : `<button class="danger" data-action="revoke" data-site="${esc(site.siteId)}">撤销</button>`;
+      return `<div class="conn-row"><div class="object"><b>${esc(site.label)}</b><span>${esc(site.endpoint)}</span></div>${status}${revoke}</div>`;
+    })
+    .join("");
+};
+
+const connectionsSection = (sites: ReadonlyArray<Site>, canDispatch: boolean): string =>
+  `<section class="block connections"><div class="block-head"><h3>连接管理</h3><span>Pipee ↔ WordPress · 浏览器授权或配对码</span></div><div class="conn-grid"><div class="subcard"><div class="subhead"><b>添加站点</b><span>浏览器授权</span></div><form class="conn-form" data-form="pair"><input name="endpoint" placeholder="Site URL, e.g. https://example.com" /><input name="label" placeholder="Label (optional)" /><button class="primary" type="submit" ${canDispatch ? "" : "disabled"}>连接站点</button></form><p class="muted">授权页会在新标签打开；在 WordPress 批准后连接即建立。</p></div><div class="subcard"><div class="subhead"><b>配对码</b><span>WordPress 发起</span></div><form class="conn-form" data-form="code"><input name="endpoint" placeholder="Site URL" /><input name="code" placeholder="配对码" /><input name="intentId" placeholder="Intent id (optional)" /><input name="state" placeholder="State (optional)" /><input name="redirectUri" placeholder="Pipee callback URL" value="http://127.0.0.1:30141/zeroy/connect/callback" /><button class="primary" type="submit" ${canDispatch ? "" : "disabled"}>配对</button></form></div></div><div class="conn-list">${connectionRows(sites)}</div></section>`;
+
+const dispatchAction = (sessionId: string, payload: JsonValue): Promise<boolean> => {
+  const activeClient = client;
+  if (activeClient === null) return Promise.resolve(false);
+  return activeClient.dispatch(sessionId, payload).then((outcome) => {
+    if (outcome._tag === "Accepted") {
+      if (
+        outcome.payload !== null &&
+        typeof outcome.payload === "object" &&
+        "authorizationUrl" in outcome.payload &&
+        typeof outcome.payload.authorizationUrl === "string"
+      ) {
+        // The submit click provides user activation, which the sandboxed
+        // surface iframe needs to open the authorization popup.
+        window.open(outcome.payload.authorizationUrl, "_blank", "noopener,noreferrer");
+      }
+      return true;
+    }
+    activeClient.notify(
+      outcome._tag === "Failed"
+        ? outcome.message
+        : outcome._tag === "Rejected"
+          ? outcome.reason
+          : "操作失败",
+      "error",
+    );
+    return false;
+  });
+};
+
+const wireConnections = () => {
+  root.addEventListener("submit", (event) => {
+    const form = (event.target as Element).closest<HTMLFormElement>("form[data-form]");
+    if (form === null || !root.contains(form)) return;
+    const active = activeView();
+    if (active === null || client === null) return;
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(form).entries()) as Record<string, string>;
+    const payload =
+      form.dataset["form"] === "pair"
+        ? { _tag: "BeginPairing", endpoint: values.endpoint ?? "", label: values.label ?? "" }
+        : {
+            _tag: "PairWithCode",
+            endpoint: values.endpoint ?? "",
+            intentId: values.intentId ?? "",
+            code: values.code ?? "",
+            state: values.state ?? "",
+            redirectUri: values.redirectUri ?? "http://127.0.0.1:30141/zeroy/connect/callback",
+            label: values.label ?? "",
+          };
+    void dispatchAction(active.session.sessionId, payload).then((accepted) => {
+      if (accepted && client !== null)
+        client.notify(
+          form.dataset["form"] === "pair"
+            ? "授权页已打开，请在 WordPress 中批准"
+            : "已使用配对码连接",
+        );
+    });
+  });
+  root.addEventListener("click", (event) => {
+    const button = (event.target as Element).closest<HTMLButtonElement>("button[data-action]");
+    if (button === null || !root.contains(button)) return;
+    const active = activeView();
+    if (active === null || client === null) return;
+    if (button.dataset["action"] === "revoke") {
+      const siteId = button.dataset["site"];
+      if (siteId === undefined) return;
+      void dispatchAction(active.session.sessionId, { _tag: "Revoke", siteId });
+    }
+  });
+};
+
 const render = () => {
   const active = [...views.values()].sort((left, right) =>
     right.session.modified.localeCompare(left.session.modified),
@@ -299,13 +407,14 @@ const render = () => {
     right.modified.localeCompare(left.modified),
   );
   if (!active) {
-    root.innerHTML = `<header class="top"><div><h1>zeroY Sites</h1><p>WordPress Runtime Connector · read-only operator view</p></div></header><main class="empty-page">${known.length ? "正在等待 zeroY Runtime projection…" : "创建一个已配置 ZEROY_SITES 的 Pipee 会话后，这里会显示站点投影。"}</main>`;
+    root.innerHTML = `<header class="top"><div><h1>zeroY Sites</h1><p>WordPress Runtime Connector · operator view</p></div></header><main class="empty-page">${known.length ? "正在等待 zeroY Runtime projection…" : "启动一个 Pipee 会话后，这里会显示站点投影与连接管理。"}</main>`;
     return;
   }
-  root.innerHTML = `<header class="top"><div><h1>zeroY Sites</h1><p>WordPress Runtime Connector · read-only operator view</p></div><div class="session"><span>Session</span><b>${esc(sessionName(active.session))}</b><small>${esc(active.view.observedAt)}</small></div></header><main class="content"><div class="notice">此页面只读：站点、ThemeSchema、ACF、页面语言状态和检查结果均来自当前 Connector projection。修改请在对话中让 Agent 执行。</div>${active.view.sites.map(siteCard).join("")}</main>`;
+  const canDispatch = client !== null && active.session.sessionId !== "";
+  root.innerHTML = `<header class="top"><div><h1>zeroY Sites</h1><p>WordPress Runtime Connector · operator view</p></div><div class="session"><span>Session</span><b>${esc(sessionName(active.session))}</b><small>${esc(active.view.observedAt)}</small></div></header><main class="content">${connectionsSection(active.view.sites, canDispatch)}<div class="notice">站点详情、ThemeSchema、ACF、页面语言状态和检查结果均来自当前 Connector projection；连接管理操作会直接写入 Pipee 连接库。</div>${active.view.sites.map(siteCard).join("")}</main>`;
 };
 
-void connectWebSurfaceBrowser({
+const browserClient = connectWebSurfaceBrowser({
   sessions: (next) => {
     sessions.clear();
     for (const session of next) sessions.set(session.sessionId, session);
@@ -326,4 +435,9 @@ void connectWebSurfaceBrowser({
     views.clear();
     render();
   },
+});
+void browserClient.then((connected) => {
+  client = connected;
+  wireConnections();
+  render();
 });

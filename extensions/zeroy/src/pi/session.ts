@@ -2,13 +2,23 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { layer as nodeServicesLayer, type NodeServices } from "@effect/platform-node/NodeServices";
 import type { LivePresentationPort } from "@pipee/companion-contracts/host-capabilities";
 import type { ZeroYConnectionRegistryPort } from "@pipee/companion-contracts/zeroy-connection-registry";
+import type { WebSurfaceActionOutcome } from "@pipee/companion-contracts/web-surface";
 import {
   livePresentation,
   webSurface,
   type WebSurfaceSlot,
   zeroyConnectionRegistry,
 } from "@pipee/extension-kit";
-import { Data, Effect, Exit, ManagedRuntime, Scope, Semaphore, SynchronizedRef } from "effect";
+import {
+  Data,
+  Effect,
+  Exit,
+  ManagedRuntime,
+  Scope,
+  Schema,
+  Semaphore,
+  SynchronizedRef,
+} from "effect";
 import packageJson from "../../package.json" with { type: "json" };
 import {
   ZeroYConnectionConfigError,
@@ -19,6 +29,7 @@ import {
 } from "../domain/connection.js";
 import type { ExternalCheck } from "../domain/checker.js";
 import { zeroYPresentation } from "./presentation.js";
+import { ZeroYConnectionAction } from "./web-surface.js";
 
 /**
  * Session is the owner of scoped runtime resources. It consumes the read-only
@@ -46,6 +57,75 @@ export class ZeroYSessionUnavailable extends Data.TaggedError("ZeroYSessionUnava
 
 const sessions = new WeakMap<object, ActiveSession>();
 const runtime = ManagedRuntime.make(nodeServicesLayer);
+
+/**
+ * Dispatch one web-surface connection action against the active session's
+ * connection registry port. Connection state is shared across sessions (one
+ * Pipee registry), so any active session can serve a connection action.
+ */
+export const dispatchConnectionAction = (
+  active: ActiveSession,
+  payload: unknown,
+): Effect.Effect<WebSurfaceActionOutcome, never> =>
+  Schema.decodeUnknownEffect(ZeroYConnectionAction)(payload).pipe(
+    Effect.flatMap((action): Effect.Effect<WebSurfaceActionOutcome, ZeroYSessionUnavailable> => {
+      const port = active.registry;
+      if (port === undefined) {
+        return Effect.fail(
+          new ZeroYSessionUnavailable({
+            message: "zeroY connection registry is unavailable in this session.",
+          }),
+        );
+      }
+      switch (action._tag) {
+        case "BeginPairing":
+          return Effect.tryPromise({
+            try: () => port.beginPairing({ endpoint: action.endpoint, label: action.label }),
+            catch: (error) =>
+              new ZeroYSessionUnavailable({
+                message: error instanceof Error ? error.message : String(error),
+              }),
+          }).pipe(
+            Effect.map(
+              (intent): WebSurfaceActionOutcome => ({ _tag: "Accepted", payload: intent }),
+            ),
+          );
+        case "PairWithCode":
+          return Effect.tryPromise({
+            try: () =>
+              port.pairWithCode({
+                endpoint: action.endpoint,
+                intentId: action.intentId,
+                code: action.code,
+                state: action.state,
+                redirectUri: action.redirectUri,
+                label: action.label,
+              }),
+            catch: (error) =>
+              new ZeroYSessionUnavailable({
+                message: error instanceof Error ? error.message : String(error),
+              }),
+          }).pipe(
+            Effect.map((grant): WebSurfaceActionOutcome => ({ _tag: "Accepted", payload: grant })),
+          );
+        case "Revoke":
+          return Effect.tryPromise({
+            try: () => port.revoke(action.siteId),
+            catch: (error) =>
+              new ZeroYSessionUnavailable({
+                message: error instanceof Error ? error.message : String(error),
+              }),
+          }).pipe(Effect.map((): WebSurfaceActionOutcome => ({ _tag: "Accepted", payload: null })));
+      }
+    }),
+    Effect.match({
+      onFailure: (error): WebSurfaceActionOutcome => ({
+        _tag: "Failed",
+        message: error instanceof Error ? error.message : String(error),
+      }),
+      onSuccess: (outcome) => outcome,
+    }),
+  );
 
 export const run = <A, E>(effect: Effect.Effect<A, E, NodeServices>): Promise<A> =>
   runtime.runPromise(effect);
@@ -201,17 +281,16 @@ export const startSession = (
         new Map(connections.map((site) => [site.siteId, Semaphore.makeUnsafe(1)] as const)),
       );
       const surface = context.hasUI
-        ? yield* webSurface(context.ui, packageJson.name, () => ({
-            _tag: "Rejected" as const,
-            reason:
-              "zeroY WebSurface is read-only; ask the Agent to make changes in the conversation.",
-          })).pipe(
+        ? yield* webSurface(context.ui, packageJson.name, (request) =>
+            run(dispatchConnectionAction(active, request.payload)),
+          ).pipe(
             Effect.catchTag("WebSurfaceCapabilityUnavailable", () =>
               Effect.void.pipe(Effect.as(undefined)),
             ),
           )
         : undefined;
-      const active: ActiveSession = {
+      let active!: ActiveSession;
+      active = {
         context,
         draftActorId,
         scope,

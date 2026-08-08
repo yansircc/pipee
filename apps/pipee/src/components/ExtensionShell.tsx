@@ -150,7 +150,7 @@ export function ExtensionShell({
                 ref={iframeRef}
                 title={selected.item.title}
                 src={selected.item.documentUrl}
-                sandbox="allow-scripts"
+                sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
                 {...stylex.props(styles.frame)}
                 onLoad={() => {
                   setFrameState({ state: "connecting" })

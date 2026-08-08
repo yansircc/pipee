@@ -28,11 +28,21 @@ export const ZeroYConnectionRegistryProviderLive: Layer.Layer<
 > = Layer.effect(
   ZeroYConnectionRegistryProvider,
   Effect.gen(function* () {
-    yield* FileSystem.FileSystem
-    yield* Path.Path
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
     const home = process.env.HOME ?? process.env.USERPROFILE ?? "."
     const directory = connectionDirectory(home)
-    const registry = makeZeroYConnectionRegistry()
+    const registry = makeZeroYConnectionRegistry({
+      // Every orchestration mutation (exchange, pair, revoke) persists the
+      // connection directory and secret store automatically, so the same
+      // state machine works from the Pipee HTTP service and the extension
+      // capability port without an explicit persist call at each call site.
+      persist: () =>
+        registry.persist(directory).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, path),
+        ),
+    })
     yield* registry.load(directory).pipe(Effect.ignore)
     return registry
   }),

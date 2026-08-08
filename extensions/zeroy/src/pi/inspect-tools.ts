@@ -197,6 +197,7 @@ const inspectConnection = (
           endpoint: site.endpoint,
           state: "ready" as const,
           error: null,
+          revoked: site.revoked,
           site: siteView,
           schema,
           inventory,

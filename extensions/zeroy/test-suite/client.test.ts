@@ -28,6 +28,7 @@ describe("zeroY Connector errors", () => {
             endpoint: "https://example.test",
             grant: null,
             connectionKey: "key",
+            revoked: false,
           },
           "schema",
         ).pipe(Effect.flip),

@@ -22,6 +22,8 @@ export type SiteConnection = {
   } | null;
   /** Legacy headless/CI injected global key. Never used in production. */
   readonly connectionKey: string | null;
+  /** Revocation state owned by the Pipee connection registry. */
+  readonly revoked: boolean;
   /** Injected by the session; resolves the grant secret from protected storage. */
   readonly readGrantSecret?: () => string;
 };
@@ -60,6 +62,7 @@ const decodeConnection = (value: unknown): SiteConnection | ZeroYConnectionConfi
     endpoint,
     grant: null,
     connectionKey: candidate.connectionKey.trim(),
+    revoked: false,
   };
 };
 /** Load headless/CI connections from ZEROY_SITES. Empty result = no sites. */
@@ -119,23 +122,17 @@ export const loadSiteConnections = (
 export const projectRegistryConnection = (
   projection: ZeroYSiteConnectionProjection,
   readSecret?: () => string,
-): SiteConnection =>
-  readSecret === undefined
-    ? {
-        siteId: projection.siteId,
-        label: projection.label,
-        endpoint: projection.endpoint,
-        grant: { id: projection.grantId, credentialRef: projection.credentialRef },
-        connectionKey: null,
-      }
-    : {
-        siteId: projection.siteId,
-        label: projection.label,
-        endpoint: projection.endpoint,
-        grant: { id: projection.grantId, credentialRef: projection.credentialRef },
-        connectionKey: null,
-        readGrantSecret: readSecret,
-      };
+): SiteConnection => {
+  const base = {
+    siteId: projection.siteId,
+    label: projection.label,
+    endpoint: projection.endpoint,
+    grant: { id: projection.grantId, credentialRef: projection.credentialRef },
+    connectionKey: null,
+    revoked: projection.revoked,
+  };
+  return readSecret === undefined ? base : { ...base, readGrantSecret: readSecret };
+};
 
 export const connectionFor = (
   connections: ReadonlyArray<SiteConnection>,
