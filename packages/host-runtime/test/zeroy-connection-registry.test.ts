@@ -9,6 +9,7 @@ import {
   InMemorySecretStorage,
   makeZeroYConnectionRegistry,
   ZeroYConnectionRegistryError,
+  type SecretStorage,
 } from "../src/zeroy-connection-registry.js";
 
 const pairInput = {
@@ -270,6 +271,40 @@ describe("zeroY connection registry", () => {
       }
     } finally {
       globalThis.fetch = original;
+    }
+  });
+
+  it("a successful persist is never compensated when committing secrets or a listener throws", async () => {
+    const calls: Array<{ url: string }> = [];
+    const restore = stubExchangeFetch(undefined, calls);
+    try {
+      const throwingStorage: SecretStorage = {
+        read: () => undefined,
+        write: () => {
+          throw new Error("storage boom");
+        },
+        delete: () => undefined,
+        entries: () => [],
+        clear: () => undefined,
+      };
+      const registry = makeZeroYConnectionRegistry({
+        secretStorage: throwingStorage,
+        persist: () => Effect.void, // disk write succeeds
+      });
+      registry.provider.forExtension("alpha").subscribe(() => {
+        throw new Error("listener boom");
+      });
+      // Both the secret application and the subscriber throw, but the disk
+      // snapshot was persisted: the pairing must SUCCEED and must not
+      // compensate (revoke) the persisted grant.
+      const result = await Effect.runPromise(
+        registry.pairWithCode(pairInput).pipe(Effect.flip, Effect.option),
+      );
+      expect(result._tag).toBe("None");
+      expect(registry.rows()).toHaveLength(1);
+      expect(calls.some((call) => call.url.includes("/connection/grants/"))).toBe(false);
+    } finally {
+      restore();
     }
   });
 

@@ -224,39 +224,57 @@ export const makeZeroYConnectionRegistry = (
   });
 
   /**
-   * Commit a snapshot to the public in-memory state and notify listeners.
-   * Only called after the snapshot was persisted successfully, so a failed
-   * write never leaves public rows/secrets/projections ahead of the disk.
+   * Disk persistence of one snapshot. This is the ONLY phase the pairing
+   * compensation is bound to: a failure here means the just-created
+   * WordPress grant has no durable local counterpart.
    */
-  const commit = (snapshot: ZeroYRegistrySnapshot): void => {
-    rows = snapshot.rows;
-    generation = snapshot.generation;
-    secretStorage.clear();
-    for (const [ref, secret] of Object.entries(snapshot.secrets)) {
-      secretStorage.write(ref, secret);
-    }
-    notify();
-  };
+  const persistSnapshot = (
+    snapshot: ZeroYRegistrySnapshot,
+  ): Effect.Effect<void, ZeroYConnectionRegistryError> =>
+    callbacks.persist === undefined
+      ? Effect.void
+      : callbacks.persist(snapshot).pipe(
+          Effect.mapError(
+            (cause) =>
+              new ZeroYConnectionRegistryError({
+                operation: "persist",
+                message: cause instanceof Error ? cause.message : String(cause),
+              }),
+          ),
+        );
 
   /**
-   * Persist one snapshot, then commit it to memory. A persistence failure
-   * returns a registry error without touching public state or listeners.
+   * Commit a persisted snapshot to the public in-memory state and notify
+   * listeners. Must be infallible: it only flips immutable references, and a
+   * custom SecretStorage or a subscriber throwing must never turn a
+   * successful, persisted pairing into a compensated/revoked one. The disk
+   * already holds the full snapshot, so a restart restores it even if the
+   * in-memory secret application failed.
    */
-  const persistAndCommit = (snapshot: ZeroYRegistrySnapshot): Effect.Effect<void, ZeroYConnectionRegistryError> => {
-    const persisted =
-      callbacks.persist === undefined
-        ? Effect.void
-        : callbacks.persist(snapshot).pipe(
-            Effect.mapError(
-              (cause) =>
-                new ZeroYConnectionRegistryError({
-                  operation: "persist",
-                  message: cause instanceof Error ? cause.message : String(cause),
-                }),
-            ),
-          );
-    return persisted.pipe(Effect.tap(() => Effect.sync(() => commit(snapshot))));
-  };
+  const commitAndNotify = (snapshot: ZeroYRegistrySnapshot): Effect.Effect<void, never> =>
+    Effect.sync(() => {
+      rows = snapshot.rows;
+      generation = snapshot.generation;
+      try {
+        secretStorage.clear();
+        for (const [ref, secret] of Object.entries(snapshot.secrets)) {
+          secretStorage.write(ref, secret);
+        }
+      } catch (cause) {
+        console.error("[zeroy] committing snapshot secrets failed", cause);
+      }
+      for (const listener of [...listeners]) {
+        try {
+          listener();
+        } catch (cause) {
+          console.error("[zeroy] connection listener failed", cause);
+        }
+      }
+    });
+
+  /** Persist one snapshot, then commit memory. Never compensates. */
+  const persistAndCommit = (snapshot: ZeroYRegistrySnapshot): Effect.Effect<void, ZeroYConnectionRegistryError> =>
+    persistSnapshot(snapshot).pipe(Effect.tap(() => commitAndNotify(snapshot)));
 
   /**
    * Persist a pairing snapshot with compensation for the WordPress grant that
@@ -266,13 +284,19 @@ export const makeZeroYConnectionRegistry = (
    * explicitly marks a possibly-orphaned grant when the compensating revoke
    * also fails. The grant secret never leaves this process.
    */
+  /**
+   * Persist a pairing snapshot with compensation for the WordPress grant the
+   * exchange already created. Compensation is bound ONLY to an explicit disk
+   * persist failure: once the snapshot is on disk, commit + notify are
+   * infallible and never revoke the persisted grant.
+   */
   const persistPairingWithCompensation = (
     endpoint: string,
     grantId: string,
     grantSecret: string,
     snapshot: ZeroYRegistrySnapshot,
   ): Effect.Effect<void, ZeroYConnectionRegistryError> =>
-    persistAndCommit(snapshot).pipe(
+    persistSnapshot(snapshot).pipe(
       Effect.catch((error) =>
         revokeWordPressGrant(endpoint, grantId, grantSecret).pipe(
           Effect.flatMap((revoked) =>
@@ -288,6 +312,7 @@ export const makeZeroYConnectionRegistry = (
           ),
         ),
       ),
+      Effect.tap(() => commitAndNotify(snapshot)),
     );
 
   // Pairing and revocation mutate the same per-site rows (supersede revoke
