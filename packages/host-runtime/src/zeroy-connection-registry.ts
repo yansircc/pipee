@@ -32,6 +32,8 @@ import { Data, Effect, FileSystem, Path, Schema, Semaphore } from "effect";
 export class ZeroYConnectionRegistryError extends Data.TaggedError("ZeroYConnectionRegistryError")<{
   readonly operation: string;
   readonly message: string;
+  /** Non-sensitive WordPress grant id, when the failure involves a specific grant. */
+  readonly grantId?: string;
 }> {}
 
 export interface SecretStorage {
@@ -256,6 +258,38 @@ export const makeZeroYConnectionRegistry = (
     return persisted.pipe(Effect.tap(() => Effect.sync(() => commit(snapshot))));
   };
 
+  /**
+   * Persist a pairing snapshot with compensation for the WordPress grant that
+   * the exchange already created. A failed local write must not leave a grant
+   * on WordPress that Pipee can no longer manage: we revoke it with the grant
+   * secret we hold. The error is bounded (operation + message + grantId) and
+   * explicitly marks a possibly-orphaned grant when the compensating revoke
+   * also fails. The grant secret never leaves this process.
+   */
+  const persistPairingWithCompensation = (
+    endpoint: string,
+    grantId: string,
+    grantSecret: string,
+    snapshot: ZeroYRegistrySnapshot,
+  ): Effect.Effect<void, ZeroYConnectionRegistryError> =>
+    persistAndCommit(snapshot).pipe(
+      Effect.catch((error) =>
+        revokeWordPressGrant(endpoint, grantId, grantSecret).pipe(
+          Effect.flatMap((revoked) =>
+            Effect.fail(
+              new ZeroYConnectionRegistryError({
+                operation: error.operation,
+                message: revoked
+                  ? `${error.message} The new WordPress grant ${grantId} was revoked as compensation; re-pair to connect.`
+                  : `${error.message} The compensating revocation of WordPress grant ${grantId} also failed; the grant may be orphaned and must be revoked in the WordPress admin.`,
+                grantId,
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+
   // Pairing and revocation mutate the same per-site rows (supersede revoke
   // then upsert). Concurrent pairings for one site must not interleave or
   // both revoke the previous grant and write different grants.
@@ -280,15 +314,18 @@ export const makeZeroYConnectionRegistry = (
     endpoint: string,
     grantId: string,
     secret: string,
-  ): Effect.Effect<void, never> =>
-    Effect.tryPromise({
-      try: () =>
-        fetch(`${normalizeEndpoint(endpoint)}/wp-json/zeroy/v1/connection/grants/${grantId}`, {
-          method: "DELETE",
-          headers: { authorization: `Bearer ${secret}` },
-        }).then(() => undefined),
-      catch: () => undefined,
-    }).pipe(Effect.ignore);
+  ): Effect.Effect<boolean, never> =>
+    Effect.tryPromise(async () => {
+      try {
+        const response = await fetch(
+          `${normalizeEndpoint(endpoint)}/wp-json/zeroy/v1/connection/grants/${grantId}`,
+          { method: "DELETE", headers: { authorization: `Bearer ${secret}` } },
+        );
+        return response.ok;
+      } catch {
+        return false;
+      }
+    }).pipe(Effect.catch(() => Effect.succeed(false)));
 
   /**
    * Revoke the previous active grant for the same site before a new grant
@@ -501,7 +538,7 @@ export const makeZeroYConnectionRegistry = (
             ? rows.map((site) => (site.siteId === siteId ? row : site))
             : [...rows, row];
           const snapshot = snapshotOf(nextRows, nextSecrets);
-          yield* persistAndCommit(snapshot);
+          yield* persistPairingWithCompensation(pairing.endpoint, grantId, grantSecret, snapshot);
           pending.delete(intentId);
           if (superseded !== null) {
             yield* revokeWordPressGrant(superseded.row.endpoint, superseded.row.grantId, superseded.secret);
@@ -587,7 +624,7 @@ export const makeZeroYConnectionRegistry = (
             ? rows.map((site) => (site.siteId === siteId ? row : site))
             : [...rows, row];
           const snapshot = snapshotOf(nextRows, nextSecrets);
-          yield* persistAndCommit(snapshot);
+          yield* persistPairingWithCompensation(target, grantId, grantSecret, snapshot);
           if (superseded !== null) {
             yield* revokeWordPressGrant(superseded.row.endpoint, superseded.row.grantId, superseded.secret);
           }

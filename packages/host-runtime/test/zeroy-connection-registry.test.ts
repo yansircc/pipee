@@ -21,14 +21,18 @@ const pairInput = {
 };
 
 const stubExchangeFetch = (
-  grant: Record<string, unknown>,
+  grant?: Record<string, unknown>,
   calls?: Array<{ url: string }>,
 ) => {
   const original = globalThis.fetch;
+  let sequence = 0;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.endsWith("/connection/exchange")) {
-      return new Response(JSON.stringify(grant), {
+      sequence += 1;
+      const payload =
+        grant ?? { grantId: `g-${sequence}`, siteId, grantSecret: `s-${sequence}` };
+      return new Response(JSON.stringify(payload), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
@@ -197,19 +201,23 @@ describe("zeroY connection registry", () => {
     }
   });
 
-  it("a failed persist does not revoke the superseded grant (revoke runs only after commit)", async () => {
+  it("a failed persist compensates by revoking the new grant only, never the superseded one", async () => {
     const calls: Array<{ url: string }> = [];
-    const restore = stubExchangeFetch({ grantId: "g-6", siteId, grantSecret: "s6" }, calls);
+    const restore = stubExchangeFetch(undefined, calls);
     let failPersist = false;
     try {
       const registry = makeZeroYConnectionRegistry({
         persist: () => (failPersist ? Effect.fail(new Error("disk full")) : Effect.void),
       });
       await Effect.runPromise(registry.pairWithCode(pairInput));
-      expect(registry.rows()).toHaveLength(1);
-      const firstSecret = registry.provider.forExtension("alpha").readSecret(registry.rows()[0]!.credentialRef);
-      expect(firstSecret).toBe("s6");
-      // second pairing: persist fails -> the first grant must NOT be revoked
+      const firstGrantId = registry.rows()[0]!.grantId;
+      expect(firstGrantId).toBe("g-1");
+      const firstSecret = registry.provider
+        .forExtension("alpha")
+        .readSecret(registry.rows()[0]!.credentialRef);
+      expect(firstSecret).toBe("s-1");
+      // second pairing: persist fails -> the just-created grant (g-2) is
+      // revoked as compensation; the superseded grant (g-1) is NOT revoked.
       failPersist = true;
       const failure = await Effect.runPromise(
         registry
@@ -217,13 +225,51 @@ describe("zeroY connection registry", () => {
           .pipe(Effect.flip, Effect.option),
       );
       expect(failure._tag).toBe("Some");
-      expect(calls).toHaveLength(0); // no remote revoke happened
-      expect(registry.rows()).toHaveLength(1); // old state intact
+      if (failure._tag === "Some") {
+        expect(failure.value.grantId).toBe("g-2");
+        expect(failure.value.message).toContain("revoked as compensation");
+      }
+      expect(calls.some((call) => call.url.includes("/connection/grants/g-2"))).toBe(true);
+      expect(calls.some((call) => call.url.includes("/connection/grants/g-1"))).toBe(false);
+      // local state unchanged
+      expect(registry.rows()).toHaveLength(1);
       expect(
         registry.provider.forExtension("alpha").readSecret(registry.rows()[0]!.credentialRef),
-      ).toBe("s6");
+      ).toBe("s-1");
     } finally {
       restore();
+    }
+  });
+
+  it("a failed persist whose compensating revoke also fails marks a possible orphan", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/connection/exchange")) {
+        return new Response(
+          JSON.stringify({ grantId: "g-orphan", siteId, grantSecret: "s-orphan" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      // revokes always fail (non-ok response)
+      return new Response("{}", { status: 500 });
+    }) as typeof fetch;
+    try {
+      const registry = makeZeroYConnectionRegistry({
+        persist: () => Effect.fail(new Error("disk full")),
+      });
+      const failure = await Effect.runPromise(
+        registry.pairWithCode(pairInput).pipe(Effect.flip, Effect.option),
+      );
+      expect(failure._tag).toBe("Some");
+      if (failure._tag === "Some") {
+        expect(failure.value.grantId).toBe("g-orphan");
+        expect(failure.value.message).toContain("may be orphaned");
+        expect(failure.value.message).toContain("g-orphan");
+        expect(failure.value.message).not.toContain("s-orphan"); // secret never leaks
+      }
+    } finally {
+      globalThis.fetch = original;
     }
   });
 
