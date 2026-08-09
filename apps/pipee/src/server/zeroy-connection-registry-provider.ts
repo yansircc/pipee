@@ -37,11 +37,17 @@ export const ZeroYConnectionRegistryProviderLive: Layer.Layer<
       // connection directory and secret store automatically, so the same
       // state machine works from the Pipee HTTP service and the extension
       // capability port without an explicit persist call at each call site.
+      // A persist failure surfaces as a pairing/revoke failure instead of a
+      // silently lost connection.
       persist: () =>
         registry.persist(directory).pipe(
           Effect.provideService(FileSystem.FileSystem, fs),
           Effect.provideService(Path.Path, path),
         ),
+      // The callback origin is host-owned, not a shared-registry constant.
+      // Override with PIPEE_ZEROY_CALLBACK_ORIGIN when Pipee is reached at a
+      // non-default address (different port, codespace, remote host).
+      redirectUri: `${process.env.PIPEE_ZEROY_CALLBACK_ORIGIN ?? "http://127.0.0.1:30141"}/zeroy/connect/callback`,
     })
     yield* registry.load(directory).pipe(Effect.ignore)
     return registry

@@ -4,7 +4,7 @@ import {
   type ZeroYSiteConnectionProjectionList,
 } from "@pipee/companion-contracts/zeroy-connection-registry";
 import { createHash, randomUUID } from "node:crypto";
-import { Data, Effect, FileSystem, Path, Schema } from "effect";
+import { Data, Effect, FileSystem, Path, Schema, Semaphore } from "effect";
 
 /**
  * Pipee-owned zeroY connection registry.
@@ -42,8 +42,13 @@ export interface SecretStorage {
 
 export interface ZeroYConnectionRegistryCallbacks {
   readonly secretStorage?: SecretStorage;
-  /** Runs after every orchestration mutation so connections persist. */
-  readonly persist?: () => Effect.Effect<void, never>;
+  /** Runs after every orchestration mutation so connections persist. A
+   * persistence failure must surface: a connection that reports success must
+   * survive a restart. */
+  readonly persist?: () => Effect.Effect<void, unknown>;
+  /** Pipee callback origin (defaults to the local dev callback). Injected so
+   * the shared registry never hard-codes a host address. */
+  readonly redirectUri?: string;
 }
 
 export type StoredZeroYSiteRow = {
@@ -179,8 +184,31 @@ export const makeZeroYConnectionRegistry = (
   const pending = new Map<string, ZeroYPendingPairing>();
   const secretStorage: SecretStorage = callbacks.secretStorage ?? new InMemorySecretStorage();
   // Lazy: the host-injected persist closes over this handle, so it must only
-  // run after the handle exists.
-  const runPersist = (): Effect.Effect<void, never> => callbacks.persist?.() ?? Effect.void;
+  // run after the handle exists. A persistence failure fails the pairing:
+  // reporting success while the local secret was not written means the
+  // connection disappears on restart.
+  const runPersist = (): Effect.Effect<void, ZeroYConnectionRegistryError> =>
+    callbacks.persist === undefined
+      ? Effect.void
+      : callbacks.persist().pipe(
+          Effect.mapError(
+            (cause) =>
+              new ZeroYConnectionRegistryError({
+                operation: "persist",
+                message: cause instanceof Error ? cause.message : String(cause),
+              }),
+          ),
+        );
+
+  // Pairing and revocation mutate the same per-site rows (supersede revoke
+  // then upsert). Concurrent pairings for one site must not interleave or
+  // both revoke the previous grant and write different grants.
+  const siteLocks = new Map<string, Semaphore.Semaphore>();
+  const withSiteLock = <A, E>(siteId: string, effect: Effect.Effect<A, E>): Effect.Effect<A, E> => {
+    const lock = siteLocks.get(siteId) ?? Semaphore.makeUnsafe(1);
+    siteLocks.set(siteId, lock);
+    return lock.withPermits(1)(effect);
+  };
 
   const notify = (): void => {
     if (disposed) return;
@@ -212,8 +240,10 @@ export const makeZeroYConnectionRegistry = (
    * pairing always succeeds; a failed revocation only leaves the old grant
    * unusable (its secret is deleted locally) and revocable from the admin.
    */
+  // The superseded grant lives on the existing row's endpoint. Revoking at
+  // the new pairing's endpoint would silently miss the old site when the
+  // endpoint changed for the same site identity.
   const revokeSupersededGrant = (
-    endpoint: string,
     siteId: string,
     keepGrantId: string,
   ): Effect.Effect<void, never> => {
@@ -224,7 +254,7 @@ export const makeZeroYConnectionRegistry = (
     const secret = secretStorage.read(existing.credentialRef);
     return secret === undefined
       ? Effect.void
-      : revokeWordPressGrant(endpoint, existing.grantId, secret);
+      : revokeWordPressGrant(existing.endpoint, existing.grantId, secret);
   };
 
   const beginPairing = (
@@ -239,7 +269,8 @@ export const makeZeroYConnectionRegistry = (
       // WordPress plugin stores the challenge and compares it against
       // hash(sha256, verifier) at exchange time.
       const codeChallenge = createHash("sha256").update(codeVerifier).digest("hex");
-      const redirectUri = "http://127.0.0.1:30141/zeroy/connect/callback";
+      const redirectUri =
+        callbacks.redirectUri ?? "http://127.0.0.1:30141/zeroy/connect/callback";
       const intentId = randomUUID();
       pending.set(intentId, {
         intentId,
@@ -373,22 +404,34 @@ export const makeZeroYConnectionRegistry = (
           message: "WordPress returned an invalid grant.",
         });
       }
-      // Supersede any previous active grant for this site on WordPress
-      // before the registry row is replaced, so no orphan grant remains.
-      yield* revokeSupersededGrant(pairing.endpoint, grant.siteId, grant.grantId);
-      upsert(
-        {
-          siteId: grant.siteId,
-          label: pairing.label,
-          endpoint: pairing.endpoint,
-          grantId: grant.grantId,
-        },
-        code,
+      if (typeof grant.grantSecret !== "string" || grant.grantSecret === "") {
+        return yield* new ZeroYConnectionRegistryError({
+          operation: "exchange-code",
+          message: "WordPress returned no grant secret.",
+        });
+      }
+      // The critical section is per-site: supersede revocation, upsert,
+      // pending cleanup and persistence must not interleave with another
+      // pairing for the same site.
+      return yield* withSiteLock(
+        grant.siteId,
+        Effect.gen(function* () {
+          yield* revokeSupersededGrant(grant.siteId, grant.grantId);
+          upsert(
+            {
+              siteId: grant.siteId,
+              label: pairing.label,
+              endpoint: pairing.endpoint,
+              grantId: grant.grantId,
+            },
+            grant.grantSecret,
+          );
+          pending.delete(intentId);
+          notify();
+          yield* runPersist();
+          return { siteId: grant.siteId, grantId: grant.grantId };
+        }),
       );
-      pending.delete(intentId);
-      notify();
-      yield* runPersist();
-      return { siteId: grant.siteId, grantId: grant.grantId };
     });
 
   const pairWithCode = (
@@ -436,44 +479,56 @@ export const makeZeroYConnectionRegistry = (
           message: "WordPress returned an invalid grant.",
         });
       }
-      // Supersede any previous active grant for this site on WordPress
-      // before the registry row is replaced, so no orphan grant remains.
-      yield* revokeSupersededGrant(target, grant.siteId, grant.grantId);
-      upsert(
-        {
-          siteId: grant.siteId,
-          label: input.label || target,
-          endpoint: target,
-          grantId: grant.grantId,
-        },
-        input.code,
+      if (typeof grant.grantSecret !== "string" || grant.grantSecret === "") {
+        return yield* new ZeroYConnectionRegistryError({
+          operation: "pair-with-code",
+          message: "WordPress returned no grant secret.",
+        });
+      }
+      return yield* withSiteLock(
+        grant.siteId,
+        Effect.gen(function* () {
+          yield* revokeSupersededGrant(grant.siteId, grant.grantId);
+          upsert(
+            {
+              siteId: grant.siteId,
+              label: input.label || target,
+              endpoint: target,
+              grantId: grant.grantId,
+            },
+            grant.grantSecret,
+          );
+          notify();
+          yield* runPersist();
+          return { siteId: grant.siteId, grantId: grant.grantId };
+        }),
       );
-      notify();
-      yield* runPersist();
-      return { siteId: grant.siteId, grantId: grant.grantId };
     });
 
   const revokeOnWordPress = (
     siteId: string,
   ): Effect.Effect<void, ZeroYConnectionRegistryError> =>
-    Effect.gen(function* () {
-      // Ask WordPress to revoke the grant with its own secret (best effort)
-      // before the local secret is deleted, then always complete the local
-      // revocation so Pipee can no longer authenticate.
-      const row = rows.find((site) => site.siteId === siteId && site.revokedAt === null);
-      if (row !== undefined) {
-        const secret = secretStorage.read(row.credentialRef);
-        if (secret !== undefined) yield* revokeWordPressGrant(row.endpoint, row.grantId, secret);
-        secretStorage.delete(row.credentialRef);
-      }
-      rows = rows.map((site) =>
-        site.siteId === siteId && site.revokedAt === null
-          ? { ...site, revokedAt: new Date().toISOString() }
-          : site,
-      );
-      notify();
-      yield* runPersist();
-    });
+    withSiteLock(
+      siteId,
+      Effect.gen(function* () {
+        // Ask WordPress to revoke the grant with its own secret (best
+        // effort) before the local secret is deleted, then always complete
+        // the local revocation so Pipee can no longer authenticate.
+        const row = rows.find((site) => site.siteId === siteId && site.revokedAt === null);
+        if (row !== undefined) {
+          const secret = secretStorage.read(row.credentialRef);
+          if (secret !== undefined) yield* revokeWordPressGrant(row.endpoint, row.grantId, secret);
+          secretStorage.delete(row.credentialRef);
+        }
+        rows = rows.map((site) =>
+          site.siteId === siteId && site.revokedAt === null
+            ? { ...site, revokedAt: new Date().toISOString() }
+            : site,
+        );
+        notify();
+        yield* runPersist();
+      }),
+    );
 
   function upsert(
     input: Omit<StoredZeroYSiteRow, "createdAt" | "lastUsedAt" | "revokedAt" | "credentialRef">,
@@ -594,7 +649,7 @@ export const makeZeroYConnectionRegistry = (
           : {};
       yield* fs.writeFileString(secretsFile, JSON.stringify(secrets, null, 2));
       yield* fs.chmod(secretsFile, 0o600);
-    }).pipe(Effect.catch(() => Effect.void));
+    });
 
   return {
     provider: { forExtension: () => provider },

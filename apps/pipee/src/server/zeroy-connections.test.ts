@@ -13,14 +13,15 @@ import { ZeroYConnectionRegistryProviderLive } from "./zeroy-connection-registry
 // A sequence makes every exchange return a fresh grantId so re-pairing the
 // same site can be observed superseding the previous grant.
 let exchangeSequence = 0
-const grantExchangeResponse = () => {
+const grantExchangeResponse = (overrides: { readonly siteId?: string } = {}) => {
   exchangeSequence += 1
   return JSON.stringify({
     contract: "zeroy/connection-grant@1",
     grantId: `22222222-3333-4444-5555-${String(exchangeSequence).padStart(12, "0")}`,
-    siteId: "0ba8bf56-1e2c-4e83-b629-0f9abd21cbac",
+    siteId: overrides.siteId ?? "0ba8bf56-1e2c-4e83-b629-0f9abd21cbac",
     clientId: "pipee-local",
     label: "Staging",
+    grantSecret: `grant-secret-${exchangeSequence}`,
     createdAt: "2026-08-07T00:00:00.000Z",
     lastUsedAt: null,
     revokedAt: null,
@@ -43,7 +44,9 @@ const withStubFetch = (calls: Array<StubCall>) => {
       })
     }
     if (url.endsWith("/connection/exchange")) {
-      return new Response(grantExchangeResponse(), {
+      const body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, unknown>) : {}
+      const siteId = typeof body.site_id === "string" && body.site_id !== "" ? body.site_id : undefined
+      return new Response(grantExchangeResponse(siteId === undefined ? {} : { siteId }), {
         status: 200,
         headers: { "content-type": "application/json" },
       })
@@ -157,6 +160,95 @@ it("re-pairing a site revokes the superseded WordPress grant", async () => {
     expect(revokeCall!.url).toContain("https://example2.test/wp-json/zeroy/v1/connection/grants/")
     const after = await runtime.runPromise(connections.list)
     expect(after.sites.filter((site) => site.siteId === "0ba8bf56-1e2c-4e83-b629-0f9abd21cbac")).toHaveLength(1)
+  } finally {
+    restore()
+  }
+})
+
+it("revokes a superseded grant at the OLD endpoint when the site endpoint changed", async () => {
+  const calls: Array<StubCall> = []
+  const restore = withStubFetch(calls)
+  try {
+    const connections = await service()
+    // Establish a connection at the old endpoint; the stub returns the same
+    // siteId for every exchange, simulating one site identity reached via a
+    // different URL.
+    await runtime.runPromise(
+      connections.pairWithCode({
+        endpoint: "https://old.example.test",
+        intentId: "old-intent",
+        code: "old-code",
+        state: "old-state",
+        redirectUri: "http://127.0.0.1:30141/zeroy/connect/callback",
+        label: "old",
+      }),
+    )
+    const before = await runtime.runPromise(connections.list)
+    const previousGrantId = before.sites.find(
+      (site) => site.siteId === "0ba8bf56-1e2c-4e83-b629-0f9abd21cbac" && !site.revoked,
+    )!.grantId
+    // Re-pair at a new endpoint. The superseded grant must be revoked at the
+    // OLD endpoint where it actually lives.
+    await runtime.runPromise(
+      connections.pairWithCode({
+        endpoint: "https://new.example.test",
+        intentId: "new-intent",
+        code: "new-code",
+        state: "new-state",
+        redirectUri: "http://127.0.0.1:30141/zeroy/connect/callback",
+        label: "new",
+      }),
+    )
+    const revokeCall = calls.find((call) => call.url.includes(`/connection/grants/${previousGrantId}`))
+    expect(revokeCall).toBeDefined()
+    expect(revokeCall!.url).toContain("https://old.example.test/wp-json/zeroy/v1/connection/grants/")
+    expect(revokeCall!.url).not.toContain("new.example.test")
+  } finally {
+    restore()
+  }
+})
+
+it("serializes concurrent pairings so only one active grant remains per site", async () => {
+  const calls: Array<StubCall> = []
+  const restore = withStubFetch(calls)
+  try {
+    const connections = await service()
+    await Promise.all([
+      runtime.runPromise(
+        connections.pairWithCode({
+          endpoint: "https://concurrent.test",
+          intentId: "c1",
+          code: "c1-code",
+          state: "s1",
+          redirectUri: "http://127.0.0.1:30141/zeroy/connect/callback",
+          label: "c1",
+        }),
+      ),
+      runtime.runPromise(
+        connections.pairWithCode({
+          endpoint: "https://concurrent.test",
+          intentId: "c2",
+          code: "c2-code",
+          state: "s2",
+          redirectUri: "http://127.0.0.1:30141/zeroy/connect/callback",
+          label: "c2",
+        }),
+      ),
+    ])
+    const list = await runtime.runPromise(connections.list)
+    const active = list.sites.filter(
+      (site) => site.siteId === "0ba8bf56-1e2c-4e83-b629-0f9abd21cbac" && !site.revoked,
+    )
+    expect(active).toHaveLength(1)
+    // Every grant that is not the final active one must have been revoked on
+    // WordPress; the exchange grantIds come from the sequence.
+    const finalGrant = active[0]!.grantId
+    const exchangeCalls = calls.filter((call) => call.url.endsWith("/connection/exchange"))
+    for (let index = 0; index < exchangeCalls.length; index += 1) {
+      const grantId = `22222222-3333-4444-5555-${String(exchangeSequence - exchangeCalls.length + index + 1).padStart(12, "0")}`
+      if (grantId === finalGrant) continue
+      expect(calls.some((call) => call.url.includes(`/connection/grants/${grantId}`))).toBe(true)
+    }
   } finally {
     restore()
   }

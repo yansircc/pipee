@@ -187,13 +187,20 @@ function zeroy_connection_exchange_code(string $intent_id, string $code, string 
     $consumed = zeroy_connection_consume_intent($intent_id);
     if (is_wp_error($consumed)) return $consumed;
     $grant_id = wp_generate_uuid4();
-    $grant_hash = zeroy_connection_grant_hash($code);
+    // The grant secret is minted at exchange time and returned once in the
+    // exchange response body. The pairing code / authorization code used to
+    // reach this point is a short-lived one-time credential only; it never
+    // becomes the long-lived bearer secret, so a pairing code leaked from a
+    // URL, history, or log cannot authenticate later requests.
+    $grant_secret = zeroy_connection_random_secret();
+    $grant_hash = zeroy_connection_grant_hash($grant_secret);
     $stored = zeroy_connection_insert_grant($grant_id, $grant_hash, (string) $intent['client_id'], (string) $intent['client_id']);
     if (is_wp_error($stored)) return $stored;
     return [
         'contract' => 'zeroy/connection-grant@1',
         'grantId' => $grant_id,
         'grantHash' => $grant_hash,
+        'grantSecret' => $grant_secret,
         'siteId' => (string) $intent['site_id'],
         'clientId' => (string) $intent['client_id'],
         'label' => (string) $intent['client_id'],

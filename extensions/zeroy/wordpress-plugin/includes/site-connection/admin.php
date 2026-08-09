@@ -70,13 +70,17 @@ function zeroy_connection_admin_begin_pairing(): void
         wp_safe_redirect(zeroy_connection_admin_url(['zeroy_notice' => 'pair-error', 'message' => $stored->get_error_message()]));
         exit;
     }
+    // The pairing code is a one-time exchange credential, but it must not
+    // travel in the query string: it would land in browser history, proxy
+    // logs, screenshots, and referrers. It is kept in a short-lived
+    // transient keyed by the intent and read back on the page render.
+    set_transient('zeroy_pairing_code_' . $intent['intentId'], $code_verifier, 600);
     // add_query_arg() does not URL-encode new values in WordPress 7.x, so
-    // pairing codes and other special-character values are built with
-    // http_build_query() instead of being corrupted in the query string.
+    // intent identity fields are built with http_build_query() instead of
+    // being corrupted in the query string.
     wp_safe_redirect(admin_url('admin.php') . '?' . http_build_query([
         'page' => ZEROY_CONNECTION_ADMIN_SLUG,
         'zeroy_notice' => 'pairing-created',
-        'pairingCode' => $code_verifier,
         'intentId' => $intent['intentId'],
         'redirectUri' => $intent['redirectUri'],
         'state' => $state,
@@ -151,8 +155,8 @@ function zeroy_connection_admin_page(): void
     if ($notice === 'pair-error') zeroy_connection_admin_notice('error', $message !== '' ? $message : 'Could not create the pairing intent.');
     if ($notice === 'approve-error') zeroy_connection_admin_notice('error', $message !== '' ? $message : 'Could not approve the connection request.');
     if ($notice === 'pairing-created') {
-        $pairing_code = isset($_GET['pairingCode']) ? sanitize_text_field(wp_unslash($_GET['pairingCode'])) : '';
         $intent_id = isset($_GET['intentId']) ? sanitize_text_field(wp_unslash($_GET['intentId'])) : '';
+        $pairing_code = $intent_id !== '' ? (string) get_transient('zeroy_pairing_code_' . $intent_id) : '';
         $redirect_uri = isset($_GET['redirectUri']) ? esc_url_raw(wp_unslash($_GET['redirectUri'])) : '';
         $state = isset($_GET['state']) ? sanitize_text_field(wp_unslash($_GET['state'])) : '';
         zeroy_connection_admin_notice('success', 'Pairing intent created. In Pipee, choose "Pair with code" and enter the code below.');

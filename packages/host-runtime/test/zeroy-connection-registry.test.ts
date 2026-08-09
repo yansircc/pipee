@@ -11,6 +11,32 @@ import {
   ZeroYConnectionRegistryError,
 } from "../src/zeroy-connection-registry.js";
 
+const pairInput = {
+  endpoint: "http://example.test",
+  intentId: "intent-1",
+  code: "pairing-code",
+  state: "state-1",
+  redirectUri: "http://127.0.0.1:30141/zeroy/connect/callback",
+  label: "A",
+};
+
+const stubExchangeFetch = (grant: Record<string, unknown>) => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/connection/exchange")) {
+      return new Response(JSON.stringify(grant), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("{}", { status: 404 });
+  }) as typeof fetch;
+  return () => {
+    globalThis.fetch = original;
+  };
+};
+
 const siteId = "0ba8bf56-1e2c-4e83-b629-0f9abd21cbac";
 const otherSiteId = "11111111-2222-3333-4444-555555555555";
 
@@ -84,6 +110,55 @@ describe("zeroY connection registry", () => {
     expect(registry.rows()).toHaveLength(1);
     expect(storage.read(firstRef)).toBeUndefined();
     expect(storage.read(registry.rows()[0]!.credentialRef)).toBe("second-secret");
+  });
+
+  it("stores the WordPress-issued grant secret, not the pairing code", async () => {
+    const restore = stubExchangeFetch({ grantId: "g-1", siteId, grantSecret: "wp-issued-secret" });
+    try {
+      const registry = makeZeroYConnectionRegistry();
+      await Effect.runPromise(registry.pairWithCode(pairInput));
+      expect(registry.rows()).toHaveLength(1);
+      expect(
+        registry.provider.forExtension("alpha").readSecret(registry.rows()[0]!.credentialRef),
+      ).toBe("wp-issued-secret");
+    } finally {
+      restore();
+    }
+  });
+
+  it("a persistence failure fails the pairing instead of reporting success", async () => {
+    const restore = stubExchangeFetch({ grantId: "g-2", siteId, grantSecret: "s2" });
+    try {
+      const registry = makeZeroYConnectionRegistry({
+        persist: () => Effect.fail(new Error("disk full")),
+      });
+      const failure = await Effect.runPromise(
+        registry.pairWithCode(pairInput).pipe(Effect.flip, Effect.option),
+      );
+      expect(failure._tag).toBe("Some");
+      if (failure._tag === "Some") {
+        expect(failure.value).toBeInstanceOf(ZeroYConnectionRegistryError);
+        expect(failure.value.message).toContain("disk full");
+      }
+    } finally {
+      restore();
+    }
+  });
+
+  it("an exchange response without a grant secret is rejected", async () => {
+    const restore = stubExchangeFetch({ grantId: "g-3", siteId });
+    try {
+      const registry = makeZeroYConnectionRegistry();
+      const failure = await Effect.runPromise(
+        registry.pairWithCode(pairInput).pipe(Effect.flip, Effect.option),
+      );
+      expect(failure._tag).toBe("Some");
+      if (failure._tag === "Some") {
+        expect(failure.value.message).toContain("no grant secret");
+      }
+    } finally {
+      restore();
+    }
   });
 
   it("restores persisted grant secrets after a restart", async () => {
