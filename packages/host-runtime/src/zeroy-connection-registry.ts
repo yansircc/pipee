@@ -36,14 +36,6 @@ export class ZeroYConnectionRegistryError extends Data.TaggedError("ZeroYConnect
   readonly grantId?: string;
 }> {}
 
-export interface SecretStorage {
-  readonly read: (ref: string) => string | undefined;
-  readonly write: (ref: string, secret: string) => void;
-  readonly delete: (ref: string) => void;
-  readonly entries: () => ReadonlyArray<readonly [string, string]>;
-  readonly clear: () => void;
-}
-
 /**
  * One immutable registry snapshot: metadata rows and grant secrets in a
  * single versioned unit. Persistence writes exactly this snapshot (one file,
@@ -58,7 +50,6 @@ export type ZeroYRegistrySnapshot = {
 };
 
 export interface ZeroYConnectionRegistryCallbacks {
-  readonly secretStorage?: SecretStorage;
   /** Persists one immutable snapshot. A persistence failure must surface: a
    * connection that reports success must survive a restart. */
   readonly persist?: (snapshot: ZeroYRegistrySnapshot) => Effect.Effect<void, unknown>;
@@ -126,25 +117,6 @@ const RegistryStateSchema = Schema.Struct({
   secrets: Schema.Record(Schema.String, Schema.String),
 });
 
-export class InMemorySecretStorage implements SecretStorage {
-  private readonly secrets = new Map<string, string>();
-  read(ref: string): string | undefined {
-    return this.secrets.get(ref);
-  }
-  write(ref: string, secret: string): void {
-    this.secrets.set(ref, secret);
-  }
-  delete(ref: string): void {
-    this.secrets.delete(ref);
-  }
-  entries(): ReadonlyArray<readonly [string, string]> {
-    return [...this.secrets.entries()];
-  }
-  clear(): void {
-    this.secrets.clear();
-  }
-}
-
 const normalizeEndpoint = (endpoint: string): string => {
   const trimmed = endpoint.trim().replace(/\/+$/, "");
   if (!URL.canParse(trimmed) || !/^https?:\/\//.test(trimmed)) {
@@ -211,10 +183,13 @@ export const makeZeroYConnectionRegistry = (
   let disposed = false;
   const listeners = new Set<() => void>();
   const pending = new Map<string, ZeroYPendingPairing>();
-  const secretStorage: SecretStorage = callbacks.secretStorage ?? new InMemorySecretStorage();
+  // The registry owns the runtime secret projection as one immutable map,
+  // replaced atomically with each committed snapshot. readSecret therefore
+  // reflects exactly what was persisted: a reported success is always
+  // usable in this process.
+  let secrets: Readonly<Record<string, string>> = {};
 
-  const currentSecrets = (): Readonly<Record<string, string>> =>
-    Object.fromEntries(secretStorage.entries());
+  const currentSecrets = (): Readonly<Record<string, string>> => secrets;
 
   const snapshotOf = (nextRows: ReadonlyArray<StoredZeroYSiteRow>, nextSecrets: Readonly<Record<string, string>>): ZeroYRegistrySnapshot => ({
     version: 1,
@@ -245,24 +220,17 @@ export const makeZeroYConnectionRegistry = (
 
   /**
    * Commit a persisted snapshot to the public in-memory state and notify
-   * listeners. Must be infallible: it only flips immutable references, and a
-   * custom SecretStorage or a subscriber throwing must never turn a
-   * successful, persisted pairing into a compensated/revoked one. The disk
-   * already holds the full snapshot, so a restart restores it even if the
-   * in-memory secret application failed.
+   * listeners. This is pure immutable reference replacement (rows, secrets,
+   * generation) and cannot fail, so a persisted pairing is always usable in
+   * this process: readSecret(newCredentialRef) reflects the snapshot.
+   * Subscriber exceptions are isolated so they never turn a successful
+   * mutation into a failure.
    */
   const commitAndNotify = (snapshot: ZeroYRegistrySnapshot): Effect.Effect<void, never> =>
     Effect.sync(() => {
       rows = snapshot.rows;
       generation = snapshot.generation;
-      try {
-        secretStorage.clear();
-        for (const [ref, secret] of Object.entries(snapshot.secrets)) {
-          secretStorage.write(ref, secret);
-        }
-      } catch (cause) {
-        console.error("[zeroy] committing snapshot secrets failed", cause);
-      }
+      secrets = snapshot.secrets;
       for (const listener of [...listeners]) {
         try {
           listener();
@@ -375,7 +343,7 @@ export const makeZeroYConnectionRegistry = (
       (site) => site.siteId === siteId && site.revokedAt === null && site.grantId !== keepGrantId,
     );
     if (existing === undefined) return null;
-    const secret = secretStorage.read(existing.credentialRef);
+    const secret = secrets[existing.credentialRef];
     return secret === undefined ? null : { row: existing, secret };
   };
 
@@ -666,7 +634,7 @@ export const makeZeroYConnectionRegistry = (
       Effect.gen(function* () {
         const row = rows.find((site) => site.siteId === siteId && site.revokedAt === null);
         if (row === undefined) return;
-        const secret = secretStorage.read(row.credentialRef);
+        const secret = secrets[row.credentialRef];
         const nextSecrets: Record<string, string> = { ...currentSecrets() };
         if (row.credentialRef !== undefined) delete nextSecrets[row.credentialRef];
         const nextRows = rows.map((site) =>
@@ -701,13 +669,15 @@ export const makeZeroYConnectionRegistry = (
       lastUsedAt: null,
       revokedAt: null,
     };
+    const nextSecrets = { ...secrets };
     if (existing >= 0) {
-      secretStorage.delete(rows[existing]!.credentialRef);
+      delete nextSecrets[rows[existing]!.credentialRef];
       rows = [...rows.slice(0, existing), row, ...rows.slice(existing + 1)];
     } else {
       rows = [...rows, row];
     }
-    secretStorage.write(credentialRef, grantSecret);
+    nextSecrets[credentialRef] = grantSecret;
+    secrets = nextSecrets;
     notify();
   }
 
@@ -724,7 +694,7 @@ export const makeZeroYConnectionRegistry = (
       Effect.runPromise(exchangeCode(input.intentId, input.code, input.state)),
     revoke: (siteId) => Effect.runPromise(revokeOnWordPress(siteId)),
     readSecret: (credentialRef) => {
-      const secret = secretStorage.read(credentialRef);
+      const secret = secrets[credentialRef];
       if (secret === undefined) {
         throw new ZeroYConnectionRegistryError({
           operation: "read-secret",
@@ -768,15 +738,7 @@ export const makeZeroYConnectionRegistry = (
       if (decoded === null) return;
       rows = decoded.rows;
       generation = decoded.generation;
-      // Secrets and rows live in one versioned snapshot, so a restart always
-      // restores a consistent generation. Custom SecretStorage
-      // implementations own their own persistence and are never touched here.
-      if (secretStorage instanceof InMemorySecretStorage) {
-        secretStorage.clear();
-        for (const [ref, secret] of Object.entries(decoded.secrets)) {
-          secretStorage.write(ref, secret);
-        }
-      }
+      secrets = decoded.secrets;
     });
 
   const persist = (

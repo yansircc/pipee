@@ -6,10 +6,8 @@ import { rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
-  InMemorySecretStorage,
   makeZeroYConnectionRegistry,
   ZeroYConnectionRegistryError,
-  type SecretStorage,
 } from "../src/zeroy-connection-registry.js";
 
 const pairInput = {
@@ -54,8 +52,7 @@ const otherSiteId = "11111111-2222-3333-4444-555555555555";
 
 describe("zeroY connection registry", () => {
   it("upserts a connection, projects read-only rows, and revokes without exposing secrets", async () => {
-    const storage = new InMemorySecretStorage();
-    const registry = makeZeroYConnectionRegistry({ secretStorage: storage });
+    const registry = makeZeroYConnectionRegistry();
     registry.upsert(
       {
         siteId,
@@ -104,8 +101,7 @@ describe("zeroY connection registry", () => {
   });
 
   it("rejects invalid endpoints and removes the previous secret on re-upsert", () => {
-    const storage = new InMemorySecretStorage();
-    const registry = makeZeroYConnectionRegistry({ secretStorage: storage });
+    const registry = makeZeroYConnectionRegistry();
     expect(() =>
       registry.upsert({ siteId, label: "A", endpoint: "not-a-url", grantId: "g1" }, "s1"),
     ).toThrowError(ZeroYConnectionRegistryError);
@@ -120,8 +116,12 @@ describe("zeroY connection registry", () => {
       "second-secret",
     );
     expect(registry.rows()).toHaveLength(1);
-    expect(storage.read(firstRef)).toBeUndefined();
-    expect(storage.read(registry.rows()[0]!.credentialRef)).toBe("second-secret");
+    expect(() =>
+      registry.provider.forExtension("alpha").readSecret(firstRef),
+    ).toThrowError(ZeroYConnectionRegistryError);
+    expect(
+      registry.provider.forExtension("alpha").readSecret(registry.rows()[0]!.credentialRef),
+    ).toBe("second-secret");
   });
 
   it("stores the WordPress-issued grant secret, not the pairing code", async () => {
@@ -274,34 +274,27 @@ describe("zeroY connection registry", () => {
     }
   });
 
-  it("a successful persist is never compensated when committing secrets or a listener throws", async () => {
+  it("a listener throwing never fails a persisted pairing and the new secret stays usable", async () => {
     const calls: Array<{ url: string }> = [];
     const restore = stubExchangeFetch(undefined, calls);
     try {
-      const throwingStorage: SecretStorage = {
-        read: () => undefined,
-        write: () => {
-          throw new Error("storage boom");
-        },
-        delete: () => undefined,
-        entries: () => [],
-        clear: () => undefined,
-      };
       const registry = makeZeroYConnectionRegistry({
-        secretStorage: throwingStorage,
         persist: () => Effect.void, // disk write succeeds
       });
       registry.provider.forExtension("alpha").subscribe(() => {
         throw new Error("listener boom");
       });
-      // Both the secret application and the subscriber throw, but the disk
-      // snapshot was persisted: the pairing must SUCCEED and must not
-      // compensate (revoke) the persisted grant.
+      // The subscriber throws, but the disk snapshot was persisted and the
+      // in-memory projection is a pure replacement: the pairing SUCCEEDS,
+      // performs no compensation, and the new secret is immediately usable.
       const result = await Effect.runPromise(
         registry.pairWithCode(pairInput).pipe(Effect.flip, Effect.option),
       );
       expect(result._tag).toBe("None");
       expect(registry.rows()).toHaveLength(1);
+      expect(
+        registry.provider.forExtension("alpha").readSecret(registry.rows()[0]!.credentialRef),
+      ).toBe("s-1");
       expect(calls.some((call) => call.url.includes("/connection/grants/"))).toBe(false);
     } finally {
       restore();
