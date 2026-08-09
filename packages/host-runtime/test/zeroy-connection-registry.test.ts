@@ -20,7 +20,10 @@ const pairInput = {
   label: "A",
 };
 
-const stubExchangeFetch = (grant: Record<string, unknown>) => {
+const stubExchangeFetch = (
+  grant: Record<string, unknown>,
+  calls?: Array<{ url: string }>,
+) => {
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -29,6 +32,10 @@ const stubExchangeFetch = (grant: Record<string, unknown>) => {
         status: 200,
         headers: { "content-type": "application/json" },
       });
+    }
+    if (url.includes("/connection/grants/")) {
+      calls?.push({ url });
+      return new Response("{}", { status: 200 });
     }
     return new Response("{}", { status: 404 });
   }) as typeof fetch;
@@ -161,15 +168,74 @@ describe("zeroY connection registry", () => {
     }
   });
 
-  it("restores persisted grant secrets after a restart", async () => {
-    const directory = join(tmpdir(), `zeroy-registry-secrets-${randomUUID()}`);
+  it("a failed persist leaves rows, secrets and projections unchanged and does not notify", async () => {
+    const restore = stubExchangeFetch({ grantId: "g-5", siteId, grantSecret: "s5" });
     try {
-      const first = makeZeroYConnectionRegistry();
-      first.upsert(
-        { siteId, label: "Staging", endpoint: "http://example.test", grantId: "g1" },
-        "persisted-secret",
+      const registry = makeZeroYConnectionRegistry({
+        persist: () => Effect.fail(new Error("disk full")),
+      });
+      let notified = 0;
+      const unsubscribe = registry.provider
+        .forExtension("alpha")
+        .subscribe(() => {
+          notified += 1;
+        });
+      const failure = await Effect.runPromise(
+        registry.pairWithCode(pairInput).pipe(Effect.flip, Effect.option),
       );
-      await Effect.runPromise(first.persist(directory).pipe(Effect.provide(nodeServices)));
+      expect(failure._tag).toBe("Some");
+      // public state untouched: no rows, no secrets, no projection, no notify
+      expect(registry.rows()).toHaveLength(0);
+      expect(registry.provider.forExtension("alpha").list().sites).toHaveLength(0);
+      expect(() => registry.provider.forExtension("alpha").readSecret("anything")).toThrowError(
+        ZeroYConnectionRegistryError,
+      );
+      expect(notified).toBe(0);
+      unsubscribe();
+    } finally {
+      restore();
+    }
+  });
+
+  it("a failed persist does not revoke the superseded grant (revoke runs only after commit)", async () => {
+    const calls: Array<{ url: string }> = [];
+    const restore = stubExchangeFetch({ grantId: "g-6", siteId, grantSecret: "s6" }, calls);
+    let failPersist = false;
+    try {
+      const registry = makeZeroYConnectionRegistry({
+        persist: () => (failPersist ? Effect.fail(new Error("disk full")) : Effect.void),
+      });
+      await Effect.runPromise(registry.pairWithCode(pairInput));
+      expect(registry.rows()).toHaveLength(1);
+      const firstSecret = registry.provider.forExtension("alpha").readSecret(registry.rows()[0]!.credentialRef);
+      expect(firstSecret).toBe("s6");
+      // second pairing: persist fails -> the first grant must NOT be revoked
+      failPersist = true;
+      const failure = await Effect.runPromise(
+        registry
+          .pairWithCode({ ...pairInput, intentId: "intent-2", code: "pairing-code-2" })
+          .pipe(Effect.flip, Effect.option),
+      );
+      expect(failure._tag).toBe("Some");
+      expect(calls).toHaveLength(0); // no remote revoke happened
+      expect(registry.rows()).toHaveLength(1); // old state intact
+      expect(
+        registry.provider.forExtension("alpha").readSecret(registry.rows()[0]!.credentialRef),
+      ).toBe("s6");
+    } finally {
+      restore();
+    }
+  });
+
+  it("restores a persisted snapshot (rows + secrets in one generation) after a restart", async () => {
+    const directory = join(tmpdir(), `zeroy-registry-secrets-${randomUUID()}`);
+    const restore = stubExchangeFetch({ grantId: "g-r", siteId, grantSecret: "persisted-secret" });
+    try {
+      const first = makeZeroYConnectionRegistry({
+        persist: (snapshot) =>
+          first.persist(directory, snapshot).pipe(Effect.provide(nodeServices)),
+      });
+      await Effect.runPromise(first.pairWithCode(pairInput));
       first.dispose();
 
       const second = makeZeroYConnectionRegistry();
@@ -180,6 +246,7 @@ describe("zeroY connection registry", () => {
       ).toBe("persisted-secret");
       second.dispose();
     } finally {
+      restore();
       rmSync(directory, { recursive: true, force: true });
     }
   });

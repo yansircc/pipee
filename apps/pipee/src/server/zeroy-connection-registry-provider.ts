@@ -33,14 +33,14 @@ export const ZeroYConnectionRegistryProviderLive: Layer.Layer<
     const home = process.env.HOME ?? process.env.USERPROFILE ?? "."
     const directory = connectionDirectory(home)
     const registry = makeZeroYConnectionRegistry({
-      // Every orchestration mutation (exchange, pair, revoke) persists the
-      // connection directory and secret store automatically, so the same
-      // state machine works from the Pipee HTTP service and the extension
-      // capability port without an explicit persist call at each call site.
-      // A persist failure surfaces as a pairing/revoke failure instead of a
-      // silently lost connection.
-      persist: () =>
-        registry.persist(directory).pipe(
+      // Every orchestration mutation (exchange, pair, revoke) derives one
+      // immutable snapshot and persists it atomically (rows + secrets in a
+      // single versioned file) before memory is updated, so the same state
+      // machine works from the Pipee HTTP service and the extension
+      // capability port. A persist failure surfaces as a pairing/revoke
+      // failure instead of a silently lost connection.
+      persist: (snapshot) =>
+        registry.persist(directory, snapshot).pipe(
           Effect.provideService(FileSystem.FileSystem, fs),
           Effect.provideService(Path.Path, path),
         ),

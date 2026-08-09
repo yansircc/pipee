@@ -38,14 +38,28 @@ export interface SecretStorage {
   readonly read: (ref: string) => string | undefined;
   readonly write: (ref: string, secret: string) => void;
   readonly delete: (ref: string) => void;
+  readonly entries: () => ReadonlyArray<readonly [string, string]>;
+  readonly clear: () => void;
 }
+
+/**
+ * One immutable registry snapshot: metadata rows and grant secrets in a
+ * single versioned unit. Persistence writes exactly this snapshot (one file,
+ * one generation), so a partially written disk state can never mix rows from
+ * one generation with secrets from another.
+ */
+export type ZeroYRegistrySnapshot = {
+  readonly version: 1;
+  readonly generation: number;
+  readonly rows: ReadonlyArray<StoredZeroYSiteRow>;
+  readonly secrets: Readonly<Record<string, string>>;
+};
 
 export interface ZeroYConnectionRegistryCallbacks {
   readonly secretStorage?: SecretStorage;
-  /** Runs after every orchestration mutation so connections persist. A
-   * persistence failure must surface: a connection that reports success must
-   * survive a restart. */
-  readonly persist?: () => Effect.Effect<void, unknown>;
+  /** Persists one immutable snapshot. A persistence failure must surface: a
+   * connection that reports success must survive a restart. */
+  readonly persist?: (snapshot: ZeroYRegistrySnapshot) => Effect.Effect<void, unknown>;
   /** Pipee callback origin (defaults to the local dev callback). Injected so
    * the shared registry never hard-codes a host address. */
   readonly redirectUri?: string;
@@ -92,18 +106,23 @@ export type ZeroYExchangeResult = {
   readonly grantId: string;
 };
 
-const RegistryStateSchema = Schema.Array(
-  Schema.Struct({
-    siteId: Schema.String,
-    label: Schema.String,
-    endpoint: Schema.String,
-    grantId: Schema.String,
-    credentialRef: Schema.String,
-    createdAt: Schema.String,
-    lastUsedAt: Schema.NullOr(Schema.String),
-    revokedAt: Schema.NullOr(Schema.String),
-  }),
-);
+const RegistryRowSchema = Schema.Struct({
+  siteId: Schema.String,
+  label: Schema.String,
+  endpoint: Schema.String,
+  grantId: Schema.String,
+  credentialRef: Schema.String,
+  createdAt: Schema.String,
+  lastUsedAt: Schema.NullOr(Schema.String),
+  revokedAt: Schema.NullOr(Schema.String),
+});
+
+const RegistryStateSchema = Schema.Struct({
+  version: Schema.Literal(1),
+  generation: Schema.Int,
+  rows: Schema.Array(RegistryRowSchema),
+  secrets: Schema.Record(Schema.String, Schema.String),
+});
 
 export class InMemorySecretStorage implements SecretStorage {
   private readonly secrets = new Map<string, string>();
@@ -115,6 +134,12 @@ export class InMemorySecretStorage implements SecretStorage {
   }
   delete(ref: string): void {
     this.secrets.delete(ref);
+  }
+  entries(): ReadonlyArray<readonly [string, string]> {
+    return [...this.secrets.entries()];
+  }
+  clear(): void {
+    this.secrets.clear();
   }
 }
 
@@ -136,7 +161,8 @@ export type ZeroYConnectionRegistryHandle = {
   ) => Effect.Effect<void, never, FileSystem.FileSystem | Path.Path>;
   readonly persist: (
     directory: string,
-  ) => Effect.Effect<void, never, FileSystem.FileSystem | Path.Path>;
+    snapshot: ZeroYRegistrySnapshot,
+  ) => Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path>;
   readonly upsert: (
     row: Omit<StoredZeroYSiteRow, "createdAt" | "lastUsedAt" | "revokedAt" | "credentialRef">,
     grantSecret: string,
@@ -179,26 +205,56 @@ export const makeZeroYConnectionRegistry = (
   callbacks: ZeroYConnectionRegistryCallbacks = {},
 ): ZeroYConnectionRegistryHandle => {
   let rows: ReadonlyArray<StoredZeroYSiteRow> = [];
+  let generation = 0;
   let disposed = false;
   const listeners = new Set<() => void>();
   const pending = new Map<string, ZeroYPendingPairing>();
   const secretStorage: SecretStorage = callbacks.secretStorage ?? new InMemorySecretStorage();
-  // Lazy: the host-injected persist closes over this handle, so it must only
-  // run after the handle exists. A persistence failure fails the pairing:
-  // reporting success while the local secret was not written means the
-  // connection disappears on restart.
-  const runPersist = (): Effect.Effect<void, ZeroYConnectionRegistryError> =>
-    callbacks.persist === undefined
-      ? Effect.void
-      : callbacks.persist().pipe(
-          Effect.mapError(
-            (cause) =>
-              new ZeroYConnectionRegistryError({
-                operation: "persist",
-                message: cause instanceof Error ? cause.message : String(cause),
-              }),
-          ),
-        );
+
+  const currentSecrets = (): Readonly<Record<string, string>> =>
+    Object.fromEntries(secretStorage.entries());
+
+  const snapshotOf = (nextRows: ReadonlyArray<StoredZeroYSiteRow>, nextSecrets: Readonly<Record<string, string>>): ZeroYRegistrySnapshot => ({
+    version: 1,
+    generation: generation + 1,
+    rows: nextRows,
+    secrets: nextSecrets,
+  });
+
+  /**
+   * Commit a snapshot to the public in-memory state and notify listeners.
+   * Only called after the snapshot was persisted successfully, so a failed
+   * write never leaves public rows/secrets/projections ahead of the disk.
+   */
+  const commit = (snapshot: ZeroYRegistrySnapshot): void => {
+    rows = snapshot.rows;
+    generation = snapshot.generation;
+    secretStorage.clear();
+    for (const [ref, secret] of Object.entries(snapshot.secrets)) {
+      secretStorage.write(ref, secret);
+    }
+    notify();
+  };
+
+  /**
+   * Persist one snapshot, then commit it to memory. A persistence failure
+   * returns a registry error without touching public state or listeners.
+   */
+  const persistAndCommit = (snapshot: ZeroYRegistrySnapshot): Effect.Effect<void, ZeroYConnectionRegistryError> => {
+    const persisted =
+      callbacks.persist === undefined
+        ? Effect.void
+        : callbacks.persist(snapshot).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ZeroYConnectionRegistryError({
+                  operation: "persist",
+                  message: cause instanceof Error ? cause.message : String(cause),
+                }),
+            ),
+          );
+    return persisted.pipe(Effect.tap(() => Effect.sync(() => commit(snapshot))));
+  };
 
   // Pairing and revocation mutate the same per-site rows (supersede revoke
   // then upsert). Concurrent pairings for one site must not interleave or
@@ -240,21 +296,25 @@ export const makeZeroYConnectionRegistry = (
    * pairing always succeeds; a failed revocation only leaves the old grant
    * unusable (its secret is deleted locally) and revocable from the admin.
    */
-  // The superseded grant lives on the existing row's endpoint. Revoking at
-  // the new pairing's endpoint would silently miss the old site when the
-  // endpoint changed for the same site identity.
-  const revokeSupersededGrant = (
+  /**
+   * Find the previous active grant for the same site that a new grant
+   * supersedes. The revocation happens AFTER the new state is persisted and
+   * committed (best effort): a failed write must not have already revoked
+   * anything, and the old local secret is dropped once the new state is
+   * durable — a grant without its secret is unusable, which is equivalent to
+   * revocation, and keeping the plaintext secret on disk would widen the
+   * leak surface.
+   */
+  const findSuperseded = (
     siteId: string,
     keepGrantId: string,
-  ): Effect.Effect<void, never> => {
+  ): { readonly row: StoredZeroYSiteRow; readonly secret: string } | null => {
     const existing = rows.find(
       (site) => site.siteId === siteId && site.revokedAt === null && site.grantId !== keepGrantId,
     );
-    if (existing === undefined) return Effect.void;
+    if (existing === undefined) return null;
     const secret = secretStorage.read(existing.credentialRef);
-    return secret === undefined
-      ? Effect.void
-      : revokeWordPressGrant(existing.endpoint, existing.grantId, secret);
+    return secret === undefined ? null : { row: existing, secret };
   };
 
   const beginPairing = (
@@ -410,26 +470,43 @@ export const makeZeroYConnectionRegistry = (
           message: "WordPress returned no grant secret.",
         });
       }
-      // The critical section is per-site: supersede revocation, upsert,
-      // pending cleanup and persistence must not interleave with another
-      // pairing for the same site.
+      const siteId: string = grant.siteId;
+      const grantId: string = grant.grantId;
+      const grantSecret: string = grant.grantSecret;
+      // The critical section is per-site: derive next state, persist the
+      // snapshot, commit memory, then revoke the superseded grant remotely.
+      // Ordering matters: a failed persist leaves public state untouched and
+      // never revokes anything.
       return yield* withSiteLock(
-        grant.siteId,
+        siteId,
         Effect.gen(function* () {
-          yield* revokeSupersededGrant(grant.siteId, grant.grantId);
-          upsert(
-            {
-              siteId: grant.siteId,
-              label: pairing.label,
-              endpoint: pairing.endpoint,
-              grantId: grant.grantId,
-            },
-            grant.grantSecret,
-          );
+          const superseded = findSuperseded(siteId, grantId);
+          const credentialRef = `zeroy-grant-${siteId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+          const row: StoredZeroYSiteRow = {
+            siteId,
+            label: pairing.label,
+            endpoint: pairing.endpoint,
+            grantId,
+            credentialRef,
+            createdAt: new Date().toISOString(),
+            lastUsedAt: null,
+            revokedAt: null,
+          };
+          const nextSecrets: Record<string, string> = { ...currentSecrets(), [credentialRef]: grantSecret };
+          if (superseded !== null) delete nextSecrets[superseded.row.credentialRef];
+          // One row per site: a revoked previous row is replaced too, never
+          // appended alongside the fresh row.
+          const hasSiteRow = rows.some((site) => site.siteId === siteId);
+          const nextRows = hasSiteRow
+            ? rows.map((site) => (site.siteId === siteId ? row : site))
+            : [...rows, row];
+          const snapshot = snapshotOf(nextRows, nextSecrets);
+          yield* persistAndCommit(snapshot);
           pending.delete(intentId);
-          notify();
-          yield* runPersist();
-          return { siteId: grant.siteId, grantId: grant.grantId };
+          if (superseded !== null) {
+            yield* revokeWordPressGrant(superseded.row.endpoint, superseded.row.grantId, superseded.secret);
+          }
+          return { siteId, grantId };
         }),
       );
     });
@@ -485,22 +562,36 @@ export const makeZeroYConnectionRegistry = (
           message: "WordPress returned no grant secret.",
         });
       }
+      const siteId: string = grant.siteId;
+      const grantId: string = grant.grantId;
+      const grantSecret: string = grant.grantSecret;
       return yield* withSiteLock(
-        grant.siteId,
+        siteId,
         Effect.gen(function* () {
-          yield* revokeSupersededGrant(grant.siteId, grant.grantId);
-          upsert(
-            {
-              siteId: grant.siteId,
-              label: input.label || target,
-              endpoint: target,
-              grantId: grant.grantId,
-            },
-            grant.grantSecret,
-          );
-          notify();
-          yield* runPersist();
-          return { siteId: grant.siteId, grantId: grant.grantId };
+          const superseded = findSuperseded(siteId, grantId);
+          const credentialRef = `zeroy-grant-${siteId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+          const row: StoredZeroYSiteRow = {
+            siteId,
+            label: input.label || target,
+            endpoint: target,
+            grantId,
+            credentialRef,
+            createdAt: new Date().toISOString(),
+            lastUsedAt: null,
+            revokedAt: null,
+          };
+          const nextSecrets: Record<string, string> = { ...currentSecrets(), [credentialRef]: grantSecret };
+          if (superseded !== null) delete nextSecrets[superseded.row.credentialRef];
+          const hasSiteRow = rows.some((site) => site.siteId === siteId);
+          const nextRows = hasSiteRow
+            ? rows.map((site) => (site.siteId === siteId ? row : site))
+            : [...rows, row];
+          const snapshot = snapshotOf(nextRows, nextSecrets);
+          yield* persistAndCommit(snapshot);
+          if (superseded !== null) {
+            yield* revokeWordPressGrant(superseded.row.endpoint, superseded.row.grantId, superseded.secret);
+          }
+          return { siteId, grantId };
         }),
       );
     });
@@ -511,22 +602,23 @@ export const makeZeroYConnectionRegistry = (
     withSiteLock(
       siteId,
       Effect.gen(function* () {
-        // Ask WordPress to revoke the grant with its own secret (best
-        // effort) before the local secret is deleted, then always complete
-        // the local revocation so Pipee can no longer authenticate.
         const row = rows.find((site) => site.siteId === siteId && site.revokedAt === null);
-        if (row !== undefined) {
-          const secret = secretStorage.read(row.credentialRef);
-          if (secret !== undefined) yield* revokeWordPressGrant(row.endpoint, row.grantId, secret);
-          secretStorage.delete(row.credentialRef);
-        }
-        rows = rows.map((site) =>
+        if (row === undefined) return;
+        const secret = secretStorage.read(row.credentialRef);
+        const nextSecrets: Record<string, string> = { ...currentSecrets() };
+        if (row.credentialRef !== undefined) delete nextSecrets[row.credentialRef];
+        const nextRows = rows.map((site) =>
           site.siteId === siteId && site.revokedAt === null
             ? { ...site, revokedAt: new Date().toISOString() }
             : site,
         );
-        notify();
-        yield* runPersist();
+        // Persist the revocation first; the remote WordPress revoke is best
+        // effort after the local state is durable (a grant without its local
+        // secret is unusable either way).
+        yield* persistAndCommit(snapshotOf(nextRows, nextSecrets));
+        if (secret !== undefined) {
+          yield* revokeWordPressGrant(row.endpoint, row.grantId, secret);
+        }
       }),
     );
 
@@ -589,8 +681,9 @@ export const makeZeroYConnectionRegistry = (
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const file = path.join(directory, "connections.json");
-      const raw = yield* fs.readFileString(file).pipe(Effect.orElseSucceed(() => "[]"));
+      const file = path.join(directory, "state.json");
+      const raw = yield* fs.readFileString(file).pipe(Effect.orElseSucceed(() => ""));
+      if (raw.trim() === "") return;
       const parsed = yield* Effect.try({
         try: () => JSON.parse(raw) as unknown,
         catch: () =>
@@ -598,57 +691,48 @@ export const makeZeroYConnectionRegistry = (
             operation: "load",
             message: "Connection directory is not valid JSON; starting empty.",
           }),
-      }).pipe(Effect.orElseSucceed(() => [] as unknown));
+      }).pipe(Effect.orElseSucceed(() => null as unknown));
       const decoded = yield* Effect.try({
         try: () =>
           Schema.decodeUnknownSync(RegistryStateSchema)(
             parsed,
-          ) as ReadonlyArray<StoredZeroYSiteRow>,
+          ) as unknown as ZeroYRegistrySnapshot,
         catch: () =>
           new ZeroYConnectionRegistryError({
             operation: "load",
             message: "Connection directory is corrupt; starting empty.",
           }),
-      }).pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<StoredZeroYSiteRow>));
-      rows = decoded;
-      // Grant secrets survive restarts: persist() writes secrets.json, so
-      // load() must restore it into the in-memory storage. Custom
-      // SecretStorage implementations own their own persistence and are
-      // never touched here.
+      }).pipe(Effect.orElseSucceed(() => null as ZeroYRegistrySnapshot | null));
+      if (decoded === null) return;
+      rows = decoded.rows;
+      generation = decoded.generation;
+      // Secrets and rows live in one versioned snapshot, so a restart always
+      // restores a consistent generation. Custom SecretStorage
+      // implementations own their own persistence and are never touched here.
       if (secretStorage instanceof InMemorySecretStorage) {
-        const secretsFile = path.join(directory, "secrets.json");
-        const rawSecrets = yield* fs
-          .readFileString(secretsFile)
-          .pipe(Effect.orElseSucceed(() => "{}"));
-        const parsedSecrets = yield* Effect.try({
-          try: () => JSON.parse(rawSecrets) as unknown,
-          catch: () => ({}),
-        }).pipe(Effect.orElseSucceed(() => ({})));
-        if (typeof parsedSecrets === "object" && parsedSecrets !== null) {
-          for (const [ref, secret] of Object.entries(parsedSecrets as Record<string, unknown>)) {
-            if (typeof secret === "string") secretStorage.write(ref, secret);
-          }
+        secretStorage.clear();
+        for (const [ref, secret] of Object.entries(decoded.secrets)) {
+          secretStorage.write(ref, secret);
         }
       }
     });
 
   const persist = (
     directory: string,
-  ): Effect.Effect<void, never, FileSystem.FileSystem | Path.Path> =>
+    snapshot: ZeroYRegistrySnapshot,
+  ): Effect.Effect<void, unknown, FileSystem.FileSystem | Path.Path> =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       yield* fs.makeDirectory(directory, { recursive: true });
-      const file = path.join(directory, "connections.json");
-      yield* fs.writeFileString(file, JSON.stringify(rows, null, 2));
+      const file = path.join(directory, "state.json");
+      const tmp = path.join(directory, "state.json.tmp");
+      // Write the temp file first and rename over the target: rename is
+      // atomic, so a crash mid-write can never leave a truncated or partial
+      // snapshot behind, and rows + secrets are written in one unit.
+      yield* fs.writeFileString(tmp, JSON.stringify(snapshot, null, 2));
+      yield* fs.rename(tmp, file);
       yield* fs.chmod(file, 0o600);
-      const secretsFile = path.join(directory, "secrets.json");
-      const secrets =
-        secretStorage instanceof InMemorySecretStorage
-          ? Object.fromEntries(secretStorage["secrets"])
-          : {};
-      yield* fs.writeFileString(secretsFile, JSON.stringify(secrets, null, 2));
-      yield* fs.chmod(secretsFile, 0o600);
     });
 
   return {
